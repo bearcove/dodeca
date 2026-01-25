@@ -39,22 +39,36 @@ fn split_input(data: &[u8]) -> Option<(String, String)> {
     Some((html_a, html_b))
 }
 
-/// Check if an HTML string should be skipped due to known browser bugs.
+/// Check if an HTML string should be skipped due to known differences.
 /// Returns true if the string is valid for browser parity testing.
+///
+/// Filters are categorized as:
+/// - [INVALID]: Invalid inputs that shouldn't be tested
+/// - [BROWSER BUG]: Browser deviates from spec, html5ever is correct
+/// - [HTML5EVER BUG]: html5ever deviates from spec, browser is correct
+/// - [UNCLEAR]: Needs investigation, unclear which is correct
 fn is_valid_for_browser_parity(html: &str) -> bool {
+    // =========================================================================
+    // [INVALID] - Not meaningful test inputs
+    // =========================================================================
+
     // Skip empty inputs
     if html.is_empty() {
         return false;
     }
 
-    // Skip inputs starting with whitespace - browsers normalize leading whitespace
-    // in innerHTML differently than html5ever's fragment parsing
-    if html.starts_with(char::is_whitespace) {
+    // Skip inputs with null bytes
+    if html.contains('\0') {
         return false;
     }
 
-    // Skip inputs with null bytes
-    if html.contains('\0') {
+    // =========================================================================
+    // [BROWSER BUG] - Browser deviates from spec, html5ever is correct
+    // =========================================================================
+
+    // Skip inputs starting with whitespace - browsers normalize leading whitespace
+    // in innerHTML differently than html5ever's fragment parsing
+    if html.starts_with(char::is_whitespace) {
         return false;
     }
 
@@ -64,73 +78,12 @@ fn is_valid_for_browser_parity(html: &str) -> bool {
         return false;
     }
 
-    // Skip inputs containing <template> - template content lives in a DocumentFragment
-    // which isn't visible via innerHTML, causing tree structure mismatches
-    if html.to_ascii_lowercase().contains("<template") {
-        return false;
-    }
-
-    // Skip inputs containing <select> - select has special parsing rules for child elements
-    // that differ between html5ever and browser innerHTML parsing
-    if html.to_ascii_lowercase().contains("<select") {
-        return false;
-    }
-
-    // Skip inputs containing <details> - the adoption agency algorithm for formatting
-    // elements (like <i>, <b>, <a>) interacts differently with <details> boundaries
-    // between html5ever and browsers
-    if html.to_ascii_lowercase().contains("<details") {
-        return false;
-    }
-
-    // Skip inputs containing DOCTYPE in body context - browsers handle bogus DOCTYPE
-    // differently than html5ever in fragment parsing
-    if html.to_ascii_lowercase().contains("<!doctype") {
-        return false;
-    }
-
-    // Skip inputs with sequences that create malformed tag names (e.g., "<a<b")
-    // These parse differently between html5ever and browsers
-    // Pattern: < followed by text, then another < before >
-    {
-        let mut in_tag = false;
-        let mut tag_has_lt = false;
-        for c in html.chars() {
-            match c {
-                '<' if !in_tag => {
-                    in_tag = true;
-                    tag_has_lt = false;
-                }
-                '<' if in_tag => {
-                    tag_has_lt = true;
-                }
-                '>' if in_tag => {
-                    if tag_has_lt {
-                        return false;
-                    }
-                    in_tag = false;
-                }
-                _ => {}
-            }
-        }
-    }
-
     // Skip inputs containing CR (\r) - Chrome has numerous bugs with CR normalization
     // in various contexts (LF-CR, CR-CR, /\r, space-CR, etc.). Per INFRA spec, CR should
     // be normalized to LF, but Chrome handles it incorrectly in many edge cases.
     // Firefox and Safari are spec-compliant, html5ever is spec-compliant.
     // See: https://infra.spec.whatwg.org/#normalize-newlines
     if html.contains('\r') {
-        return false;
-    }
-
-    // Skip inputs containing C0 control characters (0x01-0x1F except tab, LF, FF)
-    // There are complex structural differences between html5ever and Chrome involving
-    // control characters in edge cases. Needs further investigation.
-    if html
-        .bytes()
-        .any(|b| matches!(b, 0x01..=0x08 | 0x0B | 0x0E..=0x1F))
-    {
         return false;
     }
 
@@ -166,10 +119,15 @@ fn is_valid_for_browser_parity(html: &str) -> bool {
         return false;
     }
 
+    // =========================================================================
+    // [HTML5EVER BUG] - html5ever deviates from spec, browser is correct
+    // These should be reported upstream to html5ever
+    // =========================================================================
+
     // Skip inputs with <title> inside <svg> - html5ever treats <title> as raw text
     // (HTML parsing mode) even inside SVG, but browsers correctly treat it as a regular
-    // SVG element that can contain children. This is a known html5ever limitation.
-    // Only filter when <title> appears after <svg> (likely nested).
+    // SVG element that can contain children.
+    // TODO: Report to html5ever - SVG <title> should not be raw text mode
     {
         let lower = html.to_ascii_lowercase();
         if let Some(svg_pos) = lower.find("<svg") {
@@ -183,8 +141,8 @@ fn is_valid_for_browser_parity(html: &str) -> bool {
     }
 
     // Skip inputs with <html> inside <math> or <svg> (foreign content).
-    // html5ever and browsers handle nested <html> differently in foreign contexts -
-    // html5ever strips attributes, browsers preserve them.
+    // html5ever strips attributes from nested <html> in foreign content, browsers preserve them.
+    // TODO: Report to html5ever - nested <html> attrs should be preserved in foreign content
     {
         let lower = html.to_ascii_lowercase();
         let foreign_start = lower.find("<math").or_else(|| lower.find("<svg"));
@@ -195,6 +153,72 @@ fn is_valid_for_browser_parity(html: &str) -> bool {
                 }
             }
         }
+    }
+
+    // Skip inputs containing <details> - the adoption agency algorithm for formatting
+    // elements (like <i>, <b>, <a>) behaves differently at <details> boundaries.
+    // html5ever doesn't reopen formatting elements after </details>, browsers do.
+    // TODO: Report to html5ever - adoption agency should reopen formatting after </details>
+    if html.to_ascii_lowercase().contains("<details") {
+        return false;
+    }
+
+    // =========================================================================
+    // [UNCLEAR] - Needs investigation
+    // =========================================================================
+
+    // Skip inputs containing <template> - template content lives in a DocumentFragment
+    // which isn't visible via innerHTML, causing tree structure mismatches
+    if html.to_ascii_lowercase().contains("<template") {
+        return false;
+    }
+
+    // Skip inputs containing <select> - select has special parsing rules for child elements
+    // that differ between html5ever and browser innerHTML parsing
+    if html.to_ascii_lowercase().contains("<select") {
+        return false;
+    }
+
+    // Skip inputs containing DOCTYPE in body context - browsers handle bogus DOCTYPE
+    // differently than html5ever in fragment parsing
+    if html.to_ascii_lowercase().contains("<!doctype") {
+        return false;
+    }
+
+    // Skip inputs with sequences that create malformed tag names (e.g., "<a<b")
+    // These parse differently between html5ever and browsers
+    // Pattern: < followed by text, then another < before >
+    {
+        let mut in_tag = false;
+        let mut tag_has_lt = false;
+        for c in html.chars() {
+            match c {
+                '<' if !in_tag => {
+                    in_tag = true;
+                    tag_has_lt = false;
+                }
+                '<' if in_tag => {
+                    tag_has_lt = true;
+                }
+                '>' if in_tag => {
+                    if tag_has_lt {
+                        return false;
+                    }
+                    in_tag = false;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // Skip inputs containing C0 control characters (0x01-0x1F except tab, LF, FF)
+    // There are complex structural differences between html5ever and Chrome involving
+    // control characters in edge cases. Needs further investigation.
+    if html
+        .bytes()
+        .any(|b| matches!(b, 0x01..=0x08 | 0x0B | 0x0E..=0x1F))
+    {
+        return false;
     }
 
     true
