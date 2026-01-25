@@ -2,8 +2,8 @@
 //!
 //! This module is only compiled when the `tracing` feature is enabled or during tests.
 
-use crate::diff::{HtmlNodeKind, HtmlTreeTypes, ShadowTree};
-use cinereus::{NodeData, indextree::NodeId};
+use crate::diff::{HtmlNodeKind, ShadowTree};
+use cinereus::indextree::NodeId;
 
 /// Extract short node label like "n1" from NodeId debug output.
 fn node_id_short(node_id: NodeId) -> String {
