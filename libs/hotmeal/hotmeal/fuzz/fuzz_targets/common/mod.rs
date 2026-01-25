@@ -159,6 +159,22 @@ fn is_valid_for_browser_parity(html: &str) -> bool {
         return false;
     }
 
+    // Skip inputs with <title> inside <svg> - html5ever treats <title> as raw text
+    // (HTML parsing mode) even inside SVG, but browsers correctly treat it as a regular
+    // SVG element that can contain children. This is a known html5ever limitation.
+    // Only filter when <title> appears after <svg> (likely nested).
+    {
+        let lower = html.to_ascii_lowercase();
+        if let Some(svg_pos) = lower.find("<svg") {
+            if let Some(title_pos) = lower.find("<title") {
+                // <title> after <svg> suggests it's inside the SVG
+                if title_pos > svg_pos {
+                    return false;
+                }
+            }
+        }
+    }
+
     true
 }
 
