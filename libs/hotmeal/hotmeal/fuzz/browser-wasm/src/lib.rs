@@ -183,6 +183,12 @@ fn patches_have_invalid_tags(patches: &[Patch]) -> bool {
     false
 }
 
+/// Check if input already has HTML document structure.
+fn has_html_structure(input: &str) -> bool {
+    let lower = input.to_ascii_lowercase();
+    lower.contains("<!doctype") || lower.contains("<html") || lower.contains("<body")
+}
+
 fn run_roundtrip(old_html: &str, new_html: &str) -> Result<RoundtripResult, String> {
     use web_sys::{DomParser, SupportedType};
 
@@ -193,10 +199,18 @@ fn run_roundtrip(old_html: &str, new_html: &str) -> Result<RoundtripResult, Stri
 
     let parser = DomParser::new().map_err(|e| format!("DOMParser::new failed: {:?}", e))?;
 
-    // Wrap inputs in full HTML documents for parsing
-    // IMPORTANT: Include DOCTYPE to ensure no-quirks mode
-    let old_doc_html = format!("<!DOCTYPE html><html><body>{}</body></html>", old_html);
-    let new_doc_html = format!("<!DOCTYPE html><html><body>{}</body></html>", new_html);
+    // Only wrap inputs if they don't already have HTML structure.
+    // The fuzzer sends fully-wrapped documents, so we should parse them directly.
+    let old_doc_html = if has_html_structure(old_html) {
+        old_html.to_string()
+    } else {
+        format!("<!DOCTYPE html><html><body>{}</body></html>", old_html)
+    };
+    let new_doc_html = if has_html_structure(new_html) {
+        new_html.to_string()
+    } else {
+        format!("<!DOCTYPE html><html><body>{}</body></html>", new_html)
+    };
 
     let old_doc = parser
         .parse_from_string(&old_doc_html, SupportedType::TextHtml)

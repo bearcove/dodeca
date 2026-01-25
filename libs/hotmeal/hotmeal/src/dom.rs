@@ -973,12 +973,24 @@ pub fn parse(tendril: &StrTendril) -> Document<'_> {
     // This matches browser behavior for innerHTML which always uses no-quirks.
     let has_doctype = has_doctype_prefix(input_ref);
 
+    // When the input doesn't have a doctype, we need to wrap it carefully.
+    // Simply prepending "<!DOCTYPE html>" would cause leading whitespace in
+    // content like " *" to become inter-element whitespace before <html> and
+    // get discarded. Instead, wrap in <html><body>...</body></html> so the
+    // content is clearly in the body context.
     let input = if has_doctype {
         tendril.clone()
-    } else {
+    } else if has_html_structure(input_ref) {
+        // Input has <html> or <body> tags, just prepend DOCTYPE
         let mut with_doctype = StrTendril::from("<!DOCTYPE html>");
         with_doctype.push_tendril(tendril);
         with_doctype
+    } else {
+        // Input is raw body content - wrap it to preserve leading whitespace
+        let mut wrapped = StrTendril::from("<!DOCTYPE html><html><body>");
+        wrapped.push_tendril(tendril);
+        wrapped.push_slice("</body></html>");
+        wrapped
     };
 
     let mut doc = parse_document(sink, Default::default()).one(input);
@@ -987,6 +999,12 @@ pub fn parse(tendril: &StrTendril) -> Document<'_> {
         doc.doctype = None;
     }
     doc
+}
+
+/// Check if input has HTML structure tags (<html> or <body>).
+fn has_html_structure(input: &str) -> bool {
+    let lower = input.to_ascii_lowercase();
+    lower.contains("<html") || lower.contains("<body")
 }
 
 /// Owned element name wrapper
@@ -2277,6 +2295,35 @@ mod tests {
         assert_eq!(
             body_html, "<s></s><dt><s></s></dt>",
             "malformed </S/ should eat the <DD>"
+        );
+    }
+
+    #[test]
+    fn test_leading_whitespace_in_body_content() {
+        // Regression test for fuzzer finding: leading whitespace before text
+        // was being lost when parsing body content without DOCTYPE.
+        //
+        // The scenario: browser's innerHTML returns " *" and we parse it.
+        // Previously this would produce "*" (space lost) because the
+        // prepended DOCTYPE caused the space to become inter-element whitespace.
+
+        // Test 1: Full document preserves whitespace
+        let html = t("<!DOCTYPE html><html><body> *</body></html>");
+        let doc = parse(&html);
+        assert_eq!(
+            doc.to_body_html(),
+            " *",
+            "Full document should preserve leading space"
+        );
+
+        // Test 2: Parsing body innerHTML (no wrapper) should also preserve whitespace
+        // This is the exact scenario from the apply_parity fuzzer
+        let body_inner = t(" *");
+        let doc2 = parse(&body_inner);
+        assert_eq!(
+            doc2.to_body_html(),
+            " *",
+            "Parsing body innerHTML ' *' should preserve leading space"
         );
     }
 }
