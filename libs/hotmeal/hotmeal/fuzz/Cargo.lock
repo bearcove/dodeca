@@ -1056,6 +1056,7 @@ dependencies = [
  "arbitrary",
  "browser-proto",
  "chromiumoxide",
+ "color-backtrace",
  "facet-testhelpers",
  "futures-util",
  "hotmeal",
@@ -1066,9 +1067,12 @@ dependencies = [
  "roam-websocket",
  "similar",
  "tendril 0.5.0 (git+https://github.com/fasterthanlime/html5ever?branch=hotmeal)",
+ "termcolor",
  "thrall",
  "tokio",
  "tokio-tungstenite",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

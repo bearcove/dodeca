@@ -14,10 +14,7 @@ static INIT: Once = Once::new();
 
 fuzz_target!(|data: &[u8]| {
     INIT.call_once(|| {
-        unsafe {
-            std::env::set_var("FACET_LOG", "warn");
-        }
-        facet_testhelpers::setup();
+        common::setup_tracing();
     });
 
     let Some((full_a, full_b)) = common::prepare_html_inputs(data) else {

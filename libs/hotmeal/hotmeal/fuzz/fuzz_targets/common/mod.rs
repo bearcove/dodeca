@@ -26,6 +26,10 @@ pub use dom_node::*;
 
 mod patch_trace;
 pub use patch_trace::*;
+use tracing_subscriber::filter::Targets;
+use tracing_subscriber::fmt::time::Uptime;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 /// Split raw bytes at 0xFF delimiter into two HTML strings.
 fn split_input(data: &[u8]) -> Option<(String, String)> {
@@ -212,4 +216,68 @@ fn insert_contents_have_invalid_tags(contents: &[hotmeal::InsertContent]) -> boo
 /// Check if patches are valid for DOM APIs (no invalid attr/tag names).
 pub fn patches_are_valid_for_dom(patches: &[Patch]) -> bool {
     !patches_have_invalid_attrs(patches) && !patches_have_invalid_tags(patches)
+}
+
+pub fn setup_tracing() {
+    let verbosity = color_backtrace::Verbosity::Minimal;
+
+    // Install color-backtrace for better panic output (with forced backtraces and colors)
+    color_backtrace::BacktracePrinter::new()
+        .verbosity(verbosity)
+        .add_frame_filter(Box::new(|frames| {
+            frames.retain(|frame| {
+                let dominated_by_noise = |name: &str| {
+                    // Test harness internals
+                    name.starts_with("test::run_test")
+                        || name.starts_with("test::__rust_begin_short_backtrace")
+                        // Panic/unwind machinery
+                        || name.starts_with("std::panicking::")
+                        || name.starts_with("std::panic::")
+                        || name.starts_with("core::panicking::")
+                        // Thread spawning
+                        || name.starts_with("std::thread::Builder::spawn_unchecked_")
+                        || name.starts_with("std::sys::thread::")
+                        || name.starts_with("std::sys::backtrace::")
+                        // FnOnce::call_once trampolines in std/core/alloc
+                        || name.starts_with("core::ops::function::FnOnce::call_once")
+                        || name.starts_with("<alloc::boxed::Box<F,A> as core::ops::function::FnOnce<Args>>::call_once")
+                        // AssertUnwindSafe wrapper
+                        || name.starts_with("<core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once")
+                        // Low-level threading primitives
+                        || name.starts_with("__pthread")
+                };
+                match &frame.name {
+                    Some(name) => !dominated_by_noise(name),
+                    None => true,
+                }
+            })
+        }))
+        .install(Box::new(termcolor::StandardStream::stderr(
+            termcolor::ColorChoice::AlwaysAnsi,
+        )));
+
+    let filter = std::env::var("FUZZ_LOG")
+        .ok()
+        .and_then(|s| s.parse::<Targets>().ok())
+        .unwrap_or_else(|| {
+            eprintln!("Assuming FUZZ_LOG=debug (feel free to set the $FUZZ_LOG env var to override tracing filters) (note: $RUST_LOG doesn't do anything)");
+            Targets::new().with_default(tracing::Level::DEBUG)
+        });
+
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_ansi(true)
+                .with_timer(Uptime::default())
+                .with_target(false)
+                .with_level(true)
+                // .with_file(true)
+                // .with_line_number(true)
+                .with_file(false)
+                .with_line_number(false)
+                .compact(),
+        )
+        .with(filter)
+        .try_init()
+        .ok();
 }
