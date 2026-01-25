@@ -40,7 +40,7 @@ pub use diff::{
     AttrPair, DiffError, HtmlNodeKind, HtmlProps, HtmlTreeTypes, InsertContent, NodePath, NodeRef,
     Patch, PropChange, PropKey, diff, diff_html,
 };
-pub use dom::{Document, ElementData, Namespace, NodeData, NodeKind, parse};
+pub use dom::{Document, ElementData, Namespace, NodeData, NodeKind, parse, parse_body_fragment};
 pub use html5ever::{LocalName, QualName, local_name, namespace_url, ns};
 pub use stem::Stem;
 pub use tendril::StrTendril;

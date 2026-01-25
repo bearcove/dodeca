@@ -2,9 +2,13 @@ use browser_proto::{DomAttr, DomNode};
 use hotmeal::Document;
 
 /// Convert hotmeal's Document body to DomNode tree for comparison with browser.
-/// Returns None if the document has no body.
+///
+/// For full document parsing, this returns the `<body>` element.
+/// For fragment parsing (where root IS the body context), this returns the root.
 pub fn document_body_to_dom_node(doc: &Document) -> Option<DomNode> {
-    let body = doc.body()?;
+    // Try to find <body> first (full document parsing)
+    // If not found, use root directly (fragment parsing where root is the context element)
+    let body = doc.body().unwrap_or(doc.root);
     Some(node_to_dom_node(doc, body))
 }
 

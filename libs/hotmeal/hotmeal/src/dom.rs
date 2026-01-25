@@ -877,8 +877,12 @@ fn is_void_element(tag: &str) -> bool {
 
 /// HTML5 raw text elements whose content should not be escaped
 /// See: https://html.spec.whatwg.org/multipage/syntax.html#raw-text-elements
+///
+/// Note: `noscript` is included because we always parse with scripting enabled
+/// (html5ever's default). When scripting is enabled, noscript is parsed as rawtext,
+/// so it must also be serialized as rawtext for innerHTML to be idempotent.
 fn is_raw_text_element(tag: &str) -> bool {
-    matches!(tag, "script" | "style")
+    matches!(tag, "script" | "style" | "noscript")
 }
 
 /// What goes in each arena slot
@@ -1000,6 +1004,34 @@ pub fn parse(tendril: &StrTendril) -> Document<'_> {
         doc.doctype = None;
     }
     doc
+}
+
+/// Parse HTML as a body fragment (like `body.innerHTML = html`).
+///
+/// This uses the HTML5 fragment parsing algorithm with `<body>` as the context element.
+/// This matches browser innerHTML parsing behavior with scripting enabled.
+///
+/// Use this when comparing against browser innerHTML parsing for parity testing.
+pub fn parse_body_fragment(tendril: &StrTendril) -> Document<'_> {
+    use html5ever::parse_fragment;
+    use tendril::TendrilSink;
+
+    let input_ref: &str = tendril.as_ref();
+    let sink = ArenaSink::new(input_ref);
+
+    // Parse as fragment with <body> as context, scripting enabled
+    let context_name = QualName::new(None, ns!(html), local_name!("body"));
+    let context_attrs = vec![];
+    let scripting_enabled = true;
+
+    parse_fragment(
+        sink,
+        Default::default(),
+        context_name,
+        context_attrs,
+        scripting_enabled,
+    )
+    .one(tendril.clone())
 }
 
 /// Check if input has HTML structure tags (<html> or <body>).
@@ -2326,5 +2358,195 @@ mod tests {
             " *",
             "Parsing body innerHTML ' *' should preserve leading space"
         );
+    }
+
+    #[test]
+    fn test_noscript_with_malformed_tag() {
+        // Test noscript parsing with malformed input like `<noscript n</body></html>`
+        //
+        // When scripting is enabled (default), noscript is a raw text element.
+        // The tokenizer should only recognize `</noscript>` as an end tag.
+        // Other "end tags" like `</body>` and `</html>` should be emitted as text.
+        //
+        // The input `<noscript n</body></html>` should parse as:
+        // - `<noscript n` -> element with attribute `n<` and attribute `body` (due to </ being part of attr)
+        //   OR as noscript with attr `n` depending on exact tokenization
+        // - Content depends on whether we enter rawtext mode
+        //
+        // This test documents html5ever's behavior for this edge case.
+        let html = t("<!DOCTYPE html><html><body><noscript n</body></html>");
+        trace!(%html, "Input");
+        let doc = parse(&html);
+
+        let body = doc.body().expect("should have body");
+        let body_html = doc.to_body_html();
+        trace!(%body_html, "Body HTML");
+
+        // Find the noscript element
+        let noscript = body.children(&doc.arena).find(
+            |&id| matches!(&doc.get(id).kind, NodeKind::Element(e) if e.tag.as_ref() == "noscript"),
+        );
+
+        if let Some(noscript_id) = noscript {
+            let noscript_data = doc.get(noscript_id);
+            if let NodeKind::Element(elem) = &noscript_data.kind {
+                trace!(attrs = ?elem.attrs, "noscript attrs");
+            }
+
+            // Check children of noscript
+            let noscript_children: Vec<_> = noscript_id.children(&doc.arena).collect();
+            trace!(num_children = noscript_children.len(), "noscript children");
+
+            for (i, child_id) in noscript_children.iter().enumerate() {
+                let child = doc.get(*child_id);
+                trace!(i, kind = ?child.kind, "noscript child");
+            }
+
+            // Document the actual behavior
+            eprintln!("html5ever noscript parsing result:");
+            eprintln!("  body innerHTML: {}", body_html);
+            eprintln!("  noscript children: {}", noscript_children.len());
+        } else {
+            eprintln!("No noscript element found in body");
+            eprintln!("  body innerHTML: {}", body_html);
+        }
+    }
+
+    #[test]
+    fn test_noscript_placement_in_head() {
+        // Test where noscript ends up when it appears before body
+        // Input: <!DOCTYPE html><noscript>nn
+        //
+        // html5ever (scripting enabled): noscript goes in <head>, body is empty
+        // Browser behavior may differ
+        let html = t("<!DOCTYPE html><noscript>nn");
+        let doc = parse(&html);
+
+        // Check what's in head
+        let head = doc.head().expect("should have head");
+        let head_children: Vec<_> = head.children(&doc.arena).collect();
+        eprintln!("Head children: {}", head_children.len());
+        for child_id in &head_children {
+            let child = doc.get(*child_id);
+            eprintln!("  Head child: {:?}", child.kind);
+        }
+
+        // Check what's in body
+        let body = doc.body().expect("should have body");
+        let body_children: Vec<_> = body.children(&doc.arena).collect();
+        eprintln!("Body children: {}", body_children.len());
+        for child_id in &body_children {
+            let child = doc.get(*child_id);
+            eprintln!("  Body child: {:?}", child.kind);
+        }
+
+        // Full HTML output
+        eprintln!("Full HTML: {}", doc.to_html());
+    }
+
+    #[test]
+    fn test_noscript_rawtext_vs_browser() {
+        // Test: parse with html5ever, then re-parse the body innerHTML
+        // This simulates what the browser does: get innerHTML, set innerHTML
+        //
+        // html5ever (scripting enabled):
+        //   Input: <noscript n</body></html>
+        //   Output: <noscript n<="" body="">&lt;/html&gt;</noscript>
+        //
+        // Browser (scripting enabled):
+        //   When we get innerHTML of a noscript, the content is HTML-escaped
+        //   When we set innerHTML, that escaped content gets parsed as TEXT
+        //   But the browser also parses noscript as rawtext when scripting is enabled
+        //
+        // The issue: if the browser's innerHTML getter escapes the content,
+        // then re-parsing that innerHTML produces different content.
+        let html = t("<!DOCTYPE html><html><body><noscript n</body></html>");
+        let doc = parse(&html);
+        let body_html = doc.to_body_html();
+
+        // Now parse that body_html again (simulating innerHTML round-trip)
+        let body_html_tendril = t(&body_html);
+        let reparsed = parse(&body_html_tendril);
+        let reparsed_body_html = reparsed.to_body_html();
+
+        eprintln!("Original body HTML: {}", body_html);
+        eprintln!("Re-parsed body HTML: {}", reparsed_body_html);
+
+        // They should be the same (idempotent)
+        assert_eq!(
+            body_html, reparsed_body_html,
+            "innerHTML should be idempotent for noscript"
+        );
+    }
+
+    #[test]
+    fn test_parse_body_fragment_structure() {
+        // Understand what parse_body_fragment actually produces
+        let input = t("[");
+        let doc = parse_body_fragment(&input);
+
+        eprintln!("=== Fragment parse output ===");
+        eprintln!("Root dump:\n{}", doc.dump_subtree(doc.root));
+
+        // Check root element
+        let root_data = doc.get(doc.root);
+        eprintln!("Root kind: {:?}", root_data.kind);
+
+        // Check for body
+        eprintln!("Has body(): {:?}", doc.body());
+
+        // List root's children
+        let children: Vec<_> = doc.children(doc.root).collect();
+        eprintln!("Root has {} children", children.len());
+        for (i, child) in children.iter().enumerate() {
+            eprintln!("  Child {}: {:?}", i, doc.get(*child).kind);
+        }
+    }
+
+    #[test]
+    fn test_math_fragment_parsing() {
+        // Test how <math> is parsed in fragment context
+        let input = t("<math>6<mn>x</mn></math>");
+        let doc = parse_body_fragment(&input);
+        eprintln!("Fragment parse of <math>:");
+        eprintln!("{}", doc.dump_subtree(doc.root));
+    }
+
+    #[test]
+    fn test_math_with_li_fragment_parsing() {
+        // Test <li> inside <math> - this breaks out of foreign content
+        let input = t("<li>a<math>6<mn>x<li>b</mn></math>");
+        let doc = parse_body_fragment(&input);
+        eprintln!("Fragment parse of <li><math>...<li>:");
+        eprintln!("{}", doc.dump_subtree(doc.root));
+
+        // Check innerHTML roundtrip
+        let html = doc.to_html_without_doctype();
+        eprintln!("Serialized HTML: {}", html);
+
+        // Re-parse
+        let html_tendril = t(&html);
+        let reparsed = parse_body_fragment(&html_tendril);
+        eprintln!("Re-parsed:");
+        eprintln!("{}", reparsed.dump_subtree(reparsed.root));
+    }
+
+    #[test]
+    fn test_bogus_comment_parsing() {
+        let input = t("<o><!D");
+        let doc = parse_body_fragment(&input);
+        println!("Input: {:?}", input);
+        println!("Tree:\n{}", doc.dump_subtree(doc.root));
+    }
+
+    #[test]
+    fn test_bogus_comment_variations() {
+        let cases = ["<o><!D", "<o><!D>", "<o><!--D-->", "<o><!>", "<!D>text"];
+        for input in cases {
+            eprintln!("\n=== Input: {:?} ===", input);
+            let tendril = t(input);
+            let doc = parse_body_fragment(&tendril);
+            eprintln!("{}", doc.dump_subtree(doc.root));
+        }
     }
 }

@@ -38,23 +38,48 @@ fn log(msg: &str) {
     web_sys::console::log_1(&wasm_bindgen::JsValue::from_str(msg));
 }
 
-/// Parse HTML using the browser's DOMParser and convert to DomNode tree.
+/// Strip DOCTYPE prefix from HTML (innerHTML doesn't handle it)
+fn strip_doctype(html: &str) -> &str {
+    html.strip_prefix("<!DOCTYPE html>")
+        .or_else(|| html.strip_prefix("<!doctype html>"))
+        .unwrap_or(html)
+}
+
+/// Convert body element's children to a DomNode wrapped in `<html>`.
+/// This matches html5ever's fragment parsing output structure.
+fn body_to_html_wrapped_dom(body: &web_sys::HtmlElement) -> DomNode {
+    let child_nodes = body.child_nodes();
+    let mut children = Vec::with_capacity(child_nodes.length() as usize);
+    for i in 0..child_nodes.length() {
+        if let Some(child) = child_nodes.item(i) {
+            children.push(node_to_dom_node(&child));
+        }
+    }
+
+    // Wrap in <html> to match html5ever's fragment parsing output
+    DomNode::Element {
+        tag: "html".to_string(),
+        attrs: vec![],
+        children,
+    }
+}
+
+/// Parse HTML using innerHTML on live document (NOT DOMParser).
+/// DOMParser has scripting disabled, which changes noscript parsing behavior.
+/// Using innerHTML on the live document ensures scripting is enabled.
+///
+/// Returns an `<html>` wrapper around the parsed content to match html5ever's
+/// fragment parsing output (which also uses `<html>` as root).
 fn parse_html_to_dom(html: &str) -> DomNode {
-    use web_sys::{DomParser, SupportedType};
+    // Get live document
+    let window = web_sys::window().expect("no window");
+    let document = window.document().expect("no document");
+    let body = document.body().expect("no body");
 
-    let parser = DomParser::new().expect("DOMParser::new failed");
+    // Parse by setting innerHTML (scripting enabled, unlike DOMParser)
+    body.set_inner_html(strip_doctype(html));
 
-    // Wrap in full HTML document with DOCTYPE for no-quirks mode
-    let doc_html = format!("<!DOCTYPE html><html><body>{}</body></html>", html);
-
-    let doc = parser
-        .parse_from_string(&doc_html, SupportedType::TextHtml)
-        .expect("parse_from_string failed");
-
-    let body = doc.body().expect("no body");
-
-    // Convert body's children to DomNode tree
-    node_to_dom_node(&body.into())
+    body_to_html_wrapped_dom(&body)
 }
 
 /// Convert a web_sys::Node to DomNode recursively.
@@ -183,54 +208,28 @@ fn patches_have_invalid_tags(patches: &[Patch]) -> bool {
     false
 }
 
-/// Check if input already has HTML document structure.
-fn has_html_structure(input: &str) -> bool {
-    let lower = input.to_ascii_lowercase();
-    lower.contains("<!doctype") || lower.contains("<html") || lower.contains("<body")
-}
-
 fn run_compute_and_apply_patches(
     old_html: &str,
     new_html: &str,
 ) -> Result<ComputeAndApplyResult, String> {
-    use web_sys::{DomParser, SupportedType};
-
     log(&format!(
         "[browser-wasm] roundtrip: old={:?} new={:?}",
         old_html, new_html
     ));
 
-    let parser = DomParser::new().map_err(|e| format!("DOMParser::new failed: {:?}", e))?;
+    // Get live document (has DOCTYPE, scripting enabled)
+    let window = web_sys::window().ok_or("no window")?;
+    let document = window.document().ok_or("no document")?;
+    let body = document.body().ok_or("no body")?;
 
-    // Only wrap inputs if they don't already have HTML structure.
-    // The fuzzer sends fully-wrapped documents, so we should parse them directly.
-    let old_doc_html = if has_html_structure(old_html) {
-        old_html.to_string()
-    } else {
-        format!("<!DOCTYPE html><html><body>{}</body></html>", old_html)
-    };
-    let new_doc_html = if has_html_structure(new_html) {
-        new_html.to_string()
-    } else {
-        format!("<!DOCTYPE html><html><body>{}</body></html>", new_html)
-    };
+    // Parse old HTML using innerHTML (scripting enabled, unlike DOMParser)
+    body.set_inner_html(strip_doctype(old_html));
+    let normalized_old = body.inner_html();
+    let initial_dom_tree = body_to_html_wrapped_dom(&body);
 
-    let old_doc = parser
-        .parse_from_string(&old_doc_html, SupportedType::TextHtml)
-        .map_err(|e| format!("parse old_html failed: {:?}", e))?;
-
-    let new_doc = parser
-        .parse_from_string(&new_doc_html, SupportedType::TextHtml)
-        .map_err(|e| format!("parse new_html failed: {:?}", e))?;
-
-    let old_body = old_doc.body().ok_or("old_doc has no body")?;
-    let new_body = new_doc.body().ok_or("new_doc has no body")?;
-
-    let normalized_old = old_body.inner_html();
-    let normalized_new = new_body.inner_html();
-
-    // Capture initial DOM tree
-    let initial_dom_tree = node_to_dom_node(&old_body.into());
+    // Parse new HTML to get normalized version
+    body.set_inner_html(strip_doctype(new_html));
+    let normalized_new = body.inner_html();
 
     log(&format!(
         "[browser-wasm] normalized: old={:?} new={:?}",
@@ -254,10 +253,7 @@ fn run_compute_and_apply_patches(
         return Err("patches contain invalid tag names".to_string());
     }
 
-    // Set the document body to the old content so we can patch it
-    let window = web_sys::window().ok_or("no window")?;
-    let document = window.document().ok_or("no document")?;
-    let body = document.body().ok_or("no body")?;
+    // Reset body to old content for patching
     body.set_inner_html(&normalized_old);
 
     // Apply patches one at a time, capturing state after each
@@ -281,7 +277,7 @@ fn run_compute_and_apply_patches(
         };
 
         let html_after = body.inner_html();
-        let dom_tree = node_to_dom_node(&body.clone().into());
+        let dom_tree = body_to_html_wrapped_dom(&body);
 
         patch_trace.push(PatchStep {
             index: i as u32,
@@ -315,39 +311,21 @@ fn run_apply_patches(
     old_html: &str,
     patches: Vec<Patch<'static>>,
 ) -> Result<ApplyPatchesResult, String> {
-    use web_sys::{DomParser, SupportedType};
-
     log(&format!(
         "[browser-wasm] run_test starting, old_html={:?}",
         old_html
     ));
 
-    // Parse the full HTML document using DOMParser (same as html5ever)
-    let parser = DomParser::new().map_err(|e| format!("DOMParser::new failed: {:?}", e))?;
-    let parsed_doc = parser
-        .parse_from_string(old_html, SupportedType::TextHtml)
-        .map_err(|e| format!("parse_from_string failed: {:?}", e))?;
-    let parsed_body = parsed_doc.body().ok_or("parsed doc has no body")?;
-
-    // Get live document
+    // Get live document (has DOCTYPE, scripting enabled)
     let window = web_sys::window().ok_or("no window")?;
     let document = window.document().ok_or("no document")?;
     let live_body = document.body().ok_or("no body")?;
 
-    // Clear live body and adopt children from parsed body (avoids innerHTML round-trip)
-    live_body.set_inner_html(""); // Clear existing content
-    while let Some(child) = parsed_body.first_child() {
-        // adoptNode moves the node from parsed_doc to document
-        let adopted = document
-            .adopt_node(&child)
-            .map_err(|e| format!("adopt_node failed: {:?}", e))?;
-        live_body
-            .append_child(&adopted)
-            .map_err(|e| format!("append_child failed: {:?}", e))?;
-    }
+    // Parse using innerHTML on live document (scripting enabled, matches html5ever fragment parsing)
+    live_body.set_inner_html(strip_doctype(old_html));
 
-    // Capture initial tree from the live DOM
-    let initial_dom_tree = node_to_dom_node(&live_body.clone().into());
+    // Capture initial tree from the live DOM, wrapped in <html> to match html5ever's fragment parsing
+    let initial_dom_tree = body_to_html_wrapped_dom(&live_body);
     let normalized_old_html = live_body.inner_html();
 
     log(&format!(
@@ -386,7 +364,7 @@ fn run_apply_patches(
             .body()
             .unwrap();
         let html_after = body.inner_html();
-        let dom_tree = node_to_dom_node(&body.into());
+        let dom_tree = body_to_html_wrapped_dom(&body);
 
         patch_trace.push(PatchStep {
             index: i as u32,

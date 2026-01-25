@@ -2,7 +2,7 @@
 
 //! Parser parity fuzzer.
 //!
-//! Compares html5ever parsing (via hotmeal) against browser DOMParser.
+//! Compares html5ever fragment parsing against browser innerHTML.
 //! Both should produce identical DOM trees.
 
 use hotmeal::StrTendril;
@@ -20,27 +20,27 @@ fuzz_target!(|data: &[u8]| {
         common::init_thrall_quiet();
     });
 
-    let Some(full_html) = common::prepare_single_html_input(data) else {
+    let Some(html) = common::prepare_single_html_input(data) else {
         return;
     };
 
-    let tendril = StrTendril::from(full_html.as_str());
+    let tendril = StrTendril::from(html.as_str());
 
-    // Parse with html5ever
-    let doc = hotmeal::parse(&tendril);
+    // Parse with html5ever as body fragment (matches innerHTML behavior)
+    let doc = hotmeal::parse_body_fragment(&tendril);
     let Some(html5ever_tree) = common::document_body_to_dom_node(&doc) else {
         return; // Skip documents without a body
     };
 
-    // Parse with browser
-    let Some(browser_tree) = common::parse_to_dom(full_html.clone()) else {
+    // Parse with browser innerHTML
+    let Some(browser_tree) = common::parse_to_dom(html.clone()) else {
         return;
     };
 
     // Compare
     if html5ever_tree != browser_tree {
         eprintln!("\n========== PARSER MISMATCH ==========");
-        eprintln!("Input: {:?}", full_html);
+        eprintln!("Input: {:?}", html);
         eprintln!("\n--- html5ever tree ---");
         eprintln!("{}", html5ever_tree);
         eprintln!("\n--- browser tree ---");

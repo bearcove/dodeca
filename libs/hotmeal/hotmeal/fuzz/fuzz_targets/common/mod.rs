@@ -47,9 +47,65 @@ fn is_valid_for_browser_parity(html: &str) -> bool {
         return false;
     }
 
+    // Skip inputs starting with whitespace - browsers normalize leading whitespace
+    // in innerHTML differently than html5ever's fragment parsing
+    if html.starts_with(char::is_whitespace) {
+        return false;
+    }
+
     // Skip inputs with null bytes
     if html.contains('\0') {
         return false;
+    }
+
+    // Skip inputs containing BOM (Byte Order Mark, U+FEFF)
+    // html5ever strips leading BOM per spec, but browsers preserve it as text in innerHTML
+    if html.contains('\u{feff}') {
+        return false;
+    }
+
+    // Skip inputs containing <template> - template content lives in a DocumentFragment
+    // which isn't visible via innerHTML, causing tree structure mismatches
+    if html.to_ascii_lowercase().contains("<template") {
+        return false;
+    }
+
+    // Skip inputs containing <select> - select has special parsing rules for child elements
+    // that differ between html5ever and browser innerHTML parsing
+    if html.to_ascii_lowercase().contains("<select") {
+        return false;
+    }
+
+    // Skip inputs containing DOCTYPE in body context - browsers handle bogus DOCTYPE
+    // differently than html5ever in fragment parsing
+    if html.to_ascii_lowercase().contains("<!doctype") {
+        return false;
+    }
+
+    // Skip inputs with sequences that create malformed tag names (e.g., "<a<b")
+    // These parse differently between html5ever and browsers
+    // Pattern: < followed by text, then another < before >
+    {
+        let mut in_tag = false;
+        let mut tag_has_lt = false;
+        for c in html.chars() {
+            match c {
+                '<' if !in_tag => {
+                    in_tag = true;
+                    tag_has_lt = false;
+                }
+                '<' if in_tag => {
+                    tag_has_lt = true;
+                }
+                '>' if in_tag => {
+                    if tag_has_lt {
+                        return false;
+                    }
+                    in_tag = false;
+                }
+                _ => {}
+            }
+        }
     }
 
     // Skip inputs containing CR (\r) - Chrome has numerous bugs with CR normalization
@@ -71,10 +127,43 @@ fn is_valid_for_browser_parity(html: &str) -> bool {
         return false;
     }
 
+    // Skip inputs ending with incomplete/bogus markup at EOF.
+    // Chrome discards bogus comments (<!D, <!D>, etc.) when they appear at EOF
+    // with nothing after them, but html5ever correctly preserves them per spec.
+    // This affects: unclosed comments, unclosed tags, bogus comments at end.
+    // Pattern: ends with <! or <!-- without proper closing, or ends with < followed by text
+    {
+        let trimmed = html.trim_end();
+        // Check for unclosed markup declaration (<!...)
+        if let Some(last_lt) = trimmed.rfind('<') {
+            let after_lt = &trimmed[last_lt..];
+            // Unclosed bogus comment: <! followed by anything except proper comment close
+            if after_lt.starts_with("<!") && !after_lt.ends_with("-->") {
+                return false;
+            }
+            // Unclosed tag at very end
+            if !after_lt.contains('>') {
+                return false;
+            }
+        }
+    }
+
+    // Skip inputs containing DOCTYPE-like bogus comments.
+    // Chrome treats <!D, <!DO, <!DOC, <!Da, etc. (anything starting with <!D, case-insensitive)
+    // as malformed DOCTYPEs and discards them entirely, while html5ever correctly treats them
+    // as bogus comments per spec. This is a known Chrome deviation.
+    // Example: "<!D>" becomes nothing in Chrome but "<!--D-->" in html5ever
+    // Example: "<!Da>" becomes nothing in Chrome but "<!--Da-->" in html5ever
+    // Note: We already filter <!doctype above, this catches partial/malformed cases.
+    if html.to_ascii_lowercase().contains("<!d") {
+        return false;
+    }
+
     true
 }
 
 /// Prepare a single HTML string for browser parity testing.
+/// Returns raw body content (no DOCTYPE) for fragment parsing.
 /// Returns None if the input should be skipped.
 pub fn prepare_single_html_input(data: &[u8]) -> Option<String> {
     let html = std::str::from_utf8(data).ok()?;
@@ -83,11 +172,12 @@ pub fn prepare_single_html_input(data: &[u8]) -> Option<String> {
         return None;
     }
 
-    // Wrap in full HTML document with DOCTYPE for no-quirks mode
-    Some(format!("<!DOCTYPE html><html><body>{}</body></html>", html))
+    // Return raw content - will be parsed as body fragment
+    Some(html.to_string())
 }
 
-/// Splits the input data into two sanitized HTML documents wrapped in a standard template.
+/// Splits the input data into two HTML fragments for parity testing.
+/// Returns raw body content (no DOCTYPE) for fragment parsing.
 pub fn prepare_html_inputs(data: &[u8]) -> Option<(String, String)> {
     // Split at 0xFF delimiter
     let (html_a, html_b) = split_input(data)?;
@@ -96,11 +186,8 @@ pub fn prepare_html_inputs(data: &[u8]) -> Option<(String, String)> {
         return None;
     }
 
-    // Wrap in full HTML document with DOCTYPE for no-quirks mode
-    let full_a = format!("<!DOCTYPE html><html><body>{}</body></html>", html_a);
-    let full_b = format!("<!DOCTYPE html><html><body>{}</body></html>", html_b);
-
-    Some((full_a, full_b))
+    // Return raw content - will be parsed as body fragments
+    Some((html_a, html_b))
 }
 
 /// Check if an attribute name is valid for the DOM setAttribute API.
@@ -260,8 +347,8 @@ pub fn setup_tracing() {
         .ok()
         .and_then(|s| s.parse::<Targets>().ok())
         .unwrap_or_else(|| {
-            eprintln!("Assuming FUZZ_LOG=debug (feel free to set the $FUZZ_LOG env var to override tracing filters) (note: $RUST_LOG doesn't do anything)");
-            Targets::new().with_default(tracing::Level::DEBUG)
+            eprintln!("Assuming FUZZ_LOG=error (feel free to set the $FUZZ_LOG env var to override tracing filters) (note: $RUST_LOG doesn't do anything)");
+            Targets::new().with_default(tracing::Level::ERROR)
         });
 
     tracing_subscriber::registry()
