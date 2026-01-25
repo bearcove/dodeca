@@ -30,6 +30,8 @@
 
 mod diff;
 mod dom;
+#[cfg(any(test, feature = "tracing"))]
+mod shadow_tree_dump;
 mod stem;
 mod tracing_macros;
 

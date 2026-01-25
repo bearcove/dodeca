@@ -1065,27 +1065,12 @@ pub fn diff<'a>(old: &Document<'a>, new: &Document<'a>) -> Result<Vec<Patch<'a>>
 ///
 /// All paths start with the slot number: [0, 1, 2] means slot 0, child 1, child 2.
 /// This eliminates the need for separate tracking of detached nodes.
-struct ShadowTree<'a> {
-    arena: indextree::Arena<NodeData<HtmlTreeTypes<'a>>>,
+pub(crate) struct ShadowTree<'a> {
+    pub(crate) arena: indextree::Arena<NodeData<HtmlTreeTypes<'a>>>,
     /// The super root - its children are slot nodes
-    super_root: NodeId,
+    pub(crate) super_root: NodeId,
     /// Number of slots (slot 0 always exists, created in new())
     next_slot: u32,
-}
-
-/// Extract short node label like "n1" from NodeId debug output
-fn node_id_short(node_id: NodeId) -> String {
-    let debug = format!("{:?}", node_id);
-    let Some(start) = debug.find("index1: ") else {
-        return debug;
-    };
-    let digits = &debug[start + "index1: ".len()..];
-    let value: String = digits.chars().take_while(|c| c.is_ascii_digit()).collect();
-    if value.is_empty() {
-        debug
-    } else {
-        format!("n{}", value)
-    }
 }
 
 impl<'a> ShadowTree<'a> {
@@ -1272,29 +1257,6 @@ impl<'a> ShadowTree<'a> {
         node.detach(&mut self.arena);
         debug!(?placeholder, "replace_with_placeholder: done");
         placeholder
-    }
-
-    /// Pretty-print the shadow tree for debugging.
-    #[allow(dead_code)]
-    fn debug_print_tree(&self, title: &str) {
-        self.debug_print_tree_with_highlights(title, &[]);
-    }
-
-    /// Pretty-print the shadow tree with highlighted nodes.
-    #[allow(dead_code)]
-    fn debug_print_tree_with_highlights(
-        &self,
-        title: &str,
-        highlights: &[(NodeId, &'static str, &'static str)],
-    ) {
-        debug!(
-            "=== {} ===\n{}",
-            title,
-            ShadowTreeDump {
-                shadow: self,
-                highlights
-            }
-        );
     }
 
     /// Insert a new node at a position, handling displacement via slots.

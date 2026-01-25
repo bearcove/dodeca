@@ -94,6 +94,7 @@ impl<'a> Document<'a> {
     }
 
     /// Get a human-readable label for a node (for debugging)
+    #[allow(dead_code)]
     fn node_label(&self, id: NodeId) -> String {
         let data = self.get(id);
         match &data.kind {
