@@ -4,8 +4,8 @@
 use std::sync::Once;
 
 // Re-export thrall's browser control functions
-pub use thrall::{DomNode, OwnedPatches, RoundtripResult, TestPatchResult};
-pub use thrall::{parse_to_dom, test_patch, test_roundtrip};
+pub use thrall::{ApplyPatchesResult, ComputeAndApplyResult, DomNode, OwnedPatches};
+pub use thrall::{apply_patches, compute_and_apply_patches, parse_to_dom};
 
 static THRALL_INIT: Once = Once::new();
 

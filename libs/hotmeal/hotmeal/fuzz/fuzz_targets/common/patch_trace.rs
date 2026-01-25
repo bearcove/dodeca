@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use browser_proto::{DomNode, RoundtripResult, TestPatchResult};
+use browser_proto::{ApplyPatchesResult, ComputeAndApplyResult, DomNode};
 use hotmeal::{Document, Patch};
 
 use crate::common::document_body_to_dom_node;
@@ -144,8 +144,8 @@ impl fmt::Display for PatchTrace {
     }
 }
 
-impl From<&RoundtripResult> for PatchTrace {
-    fn from(result: &RoundtripResult) -> Self {
+impl From<&ComputeAndApplyResult> for PatchTrace {
+    fn from(result: &ComputeAndApplyResult) -> Self {
         PatchTrace {
             initial_tree: result.initial_dom_tree.clone(),
             steps: result
@@ -169,8 +169,8 @@ impl From<&RoundtripResult> for PatchTrace {
     }
 }
 
-impl From<&TestPatchResult> for PatchTrace {
-    fn from(result: &TestPatchResult) -> Self {
+impl From<&ApplyPatchesResult> for PatchTrace {
+    fn from(result: &ApplyPatchesResult) -> Self {
         PatchTrace {
             initial_tree: result.initial_dom_tree.clone(),
             steps: result

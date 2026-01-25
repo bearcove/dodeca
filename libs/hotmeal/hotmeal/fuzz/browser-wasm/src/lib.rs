@@ -1,6 +1,6 @@
 use browser_proto::{
-    Browser, BrowserDispatcher, DomAttr, DomNode, OwnedPatches, Patch, PatchStep, RoundtripResult,
-    TestPatchResult,
+    ApplyPatchesResult, Browser, BrowserDispatcher, ComputeAndApplyResult, DomAttr, DomNode,
+    OwnedPatches, Patch, PatchStep,
 };
 use roam::Context;
 use roam_session::initiate_framed;
@@ -11,22 +11,22 @@ use wasm_bindgen::prelude::*;
 struct Handler;
 
 impl Browser for Handler {
-    async fn test_patch(
+    async fn apply_patches(
         &self,
         _cx: &Context,
         old_html: String,
         patches: OwnedPatches,
-    ) -> Result<TestPatchResult, String> {
-        run_test(&old_html, patches.0)
+    ) -> Result<ApplyPatchesResult, String> {
+        run_apply_patches(&old_html, patches.0)
     }
 
-    async fn test_roundtrip(
+    async fn compute_and_apply_patches(
         &self,
         _cx: &Context,
         old_html: String,
         new_html: String,
-    ) -> Result<RoundtripResult, String> {
-        run_roundtrip(&old_html, &new_html)
+    ) -> Result<ComputeAndApplyResult, String> {
+        run_compute_and_apply_patches(&old_html, &new_html)
     }
 
     async fn parse_to_dom(&self, _cx: &Context, html: String) -> DomNode {
@@ -189,7 +189,10 @@ fn has_html_structure(input: &str) -> bool {
     lower.contains("<!doctype") || lower.contains("<html") || lower.contains("<body")
 }
 
-fn run_roundtrip(old_html: &str, new_html: &str) -> Result<RoundtripResult, String> {
+fn run_compute_and_apply_patches(
+    old_html: &str,
+    new_html: &str,
+) -> Result<ComputeAndApplyResult, String> {
     use web_sys::{DomParser, SupportedType};
 
     log(&format!(
@@ -298,7 +301,7 @@ fn run_roundtrip(old_html: &str, new_html: &str) -> Result<RoundtripResult, Stri
     ));
 
     // Don't fail early - let the fuzzer compare traces
-    Ok(RoundtripResult {
+    Ok(ComputeAndApplyResult {
         normalized_old,
         normalized_new,
         result_html,
@@ -308,7 +311,10 @@ fn run_roundtrip(old_html: &str, new_html: &str) -> Result<RoundtripResult, Stri
     })
 }
 
-fn run_test(old_html: &str, patches: Vec<Patch<'static>>) -> Result<TestPatchResult, String> {
+fn run_apply_patches(
+    old_html: &str,
+    patches: Vec<Patch<'static>>,
+) -> Result<ApplyPatchesResult, String> {
     use web_sys::{DomParser, SupportedType};
 
     log(&format!(
@@ -382,8 +388,8 @@ fn run_test(old_html: &str, patches: Vec<Patch<'static>>) -> Result<TestPatchRes
         .map(|s| s.html_after.clone())
         .unwrap_or_else(|| normalized_old_html.clone());
 
-    log("[browser-wasm] run_test complete");
-    Ok(TestPatchResult {
+    log("[browser-wasm] apply_patches complete");
+    Ok(ApplyPatchesResult {
         result_html,
         normalized_old_html,
         initial_dom_tree,

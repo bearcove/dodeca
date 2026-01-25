@@ -3,8 +3,9 @@
 //! Apply parity fuzzer.
 //!
 //! Compares native hotmeal patch application against browser hotmeal-wasm.
-//! Both apply the same patches, and we compare DOM trees at each step.
+//! Both apply the SAME patches, and we compare DOM trees at each step.
 
+use browser_proto::OwnedPatches;
 use hotmeal::StrTendril;
 use libfuzzer_sys::fuzz_target;
 use std::sync::Once;
@@ -37,19 +38,24 @@ fn target(data: &[u8]) {
         Err(err) => panic!("hotmeal failed to diff {err}"),
     };
 
-    // Send to browser worker for roundtrip
-    let Some(browser_result) = common::test_roundtrip(full_a.to_string(), full_b.to_string())
+    // Convert patches to owned (static lifetime) for sending to browser
+    let owned_patches: Vec<hotmeal::Patch<'static>> =
+        patches.iter().map(|p| p.clone().into_owned()).collect();
+
+    // Send the SAME patches to browser for application
+    let Some(browser_result) =
+        common::apply_patches(full_a.to_string(), OwnedPatches(owned_patches))
     else {
         return;
     };
 
     // Skip cases where browser parsed to empty
-    if browser_result.normalized_old.trim().is_empty() {
+    if browser_result.normalized_old_html.trim().is_empty() {
         return;
     }
 
     // Apply patches natively, capturing the full trace
-    let normalized_old_tendril = StrTendril::from(browser_result.normalized_old.clone());
+    let normalized_old_tendril = StrTendril::from(browser_result.normalized_old_html.clone());
     let mut native_doc = hotmeal::parse(&normalized_old_tendril);
     let Some(native_trace) = common::PatchTrace::capture(&mut native_doc, &patches) else {
         return; // Skip documents without a body

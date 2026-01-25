@@ -74,40 +74,40 @@ pub struct OwnedPatches(pub Vec<Patch<'static>>);
 /// and returns the resulting HTML.
 #[service]
 pub trait Browser {
-    /// Apply patches to HTML in the browser.
+    /// Apply pre-computed patches to HTML in the browser.
     ///
     /// The browser will:
     /// 1. Set document.body.innerHTML to `old_html`
-    /// 2. Apply the patches
+    /// 2. Apply the provided patches
     /// 3. Return the resulting document.body.innerHTML
-    async fn test_patch(
+    async fn apply_patches(
         &self,
         old_html: String,
         patches: OwnedPatches,
-    ) -> Result<TestPatchResult, String>;
+    ) -> Result<ApplyPatchesResult, String>;
 
-    /// Full roundtrip in browser: parse both HTMLs with DOMParser, diff, apply, compare.
+    /// Compute and apply patches in the browser.
     ///
     /// The browser will:
     /// 1. Parse `old_html` with DOMParser, serialize back (normalized_old)
     /// 2. Parse `new_html` with DOMParser, serialize back (normalized_new)
     /// 3. Compute diff using hotmeal-wasm
     /// 4. Apply patches to old DOM
-    /// 5. Compare result with normalized_new
-    async fn test_roundtrip(
+    /// 5. Return the result for comparison
+    async fn compute_and_apply_patches(
         &self,
         old_html: String,
         new_html: String,
-    ) -> Result<RoundtripResult, String>;
+    ) -> Result<ComputeAndApplyResult, String>;
 
     /// Parse HTML in the browser and return the DOM tree as JSON.
     /// Used for comparing html5ever parsing with browser parsing.
     async fn parse_to_dom(&self, html: String) -> DomNode;
 }
 
-/// Result of a full roundtrip test in the browser.
+/// Result of compute_and_apply_patches.
 #[derive(Debug, Clone, Facet)]
-pub struct RoundtripResult {
+pub struct ComputeAndApplyResult {
     /// The old HTML after browser normalization.
     pub normalized_old: String,
     /// The new HTML after browser normalization (expected result).
@@ -122,9 +122,9 @@ pub struct RoundtripResult {
     pub patch_trace: Vec<PatchStep>,
 }
 
-/// Result of applying patches in the browser.
+/// Result of apply_patches.
 #[derive(Debug, Clone, Facet)]
-pub struct TestPatchResult {
+pub struct ApplyPatchesResult {
     /// The resulting HTML after applying patches.
     pub result_html: String,
     /// Normalized old HTML after browser parsing (innerHTML readback).

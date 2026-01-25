@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 
 use browser_proto::BrowserClient;
-pub use browser_proto::{DomNode, OwnedPatches, RoundtripResult, TestPatchResult};
+pub use browser_proto::{ApplyPatchesResult, ComputeAndApplyResult, DomNode, OwnedPatches};
 use chromiumoxide::{
     Browser, BrowserConfig,
     cdp::browser_protocol::network::{
@@ -100,15 +100,15 @@ macro_rules! log_lifecycle {
 
 /// Internal request enum covering all Browser service methods.
 enum BrowserRequest {
-    TestPatch {
+    ApplyPatches {
         old_html: String,
         patches: OwnedPatches,
-        response_tx: oneshot::Sender<Option<TestPatchResult>>,
+        response_tx: oneshot::Sender<Option<ApplyPatchesResult>>,
     },
-    TestRoundtrip {
+    ComputeAndApplyPatches {
         old_html: String,
         new_html: String,
-        response_tx: oneshot::Sender<Option<RoundtripResult>>,
+        response_tx: oneshot::Sender<Option<ComputeAndApplyResult>>,
     },
     ParseToDom {
         html: String,
@@ -130,13 +130,13 @@ fn get_channel() -> &'static mpsc::UnboundedSender<BrowserRequest> {
     })
 }
 
-/// Apply patches to HTML in the browser (blocking, synchronous).
+/// Apply pre-computed patches to HTML in the browser (blocking, synchronous).
 ///
 /// Returns `None` if the browser connection failed.
-pub fn test_patch(old_html: String, patches: OwnedPatches) -> Option<TestPatchResult> {
+pub fn apply_patches(old_html: String, patches: OwnedPatches) -> Option<ApplyPatchesResult> {
     let (response_tx, response_rx) = oneshot::channel();
     get_channel()
-        .send(BrowserRequest::TestPatch {
+        .send(BrowserRequest::ApplyPatches {
             old_html,
             patches,
             response_tx,
@@ -145,13 +145,16 @@ pub fn test_patch(old_html: String, patches: OwnedPatches) -> Option<TestPatchRe
     response_rx.blocking_recv().unwrap()
 }
 
-/// Full roundtrip test in browser (blocking, synchronous).
+/// Compute and apply patches in the browser (blocking, synchronous).
 ///
 /// Returns `None` if the browser connection failed.
-pub fn test_roundtrip(old_html: String, new_html: String) -> Option<RoundtripResult> {
+pub fn compute_and_apply_patches(
+    old_html: String,
+    new_html: String,
+) -> Option<ComputeAndApplyResult> {
     let (response_tx, response_rx) = oneshot::channel();
     get_channel()
-        .send(BrowserRequest::TestRoundtrip {
+        .send(BrowserRequest::ComputeAndApplyPatches {
             old_html,
             new_html,
             response_tx,
@@ -338,29 +341,29 @@ async fn run_browser_worker(mut rx: mpsc::UnboundedReceiver<BrowserRequest>) {
         let client = BrowserClient::new(handle);
 
         match req {
-            BrowserRequest::TestPatch {
+            BrowserRequest::ApplyPatches {
                 old_html,
                 patches,
                 response_tx,
-            } => match client.test_patch(old_html, patches).await {
+            } => match client.apply_patches(old_html, patches).await {
                 Ok(result) => {
                     let _ = response_tx.send(Some(result));
                 }
                 Err(e) => {
-                    log_lifecycle!("[thrall] test_patch error: {:?}", e);
+                    log_lifecycle!("[thrall] apply_patches error: {:?}", e);
                     let _ = response_tx.send(None);
                 }
             },
-            BrowserRequest::TestRoundtrip {
+            BrowserRequest::ComputeAndApplyPatches {
                 old_html,
                 new_html,
                 response_tx,
-            } => match client.test_roundtrip(old_html, new_html).await {
+            } => match client.compute_and_apply_patches(old_html, new_html).await {
                 Ok(result) => {
                     let _ = response_tx.send(Some(result));
                 }
                 Err(e) => {
-                    log_lifecycle!("[thrall] test_roundtrip error: {:?}", e);
+                    log_lifecycle!("[thrall] compute_and_apply_patches error: {:?}", e);
                     let _ = response_tx.send(None);
                 }
             },
