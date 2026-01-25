@@ -2216,4 +2216,67 @@ mod tests {
             other => panic!("Expected Element, got {:?}", other),
         }
     }
+
+    #[test]
+    fn test_dt_dd_outside_dl() {
+        // Test <dt> and <dd> parsing outside of <dl> context
+        // These have special rules about auto-closing and tree construction
+        //
+        // Chrome produces: <s></s><dt><s></s></dt><dd></dd>
+        // Need to verify html5ever matches
+        let html = t("<!DOCTYPE html><html><body><s><dt></s><dd></body></html>");
+        trace!(%html, "Input");
+        let doc = parse(&html);
+        let body_html = doc.to_body_html();
+        trace!(%body_html, "Body HTML");
+
+        // Chrome output: <s></s><dt><s></s></dt><dd></dd>
+        // The <dt> causes <s> to close, then </s> reopens and closes inside <dt>
+        assert_eq!(
+            body_html, "<s></s><dt><s></s></dt><dd></dd>",
+            "Should match browser output for dt/dd outside dl"
+        );
+    }
+
+    #[test]
+    fn test_dt_dd_nested_s() {
+        // Test nested <s> with dt/dd
+        // Chrome: <s><s></s><dt><s></s></dt><dd></dd></s>
+        let html = t("<!DOCTYPE html><html><body><s><s><dt/></s><dd></body></html>");
+        let doc = parse(&html);
+        let body_html = doc.to_body_html();
+        trace!(%body_html, "nested s dt dd");
+        assert_eq!(
+            body_html, "<s><s></s><dt><s></s></dt><dd></dd></s>",
+            "nested s with dt/dd"
+        );
+    }
+
+    #[test]
+    fn test_dt_dd_with_custom_tag() {
+        // Test with custom tag name <s?>
+        // Chrome: <s><s?></s?></s><dt><s></s></dt><dd></dd>
+        let html = t("<!DOCTYPE html><html><body><s><s?><dt/></s><dd></body></html>");
+        let doc = parse(&html);
+        let body_html = doc.to_body_html();
+        trace!(%body_html, "s s? dt dd");
+        assert_eq!(
+            body_html, "<s><s?></s?></s><dt><s></s></dt><dd></dd>",
+            "s with custom s? and dt/dd"
+        );
+    }
+
+    #[test]
+    fn test_malformed_close_tag_with_slash() {
+        // Test </S/<DD> - malformed close tag with slash
+        // Chrome: <s></s><dt><s></s></dt>  (no dd!)
+        let html = t("<!DOCTYPE html><html><body><s><DT/></S/<DD></body></html>");
+        let doc = parse(&html);
+        let body_html = doc.to_body_html();
+        trace!(%body_html, "malformed close tag");
+        assert_eq!(
+            body_html, "<s></s><dt><s></s></dt>",
+            "malformed </S/ should eat the <DD>"
+        );
+    }
 }

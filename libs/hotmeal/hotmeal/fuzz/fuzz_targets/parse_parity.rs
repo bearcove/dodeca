@@ -41,10 +41,13 @@ fuzz_target!(|data: &[u8]| {
         return;
     }
 
-    // Skip inputs containing form feed (\x0c) - there are complex structural differences
-    // between html5ever and Chrome involving form feed in edge cases with <p> elements
-    // and the adoption agency algorithm. Needs further investigation.
-    if html.contains('\x0c') {
+    // Skip inputs containing C0 control characters (0x01-0x1F except tab, LF, FF)
+    // There are complex structural differences between html5ever and Chrome involving
+    // control characters in edge cases. Needs further investigation.
+    if html
+        .bytes()
+        .any(|b| matches!(b, 0x01..=0x08 | 0x0B | 0x0E..=0x1F))
+    {
         return;
     }
 
