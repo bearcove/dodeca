@@ -355,10 +355,10 @@ pub fn setup_tracing() {
                     tracing_subscriber::fmt::layer()
                         .with_ansi(true)
                         .with_timer(Uptime::default())
-                        .with_target(false)
+                        .with_target(true)
                         .with_level(true)
-                        .with_file(false)
-                        .with_line_number(false)
+                        .with_file(true)
+                        .with_line_number(true)
                         .compact(),
                 )
                 .with(filter)

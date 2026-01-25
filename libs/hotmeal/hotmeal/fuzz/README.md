@@ -25,7 +25,7 @@ cargo fuzz run parse_parity
 Tests that patches computed natively produce the same results when applied via browser DOM APIs. This catches any differences between hotmeal's native patch application and the browser's DOM manipulation.
 
 ```bash
-cargo fuzz run apply_parity
+RUST_MIN_STACK=16777216 cargo fuzz run apply_parity -- -dict=html.dict -max_len=65536
 ```
 
 ### `apply_structured`

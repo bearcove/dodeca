@@ -6,6 +6,9 @@ edition = "2024"
 description = "Control browsers from Rust tests"
 
 [dependencies]
+facet-format = { git = "https://github.com/facet-rs/facet", branch = "main", features = [
+  "tracing",
+] }
 tokio = { version = "1", features = ["full", "sync", "rt-multi-thread"] }
 chromiumoxide = { version = "0.7", features = [
   "tokio-runtime",

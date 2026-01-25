@@ -12,6 +12,10 @@ pub fn document_body_to_dom_node(doc: &Document) -> Option<DomNode> {
     Some(node_to_dom_node(doc, body))
 }
 
+/// Attributes allowed on <html> element per HTML spec.
+/// Browsers strip any other attributes set via innerHTML.
+const HTML_ELEMENT_ALLOWED_ATTRS: &[&str] = &["lang", "dir", "class", "id", "style"];
+
 fn node_to_dom_node(doc: &Document, node_id: hotmeal::NodeId) -> DomNode {
     let node = doc.get(node_id);
     match &node.kind {
@@ -20,8 +24,21 @@ fn node_to_dom_node(doc: &Document, node_id: hotmeal::NodeId) -> DomNode {
             let mut attrs: Vec<DomAttr> = elem
                 .attrs
                 .iter()
+                .filter(|(qname, _)| {
+                    // Strip non-standard attributes from <html> element to match browser behavior
+                    if tag == "html" {
+                        HTML_ELEMENT_ALLOWED_ATTRS.contains(&qname.local.as_ref())
+                    } else {
+                        true
+                    }
+                })
                 .map(|(qname, value)| DomAttr {
-                    name: qname.local.to_string(),
+                    name: match &qname.prefix {
+                        Some(prefix) if !prefix.is_empty() => {
+                            format!("{}:{}", prefix, qname.local)
+                        }
+                        _ => qname.local.to_string(),
+                    },
                     value: value.as_ref().to_string(),
                 })
                 .collect();
