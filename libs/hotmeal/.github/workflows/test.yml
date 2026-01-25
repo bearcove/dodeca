@@ -109,3 +109,31 @@ jobs:
       - name: Run browser tests
         working-directory: hotmeal-wasm
         run: pnpm test
+
+  test-browser-fuzz:
+    runs-on: depot-ubuntu-24.04-4
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack
+
+      - name: Build browser-wasm bundle
+        working-directory: hotmeal/fuzz/browser-wasm
+        run: wasm-pack build --target web --out-dir ../browser-bundle/dist
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: Run browser tests
+        working-directory: hotmeal/fuzz
+        run: cargo nextest run -E 'test(browser)' --no-capture -j1

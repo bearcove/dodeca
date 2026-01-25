@@ -212,7 +212,7 @@ pub struct PropChange<'a> {
 }
 
 /// Operations to transform the DOM.
-#[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
+#[derive(Clone, PartialEq, Eq, facet::Facet)]
 #[repr(u8)]
 pub enum Patch<'a> {
     /// Insert an element at a position.
@@ -274,6 +274,99 @@ pub enum Patch<'a> {
         path: NodePath,
         changes: Vec<PropChange<'a>>,
     },
+}
+
+impl<'a> std::fmt::Debug for Patch<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Patch::InsertElement {
+                at,
+                tag,
+                attrs,
+                children,
+                detach_to_slot,
+            } => {
+                write!(f, "Insert <{}> @{:?}", tag, at.0.0.as_slice())?;
+                if !attrs.is_empty() {
+                    write!(f, " ({} attrs)", attrs.len())?;
+                }
+                if !children.is_empty() {
+                    write!(f, " ({} children)", children.len())?;
+                }
+                if let Some(slot) = detach_to_slot {
+                    write!(f, " →slot{}", slot)?;
+                }
+                Ok(())
+            }
+            Patch::InsertText {
+                at,
+                text,
+                detach_to_slot,
+            } => {
+                let preview: String = text.chars().take(20).collect();
+                write!(f, "Insert text {:?} @{:?}", preview, at.0.0.as_slice())?;
+                if let Some(slot) = detach_to_slot {
+                    write!(f, " →slot{}", slot)?;
+                }
+                Ok(())
+            }
+            Patch::InsertComment {
+                at,
+                text,
+                detach_to_slot,
+            } => {
+                let preview: String = text.chars().take(20).collect();
+                write!(f, "Insert comment {:?} @{:?}", preview, at.0.0.as_slice())?;
+                if let Some(slot) = detach_to_slot {
+                    write!(f, " →slot{}", slot)?;
+                }
+                Ok(())
+            }
+            Patch::Remove { node } => {
+                write!(f, "Remove @{:?}", node.0.0.as_slice())
+            }
+            Patch::SetText { path, text } => {
+                let preview: String = text.chars().take(20).collect();
+                write!(f, "SetText {:?} @{:?}", preview, path.0.as_slice())
+            }
+            Patch::SetAttribute { path, name, value } => {
+                write!(
+                    f,
+                    "SetAttr {}={:?} @{:?}",
+                    name.local,
+                    value.as_ref(),
+                    path.0.as_slice()
+                )
+            }
+            Patch::RemoveAttribute { path, name } => {
+                write!(f, "RemoveAttr {} @{:?}", name.local, path.0.as_slice())
+            }
+            Patch::Move {
+                from,
+                to,
+                detach_to_slot,
+            } => {
+                write!(
+                    f,
+                    "Move {:?} → {:?}",
+                    from.0.0.as_slice(),
+                    to.0.0.as_slice()
+                )?;
+                if let Some(slot) = detach_to_slot {
+                    write!(f, " →slot{}", slot)?;
+                }
+                Ok(())
+            }
+            Patch::UpdateProps { path, changes } => {
+                write!(
+                    f,
+                    "UpdateProps @{:?} ({} changes)",
+                    path.0.as_slice(),
+                    changes.len()
+                )
+            }
+        }
+    }
 }
 
 /// Node kind in the HTML tree.
@@ -980,6 +1073,109 @@ struct ShadowTree<'a> {
     next_slot: u32,
 }
 
+/// Extract short node label like "n1" from NodeId debug output
+fn node_id_short(node_id: NodeId) -> String {
+    let debug = format!("{:?}", node_id);
+    let Some(start) = debug.find("index1: ") else {
+        return debug;
+    };
+    let digits = &debug[start + "index1: ".len()..];
+    let value: String = digits.chars().take_while(|c| c.is_ascii_digit()).collect();
+    if value.is_empty() {
+        debug
+    } else {
+        format!("n{}", value)
+    }
+}
+
+/// Helper for pretty-printing a shadow tree
+struct ShadowTreeDump<'a, 'b> {
+    shadow: &'b ShadowTree<'a>,
+    highlights: &'b [(NodeId, &'static str, &'static str)],
+}
+
+impl<'a, 'b> std::fmt::Display for ShadowTreeDump<'a, 'b> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (slot_num, slot_node) in self
+            .shadow
+            .super_root
+            .children(&self.shadow.arena)
+            .enumerate()
+        {
+            writeln!(f, "Slot {}:", slot_num)?;
+            for content in slot_node.children(&self.shadow.arena) {
+                self.fmt_node(f, content, 1)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<'a, 'b> ShadowTreeDump<'a, 'b> {
+    fn highlight_for(&self, node_id: NodeId) -> Option<(&'static str, &'static str)> {
+        self.highlights
+            .iter()
+            .find(|(id, _, _)| *id == node_id)
+            .map(|(_, color, label)| (*color, *label))
+    }
+
+    fn fmt_node(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+        node: NodeId,
+        depth: usize,
+    ) -> std::fmt::Result {
+        let indent = "  ".repeat(depth);
+        let node_label = node_id_short(node);
+        let prefix = format!("{indent}[{node_label}] ");
+        let data = &self.shadow.arena[node].get();
+
+        let highlight = self.highlight_for(node);
+        let (hl_start, hl_end, hl_label) = if let Some((color, label)) = highlight {
+            (color, "\x1b[0m", label)
+        } else {
+            ("", "", "")
+        };
+        let badge = if hl_label.is_empty() {
+            String::new()
+        } else {
+            format!(" {hl_start}<{hl_label}>{hl_end}")
+        };
+
+        match &data.kind {
+            HtmlNodeKind::Element(tag, _ns) => {
+                let tag_display = if hl_start.is_empty() {
+                    tag.to_string()
+                } else {
+                    format!("{hl_start}{tag}{hl_end}")
+                };
+                writeln!(f, "{prefix}<{tag_display}>{badge}")?;
+                for child in node.children(&self.shadow.arena) {
+                    self.fmt_node(f, child, depth + 1)?;
+                }
+                writeln!(f, "{prefix}</{tag_display}>")?;
+            }
+            HtmlNodeKind::Text => {
+                let text = data.text.as_deref().unwrap_or("");
+                writeln!(f, "{prefix}TEXT: {text:?}{badge}")?;
+                // Placeholders are TEXT nodes but may have children
+                for child in node.children(&self.shadow.arena) {
+                    self.fmt_node(f, child, depth + 1)?;
+                }
+            }
+            HtmlNodeKind::Comment => {
+                let text = data.text.as_deref().unwrap_or("");
+                writeln!(f, "{prefix}COMMENT: {text:?}{badge}")?;
+                // Slots are COMMENT nodes with children
+                for child in node.children(&self.shadow.arena) {
+                    self.fmt_node(f, child, depth + 1)?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 impl<'a> ShadowTree<'a> {
     fn new(
         mut arena: indextree::Arena<NodeData<HtmlTreeTypes<'a>>>,
@@ -1122,37 +1318,71 @@ impl<'a> ShadowTree<'a> {
         node.detach(&mut self.arena);
     }
 
-    /// Pretty-print the shadow tree for debugging.
-    #[allow(dead_code)]
-    fn debug_print_tree(&self, _title: &str) {
-        debug!("=== {} ===", _title);
-        for (_slot_num, slot_node) in self.super_root.children(&self.arena).enumerate() {
-            debug!("Slot {}:", _slot_num);
-            for content in slot_node.children(&self.arena) {
-                self.debug_print_node(content, 1);
+    /// Check if `ancestor` is an ancestor of `node`.
+    fn is_ancestor(&self, ancestor: NodeId, node: NodeId) -> bool {
+        let mut current = node;
+        while let Some(parent) = self.arena.get(current).and_then(|n| n.parent()) {
+            if parent == ancestor {
+                return true;
             }
+            current = parent;
         }
-        debug!("===");
+        false
     }
 
-    fn debug_print_node(&self, node: NodeId, depth: usize) {
-        let _indent = "  ".repeat(depth);
-        let data = &self.arena[node].get();
-        let _kind_str = match &data.kind {
-            HtmlNodeKind::Element(tag, _ns) => format!("<{}>", tag),
-            HtmlNodeKind::Text => {
-                let text = data.text.as_deref().unwrap_or("");
-                format!("#text({:?})", text.chars().take(20).collect::<String>())
-            }
-            HtmlNodeKind::Comment => {
-                let text = data.text.as_deref().unwrap_or("");
-                format!("#comment({:?})", text.chars().take(20).collect::<String>())
-            }
-        };
-        debug!("{}{:?} {}", _indent, node, _kind_str);
-        for child in node.children(&self.arena) {
-            self.debug_print_node(child, depth + 1);
+    /// Replace a node with a placeholder, returning the placeholder's NodeId.
+    /// The node's children are reparented under the placeholder.
+    fn replace_with_placeholder(&mut self, node: NodeId) -> NodeId {
+        debug!(
+            ?node,
+            node_kind = %self.arena[node].get().kind,
+            "replace_with_placeholder: replacing node"
+        );
+        let placeholder = self.arena.new_node(NodeData {
+            hash: NodeHash(0),
+            kind: HtmlNodeKind::Text,
+            properties: HtmlProps::default(),
+            text: None,
+        });
+        // Insert placeholder as sibling of node
+        node.insert_before(placeholder, &mut self.arena);
+        // Move all children from node to placeholder
+        let children: Vec<_> = node.children(&self.arena).collect();
+        debug!(
+            children_count = children.len(),
+            "replace_with_placeholder: moving children to placeholder"
+        );
+        for child in children {
+            child.detach(&mut self.arena);
+            placeholder.append(child, &mut self.arena);
         }
+        // Now detach the empty node
+        node.detach(&mut self.arena);
+        debug!(?placeholder, "replace_with_placeholder: done");
+        placeholder
+    }
+
+    /// Pretty-print the shadow tree for debugging.
+    #[allow(dead_code)]
+    fn debug_print_tree(&self, title: &str) {
+        self.debug_print_tree_with_highlights(title, &[]);
+    }
+
+    /// Pretty-print the shadow tree with highlighted nodes.
+    #[allow(dead_code)]
+    fn debug_print_tree_with_highlights(
+        &self,
+        title: &str,
+        highlights: &[(NodeId, &'static str, &'static str)],
+    ) {
+        debug!(
+            "=== {} ===\n{}",
+            title,
+            ShadowTreeDump {
+                shadow: self,
+                highlights
+            }
+        );
     }
 
     /// Insert a new node at a position, handling displacement via slots.
@@ -1205,18 +1435,37 @@ impl<'a> ShadowTree<'a> {
         new_parent: NodeId,
         position: usize,
     ) -> Option<u32> {
-        // Check if node is a direct child of a slot (i.e., a slot root).
-        // In that case, we just detach it without a placeholder.
-        let parent = self.arena.get(node).and_then(|n| n.parent());
-        let is_slot_root = parent
-            .is_some_and(|p| self.arena.get(p).and_then(|n| n.parent()) == Some(self.super_root));
-
-        if !is_slot_root {
-            // Node is deeper in the tree - detach with placeholder to prevent shifts
-            self.detach_with_placeholder(node);
+        // CRITICAL: If node is an ancestor of new_parent, we must replace node with
+        // a placeholder FIRST. Otherwise, insert_before would create a cycle in the
+        // tree (indextree's insert_before doesn't check for cycles like append does).
+        //
+        // Example: moving A under C when the tree is A -> B -> C
+        //   1. Replace A with placeholder: (P) -> B -> C, A is detached
+        //   2. Now we can safely insert A under C: (P) -> B -> C -> A
+        let is_ancestor = self.is_ancestor(node, new_parent);
+        debug!(
+            ?node,
+            ?new_parent,
+            is_ancestor,
+            "move_to_position: checking ancestry"
+        );
+        if is_ancestor {
+            self.replace_with_placeholder(node);
         } else {
-            // Node is a slot root - just detach it
-            node.detach(&mut self.arena);
+            // Check if node is a direct child of a slot (i.e., a slot root).
+            // In that case, we just detach it without a placeholder.
+            let parent = self.arena.get(node).and_then(|n| n.parent());
+            let is_slot_root = parent.is_some_and(|p| {
+                self.arena.get(p).and_then(|n| n.parent()) == Some(self.super_root)
+            });
+
+            if !is_slot_root {
+                // Node is deeper in the tree - detach with placeholder to prevent shifts
+                self.detach_with_placeholder(node);
+            } else {
+                // Node is a slot root - just detach it
+                node.detach(&mut self.arena);
+            }
         }
 
         // Now insert at target position
@@ -1478,7 +1727,73 @@ fn convert_ops_with_shadow<'a, T: DiffTree<Types = HtmlTreeTypes<'a>>>(
                     "Move: starting"
                 );
 
-                // Get source reference
+                // CRITICAL: If node_a is an ancestor of shadow_new_parent, we need special handling.
+                // In the DOM, moving a node moves its entire subtree. So we can't directly move
+                // an ancestor under its descendant - we'd be moving the descendant too!
+                //
+                // Solution: First move all children of node_a to node_a's parent position,
+                // then move the (now childless) node_a under the descendant.
+                let is_ancestor = shadow.is_ancestor(node_a, shadow_new_parent);
+                if is_ancestor {
+                    debug!(
+                        ?node_a,
+                        ?shadow_new_parent,
+                        "Move: ancestor case - reparenting children first"
+                    );
+
+                    // Get the parent of node_a and the position of node_a within that parent
+                    let node_a_parent = shadow
+                        .arena
+                        .get(node_a)
+                        .and_then(|n| n.parent())
+                        .expect("node_a should have a parent");
+                    let node_a_position = node_a_parent
+                        .children(&shadow.arena)
+                        .position(|c| c == node_a)
+                        .unwrap_or(0);
+
+                    // Collect children of node_a (they need to be moved to node_a's position)
+                    let children: Vec<_> = node_a.children(&shadow.arena).collect();
+
+                    // Move each child to node_a's parent, right after node_a's position
+                    // We process in reverse order so positions stay stable
+                    for (i, child) in children.iter().enumerate().rev() {
+                        let child_from = shadow.get_node_ref(*child);
+                        let child_position = node_a_position + 1 + i;
+
+                        // Move child in shadow tree (simple detach since we're moving to sibling position)
+                        shadow.detach_with_placeholder(*child);
+
+                        // Insert after node_a
+                        let siblings: Vec<_> = node_a_parent.children(&shadow.arena).collect();
+                        if child_position < siblings.len() {
+                            siblings[child_position].insert_before(*child, &mut shadow.arena);
+                        } else {
+                            node_a_parent.append(*child, &mut shadow.arena);
+                        }
+
+                        let child_to =
+                            shadow.get_node_ref_with_position(node_a_parent, child_position);
+
+                        debug!(
+                            ?child,
+                            ?child_from,
+                            ?child_to,
+                            "Move: reparenting child of ancestor"
+                        );
+
+                        result.push(Patch::Move {
+                            from: child_from,
+                            to: child_to,
+                            detach_to_slot: None,
+                        });
+                    }
+
+                    #[cfg(test)]
+                    shadow.debug_print_tree("After reparenting children");
+                }
+
+                // Get source reference (after any child reparenting)
                 debug!(?node_a, "Move: computing from reference for node");
                 let from = shadow.get_node_ref(node_a);
                 debug!(?node_a, ?from, "Move: computed from reference");
@@ -2534,6 +2849,68 @@ mod tests {
              <section><strong>break</strong></section>\
              <strong><svg width=\"29\"><circle></circle></svg></strong> end.<p></p></body></html>",
             "Output should match html5ever behavior"
+        );
+    }
+
+    /// Regression test for OOM caused by cycle in parent chain.
+    /// When moving a node under its own descendant, we must not create a cycle.
+    #[test]
+    fn test_move_parent_under_child_no_cycle() {
+        // Build a tree: A -> B -> C (A is grandparent of C)
+        // Then try to move A to position 0 under B, displacing C.
+        // This triggers insert_before which doesn't check for cycles.
+        let mut arena: indextree::Arena<NodeData<HtmlTreeTypes>> = indextree::Arena::new();
+
+        // Create nodes: body -> div_a -> div_b -> div_c
+        let body = arena.new_node(NodeData {
+            hash: NodeHash(0),
+            kind: HtmlNodeKind::Element(LocalName::from("body"), Namespace::Html),
+            properties: HtmlProps::default(),
+            text: None,
+        });
+        let div_a = arena.new_node(NodeData {
+            hash: NodeHash(0),
+            kind: HtmlNodeKind::Element(LocalName::from("div"), Namespace::Html),
+            properties: HtmlProps::default(),
+            text: None,
+        });
+        let div_b = arena.new_node(NodeData {
+            hash: NodeHash(0),
+            kind: HtmlNodeKind::Element(LocalName::from("div"), Namespace::Html),
+            properties: HtmlProps::default(),
+            text: None,
+        });
+        let div_c = arena.new_node(NodeData {
+            hash: NodeHash(0),
+            kind: HtmlNodeKind::Element(LocalName::from("div"), Namespace::Html),
+            properties: HtmlProps::default(),
+            text: None,
+        });
+
+        body.append(div_a, &mut arena);
+        div_a.append(div_b, &mut arena);
+        div_b.append(div_c, &mut arena);
+
+        // Structure: body -> div_a -> div_b -> div_c
+        let mut shadow = ShadowTree::new(arena, body);
+
+        shadow.debug_print_tree("Initial");
+
+        // Now try to move div_a to position 0 under div_b (moving parent under child)
+        // div_c is at position 0, so this triggers insert_before
+        // This should NOT create a cycle
+        shadow.move_to_position(div_a, div_b, 0);
+
+        shadow.debug_print_tree("After move");
+
+        // Verify no cycle by computing path - this would hang/OOM if there's a cycle
+        let path = shadow.compute_path(div_a);
+        debug!(?path, "Path to div_a after move");
+
+        // div_a should now be a child of div_b
+        assert!(
+            div_b.children(&shadow.arena).any(|c| c == div_a),
+            "div_a should be a child of div_b after move"
         );
     }
 }

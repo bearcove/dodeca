@@ -1,6 +1,6 @@
 use browser_proto::{
-    BrowserFuzzer, BrowserFuzzerDispatcher, DomAttr, DomNode, OwnedPatches, Patch, PatchStep,
-    RoundtripResult, TestPatchResult,
+    Browser, BrowserDispatcher, DomAttr, DomNode, OwnedPatches, Patch, PatchStep, RoundtripResult,
+    TestPatchResult,
 };
 use roam::Context;
 use roam_session::initiate_framed;
@@ -10,7 +10,7 @@ use wasm_bindgen::prelude::*;
 #[derive(Clone)]
 struct Handler;
 
-impl BrowserFuzzer for Handler {
+impl Browser for Handler {
     async fn test_patch(
         &self,
         _cx: &Context,
@@ -158,10 +158,10 @@ fn patches_have_invalid_attrs(patches: &[Patch]) -> bool {
             }
             Patch::UpdateProps { changes, .. } => {
                 for change in changes {
-                    if let hotmeal_wasm::PropKey::Attr(ref qn) = change.name {
-                        if !is_valid_attr_name(qn.local.as_ref()) {
-                            return true;
-                        }
+                    if let hotmeal_wasm::PropKey::Attr(ref qn) = change.name
+                        && !is_valid_attr_name(qn.local.as_ref())
+                    {
+                        return true;
                     }
                 }
             }
@@ -174,10 +174,10 @@ fn patches_have_invalid_attrs(patches: &[Patch]) -> bool {
 /// Check if any patch contains elements with invalid tag names.
 fn patches_have_invalid_tags(patches: &[Patch]) -> bool {
     for patch in patches {
-        if let Patch::InsertElement { tag, .. } = patch {
-            if !is_valid_tag_name(tag.as_ref()) {
-                return true;
-            }
+        if let Patch::InsertElement { tag, .. } = patch
+            && !is_valid_tag_name(tag.as_ref())
+        {
+            return true;
         }
     }
     false
@@ -246,11 +246,22 @@ fn run_roundtrip(old_html: &str, new_html: &str) -> Result<RoundtripResult, Stri
     // Apply patches one at a time, capturing state after each
     let mut slots = hotmeal_wasm::Slots::new();
     let mut patch_trace = Vec::with_capacity(patches.len());
+    let mut had_error = false;
 
     for (i, patch) in patches.iter().enumerate() {
         log(&format!("[browser-wasm] applying patch {}: {:?}", i, patch));
-        hotmeal_wasm::apply_patches_with_slots(&[patch.clone()], &mut slots)
-            .map_err(|e| format!("patch {} failed: {:?}", i, e))?;
+
+        let error = if had_error {
+            Some("skipped due to previous error".to_string())
+        } else {
+            match hotmeal_wasm::apply_patches_with_slots(std::slice::from_ref(patch), &mut slots) {
+                Ok(_) => None,
+                Err(e) => {
+                    had_error = true;
+                    Some(format!("{:?}", e))
+                }
+            }
+        };
 
         let html_after = body.inner_html();
         let dom_tree = node_to_dom_node(&body.clone().into());
@@ -260,6 +271,7 @@ fn run_roundtrip(old_html: &str, new_html: &str) -> Result<RoundtripResult, Stri
             patch_debug: format!("{:?}", patch),
             html_after,
             dom_tree,
+            error,
         });
     }
 
@@ -271,10 +283,7 @@ fn run_roundtrip(old_html: &str, new_html: &str) -> Result<RoundtripResult, Stri
         result_html, normalized_new
     ));
 
-    if result_html != normalized_new {
-        return Err("result doesn't match expected".to_string());
-    }
-
+    // Don't fail early - let the fuzzer compare traces
     Ok(RoundtripResult {
         normalized_old,
         normalized_new,
@@ -319,14 +328,22 @@ fn run_test(old_html: &str, patches: Vec<Patch<'static>>) -> Result<TestPatchRes
 
     let mut slots = hotmeal_wasm::Slots::new();
     let mut patch_trace = Vec::with_capacity(patches.len());
+    let mut had_error = false;
 
     for (i, patch) in patches.iter().enumerate() {
         log(&format!("[browser-wasm] applying patch {}: {:?}", i, patch));
-        hotmeal_wasm::apply_patches_with_slots(&[patch.clone()], &mut slots)
-            .map_err(|e| format!("patch {} failed: {:?}", i, e))?;
 
-        let html_after = hotmeal_wasm::get_body_inner_html()
-            .map_err(|e| format!("get_body_inner_html after patch {} failed: {:?}", i, e))?;
+        let error = if had_error {
+            Some("skipped due to previous error".to_string())
+        } else {
+            match hotmeal_wasm::apply_patches_with_slots(std::slice::from_ref(patch), &mut slots) {
+                Ok(_) => None,
+                Err(e) => {
+                    had_error = true;
+                    Some(format!("{:?}", e))
+                }
+            }
+        };
 
         let body = web_sys::window()
             .unwrap()
@@ -334,6 +351,7 @@ fn run_test(old_html: &str, patches: Vec<Patch<'static>>) -> Result<TestPatchRes
             .unwrap()
             .body()
             .unwrap();
+        let html_after = body.inner_html();
         let dom_tree = node_to_dom_node(&body.into());
 
         patch_trace.push(PatchStep {
@@ -341,6 +359,7 @@ fn run_test(old_html: &str, patches: Vec<Patch<'static>>) -> Result<TestPatchRes
             patch_debug: format!("{:?}", patch),
             html_after,
             dom_tree,
+            error,
         });
     }
 
@@ -369,7 +388,7 @@ pub async fn connect(port: u32) -> Result<(), JsValue> {
 
     web_sys::console::log_1(&"[browser-wasm] connected, starting handshake".into());
 
-    let dispatcher = BrowserFuzzerDispatcher::new(Handler);
+    let dispatcher = BrowserDispatcher::new(Handler);
     let (_handle, _incoming, driver) = initiate_framed(transport, Default::default(), dispatcher)
         .await
         .map_err(|e| format!("handshake failed: {:?}", e))?;

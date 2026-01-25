@@ -1,5 +1,7 @@
 #![deny(unsafe_code)]
 
+use std::fmt;
+
 use facet::Facet;
 use roam::service;
 
@@ -30,6 +32,38 @@ pub struct DomAttr {
     pub value: String,
 }
 
+impl fmt::Display for DomNode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fn write_indented(
+            node: &DomNode,
+            f: &mut fmt::Formatter<'_>,
+            indent: usize,
+        ) -> fmt::Result {
+            let prefix = "  ".repeat(indent);
+            match node {
+                DomNode::Element {
+                    tag,
+                    attrs,
+                    children,
+                } => {
+                    write!(f, "{}<{}", prefix, tag)?;
+                    for attr in attrs {
+                        write!(f, " {}={:?}", attr.name, attr.value)?;
+                    }
+                    writeln!(f, ">")?;
+                    for child in children {
+                        write_indented(child, f, indent + 1)?;
+                    }
+                    writeln!(f, "{}</{}>", prefix, tag)
+                }
+                DomNode::Text(text) => writeln!(f, "{}TEXT: {:?}", prefix, text),
+                DomNode::Comment(text) => writeln!(f, "{}COMMENT: {:?}", prefix, text),
+            }
+        }
+        write_indented(self, f, 0)
+    }
+}
+
 /// Wrapper for owned patches that can be sent over roam.
 #[derive(Debug, Clone, Facet)]
 pub struct OwnedPatches(pub Vec<Patch<'static>>);
@@ -39,7 +73,7 @@ pub struct OwnedPatches(pub Vec<Patch<'static>>);
 /// The browser receives old HTML and patches, applies them to the DOM,
 /// and returns the resulting HTML.
 #[service]
-pub trait BrowserFuzzer {
+pub trait Browser {
     /// Apply patches to HTML in the browser.
     ///
     /// The browser will:
@@ -109,22 +143,10 @@ pub struct PatchStep {
     pub index: u32,
     /// Debug representation of the patch being applied.
     pub patch_debug: String,
-    /// The innerHTML after applying this patch.
+    /// The innerHTML after applying this patch (or at failure).
     pub html_after: String,
-    /// Full DOM tree after applying this patch.
+    /// Full DOM tree after applying this patch (or at failure).
     pub dom_tree: DomNode,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use facet_testhelpers::test;
-    use hotmeal::{debug, trace};
-
-    #[test]
-    fn print_method_id() {
-        let id = browser_fuzzer_method_id::test_patch();
-        trace!(id = %id, "test_patch method ID");
-        let _ = id;
-    }
+    /// Error message if this patch failed, None if successful.
+    pub error: Option<String>,
 }

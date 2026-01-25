@@ -1,0 +1,22 @@
+[package]
+name = "thrall"
+version = "0.0.0"
+publish = false
+edition = "2024"
+description = "Control browsers from Rust tests"
+
+[dependencies]
+tokio = { version = "1", features = ["full", "sync", "rt-multi-thread"] }
+chromiumoxide = { version = "0.7", features = [
+  "tokio-runtime",
+  "_fetcher-rusttls-tokio",
+], default-features = false }
+tokio-tungstenite = "0.26"
+futures-util = "0.3"
+roam = { git = "https://github.com/bearcove/roam", branch = "main" }
+roam-websocket = { git = "https://github.com/bearcove/roam", branch = "main" }
+roam-stream = { git = "https://github.com/bearcove/roam", branch = "main" }
+browser-proto = { path = "../browser-proto" }
+libc = "0.2"
+dirs-next = "2"
+micro-http = "0.1"

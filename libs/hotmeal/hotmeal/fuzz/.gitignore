@@ -2,3 +2,4 @@
 corpus/
 artifacts/
 test-results/
+.tracey/

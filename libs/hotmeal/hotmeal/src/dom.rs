@@ -39,6 +39,9 @@ pub struct Document<'a> {
     /// Root node (usually `<html>` element)
     pub root: NodeId,
 
+    /// Errors encountered while parsing
+    pub errors: Vec<Cow<'static, str>>,
+
     /// DOCTYPE if present (usually "html")
     pub doctype: Option<Stem<'a>>,
 }
@@ -80,6 +83,7 @@ impl<'a> Document<'a> {
         Document {
             arena,
             root: html,
+            errors: Default::default(),
             doctype: None,
         }
     }
@@ -87,6 +91,23 @@ impl<'a> Document<'a> {
     /// Get immutable reference to node data
     pub fn get(&self, id: NodeId) -> &NodeData<'a> {
         self.arena[id].get()
+    }
+
+    /// Get a human-readable label for a node (for debugging)
+    fn node_label(&self, id: NodeId) -> String {
+        let data = self.get(id);
+        match &data.kind {
+            NodeKind::Element(elem) => format!("<{}>", elem.tag),
+            NodeKind::Text(t) => {
+                let preview: String = t.chars().take(10).collect();
+                format!("text({:?})", preview)
+            }
+            NodeKind::Comment(t) => {
+                let preview: String = t.chars().take(10).collect();
+                format!("comment({:?})", preview)
+            }
+            NodeKind::Document => "#document".to_string(),
+        }
     }
 
     /// Get mutable reference to node data
@@ -405,13 +426,30 @@ impl<'a> Document<'a> {
         Ok(())
     }
 
+    /// Initialize slot map for patch application.
+    pub fn init_patch_slots(&mut self) -> HashMap<u32, NodeId> {
+        let mut slots: HashMap<u32, NodeId> = HashMap::new();
+        let body_id = self.body().unwrap_or_else(|| self.ensure_body());
+        slots.insert(0, body_id);
+        slots
+    }
+
+    /// Apply a single patch using a caller-provided slot map.
+    pub fn apply_patch_with_slots(
+        &mut self,
+        patch: Patch<'a>,
+        slots: &mut HashMap<u32, NodeId>,
+    ) -> Result<(), DiffError> {
+        self.apply_patch(patch, slots)
+    }
+
     #[allow(clippy::too_many_lines)]
     fn apply_patch(
         &mut self,
         patch: Patch<'a>,
         slots: &mut HashMap<u32, NodeId>,
     ) -> Result<(), DiffError> {
-        debug!("Applying patch: {:#?}", patch);
+        debug!("Applying patch: {:?}", patch);
         match patch {
             Patch::InsertElement {
                 at,
@@ -603,16 +641,22 @@ impl<'a> Document<'a> {
         let (parent_id, position) = self.get_slot_parent(path, slots)?;
 
         debug!(
-            "insert_at: path={:?}, parent={:?}, position={}",
-            path, parent_id, position
+            "insert_at: path={:?} parent={} pos={}",
+            path,
+            self.node_label(parent_id),
+            position
         );
 
         if let Some(slot) = detach_to_slot {
             let children: Vec<_> = parent_id.children(&self.arena).collect();
             debug!(
-                "insert_at: detaching at position {}, children.len()={}",
+                "insert_at: detaching child {} at pos {} to slot{}",
+                children
+                    .get(position)
+                    .map(|c| self.node_label(*c))
+                    .unwrap_or_else(|| "?".to_string()),
                 position,
-                children.len()
+                slot
             );
             if position < children.len() {
                 let displaced = children[position];
@@ -635,11 +679,11 @@ impl<'a> Document<'a> {
         let children: Vec<_> = parent_id.children(&self.arena).collect();
 
         debug!(
-            "insert_at_position: parent={:?}, position={}, children.len()={}, node_to_insert={:?}",
-            parent_id,
+            "insert_at_position: {} under {} at pos {} (has {} children)",
+            self.node_label(node_to_insert),
+            self.node_label(parent_id),
             position,
-            children.len(),
-            node_to_insert
+            children.len()
         );
 
         // Chawathe semantics: fill gaps with empty text nodes
@@ -970,6 +1014,9 @@ struct ArenaSink<'a> {
     /// Document node (parent of `<html>`)
     document: NodeId,
 
+    /// Parse errors
+    errors: RefCell<Vec<Cow<'static, str>>>,
+
     /// DOCTYPE encountered during parse
     doctype: RefCell<Option<Stem<'a>>>,
 }
@@ -1135,6 +1182,7 @@ impl<'a> ArenaSink<'a> {
             arena: RefCell::new(arena),
             document,
             doctype: RefCell::new(None),
+            errors: Default::default(),
         }
     }
 
@@ -1166,11 +1214,12 @@ impl<'a> TreeSink for ArenaSink<'a> {
             arena,
             root,
             doctype: self.doctype.into_inner(),
+            errors: self.errors.into_inner(),
         }
     }
 
-    fn parse_error(&self, _msg: Cow<'static, str>) {
-        // Ignore parse errors (html5ever recovers automatically)
+    fn parse_error(&self, msg: Cow<'static, str>) {
+        self.errors.borrow_mut().push(msg);
     }
 
     fn get_document(&self) -> Self::Handle {

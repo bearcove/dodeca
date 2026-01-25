@@ -5,10 +5,13 @@ publish = false
 edition = "2024"
 
 [workspace]
-members = ["browser-proto", "browser-wasm"]
+members = ["browser-proto", "browser-wasm", "thrall"]
 
 [package.metadata]
 cargo-fuzz = true
+
+[lib]
+path = "src/lib.rs"
 
 [dependencies]
 libfuzzer-sys = "0.4"
@@ -22,36 +25,45 @@ roam = { git = "https://github.com/bearcove/roam", branch = "main" }
 roam-websocket = { git = "https://github.com/bearcove/roam", branch = "main" }
 roam-stream = { git = "https://github.com/bearcove/roam", branch = "main" }
 browser-proto = { path = "browser-proto" }
+thrall = { path = "thrall" }
 libc = "0.2"
 similar = "2.7"
+facet-testhelpers = { git = "https://github.com/facet-rs/facet", branch = "main" }
 
 [dependencies.hotmeal]
 path = ".."
 
+# Native diff+apply roundtrip (no browser)
 [[bin]]
-name = "roundtrip"
-path = "fuzz_targets/roundtrip.rs"
+name = "apply"
+path = "fuzz_targets/apply.rs"
 test = false
 doc = false
 bench = false
 
+# Structured DOM generation + native diff+apply
 [[bin]]
-name = "mutate"
-path = "fuzz_targets/mutate.rs"
+name = "apply_structured"
+path = "fuzz_targets/apply_structured.rs"
 test = false
 doc = false
 bench = false
 
+# html5ever vs browser DOMParser comparison
 [[bin]]
-name = "browser"
-path = "fuzz_targets/browser.rs"
+name = "parse_parity"
+path = "fuzz_targets/parse_parity.rs"
 test = false
 doc = false
 bench = false
 
+# Native diff + browser apply, step-by-step DOM comparison
 [[bin]]
-name = "browser2"
-path = "fuzz_targets/browser2.rs"
+name = "apply_parity"
+path = "fuzz_targets/apply_parity.rs"
 test = false
 doc = false
 bench = false
+
+[features]
+tracing = ["hotmeal/tracing"]

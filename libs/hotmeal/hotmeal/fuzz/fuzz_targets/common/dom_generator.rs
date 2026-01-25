@@ -1,7 +1,12 @@
-#![no_main]
+//! Structured DOM generator for fuzzing.
+//!
+//! Generates realistic HTML documents with proper tag names, attributes,
+//! SVG elements, etc. using the `Arbitrary` trait.
+
+#![allow(private_interfaces)]
+#![allow(non_snake_case)] // SVG attributes like viewBox, patternUnits, etc.
 
 use arbitrary::{Arbitrary, Unstructured};
-use libfuzzer_sys::fuzz_target;
 
 // =============================================================================
 // CHAOS MODE: Truly arbitrary DOM generation
@@ -234,7 +239,7 @@ impl<'a> Arbitrary<'a> for ChaosElement {
 }
 
 #[derive(Arbitrary, Debug, Clone)]
-enum ChaosNode {
+pub enum ChaosNode {
     Text(ArbitraryText),
     Comment(ArbitraryText),
     Element(Box<ChaosElement>),
@@ -269,7 +274,7 @@ impl ChaosNode {
                 }
 
                 if el.is_void {
-                    html.push_str(">");
+                    html.push('>');
                 } else {
                     html.push('>');
                     for child in &el.children {
@@ -290,7 +295,7 @@ impl ChaosNode {
 // =============================================================================
 
 #[derive(Arbitrary, Debug, Clone)]
-enum ExtendedNode {
+pub enum ExtendedNode {
     // Original nodes
     Text(FuzzText),
     Comment(FuzzText),
@@ -2368,15 +2373,15 @@ impl ExtendedNode {
                 children,
             } => {
                 let mut attrs = String::new();
-                if let Some(c) = colspan {
-                    if *c > 1 {
-                        attrs.push_str(&format!(" colspan=\"{}\"", c));
-                    }
+                if let Some(c) = colspan
+                    && *c > 1
+                {
+                    attrs.push_str(&format!(" colspan=\"{}\"", c));
                 }
-                if let Some(r) = rowspan {
-                    if *r > 1 {
-                        attrs.push_str(&format!(" rowspan=\"{}\"", r));
-                    }
+                if let Some(r) = rowspan
+                    && *r > 1
+                {
+                    attrs.push_str(&format!(" rowspan=\"{}\"", r));
                 }
                 format!("<td{}>{}</td>", attrs, fmt_children(children, 3))
             }
@@ -2814,7 +2819,7 @@ impl ExtendedNode {
 // =============================================================================
 
 #[derive(Arbitrary, Debug, Clone)]
-enum Doctype {
+pub enum Doctype {
     None,
     Html5,
     Html4Strict,
@@ -2841,7 +2846,7 @@ impl Doctype {
 }
 
 #[derive(Arbitrary, Debug)]
-enum FuzzMode {
+pub enum FuzzMode {
     /// Extended realistic mode with all HTML/SVG elements
     Extended {
         old_doctype: Doctype,
@@ -2866,12 +2871,12 @@ enum FuzzMode {
 }
 
 #[derive(Arbitrary, Debug)]
-struct FuzzInput {
-    mode: FuzzMode,
-    add_invalid_nesting: bool,
+pub struct FuzzInput {
+    pub mode: FuzzMode,
+    pub add_invalid_nesting: bool,
 }
 
-fn extended_nodes_to_html(
+pub fn extended_nodes_to_html(
     nodes: &[ExtendedNode],
     doctype: &Doctype,
     add_invalid_nesting: bool,
@@ -2889,7 +2894,7 @@ fn extended_nodes_to_html(
     format!("{}<html><body>{}</body></html>", doctype.as_str(), inner)
 }
 
-fn chaos_nodes_to_html(
+pub fn chaos_nodes_to_html(
     nodes: &[ChaosNode],
     doctype: &Doctype,
     add_invalid_nesting: bool,
@@ -2906,52 +2911,3 @@ fn chaos_nodes_to_html(
 
     format!("{}<html><body>{}</body></html>", doctype.as_str(), inner)
 }
-
-fuzz_target!(|input: FuzzInput| {
-    let (old_html, new_html) = match &input.mode {
-        FuzzMode::Extended {
-            old_doctype,
-            old,
-            new_doctype,
-            new,
-        } => (
-            extended_nodes_to_html(old, old_doctype, input.add_invalid_nesting),
-            extended_nodes_to_html(new, new_doctype, false),
-        ),
-        FuzzMode::Chaos {
-            old_doctype,
-            old,
-            new_doctype,
-            new,
-        } => (
-            chaos_nodes_to_html(old, old_doctype, input.add_invalid_nesting),
-            chaos_nodes_to_html(new, new_doctype, false),
-        ),
-        FuzzMode::Mixed {
-            old_doctype,
-            old,
-            new_doctype,
-            new,
-        } => (
-            extended_nodes_to_html(old, old_doctype, input.add_invalid_nesting),
-            chaos_nodes_to_html(new, new_doctype, false),
-        ),
-    };
-
-    let old_tendril = hotmeal::StrTendril::from(old_html.clone());
-    let new_tendril = hotmeal::StrTendril::from(new_html.clone());
-
-    let patches = hotmeal::diff_html(&old_tendril, &new_tendril).expect("diff failed");
-    let mut doc = hotmeal::parse(&old_tendril);
-    doc.apply_patches(patches.clone()).expect("apply failed");
-
-    let result = doc.to_html_without_doctype();
-    let expected_doc = hotmeal::parse(&new_tendril);
-    let expected = expected_doc.to_html_without_doctype();
-
-    assert_eq!(
-        result, expected,
-        "Roundtrip failed!\nOld: {}\nNew: {}\nPatches: {:?}",
-        old_html, new_html, patches
-    );
-});
