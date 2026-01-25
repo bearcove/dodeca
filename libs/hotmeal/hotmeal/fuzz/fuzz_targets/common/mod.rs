@@ -76,6 +76,13 @@ fn is_valid_for_browser_parity(html: &str) -> bool {
         return false;
     }
 
+    // Skip inputs containing <details> - the adoption agency algorithm for formatting
+    // elements (like <i>, <b>, <a>) interacts differently with <details> boundaries
+    // between html5ever and browsers
+    if html.to_ascii_lowercase().contains("<details") {
+        return false;
+    }
+
     // Skip inputs containing DOCTYPE in body context - browsers handle bogus DOCTYPE
     // differently than html5ever in fragment parsing
     if html.to_ascii_lowercase().contains("<!doctype") {
@@ -169,6 +176,21 @@ fn is_valid_for_browser_parity(html: &str) -> bool {
             if let Some(title_pos) = lower.find("<title") {
                 // <title> after <svg> suggests it's inside the SVG
                 if title_pos > svg_pos {
+                    return false;
+                }
+            }
+        }
+    }
+
+    // Skip inputs with <html> inside <math> or <svg> (foreign content).
+    // html5ever and browsers handle nested <html> differently in foreign contexts -
+    // html5ever strips attributes, browsers preserve them.
+    {
+        let lower = html.to_ascii_lowercase();
+        let foreign_start = lower.find("<math").or_else(|| lower.find("<svg"));
+        if let Some(foreign_pos) = foreign_start {
+            if let Some(html_pos) = lower[foreign_pos..].find("<html") {
+                if html_pos > 0 {
                     return false;
                 }
             }

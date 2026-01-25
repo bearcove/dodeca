@@ -75,13 +75,25 @@ fn target(data: &[u8]) {
 
     // Compare initial trees - if they differ, something is wrong with our setup
     if native_initial_tree != browser_result.initial_dom_tree {
+        let native_str = native_initial_tree.to_string();
+        let browser_str = browser_result.initial_dom_tree.to_string();
         eprintln!("\n========== INITIAL TREE MISMATCH ==========");
         eprintln!("Input A: {:?}", html_a);
         eprintln!("Input B: {:?}", html_b);
         eprintln!("\n--- Native (html5ever) ---");
-        eprintln!("{}", native_initial_tree);
+        eprintln!("{}", native_str);
         eprintln!("\n--- Browser (live DOM after innerHTML) ---");
-        eprintln!("{}", browser_result.initial_dom_tree);
+        eprintln!("{}", browser_str);
+        eprintln!("\n--- Diff (native vs browser) ---");
+        for change in similar::TextDiff::from_lines(&native_str, &browser_str).iter_all_changes() {
+            let (sign, color) = match change.tag() {
+                similar::ChangeTag::Delete => ("-", "\x1b[31m"), // red
+                similar::ChangeTag::Insert => ("+", "\x1b[32m"), // green
+                similar::ChangeTag::Equal => (" ", ""),
+            };
+            let reset = if color.is_empty() { "" } else { "\x1b[0m" };
+            eprint!("{}{}{}{}", color, sign, change, reset);
+        }
         eprintln!("============================================\n");
         panic!("Initial tree mismatch - innerHTML round-trip issue?");
     }
