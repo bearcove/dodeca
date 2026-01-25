@@ -47,6 +47,12 @@ fn target(data: &[u8]) {
         Err(err) => panic!("hotmeal failed to diff {err}"),
     };
 
+    // Skip if patches contain invalid attr/tag names for DOM APIs
+    // (html5ever error recovery can create these, but they can't be set via setAttribute)
+    if !common::patches_are_valid_for_dom(&patches) {
+        return;
+    }
+
     // Convert patches to owned (static lifetime) for sending to browser
     let owned_patches: Vec<hotmeal::Patch<'static>> =
         patches.iter().map(|p| p.clone().into_owned()).collect();
