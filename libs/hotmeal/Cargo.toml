@@ -1,12 +1,6 @@
 [workspace]
-members = [
-    "cinereus",
-    "hotmeal",
-    "hotmeal-wasm",
-]
-exclude = [
-    "hotmeal/fuzz",
-]
+members = ["cinereus", "hotmeal", "hotmeal-wasm"]
+exclude = ["hotmeal/fuzz"]
 resolver = "3"
 
 [workspace.package]
@@ -31,11 +25,10 @@ hotmeal = { path = "hotmeal", version = "0.1.0" }
 indextree = "4.7"
 smallvec = "1"
 
-# HTML parsing (vendored)
-html5ever = { path = "vendor/html5ever/html5ever" }
-markup5ever = { path = "vendor/html5ever/markup5ever" }
-tendril = { path = "vendor/html5ever/tendril" }
-web_atoms = { path = "vendor/html5ever/web_atoms" }
+# HTML parsing (from fasterthanlime fork - tracks upstream with hotmeal-specific patches)
+html5ever = { git = "https://github.com/fasterthanlime/html5ever", branch = "hotmeal" }
+markup5ever = { git = "https://github.com/fasterthanlime/html5ever", branch = "hotmeal" }
+tendril = { git = "https://github.com/fasterthanlime/html5ever", branch = "hotmeal" }
 
 # Other
 js-sys = "0.3"
@@ -50,9 +43,3 @@ unexpected_cfgs = { level = "warn", check-cfg = ["cfg(facet_no_doc)"] }
 
 [workspace.metadata.cargo-shear]
 ignored = ["facet-error"]
-
-[patch.crates-io]
-html5ever = { path = "vendor/html5ever/html5ever" }
-markup5ever = { path = "vendor/html5ever/markup5ever" }
-tendril = { path = "vendor/html5ever/tendril" }
-web_atoms = { path = "vendor/html5ever/web_atoms" }

@@ -2070,8 +2070,9 @@ mod tests {
     }
 
     #[test]
-    fn test_parser_mismatch_body_attrs_from_stray_body_tags() {
-        // Regression test for stray <body> tokens turning into attributes on <body>
+    fn test_parser_stray_body_tags_merge_attrs() {
+        // Per HTML5 spec, stray <body> tags should merge their attributes into
+        // the existing body element. This matches browser behavior.
         // Input observed from browser fuzzer:
         // "t-Eh<body>g>selectedt-Eh<body hrselectedt"
         let html =
@@ -2084,9 +2085,12 @@ mod tests {
         match &body_data.kind {
             NodeKind::Element(elem) => {
                 trace!(attrs = ?elem.attrs, "Body attrs");
-                assert!(
-                    elem.attrs.is_empty(),
-                    "Body should not receive attributes from stray <body> tokens: {:?}",
+                // Per spec, attrs from stray body tags should be merged
+                // The input "<body hrselectedt" gets parsed as body with attrs "hrselectedt<" and "body"
+                assert_eq!(
+                    elem.attrs.len(),
+                    2,
+                    "Body should receive attributes from stray <body> tokens per HTML5 spec: {:?}",
                     elem.attrs
                 );
             }

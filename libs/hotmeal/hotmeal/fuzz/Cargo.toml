@@ -16,7 +16,7 @@ path = "src/lib.rs"
 [dependencies]
 libfuzzer-sys = "0.4"
 arbitrary = { version = "1", features = ["derive"] }
-tendril = "0.5"
+tendril = { git = "https://github.com/fasterthanlime/html5ever", branch = "hotmeal" }
 tokio = { version = "1", features = ["full", "sync", "rt-multi-thread"] }
 chromiumoxide = { version = "0.7", features = ["tokio-runtime"], default-features = false }
 tokio-tungstenite = "0.26"
