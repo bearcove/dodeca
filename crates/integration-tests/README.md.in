@@ -1,0 +1,15 @@
+## Integration tests
+
+This crate contains the end-to-end and integration test harness for the dodeca workspace.
+It’s a binary crate used during development and CI to validate the full system.
+
+### What it includes
+
+- CLI-driven integration tests
+- Fixture setup and teardown
+- Network and process orchestration helpers
+
+### When to use it
+
+Run this crate when you want to verify cross-crate behavior or ensure the full stack works
+as expected before publishing or deploying.

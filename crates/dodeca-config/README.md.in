@@ -1,0 +1,7 @@
+Configuration types for the dodeca static site generator.
+
+This crate provides the shared config structures consumed by the main `dodeca` binary
+and related tooling. It defines the schema and serialization formats used to parse
+project configuration files.
+
+Most users should interact with these types through the `dodeca` CLI.

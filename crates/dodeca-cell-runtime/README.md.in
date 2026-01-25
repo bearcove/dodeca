@@ -1,0 +1,7 @@
+`dodeca-cell-runtime` provides the runtime used to execute Dodeca “cells” and
+connect them to the host process.
+
+It handles communication with the host, tracing, and lifecycle wiring so cell
+implementations can focus on their core logic.
+
+This crate is part of the Dodeca workspace.

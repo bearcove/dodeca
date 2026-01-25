@@ -1,0 +1,14 @@
+# livereload-client
+
+WASM client for dodeca live reload. It connects to the devtools server, receives DOM patch messages, and applies them in the browser to update pages without a full reload.
+
+## What it does
+
+- Opens a websocket connection to dodeca devtools
+- Receives patch messages encoded with `dodeca-protocol`
+- Applies DOM patches using `hotmeal-wasm`
+
+## Usage
+
+This crate is built and bundled by the workspace tooling; you typically don’t depend on it directly.
+

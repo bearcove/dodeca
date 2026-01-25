@@ -1,0 +1,29 @@
+Dodeca is a fully incremental static site generator.
+
+## Overview
+
+This crate provides the `ddc` CLI and the core runtime that powers Dodeca’s build
+pipeline, including cells, hot-reload, and devtools integration.
+
+## Features
+
+- Incremental builds with fine‑grained caching
+- Cell-based pipeline for content processing
+- Live reload and devtools support
+- Cross-platform and workspace-friendly
+
+## Usage
+
+Install from the workspace:
+
+- `cargo install --path crates/dodeca`
+
+Run on a site directory:
+
+- `ddc serve /path/to/site`
+- `ddc build /path/to/site`
+
+## Workspace
+
+This crate is part of the `dodeca` workspace. Most users should interact with
+the `ddc` CLI rather than depending on this crate directly.

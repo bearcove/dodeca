@@ -1,0 +1,12 @@
+## dodeca-debug
+
+Low-level debug utilities used across the dodeca workspace.
+
+This crate hosts small, platform-focused helpers (for example, OS-specific
+introspection or debugging primitives) that don’t belong in higher-level
+crates.
+
+### Status
+
+Internal crate used by the workspace. Not intended for direct consumption.
+

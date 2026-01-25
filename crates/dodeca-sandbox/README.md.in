@@ -1,0 +1,15 @@
+Cross-platform process sandboxing for dodeca.
+
+This crate provides the sandboxing layer used by dodeca to run untrusted or isolated processes
+with platform-specific backends.
+
+## Features
+
+- Cross-platform API with OS-specific implementations.
+- Linux support via `hakoniwa`.
+- Focused, minimal surface area for secure process execution.
+
+## Status
+
+This crate is internal to the dodeca workspace and is not published.
+
