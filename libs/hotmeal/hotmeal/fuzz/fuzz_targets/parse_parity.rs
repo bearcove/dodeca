@@ -32,25 +32,12 @@ fuzz_target!(|data: &[u8]| {
         return;
     }
 
-    // Skip inputs with LF-CR (\n\r) sequence - Chrome has a bug where it normalizes
-    // LF-CR to a single newline, but per INFRA spec it should become LF-LF.
+    // Skip inputs containing CR (\r) - Chrome has numerous bugs with CR normalization
+    // in various contexts (LF-CR, CR-CR, /\r, space-CR, etc.). Per INFRA spec, CR should
+    // be normalized to LF, but Chrome handles it incorrectly in many edge cases.
     // Firefox and Safari are spec-compliant, html5ever is spec-compliant.
     // See: https://infra.spec.whatwg.org/#normalize-newlines
-    if html.contains("\n\r") {
-        return;
-    }
-
-    // Skip inputs with consecutive CRs (\r\r) - Chrome has another bug where
-    // CR-CR is not normalized the same as LF-LF in attribute parsing contexts.
-    // E.g., "& CR CR \ LF &" produces "\&" in Chrome but should produce "\" and "&" separately.
-    if html.contains("\r\r") {
-        return;
-    }
-
-    // Skip inputs with /\r (slash followed by CR) - Chrome doesn't normalize CR
-    // correctly after slash in self-closing tag context. E.g., "<H/\rz" produces
-    // "z<" as one attr in Chrome but should produce "z" and "<" separately.
-    if html.contains("/\r") {
+    if html.contains('\r') {
         return;
     }
 
