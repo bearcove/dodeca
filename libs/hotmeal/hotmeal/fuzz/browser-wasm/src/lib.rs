@@ -323,23 +323,37 @@ fn run_apply_patches(
     ));
 
     // Parse the full HTML document using DOMParser (same as html5ever)
-    // This gives us the initial_dom_tree for comparison
     let parser = DomParser::new().map_err(|e| format!("DOMParser::new failed: {:?}", e))?;
     let parsed_doc = parser
         .parse_from_string(old_html, SupportedType::TextHtml)
         .map_err(|e| format!("parse_from_string failed: {:?}", e))?;
     let parsed_body = parsed_doc.body().ok_or("parsed doc has no body")?;
-    let initial_dom_tree = node_to_dom_node(&parsed_body.clone().into());
-    let normalized_old_html = parsed_body.inner_html();
+
+    // Get live document
+    let window = web_sys::window().ok_or("no window")?;
+    let document = window.document().ok_or("no document")?;
+    let live_body = document.body().ok_or("no body")?;
+
+    // Clear live body and adopt children from parsed body (avoids innerHTML round-trip)
+    live_body.set_inner_html(""); // Clear existing content
+    while let Some(child) = parsed_body.first_child() {
+        // adoptNode moves the node from parsed_doc to document
+        let adopted = document
+            .adopt_node(&child)
+            .map_err(|e| format!("adopt_node failed: {:?}", e))?;
+        live_body
+            .append_child(&adopted)
+            .map_err(|e| format!("append_child failed: {:?}", e))?;
+    }
+
+    // Capture initial tree from the live DOM
+    let initial_dom_tree = node_to_dom_node(&live_body.clone().into());
+    let normalized_old_html = live_body.inner_html();
 
     log(&format!(
         "[browser-wasm] normalized_old_html={:?}",
         normalized_old_html
     ));
-
-    // Set the actual document body to the normalized content for patching
-    hotmeal_wasm::set_body_inner_html(&normalized_old_html)
-        .map_err(|e| format!("set_body_inner_html failed: {:?}", e))?;
 
     log(&format!(
         "[browser-wasm] applying {} patches",

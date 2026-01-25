@@ -69,10 +69,17 @@ fn target(data: &[u8]) {
         return;
     }
 
-    // Compare initial trees - if they differ, html5ever and browser parsed differently
-    // That's a parse parity issue, not an apply parity issue - skip it
+    // Compare initial trees - if they differ, something is wrong with our setup
     if native_initial_tree != browser_result.initial_dom_tree {
-        return;
+        eprintln!("\n========== INITIAL TREE MISMATCH ==========");
+        eprintln!("Input A: {:?}", full_a);
+        eprintln!("Input B: {:?}", full_b);
+        eprintln!("\n--- Native (html5ever) ---");
+        eprintln!("{}", native_initial_tree);
+        eprintln!("\n--- Browser (live DOM after innerHTML) ---");
+        eprintln!("{}", browser_result.initial_dom_tree);
+        eprintln!("============================================\n");
+        panic!("Initial tree mismatch - innerHTML round-trip issue?");
     }
 
     // Apply patches natively to html5ever's parse (same tree we computed patches from)
