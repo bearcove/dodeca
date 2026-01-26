@@ -1265,7 +1265,7 @@ impl SiteServer {
         let raw_data = crate::queries::load_all_data_raw(&snapshot)
             .await
             .unwrap_or_default();
-        let data_value = crate::data::parse_raw_data_files(&raw_data);
+        let data_value = crate::data::parse_raw_data_files(&raw_data).await;
         scope.insert(VString::from("data"), data_value);
 
         // Convert scope to entries

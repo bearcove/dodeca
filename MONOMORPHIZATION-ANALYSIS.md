@@ -186,6 +186,41 @@ fn deserialize_value(parser: &mut dyn DynParser<'_>) -> Result<Value, DynDeseria
 - tokio: 302k → 149k (-153k, unrelated improvement from dependency updates)
 - Net total: 2.1M → 2.16M (slight increase from adding facet-yaml dependency)
 
+### 9. bearcove/dodeca#222 - Move parsing to cells
+
+**Problem**: Data file parsing (JSON, YAML, TOML) happens in the main binary, adding monomorphization for each format.
+
+**Fix**: Created `cell-data` to handle data file parsing using dyn dispatch:
+- `cell-data-proto`: Protocol definition with `DataLoader` service
+- `cell-data`: Implementation using `dyn DynParser<'_>` for single monomorphization
+- Updated `data.rs` to call the cell asynchronously
+
+**Cell implementation**:
+```rust
+// cell-data/src/main.rs - single monomorphization for all formats
+fn deserialize_value(parser: &mut dyn DynParser<'_>) -> Result<Value, DynDeserializeError> {
+    let mut de = FormatDeserializer::new(parser);
+    de.deserialize()
+}
+```
+
+**Result**:
+- Total: 2.16M → 2.05M (~110k saved, 5%)
+- Data format parsing moved to separate process
+- Main binary no longer monomorphizes deserializer for data file formats
+
+**Status**: All cells complete (issue #222 closed):
+
+| Cell | LLVM IR Before | After | Reduction |
+|------|---------------|-------|-----------|
+| Data | 2.16M | 2.05M | 5% |
+| Config | 2.05M | 1.97M | 4% |
+| Vite | 1.97M | 1.96M | 0.5% |
+
+Additional changes:
+- Dropped YAML config support (styx only)
+- Removed facet-yaml, facet-styx from main binary dependencies
+
 ## Final Results
 
 | Crate | Before | After | Savings | % |
@@ -196,9 +231,9 @@ fn deserialize_value(parser: &mut dyn DynParser<'_>) -> Result<Value, DynDeseria
 | roam_session | 101k | 25k | 76k | 75% |
 | core | 481k | 382k | 99k | 21% |
 | alloc | 351k | 308k | 43k | 12% |
-| **Total** | **3.0M** | **2.16M** | **~840k** | **28%** |
+| **Total** | **3.0M** | **1.96M** | **~1.04M** | **35%** |
 
-*(Measurements after facet #1939 dyn FormatParser and switching to facet-yaml)*
+*(Measurements after all three cells: data, config, vite)*
 
 ## Remaining Opportunities
 

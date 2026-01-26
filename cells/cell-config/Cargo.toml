@@ -1,0 +1,18 @@
+[package]
+name = "cell-config"
+version = "0.6.1"
+edition = "2024"
+
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+[[bin]]
+name = "ddc-cell-config"
+path = "src/main.rs"
+
+[dependencies]
+cell-config-proto = { path = "../cell-config-proto" }
+dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }
+facet-styx.workspace = true

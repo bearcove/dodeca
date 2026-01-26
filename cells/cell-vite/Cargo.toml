@@ -1,0 +1,19 @@
+[package]
+name = "cell-vite"
+version = "0.6.1"
+edition = "2024"
+
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+[[bin]]
+name = "ddc-cell-vite"
+path = "src/main.rs"
+
+[dependencies]
+cell-vite-proto = { path = "../cell-vite-proto" }
+dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }
+eyre.workspace = true
+tokio.workspace = true

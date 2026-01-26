@@ -1,10 +1,12 @@
 //! Configuration file discovery and parsing
 //!
-//! Searches for `.config/dodeca.styx` or `.config/dodeca.yaml` walking up from
-//! the current directory. Styx format is preferred when both exist.
+//! Searches for `.config/dodeca.styx` walking up from the current directory.
 //! The project root is the parent of `.config/`.
+//!
+//! Config parsing is delegated to the config cell to reduce monomorphization.
 
 use camino::{Utf8Path, Utf8PathBuf};
+use cell_config_proto::ParseConfigResult;
 use eyre::{Result, eyre};
 use std::env;
 use std::fs;
@@ -16,15 +18,8 @@ pub use dodeca_config::{CodeExecutionConfig, DodecaConfig};
 /// Configuration file names
 const CONFIG_DIR: &str = ".config";
 const CONFIG_FILE_STYX: &str = "dodeca.styx";
-const CONFIG_FILE_YAML: &str = "dodeca.yaml";
+const CONFIG_FILE_YAML_LEGACY: &str = "dodeca.yaml";
 const CONFIG_FILE_KDL_LEGACY: &str = "dodeca.kdl";
-
-/// Config file format
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ConfigFormat {
-    Styx,
-    Yaml,
-}
 
 /// All project paths, derived from configuration
 #[derive(Debug, Clone)]
@@ -154,12 +149,12 @@ impl ResolvedConfig {
 
 impl ResolvedConfig {
     /// Discover and load configuration from current directory
-    pub fn discover() -> Result<Option<Self>> {
-        let config_info = find_config_file()?;
+    pub async fn discover() -> Result<Option<Self>> {
+        let config_path = find_config_file()?;
 
-        match config_info {
-            Some((path, format)) => {
-                let resolved = load_config(&path, format)?;
+        match config_path {
+            Some(path) => {
+                let resolved = load_config(&path).await?;
                 Ok(Some(resolved))
             }
             None => Ok(None),
@@ -167,40 +162,15 @@ impl ResolvedConfig {
     }
 
     /// Discover and load configuration from a specific project path
-    pub fn discover_from(project_path: &Utf8Path) -> Result<Option<Self>> {
+    pub async fn discover_from(project_path: &Utf8Path) -> Result<Option<Self>> {
         let config_dir = project_path.join(CONFIG_DIR);
 
-        // Check for legacy KDL config and error if found
-        let kdl_file = config_dir.join(CONFIG_FILE_KDL_LEGACY);
-        if kdl_file.exists() {
-            return Err(eyre!(
-                "Found legacy configuration file: {}\n\n\
-                KDL configuration format is no longer supported.\n\
-                Please migrate to Styx format:\n\n\
-                1. Rename {} to {}\n\
-                2. Convert the content to Styx syntax\n\n\
-                Example Styx config:\n\
-                ```styx\n\
-                content docs/\n\
-                output public/\n\
-                base_url https://example.com\n\
-                ```",
-                kdl_file,
-                CONFIG_FILE_KDL_LEGACY,
-                CONFIG_FILE_STYX
-            ));
-        }
+        // Check for legacy configs and error if found
+        check_legacy_configs(&config_dir)?;
 
-        // Check for .styx first (preferred), then .yaml (backwards compatibility)
         let styx_file = config_dir.join(CONFIG_FILE_STYX);
         if styx_file.exists() {
-            let resolved = load_config(&styx_file, ConfigFormat::Styx)?;
-            return Ok(Some(resolved));
-        }
-
-        let yaml_file = config_dir.join(CONFIG_FILE_YAML);
-        if yaml_file.exists() {
-            let resolved = load_config(&yaml_file, ConfigFormat::Yaml)?;
+            let resolved = load_config(&styx_file).await?;
             return Ok(Some(resolved));
         }
 
@@ -208,8 +178,53 @@ impl ResolvedConfig {
     }
 }
 
-/// Search for `.config/dodeca.styx` or `.config/dodeca.yaml` walking up from current directory
-fn find_config_file() -> Result<Option<(Utf8PathBuf, ConfigFormat)>> {
+/// Check for legacy config formats and return helpful error
+fn check_legacy_configs(config_dir: &Utf8Path) -> Result<()> {
+    let kdl_file = config_dir.join(CONFIG_FILE_KDL_LEGACY);
+    if kdl_file.exists() {
+        return Err(eyre!(
+            "Found legacy configuration file: {}\n\n\
+            KDL configuration format is no longer supported.\n\
+            Please migrate to Styx format:\n\n\
+            1. Rename {} to {}\n\
+            2. Convert the content to Styx syntax\n\n\
+            Example Styx config:\n\
+            ```styx\n\
+            content docs/\n\
+            output public/\n\
+            base_url https://example.com\n\
+            ```",
+            kdl_file,
+            CONFIG_FILE_KDL_LEGACY,
+            CONFIG_FILE_STYX
+        ));
+    }
+
+    let yaml_file = config_dir.join(CONFIG_FILE_YAML_LEGACY);
+    if yaml_file.exists() {
+        return Err(eyre!(
+            "Found legacy configuration file: {}\n\n\
+            YAML configuration format is no longer supported.\n\
+            Please migrate to Styx format:\n\n\
+            1. Rename {} to {}\n\
+            2. Convert the content to Styx syntax\n\n\
+            Example Styx config:\n\
+            ```styx\n\
+            content docs/\n\
+            output public/\n\
+            base_url https://example.com\n\
+            ```",
+            yaml_file,
+            CONFIG_FILE_YAML_LEGACY,
+            CONFIG_FILE_STYX
+        ));
+    }
+
+    Ok(())
+}
+
+/// Search for `.config/dodeca.styx` walking up from current directory
+fn find_config_file() -> Result<Option<Utf8PathBuf>> {
     let cwd = env::current_dir()?;
     let cwd = Utf8PathBuf::try_from(cwd).map_err(|e| {
         eyre!(
@@ -223,36 +238,12 @@ fn find_config_file() -> Result<Option<(Utf8PathBuf, ConfigFormat)>> {
     loop {
         let config_dir = current.join(CONFIG_DIR);
 
-        // Check for legacy KDL config and error if found
-        let kdl_file = config_dir.join(CONFIG_FILE_KDL_LEGACY);
-        if kdl_file.exists() {
-            return Err(eyre!(
-                "Found legacy configuration file: {}\n\n\
-                KDL configuration format is no longer supported.\n\
-                Please migrate to Styx format:\n\n\
-                1. Rename {} to {}\n\
-                2. Convert the content to Styx syntax\n\n\
-                Example Styx config:\n\
-                ```styx\n\
-                content docs/\n\
-                output public/\n\
-                base_url https://example.com\n\
-                ```",
-                kdl_file,
-                CONFIG_FILE_KDL_LEGACY,
-                CONFIG_FILE_STYX
-            ));
-        }
+        // Check for legacy configs and error if found
+        check_legacy_configs(&config_dir)?;
 
-        // Check for .styx first (preferred), then .yaml (backwards compatibility)
         let styx_file = config_dir.join(CONFIG_FILE_STYX);
         if styx_file.exists() {
-            return Ok(Some((styx_file, ConfigFormat::Styx)));
-        }
-
-        let yaml_file = config_dir.join(CONFIG_FILE_YAML);
-        if yaml_file.exists() {
-            return Ok(Some((yaml_file, ConfigFormat::Yaml)));
+            return Ok(Some(styx_file));
         }
 
         match current.parent() {
@@ -262,15 +253,22 @@ fn find_config_file() -> Result<Option<(Utf8PathBuf, ConfigFormat)>> {
     }
 }
 
-/// Load and resolve configuration from a config file path
-fn load_config(config_path: &Utf8Path, format: ConfigFormat) -> Result<ResolvedConfig> {
+/// Load and resolve configuration from a config file path via the config cell
+async fn load_config(config_path: &Utf8Path) -> Result<ResolvedConfig> {
     let content = fs::read_to_string(config_path)?;
 
-    let config: DodecaConfig = match format {
-        ConfigFormat::Styx => facet_styx::from_str(&content)
-            .map_err(|e| eyre!("Failed to parse {}: {}", config_path, e))?,
-        ConfigFormat::Yaml => facet_yaml::from_str(&content)
-            .map_err(|e| eyre!("Failed to parse {}: {}", config_path, e))?,
+    let client = crate::cells::config_cell()
+        .await
+        .ok_or_else(|| eyre!("Config cell not available"))?;
+
+    let config: DodecaConfig = match client.parse_styx(content).await {
+        Ok(ParseConfigResult::Success { config }) => config,
+        Ok(ParseConfigResult::Error { message }) => {
+            return Err(eyre!("Failed to parse {}: {}", config_path, message));
+        }
+        Err(e) => {
+            return Err(eyre!("RPC error parsing {}: {:?}", config_path, e));
+        }
     };
 
     // Project root is the parent of .config/
@@ -361,99 +359,5 @@ pub fn global_config() -> Option<&'static ResolvedConfig> {
     RESOLVED_CONFIG.get()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_yaml_config() {
-        let yaml = r#"
-content: docs/
-output: public/
-"#;
-
-        let config: DodecaConfig = facet_yaml::from_str(yaml).unwrap();
-        assert_eq!(config.content, "docs/");
-        assert_eq!(config.output, "public/");
-        assert!(config.stable_assets.is_none());
-    }
-
-    #[test]
-    fn test_parse_yaml_full_config() {
-        let yaml = r#"
-content: docs/
-output: public/
-base_url: https://example.com
-link_check:
-  skip_domains:
-    - example.com
-    - test.local
-  rate_limit_ms: 500
-stable_assets:
-  - favicon.svg
-  - robots.txt
-syntax_highlight:
-  light_theme: github-light
-  dark_theme: tokyo-night
-"#;
-
-        let config: DodecaConfig = facet_yaml::from_str(yaml).unwrap();
-        assert_eq!(config.content, "docs/");
-        assert_eq!(config.output, "public/");
-        assert_eq!(config.base_url, Some("https://example.com".to_string()));
-        assert_eq!(
-            config.link_check.as_ref().unwrap().skip_domains,
-            Some(vec!["example.com".to_string(), "test.local".to_string()])
-        );
-        assert_eq!(config.link_check.as_ref().unwrap().rate_limit_ms, Some(500));
-        assert_eq!(
-            config.stable_assets,
-            Some(vec!["favicon.svg".to_string(), "robots.txt".to_string()])
-        );
-    }
-
-    #[test]
-    fn test_parse_styx_config() {
-        let styx = r#"
-content docs/
-output public/
-"#;
-
-        let config: DodecaConfig = facet_styx::from_str(styx).unwrap();
-        assert_eq!(config.content, "docs/");
-        assert_eq!(config.output, "public/");
-        assert!(config.stable_assets.is_none());
-    }
-
-    #[test]
-    fn test_parse_styx_full_config() {
-        let styx = r#"
-content docs/
-output public/
-base_url https://example.com
-link_check {
-    skip_domains (example.com test.local)
-    rate_limit_ms 500
-}
-stable_assets (favicon.svg robots.txt)
-syntax_highlight {
-    light_theme github-light
-    dark_theme tokyo-night
-}
-"#;
-
-        let config: DodecaConfig = facet_styx::from_str(styx).unwrap();
-        assert_eq!(config.content, "docs/");
-        assert_eq!(config.output, "public/");
-        assert_eq!(config.base_url, Some("https://example.com".to_string()));
-        assert_eq!(
-            config.link_check.as_ref().unwrap().skip_domains,
-            Some(vec!["example.com".to_string(), "test.local".to_string()])
-        );
-        assert_eq!(config.link_check.as_ref().unwrap().rate_limit_ms, Some(500));
-        assert_eq!(
-            config.stable_assets,
-            Some(vec!["favicon.svg".to_string(), "robots.txt".to_string()])
-        );
-    }
-}
+// Note: Config parsing tests are now handled by the config cell.
+// The cell uses facet-styx for parsing.

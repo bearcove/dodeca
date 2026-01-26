@@ -144,7 +144,7 @@ pub async fn load_and_parse_data_file<DB: Db>(
         Some(f) => f,
         None => return Ok(None),
     };
-    Ok(parse_data_file(content.as_str(), format).ok())
+    Ok(parse_data_file(content.as_str(), format).await.ok())
 }
 
 /// Resolve a value at a specific path through the data tree.

@@ -1,0 +1,22 @@
+[package]
+name = "cell-data"
+version = "0.6.1"
+edition = "2024"
+
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+[[bin]]
+name = "ddc-cell-data"
+path = "src/main.rs"
+
+[dependencies]
+cell-data-proto = { path = "../cell-data-proto" }
+dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }
+facet-format.workspace = true
+facet-json.workspace = true
+facet-toml.workspace = true
+facet-yaml.workspace = true
+facet-value.workspace = true

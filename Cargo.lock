@@ -1447,6 +1447,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "cell-config"
+version = "0.6.1"
+dependencies = [
+ "cell-config-proto",
+ "dodeca-cell-runtime",
+ "facet-styx",
+]
+
+[[package]]
+name = "cell-config-proto"
+version = "0.6.1"
+dependencies = [
+ "dodeca-config",
+ "facet",
+ "roam",
+]
+
+[[package]]
 name = "cell-css"
 version = "0.6.1"
 dependencies = [
@@ -1460,6 +1478,28 @@ name = "cell-css-proto"
 version = "0.6.1"
 dependencies = [
  "facet",
+ "roam",
+]
+
+[[package]]
+name = "cell-data"
+version = "0.6.1"
+dependencies = [
+ "cell-data-proto",
+ "dodeca-cell-runtime",
+ "facet-format",
+ "facet-json",
+ "facet-toml",
+ "facet-value",
+ "facet-yaml",
+]
+
+[[package]]
+name = "cell-data-proto"
+version = "0.6.1"
+dependencies = [
+ "facet",
+ "facet-value",
  "roam",
 ]
 
@@ -1792,6 +1832,24 @@ dependencies = [
 
 [[package]]
 name = "cell-tui-proto"
+version = "0.6.1"
+dependencies = [
+ "facet",
+ "roam",
+]
+
+[[package]]
+name = "cell-vite"
+version = "0.6.1"
+dependencies = [
+ "cell-vite-proto",
+ "dodeca-cell-runtime",
+ "eyre",
+ "tokio",
+]
+
+[[package]]
+name = "cell-vite-proto"
 version = "0.6.1"
 dependencies = [
  "facet",
@@ -2546,7 +2604,9 @@ dependencies = [
  "ariadne 0.5.1",
  "camino",
  "cell-code-execution-proto",
+ "cell-config-proto",
  "cell-css-proto",
+ "cell-data-proto",
  "cell-dialoguer-proto",
  "cell-fonts-proto",
  "cell-gingembre-proto",
@@ -2565,6 +2625,7 @@ dependencies = [
  "cell-svgo-proto",
  "cell-term-proto",
  "cell-tui-proto",
+ "cell-vite-proto",
  "cell-webp-proto",
  "chrono",
  "dashmap 6.1.0",
@@ -2579,7 +2640,6 @@ dependencies = [
  "facet-styx",
  "facet-toml",
  "facet-value",
- "facet-yaml",
  "figue",
  "futures-util",
  "html-escape",

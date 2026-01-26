@@ -241,7 +241,7 @@ struct ResolvedBuildConfig {
 }
 
 /// Resolve content and output directories from CLI args or config file
-fn resolve_dirs(
+async fn resolve_dirs(
     path: Option<String>,
     content: Option<String>,
     output: Option<String>,
@@ -264,9 +264,9 @@ fn resolve_dirs(
 
     // Try to find config file, optionally from a specific path
     let config = if let Some(ref project_path) = path {
-        ResolvedConfig::discover_from(project_path)?
+        ResolvedConfig::discover_from(project_path).await?
     } else {
-        ResolvedConfig::discover()?
+        ResolvedConfig::discover().await?
     };
 
     match config {
@@ -370,7 +370,7 @@ async fn async_main(command: Command) -> Result<()> {
 
     match command {
         Command::Build(args) => {
-            let cfg = resolve_dirs(args.path, args.content, args.output)?;
+            let cfg = resolve_dirs(args.path, args.content, args.output).await?;
 
             // Initialize tracing (respects RUST_LOG)
             logging::init_standard_tracing();
@@ -395,7 +395,7 @@ async fn async_main(command: Command) -> Result<()> {
             Ok(())
         }
         Command::Serve(args) => {
-            let cfg = resolve_dirs(args.path, args.content, args.output)?;
+            let cfg = resolve_dirs(args.path, args.content, args.output).await?;
 
             // Check if we should use TUI
             use std::io::IsTerminal;
@@ -438,10 +438,11 @@ async fn async_main(command: Command) -> Result<()> {
                 // Manual path - create minimal ProjectPaths
                 let root = Utf8PathBuf::from(p);
                 ProjectPaths::from_config(
-                    &ResolvedConfig::discover_from(&root)?
+                    &ResolvedConfig::discover_from(&root)
+                        .await?
                         .ok_or_else(|| eyre!("No dodeca config found in {}", root))?,
                 )
-            } else if let Some(cfg) = ResolvedConfig::discover()? {
+            } else if let Some(cfg) = ResolvedConfig::discover().await? {
                 cfg.paths()
             } else {
                 return Err(eyre!("No dodeca project found"));

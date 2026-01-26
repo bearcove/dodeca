@@ -14,7 +14,9 @@
 use cell_code_execution_proto::{
     CodeExecutionResult, CodeExecutorClient, ExecuteSamplesInput, ExtractSamplesInput,
 };
+use cell_config_proto::ConfigParserClient;
 use cell_css_proto::{CssProcessorClient, CssResult};
+use cell_data_proto::DataLoaderClient;
 use cell_dialoguer_proto::DialoguerClient;
 use cell_fonts_proto::{FontProcessorClient, FontResult, SubsetFontInput};
 use cell_gingembre_proto::{ContextId, RenderResult, TemplateRendererClient};
@@ -36,6 +38,7 @@ use cell_sass_proto::{SassCompilerClient, SassInput, SassResult};
 use cell_svgo_proto::{SvgoOptimizerClient, SvgoResult};
 use cell_term_proto::{RecordConfig, TermRecorderClient, TermResult};
 use cell_tui_proto::TuiDisplayClient;
+use cell_vite_proto::ViteManagerClient;
 use cell_webp_proto::{WebPEncodeInput, WebPProcessorClient, WebPResult};
 use dashmap::DashMap;
 use facet::Facet;
@@ -415,6 +418,9 @@ const CELL_DEFS: &[CellDef] = &[
     CellDef::new("code-execution"),
     CellDef::new("http"),
     CellDef::new("gingembre"),
+    CellDef::new("data"),
+    CellDef::new("config"),
+    CellDef::new("vite"),
     // Term needs terminal access for PTY recording
     CellDef::new("term").inherit_stdio(),
     // TUI needs terminal access
@@ -742,6 +748,15 @@ cell_client_accessor!(svgo_cell, "svgo", SvgoOptimizerClient);
 
 // Template rendering
 cell_client_accessor!(gingembre_cell, "gingembre", TemplateRendererClient);
+
+// Data processing
+cell_client_accessor!(data_cell, "data", DataLoaderClient);
+
+// Config parsing
+cell_client_accessor!(config_cell, "config", ConfigParserClient);
+
+// Vite management
+cell_client_accessor!(vite_cell, "vite", ViteManagerClient);
 
 // Other cells
 cell_client_accessor!(font_cell, "fonts", FontProcessorClient);
