@@ -3154,7 +3154,7 @@ dependencies = [
 [[package]]
 name = "figue"
 version = "1.0.0"
-source = "git+https://github.com/bearcove/figue?branch=main#cec6e9e2cdaff1d34931759716122e9b780b3477"
+source = "git+https://github.com/bearcove/figue?branch=main#95cdbf8738f4f524bfeddad2b6ca883e08d9b36f"
 dependencies = [
  "ariadne 0.6.0",
  "camino",
