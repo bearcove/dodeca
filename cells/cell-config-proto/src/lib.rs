@@ -10,7 +10,7 @@ use facet::Facet;
 #[repr(u8)]
 pub enum ParseConfigResult {
     /// Successfully parsed config
-    Success { config: DodecaConfig },
+    Success { config: Box<DodecaConfig> },
     /// Error during parsing
     Error { message: String },
 }

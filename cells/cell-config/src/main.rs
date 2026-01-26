@@ -16,7 +16,9 @@ impl ConfigParser for ConfigParserImpl {
         content: String,
     ) -> ParseConfigResult {
         match facet_styx::from_str::<DodecaConfig>(&content) {
-            Ok(config) => ParseConfigResult::Success { config },
+            Ok(config) => ParseConfigResult::Success {
+                config: Box::new(config),
+            },
             Err(e) => ParseConfigResult::Error {
                 message: format!("{}", e),
             },

@@ -262,7 +262,7 @@ async fn load_config(config_path: &Utf8Path) -> Result<ResolvedConfig> {
         .ok_or_else(|| eyre!("Config cell not available"))?;
 
     let config: DodecaConfig = match client.parse_styx(content).await {
-        Ok(ParseConfigResult::Success { config }) => config,
+        Ok(ParseConfigResult::Success { config }) => *config,
         Ok(ParseConfigResult::Error { message }) => {
             return Err(eyre!("Failed to parse {}: {}", config_path, message));
         }
