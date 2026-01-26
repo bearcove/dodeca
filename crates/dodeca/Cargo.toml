@@ -55,6 +55,7 @@ chrono.workspace = true
 dashmap.workspace = true
 eyre.workspace = true
 facet.workspace = true
+facet-format.workspace = true
 figue.workspace = true
 
 facet-json.workspace = true
@@ -81,7 +82,6 @@ roam-local.workspace = true
 rapidhash.workspace = true
 regex.workspace = true
 arboard = { version = "3", default-features = false }
-serde_yaml.workspace = true
 strid.workspace = true
 tokio.workspace = true
 tracing.workspace = true

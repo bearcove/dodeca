@@ -143,6 +143,28 @@ async fn call_with_metadata_by_shape(&self, method_id: u64, args: &dyn Reflect, 
 
 **Rationale**: Vite dev server handling in main binary adds to monomorphization. Moving to a cell would isolate it.
 
+### 7. facet-rs/facet#1936 - Remove ProbeStream GAT
+
+**Problem**: `FormatParser` trait used a GAT `ProbeStream<'a>` for lookahead parsing. This required complex type machinery and prevented object safety.
+
+**Fix (PR #1936)**: Replace GAT with simple `save()`/`restore()` methods using clone-based state management:
+```rust
+// Old: GAT-based probing
+type ProbeStream<'a>: FormatParser<...>;
+fn build_probe(&mut self) -> Self::ProbeStream<'_>;
+
+// New: Clone-based save/restore
+fn save(&mut self) -> SavePoint;
+fn restore(&mut self, save_point: SavePoint);
+```
+
+**Affected crates**: All format parsers (facet-json, facet-yaml, facet-toml, facet-postcard), plus downstream: figue, facet-styx.
+
+**Result**:
+- Total: 2.35M → 2.1M (~250k saved, 11%)
+- Simplified parser implementations
+- Better object-safety for future `dyn FormatParser` usage
+
 ## Final Results
 
 | Crate | Before | After | Savings | % |
@@ -153,9 +175,9 @@ async fn call_with_metadata_by_shape(&self, method_id: u64, args: &dyn Reflect, 
 | roam_session | 101k | 25k | 76k | 75% |
 | core | 481k | 397k | 84k | 17% |
 | alloc | 351k | 313k | 38k | 11% |
-| **Total** | **3.0M** | **2.35M** | **~650k** | **22%** |
+| **Total** | **3.0M** | **2.1M** | **~900k** | **30%** |
 
-*(Measurements after all PRs including facet #1928 coroutine deserializer)*
+*(Measurements after all PRs including facet #1936 ProbeStream GAT removal)*
 
 ## Remaining Opportunities
 
@@ -175,13 +197,12 @@ async fn call_with_metadata_by_shape(&self, method_id: u64, args: &dyn Reflect, 
 - `deserialize_enum_externally_tagged`: Gone (was 21k × 6)
 - `deserialize_enum_internally_tagged`: Gone (was 17k × 6)
 
-Remaining facet_format hotspots (post-#1928):
+Remaining facet_format hotspots (post-#1936):
 | Function | Lines × Copies |
 |----------|----------------|
-| `run_deserialize_coro::{{closure}}` | 21k × 60 |
 | `deserialize_into` | 20k × 6 |
-| `deserialize` | 18k × 78 |
-| `deserialize_map_key` | 17k × 6 |
+
+The ProbeStream removal simplified parser implementations and reduced GAT-related monomorphization overhead.
 
 ## Patterns Identified
 
@@ -208,6 +229,13 @@ Async blocks capture `self` which includes generic params, causing monomorphizat
 Each unique future type passed to `tokio::spawn` creates copies of task machinery:
 - Box futures before spawning: `tokio::spawn(Box::pin(async { ... }))`
 - Or consolidate similar tasks
+
+### Pattern 5: GATs for lookahead/probing
+
+GATs (Generic Associated Types) prevent object safety and add monomorphization overhead:
+- Replace GAT-based probing with clone-based save/restore
+- If the type is `Clone`, just clone state on save and restore by swapping back
+- Enables future `dyn Trait` usage for additional type erasure
 
 ## Commands Reference
 

@@ -18,6 +18,7 @@
 //! ```
 
 use crate::db::DataFile;
+use facet_format::{DynDeserializeError, DynParser, FormatDeserializer};
 use facet_value::{VObject, VString, Value};
 
 /// Supported data file formats
@@ -41,63 +42,36 @@ impl DataFormat {
     }
 }
 
-/// Parse a data file into a template Value
+/// Parse a data file into a template Value using dynamic dispatch.
+///
+/// This uses `dyn DynParser` to share a single monomorphization of the
+/// deserializer across all format types, reducing binary size.
 pub fn parse_data_file(content: &str, format: DataFormat) -> Result<Value, String> {
     match format {
-        DataFormat::Json => parse_json(content),
-        DataFormat::Toml => parse_toml(content),
-        DataFormat::Yaml => parse_yaml(content),
-    }
-}
-
-fn parse_json(content: &str) -> Result<Value, String> {
-    facet_json::from_str(content).map_err(|e| format!("JSON parse error: {e}"))
-}
-
-fn parse_toml(content: &str) -> Result<Value, String> {
-    facet_toml::from_str(content).map_err(|e| format!("TOML parse error: {e}"))
-}
-
-fn parse_yaml(content: &str) -> Result<Value, String> {
-    // Use serde_yaml because facet-yaml doesn't support dynamic values yet
-    let serde_value: serde_yaml::Value =
-        serde_yaml::from_str(content).map_err(|e| format!("YAML parse error: {e}"))?;
-    Ok(serde_value_to_facet_value(serde_value))
-}
-
-/// Convert a serde_yaml::Value to facet_value::Value
-fn serde_value_to_facet_value(v: serde_yaml::Value) -> Value {
-    match v {
-        serde_yaml::Value::Null => Value::NULL,
-        serde_yaml::Value::Bool(b) => Value::from(b),
-        serde_yaml::Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                Value::from(i)
-            } else if let Some(f) = n.as_f64() {
-                Value::from(f)
-            } else {
-                Value::from(0i64)
-            }
+        DataFormat::Json => {
+            let mut parser = facet_json::JsonParser::new(content.as_bytes());
+            deserialize_value(&mut parser).map_err(|e| format!("JSON parse error: {e}"))
         }
-        serde_yaml::Value::String(s) => Value::from(s.as_str()),
-        serde_yaml::Value::Sequence(arr) => {
-            let items: Vec<Value> = arr.into_iter().map(serde_value_to_facet_value).collect();
-            facet_value::VArray::from_iter(items).into()
+        DataFormat::Toml => {
+            let mut parser = facet_toml::TomlParser::new(content)
+                .map_err(|e| format!("TOML parse error: {e}"))?;
+            deserialize_value(&mut parser).map_err(|e| format!("TOML parse error: {e}"))
         }
-        serde_yaml::Value::Mapping(map) => {
-            let mut result = VObject::new();
-            for (key, val) in map {
-                if let serde_yaml::Value::String(k) = key {
-                    result.insert(VString::from(k.as_str()), serde_value_to_facet_value(val));
-                }
-            }
-            result.into()
-        }
-        serde_yaml::Value::Tagged(tagged) => {
-            // Unwrap tagged values
-            serde_value_to_facet_value(tagged.value)
+        DataFormat::Yaml => {
+            let mut parser = facet_yaml::YamlParser::new(content)
+                .map_err(|e| format!("YAML parse error: {e}"))?;
+            deserialize_value(&mut parser).map_err(|e| format!("YAML parse error: {e}"))
         }
     }
+}
+
+/// Deserialize a Value using dynamic dispatch.
+///
+/// This function only has one monomorphization regardless of parser type,
+/// reducing code bloat when multiple formats are used.
+fn deserialize_value(parser: &mut dyn DynParser<'_>) -> Result<Value, DynDeserializeError> {
+    let mut de = FormatDeserializer::new(parser);
+    de.deserialize()
 }
 
 /// Parse raw data files (path, content) and merge into a single Value object
@@ -204,7 +178,7 @@ mod tests {
 name = "dodeca"
 version = "0.1.0"
 "#;
-        let value = parse_toml(content).unwrap();
+        let value = parse_data_file(content, DataFormat::Toml).unwrap();
         if let DestructuredRef::Object(map) = value.destructure_ref() {
             if let Some(project) = map.get("project") {
                 if let DestructuredRef::Object(project_map) = project.destructure_ref() {
@@ -240,7 +214,7 @@ version = "0.1.0"
     #[test]
     fn test_parse_json() {
         let content = r#"{"name": "test", "count": 42}"#;
-        let value = parse_json(content).unwrap();
+        let value = parse_data_file(content, DataFormat::Json).unwrap();
         if let DestructuredRef::Object(map) = value.destructure_ref() {
             if let Some(name) = map.get("name") {
                 if let DestructuredRef::String(s) = name.destructure_ref() {
@@ -273,7 +247,7 @@ items:
   - one
   - two
 "#;
-        let value = parse_yaml(content).unwrap();
+        let value = parse_data_file(content, DataFormat::Yaml).unwrap();
         if let DestructuredRef::Object(map) = value.destructure_ref() {
             if let Some(name) = map.get("name") {
                 if let DestructuredRef::String(s) = name.destructure_ref() {
