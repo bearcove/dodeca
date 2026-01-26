@@ -114,6 +114,10 @@ pub enum HtmlProcessResult {
         had_dead_links: bool,
         /// Whether any code buttons were injected
         had_code_buttons: bool,
+        /// All href values from <a> elements (for link checking)
+        hrefs: Vec<String>,
+        /// All id attributes from any element (for fragment validation)
+        element_ids: Vec<String>,
     },
     /// Error during processing
     Error { message: String },
@@ -198,6 +202,21 @@ pub trait HtmlProcessor {
         html: String,
         code_metadata: HashMap<String, CodeExecutionMetadata>,
     ) -> HtmlResult;
+
+    /// Extract links and element IDs from HTML for link checking.
+    ///
+    /// Returns all href values from `<a>` elements and all id attributes from any element.
+    /// Use this instead of regex-based extraction.
+    async fn extract_links(&self, html: String) -> ExtractedLinks;
+}
+
+/// Links and element IDs extracted from HTML
+#[derive(Debug, Clone, Default, Facet)]
+pub struct ExtractedLinks {
+    /// All href values from `<a>` elements
+    pub hrefs: Vec<String>,
+    /// All id attribute values from any element
+    pub element_ids: Vec<String>,
 }
 
 // ============================================================================

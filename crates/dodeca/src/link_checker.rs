@@ -1,8 +1,10 @@
 //! Link checking for generated HTML
 //!
-//! Query-based: works directly with HTML content from SiteOutput,
-//! no disk I/O needed. External links are cached by (url, date) in picante.
+//! Query-based: works directly with pre-extracted link data from SiteOutput,
+//! no disk I/O or HTML parsing needed. Links are extracted during HTML processing
+//! by the HTML cell using a proper parser.
 //!
+//! External links are cached by (url, date) in picante.
 //! External link checking is done via the linkcheck cell, which handles
 //! per-domain rate limiting internally.
 
@@ -10,9 +12,7 @@ use crate::db::{Database, ExternalLinkStatus, HttpErrorDiagnostics};
 use crate::queries::check_external_url;
 use crate::types::Route;
 use chrono::{Datelike, NaiveDate};
-use regex::Regex;
 use std::collections::{HashMap, HashSet};
-use std::sync::LazyLock;
 use std::time::Duration;
 use tracing::info;
 
@@ -55,75 +55,11 @@ impl LinkCheckResult {
     }
 }
 
-/// Regex to extract href attributes from anchor tags
-static HREF_REGEX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"<a\s[^>]*href=["']([^"']+)["']"#).unwrap());
-
-/// Regex to extract id attributes from any element
-static ELEMENT_ID_REGEX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\sid=["']([^"']+)["']"#).unwrap());
-
-/// A page with its route and HTML content
-pub struct Page<'a> {
-    pub route: &'a Route,
-    pub html: &'a str,
-}
-
 /// An extracted link with its source
 #[derive(Debug, Clone)]
 pub struct ExtractedLink {
     pub source_route: Route,
     pub href: String,
-}
-
-/// Extract all links from pages, categorized
-pub fn extract_links<'a>(pages: impl Iterator<Item = Page<'a>>) -> ExtractedLinks {
-    let mut result = ExtractedLinks::default();
-
-    let pages: Vec<_> = pages.collect();
-    result.known_routes = pages.iter().map(|p| p.route.as_str().to_string()).collect();
-
-    for page in &pages {
-        // Extract element IDs for fragment validation
-        let mut element_ids = HashSet::new();
-        for cap in ELEMENT_ID_REGEX.captures_iter(page.html) {
-            element_ids.insert(cap[1].to_string());
-        }
-        result
-            .element_ids
-            .insert(page.route.as_str().to_string(), element_ids);
-
-        // Extract links
-        for cap in HREF_REGEX.captures_iter(page.html) {
-            let href = &cap[1];
-            result.total += 1;
-
-            if href.starts_with("http://") || href.starts_with("https://") {
-                result.external.push(ExtractedLink {
-                    source_route: page.route.clone(),
-                    href: href.to_string(),
-                });
-            } else if href.starts_with('#') {
-                // Same-page anchor - validate against current page's headings
-                result.internal.push(ExtractedLink {
-                    source_route: page.route.clone(),
-                    href: href.to_string(),
-                });
-            } else if href.starts_with("mailto:")
-                || href.starts_with("tel:")
-                || href.starts_with("javascript:")
-            {
-                // Skip special links
-            } else {
-                result.internal.push(ExtractedLink {
-                    source_route: page.route.clone(),
-                    href: href.to_string(),
-                });
-            }
-        }
-    }
-
-    result
 }
 
 /// Extracted links from all pages
@@ -135,6 +71,61 @@ pub struct ExtractedLinks {
     pub known_routes: HashSet<String>,
     /// Heading IDs per route (for fragment validation)
     pub element_ids: HashMap<String, HashSet<String>>,
+}
+
+/// A page with pre-extracted link data (from HTML cell, not regex)
+pub struct PreExtractedPage<'a> {
+    pub route: &'a Route,
+    pub hrefs: &'a [String],
+    pub element_ids: &'a [String],
+}
+
+/// Build ExtractedLinks from pre-extracted data (no regex parsing needed)
+pub fn extract_links_from_preextracted<'a>(
+    pages: impl Iterator<Item = PreExtractedPage<'a>>,
+) -> ExtractedLinks {
+    let mut result = ExtractedLinks::default();
+
+    let pages: Vec<_> = pages.collect();
+    result.known_routes = pages.iter().map(|p| p.route.as_str().to_string()).collect();
+
+    for page in &pages {
+        // Store element IDs for fragment validation
+        let ids: HashSet<String> = page.element_ids.iter().cloned().collect();
+        result
+            .element_ids
+            .insert(page.route.as_str().to_string(), ids);
+
+        // Categorize links
+        for href in page.hrefs {
+            result.total += 1;
+
+            if href.starts_with("http://") || href.starts_with("https://") {
+                result.external.push(ExtractedLink {
+                    source_route: page.route.clone(),
+                    href: href.clone(),
+                });
+            } else if href.starts_with('#') {
+                // Same-page anchor - validate against current page's headings
+                result.internal.push(ExtractedLink {
+                    source_route: page.route.clone(),
+                    href: href.clone(),
+                });
+            } else if href.starts_with("mailto:")
+                || href.starts_with("tel:")
+                || href.starts_with("javascript:")
+            {
+                // Skip special links
+            } else {
+                result.internal.push(ExtractedLink {
+                    source_route: page.route.clone(),
+                    href: href.clone(),
+                });
+            }
+        }
+    }
+
+    result
 }
 
 /// Check internal links only (fast, no network)
@@ -281,12 +272,6 @@ pub async fn check_external_links(
     (broken, checked_count)
 }
 
-/// Check all links (internal only, for backwards compatibility)
-pub fn check_links<'a>(pages: impl Iterator<Item = Page<'a>>) -> LinkCheckResult {
-    let extracted = extract_links(pages);
-    check_internal_links(&extracted)
-}
-
 /// Check if an internal link is valid
 /// Returns None if valid, Some(reason) if broken
 fn check_internal_link(
@@ -408,6 +393,12 @@ fn normalize_route(path: &str) -> String {
 mod tests {
     use super::*;
 
+    /// Helper to build extracted links from pre-extracted pages and run internal checks
+    fn check_preextracted(pages: Vec<PreExtractedPage>) -> LinkCheckResult {
+        let extracted = extract_links_from_preextracted(pages.into_iter());
+        check_internal_links(&extracted)
+    }
+
     #[test]
     fn test_normalize_route() {
         assert_eq!(normalize_route("/learn/page/"), "/learn/page");
@@ -422,18 +413,22 @@ mod tests {
     fn test_check_links_finds_broken() {
         let root = Route::from_static("/");
         let exists = Route::from_static("/exists");
+        let root_hrefs = vec!["/exists".to_string(), "/missing".to_string()];
+        let exists_hrefs = vec!["/".to_string()];
         let pages = vec![
-            Page {
+            PreExtractedPage {
                 route: &root,
-                html: r#"<a href="/exists">ok</a> <a href="/missing">broken</a>"#,
+                hrefs: &root_hrefs,
+                element_ids: &[],
             },
-            Page {
+            PreExtractedPage {
                 route: &exists,
-                html: r#"<a href="/">back</a>"#,
+                hrefs: &exists_hrefs,
+                element_ids: &[],
             },
         ];
 
-        let result = check_links(pages.into_iter());
+        let result = check_preextracted(pages);
         assert_eq!(result.total_links, 3);
         assert_eq!(result.broken_links.len(), 1);
         assert_eq!(result.broken_links[0].href, "/missing");
@@ -444,82 +439,99 @@ mod tests {
         let learn = Route::from_static("/learn");
         let learn_page = Route::from_static("/learn/page");
         let extend = Route::from_static("/extend");
+        let learn_hrefs = vec!["page".to_string(), "../extend".to_string()];
         let pages = vec![
-            Page {
+            PreExtractedPage {
                 route: &learn,
-                html: r#"<a href="page">relative</a> <a href="../extend">up</a>"#,
+                hrefs: &learn_hrefs,
+                element_ids: &[],
             },
-            Page {
+            PreExtractedPage {
                 route: &learn_page,
-                html: "",
+                hrefs: &[],
+                element_ids: &[],
             },
-            Page {
+            PreExtractedPage {
                 route: &extend,
-                html: "",
+                hrefs: &[],
+                element_ids: &[],
             },
         ];
 
-        let result = check_links(pages.into_iter());
+        let result = check_preextracted(pages);
         assert!(result.is_ok(), "broken: {:?}", result.broken_links);
     }
 
     #[test]
     fn test_skips_external_and_special() {
         let root = Route::from_static("/");
-        let pages = vec![Page {
+        let hrefs = vec![
+            "https://example.com".to_string(),
+            "#anchor".to_string(),
+            "mailto:x@y.z".to_string(),
+            "/style.css".to_string(),
+        ];
+        let ids = vec!["anchor".to_string()];
+        let pages = vec![PreExtractedPage {
             route: &root,
-            html: "<h2 id=\"anchor\">Anchor Section</h2>\
-                   <a href=\"https://example.com\">external</a>\
-                   <a href=\"#anchor\">anchor</a>\
-                   <a href=\"mailto:x@y.z\">email</a>\
-                   <a href=\"/style.css\">static</a>",
+            hrefs: &hrefs,
+            element_ids: &ids,
         }];
 
-        let result = check_links(pages.into_iter());
+        let extracted = extract_links_from_preextracted(pages.into_iter());
+        let result = check_internal_links(&extracted);
         assert!(result.is_ok(), "broken: {:?}", result.broken_links);
         assert_eq!(result.external_links, 1);
     }
 
     #[test]
-    fn test_extract_links() {
+    fn test_extract_links_from_preextracted() {
         let root = Route::from_static("/");
-        let pages = vec![Page {
+        let hrefs = vec![
+            "https://example.com".to_string(),
+            "/page/".to_string(),
+            "#anchor".to_string(),
+        ];
+        let pages = vec![PreExtractedPage {
             route: &root,
-            html: "<a href=\"https://example.com\">ext</a>\
-                   <a href=\"/page/\">int</a>\
-                   <a href=\"#anchor\">anchor</a>",
+            hrefs: &hrefs,
+            element_ids: &[],
         }];
 
-        let extracted = extract_links(pages.into_iter());
+        let extracted = extract_links_from_preextracted(pages.into_iter());
         assert_eq!(extracted.total, 3);
         assert_eq!(extracted.external.len(), 1);
-        // Now same-page anchors are also internal (for validation)
+        // Same-page anchors are internal (for validation)
         assert_eq!(extracted.internal.len(), 2);
     }
 
     #[test]
     fn test_hash_fragment_valid() {
         let page = Route::from_static("/page");
-        let pages = vec![Page {
+        let hrefs = vec!["#section".to_string()];
+        let ids = vec!["section".to_string()];
+        let pages = vec![PreExtractedPage {
             route: &page,
-            html: "<h2 id=\"section\">Section One</h2>\
-                   <a href=\"#section\">link to section</a>",
+            hrefs: &hrefs,
+            element_ids: &ids,
         }];
 
-        let result = check_links(pages.into_iter());
+        let result = check_preextracted(pages);
         assert!(result.is_ok(), "broken: {:?}", result.broken_links);
     }
 
     #[test]
     fn test_hash_fragment_invalid() {
         let page = Route::from_static("/page");
-        let pages = vec![Page {
+        let hrefs = vec!["#nonexistent".to_string()];
+        let ids = vec!["section".to_string()];
+        let pages = vec![PreExtractedPage {
             route: &page,
-            html: "<h2 id=\"section\">Section One</h2>\
-                   <a href=\"#nonexistent\">link to missing section</a>",
+            hrefs: &hrefs,
+            element_ids: &ids,
         }];
 
-        let result = check_links(pages.into_iter());
+        let result = check_preextracted(pages);
         assert_eq!(result.broken_links.len(), 1);
         assert!(result.broken_links[0].reason.contains("#nonexistent"));
     }
@@ -528,18 +540,22 @@ mod tests {
     fn test_cross_page_hash_fragment_valid() {
         let page1 = Route::from_static("/page1");
         let page2 = Route::from_static("/page2");
+        let page1_hrefs = vec!["/page2#section".to_string()];
+        let page2_ids = vec!["section".to_string()];
         let pages = vec![
-            Page {
+            PreExtractedPage {
                 route: &page1,
-                html: "<a href=\"/page2#section\">link to page2 section</a>",
+                hrefs: &page1_hrefs,
+                element_ids: &[],
             },
-            Page {
+            PreExtractedPage {
                 route: &page2,
-                html: "<h2 id=\"section\">Section</h2>",
+                hrefs: &[],
+                element_ids: &page2_ids,
             },
         ];
 
-        let result = check_links(pages.into_iter());
+        let result = check_preextracted(pages);
         assert!(result.is_ok(), "broken: {:?}", result.broken_links);
     }
 
@@ -547,42 +563,48 @@ mod tests {
     fn test_cross_page_hash_fragment_invalid() {
         let page1 = Route::from_static("/page1");
         let page2 = Route::from_static("/page2");
+        let page1_hrefs = vec!["/page2#missing".to_string()];
+        let page2_ids = vec!["section".to_string()];
         let pages = vec![
-            Page {
+            PreExtractedPage {
                 route: &page1,
-                html: "<a href=\"/page2#missing\">link to missing section</a>",
+                hrefs: &page1_hrefs,
+                element_ids: &[],
             },
-            Page {
+            PreExtractedPage {
                 route: &page2,
-                html: "<h2 id=\"section\">Section</h2>",
+                hrefs: &[],
+                element_ids: &page2_ids,
             },
         ];
 
-        let result = check_links(pages.into_iter());
+        let result = check_preextracted(pages);
         assert_eq!(result.broken_links.len(), 1);
         assert!(result.broken_links[0].reason.contains("#missing"));
     }
 
     #[test]
-    fn test_extract_element_ids() {
+    fn test_element_ids_stored_correctly() {
         let page = Route::from_static("/page");
-        let pages = vec![Page {
+        let ids = vec![
+            "title".to_string(),
+            "intro".to_string(),
+            "details".to_string(),
+            "r-rule.one".to_string(),
+            "custom-anchor".to_string(),
+        ];
+        let pages = vec![PreExtractedPage {
             route: &page,
-            html: "<h1 id=\"title\">Title</h1>\
-                   <h2 id=\"intro\">Intro</h2>\
-                   <h3 id=\"details\">Details</h3>\
-                   <div id=\"r-rule.one\">Rule</div>\
-                   <span id=\"custom-anchor\">Anchor</span>",
+            hrefs: &[],
+            element_ids: &ids,
         }];
 
-        let extracted = extract_links(pages.into_iter());
-        let ids = extracted.element_ids.get("/page").unwrap();
-        // Heading IDs
-        assert!(ids.contains("title"));
-        assert!(ids.contains("intro"));
-        assert!(ids.contains("details"));
-        // Non-heading element IDs
-        assert!(ids.contains("r-rule.one"));
-        assert!(ids.contains("custom-anchor"));
+        let extracted = extract_links_from_preextracted(pages.into_iter());
+        let stored_ids = extracted.element_ids.get("/page").unwrap();
+        assert!(stored_ids.contains("title"));
+        assert!(stored_ids.contains("intro"));
+        assert!(stored_ids.contains("details"));
+        assert!(stored_ids.contains("r-rule.one"));
+        assert!(stored_ids.contains("custom-anchor"));
     }
 }

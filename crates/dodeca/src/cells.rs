@@ -1007,6 +1007,20 @@ pub async fn rewrite_urls_in_html_cell(
     }
 }
 
+/// Extract links and element IDs from HTML using the HTML cell's parser.
+/// This uses a proper HTML parser instead of regex.
+pub async fn extract_links_from_html(
+    html: String,
+) -> Result<cell_html_proto::ExtractedLinks, eyre::Error> {
+    let client = html_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("HTML cell not available"))?;
+    client
+        .extract_links(html)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
+}
+
 pub async fn rewrite_string_literals_in_js_cell(
     js: String,
     path_map: HashMap<String, String>,

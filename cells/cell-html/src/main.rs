@@ -51,7 +51,7 @@ impl HtmlProcessor for HtmlProcessorImpl {
         let mut had_code_buttons = false;
 
         // Phase 1: All sync DOM work (before any await points)
-        let html = {
+        let (html, hrefs, element_ids) = {
             let tendril = StrTendril::from(input.html.as_str());
             let mut doc = hotmeal::parse(&tendril);
 
@@ -75,8 +75,12 @@ impl HtmlProcessor for HtmlProcessorImpl {
                 apply_injection(&mut doc, injection);
             }
 
+            // 5. Extract hrefs and element IDs for link checking
+            let hrefs = extract_hrefs(&doc);
+            let element_ids = extract_element_ids(&doc);
+
             // Serialize - this produces an owned String
-            doc.to_html()
+            (doc.to_html(), hrefs, element_ids)
         };
         // tendril and doc are dropped here, before any await
 
@@ -108,6 +112,8 @@ impl HtmlProcessor for HtmlProcessorImpl {
             html,
             had_dead_links,
             had_code_buttons,
+            hrefs,
+            element_ids,
         }
     }
 
@@ -154,6 +160,19 @@ impl HtmlProcessor for HtmlProcessorImpl {
         HtmlResult::SuccessWithFlag {
             html: doc.to_html(),
             flag: had_buttons,
+        }
+    }
+
+    async fn extract_links(
+        &self,
+        _cx: &dodeca_cell_runtime::Context,
+        html: String,
+    ) -> cell_html_proto::ExtractedLinks {
+        let tendril = StrTendril::from(html.as_str());
+        let doc = hotmeal::parse(&tendril);
+        cell_html_proto::ExtractedLinks {
+            hrefs: extract_hrefs(&doc),
+            element_ids: extract_element_ids(&doc),
         }
     }
 }
@@ -225,6 +244,54 @@ fn collect_text(doc: &Document, node_id: NodeId, out: &mut String) {
             }
         }
         _ => {}
+    }
+}
+
+// ============================================================================
+// Link extraction (for link checking without regex)
+// ============================================================================
+
+/// Extract all href values from `<a>` elements
+fn extract_hrefs(doc: &Document) -> Vec<String> {
+    let mut hrefs = Vec::new();
+    if let Some(body_id) = doc.body() {
+        collect_hrefs_recursive(doc, body_id, &mut hrefs);
+    }
+    hrefs
+}
+
+fn collect_hrefs_recursive(doc: &Document, node_id: NodeId, hrefs: &mut Vec<String>) {
+    if is_element(doc, node_id, "a") {
+        if let Some(href) = get_attr(doc, node_id, "href") {
+            hrefs.push(href);
+        }
+    }
+    for child_id in doc.children(node_id) {
+        collect_hrefs_recursive(doc, child_id, hrefs);
+    }
+}
+
+/// Extract all id attribute values from any element
+fn extract_element_ids(doc: &Document) -> Vec<String> {
+    let mut ids = Vec::new();
+    // Check both head and body for elements with IDs
+    if let Some(head_id) = doc.head() {
+        collect_ids_recursive(doc, head_id, &mut ids);
+    }
+    if let Some(body_id) = doc.body() {
+        collect_ids_recursive(doc, body_id, &mut ids);
+    }
+    ids
+}
+
+fn collect_ids_recursive(doc: &Document, node_id: NodeId, ids: &mut Vec<String>) {
+    if let Some(id) = get_attr(doc, node_id, "id") {
+        if !id.is_empty() {
+            ids.push(id);
+        }
+    }
+    for child_id in doc.children(node_id) {
+        collect_ids_recursive(doc, child_id, ids);
     }
 }
 

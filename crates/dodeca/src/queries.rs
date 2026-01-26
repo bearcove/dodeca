@@ -1165,9 +1165,15 @@ pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<Result<SiteOutput, Sit
     for route in site_tree.sections.keys() {
         match serve_html(db, route.clone()).await? {
             Ok(Some(html)) => {
+                // Extract links using HTML cell (proper parser, not regex)
+                let extracted = crate::cells::extract_links_from_html(html.clone())
+                    .await
+                    .unwrap_or_default();
                 files.push(OutputFile::Html {
                     route: route.clone(),
                     content: html,
+                    hrefs: extracted.hrefs,
+                    element_ids: extracted.element_ids,
                 });
             }
             Ok(None) => {}
@@ -1178,9 +1184,15 @@ pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<Result<SiteOutput, Sit
     for route in site_tree.pages.keys() {
         match serve_html(db, route.clone()).await? {
             Ok(Some(html)) => {
+                // Extract links using HTML cell (proper parser, not regex)
+                let extracted = crate::cells::extract_links_from_html(html.clone())
+                    .await
+                    .unwrap_or_default();
                 files.push(OutputFile::Html {
                     route: route.clone(),
                     content: html,
+                    hrefs: extracted.hrefs,
+                    element_ids: extracted.element_ids,
                 });
             }
             Ok(None) => {}

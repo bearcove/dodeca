@@ -1364,7 +1364,7 @@ pub async fn build(
 
     for output in &site_output.files {
         match output {
-            OutputFile::Html { route, content } => {
+            OutputFile::Html { route, content, .. } => {
                 // Apply livereload injection with build info (no dead link checking in build mode)
                 let final_html = inject_livereload_with_build_info(
                     content,
@@ -1443,13 +1443,20 @@ pub async fn build(
             // Check internal links only
             tracing::info!("Checking internal links...");
             let pages = site_output.files.iter().filter_map(|f| match f {
-                OutputFile::Html { route, content } => Some(link_checker::Page {
+                OutputFile::Html {
                     route,
-                    html: content,
+                    hrefs,
+                    element_ids,
+                    ..
+                } => Some(link_checker::PreExtractedPage {
+                    route,
+                    hrefs,
+                    element_ids,
                 }),
                 _ => None,
             });
-            let link_result = link_checker::check_links(pages);
+            let extracted = link_checker::extract_links_from_preextracted(pages);
+            let link_result = link_checker::check_internal_links(&extracted);
 
             if let Some(ref p) = options.progress {
                 p.update(|prog| prog.links.finish());
@@ -1491,13 +1498,19 @@ pub async fn build(
             // Full link checking: internal + external
             tracing::info!("Checking links (internal + external)...");
             let pages = site_output.files.iter().filter_map(|f| match f {
-                OutputFile::Html { route, content } => Some(link_checker::Page {
+                OutputFile::Html {
                     route,
-                    html: content,
+                    hrefs,
+                    element_ids,
+                    ..
+                } => Some(link_checker::PreExtractedPage {
+                    route,
+                    hrefs,
+                    element_ids,
                 }),
                 _ => None,
             });
-            let extracted = link_checker::extract_links(pages);
+            let extracted = link_checker::extract_links_from_preextracted(pages);
             let mut link_result = link_checker::check_internal_links(&extracted);
 
             // Check external links with date-based caching

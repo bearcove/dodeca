@@ -241,8 +241,15 @@ pub struct ParsedData {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, facet::Facet)]
 #[repr(C)]
 pub enum OutputFile {
-    /// HTML page output: route -> html content
-    Html { route: Route, content: String },
+    /// HTML page output: route -> html content + extracted links
+    Html {
+        route: Route,
+        content: String,
+        /// All href values from `<a>` elements (for link checking)
+        hrefs: Vec<String>,
+        /// All id attribute values (for fragment validation)
+        element_ids: Vec<String>,
+    },
     /// CSS output from compiled SASS (path includes cache-bust hash)
     Css { path: StaticPath, content: String },
     /// Static file: relative path -> binary content (path includes cache-bust hash)
