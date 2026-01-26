@@ -1,16 +1,16 @@
-//! Precise URL rewriting using proper parsers
+//! URL rewriting using proper parsers via cells
 //!
-//! - CSS: Uses lightningcss visitor API to find and rewrite `url()` values (via cell)
-//! - HTML: Uses html5ever to parse, mutate, and serialize HTML (via cell)
-//! - JS: Uses OXC parser to find string literals and rewrite asset paths (via cell)
-//! - Internal links: Resolves `@/` prefixed links to actual routes using site tree
+//! All HTML transformations are done by the HTML cell in a single pass:
+//! - URL rewriting (href, src, srcset attributes)
+//! - Internal link resolution (@/ links)
+//! - Relative link resolution
+//! - Image transformation to picture elements
+//! - Inline CSS/JS processing (via CSS/JS cells)
+//! - Dead link marking
 
 use std::collections::{HashMap, HashSet};
 
-use crate::cells::{
-    mark_dead_links_cell, rewrite_string_literals_in_js_cell, rewrite_urls_in_css_cell,
-    rewrite_urls_in_html_cell,
-};
+use crate::cells::{rewrite_string_literals_in_js_cell, rewrite_urls_in_css_cell};
 
 /// Rewrite URLs in CSS using lightningcss parser (via cell)
 ///
@@ -49,190 +49,113 @@ pub async fn rewrite_string_literals_in_js(js: &str, path_map: &HashMap<String, 
     }
 }
 
-/// Rewrite URLs in HTML using the html cell
+/// Process HTML with all transformations via the HTML cell.
 ///
-/// Rewrites:
-/// - `href` and `src` attributes
-/// - `srcset` attribute values
-/// - Inline `<style>` tag content (via lightningcss cell)
-/// - String literals in `<script>` tags (via OXC cell)
+/// This is the main entry point for HTML processing. It performs all transformations
+/// in a single parse/serialize cycle:
+/// - URL rewriting (if path_map provided)
+/// - Internal link resolution (if source_to_route provided)
+/// - Relative link resolution (if base_route provided)
+/// - Image transformation (if image_variants provided)
+/// - Dead link marking (if known_routes provided)
+/// - Inline CSS/JS URL rewriting (via host callbacks to CSS/JS cells)
 ///
-/// Returns original HTML if the html cell is not available.
-pub async fn rewrite_urls_in_html(html: &str, path_map: &HashMap<String, String>) -> String {
-    // First: rewrite HTML attributes using the cell
-    // Log vite-related mappings at debug level
-    for (from, to) in path_map.iter().filter(|(k, _)| k.contains("/src/")) {
-        tracing::debug!(from = %from, to = %to, "vite path mapping available");
-    }
+/// Returns the processed HTML and metadata.
+pub async fn process_html(
+    html: &str,
+    options: HtmlProcessOptions,
+) -> Result<HtmlProcessOutput, eyre::Error> {
+    let client = crate::cells::html_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("HTML cell not available"))?;
 
-    let html_with_attrs = match rewrite_urls_in_html_cell(html.to_string(), path_map.clone()).await
-    {
-        Ok(result) => result,
+    let input = cell_html_proto::HtmlProcessInput {
+        html: html.to_string(),
+        path_map: options.path_map,
+        known_routes: options.known_routes,
+        code_metadata: None,
+        injections: vec![],
+        minify: None,
+        source_to_route: options.source_to_route,
+        base_route: options.base_route,
+        image_variants: options.image_variants,
+    };
+
+    match client.process(input).await {
+        Ok(cell_html_proto::HtmlProcessResult::Success {
+            html,
+            had_dead_links,
+            had_code_buttons: _,
+            hrefs,
+            element_ids,
+        }) => Ok(HtmlProcessOutput {
+            html,
+            had_dead_links,
+            hrefs,
+            element_ids,
+        }),
+        Ok(cell_html_proto::HtmlProcessResult::Error { message }) => {
+            Err(eyre::eyre!("HTML processing error: {}", message))
+        }
+        Err(e) => Err(eyre::eyre!("RPC error: {:?}", e)),
+    }
+}
+
+/// Options for HTML processing
+#[derive(Default)]
+pub struct HtmlProcessOptions {
+    /// URL rewriting map (old path -> new path)
+    pub path_map: Option<HashMap<String, String>>,
+    /// Known routes for dead link detection
+    pub known_routes: Option<HashSet<String>>,
+    /// Source path to route mapping for @/ links
+    pub source_to_route: Option<HashMap<String, String>>,
+    /// Base route for relative link resolution
+    pub base_route: Option<String>,
+    /// Image variants for picture element transformation
+    pub image_variants: Option<HashMap<String, cell_html_proto::ResponsiveImageInfo>>,
+}
+
+/// Output from HTML processing
+pub struct HtmlProcessOutput {
+    /// Processed HTML
+    pub html: String,
+    /// Whether any dead links were found
+    pub had_dead_links: bool,
+    /// All href values from <a> elements
+    pub hrefs: Vec<String>,
+    /// All id attributes from elements
+    pub element_ids: Vec<String>,
+}
+
+/// Simple URL rewriting (HTML attributes only, no other transformations)
+pub async fn rewrite_urls_in_html(html: &str, path_map: &HashMap<String, String>) -> String {
+    let options = HtmlProcessOptions {
+        path_map: Some(path_map.clone()),
+        ..Default::default()
+    };
+
+    match process_html(html, options).await {
+        Ok(output) => output.html,
         Err(e) => {
             tracing::warn!("HTML URL rewriting failed: {}", e);
             html.to_string()
         }
-    };
-
-    // Then: extract and process inline CSS and JS
-    // This is a simplified approach - we use regex to find <style> and <script> content
-    // and rewrite them separately, then replace in the HTML
-    let mut result = html_with_attrs;
-
-    // Process inline styles
-    let style_re = regex::Regex::new(r"<style[^>]*>([\s\S]*?)</style>").unwrap();
-    for cap in style_re.captures_iter(&result.clone()) {
-        let original_css = &cap[1];
-        if !original_css.trim().is_empty() {
-            let processed_css = rewrite_urls_in_css(original_css, path_map).await;
-            if original_css != processed_css {
-                result = result.replace(original_css, &processed_css);
-            }
-        }
     }
-
-    // Process inline scripts
-    let script_re = regex::Regex::new(r"<script[^>]*>([\s\S]*?)</script>").unwrap();
-    for cap in script_re.captures_iter(&result.clone()) {
-        let original_js = &cap[1];
-        if !original_js.trim().is_empty() {
-            let processed_js = rewrite_string_literals_in_js(original_js, path_map).await;
-            if original_js != processed_js {
-                result = result.replace(original_js, &processed_js);
-            }
-        }
-    }
-
-    result
-}
-
-/// Resolve `@/` prefixed links in HTML using a source path to route mapping.
-///
-/// The markdown cell passes through `@/` links unchanged so that dodeca can resolve them
-/// using the site tree (for custom slugs and dependency tracking).
-///
-/// # Arguments
-/// * `html` - HTML content that may contain `@/` links
-/// * `source_to_route` - Map from source paths (e.g., "guide/intro.md") to routes (e.g., "/guide/intro/")
-///
-/// # Returns
-/// HTML with `@/` links resolved to their actual routes.
-/// Links that don't exist in the map are left unchanged (will be caught as dead links later).
-pub fn resolve_internal_links(html: &str, source_to_route: &HashMap<String, String>) -> String {
-    use regex::Regex;
-
-    // Match href="@/..." with double quotes
-    // Pattern: href="@/path/to/file.md" or href="@/path/to/file.md#fragment"
-    let href_re_double = Regex::new(r##"href="@/([^"#]*)(?:#([^"]*))?"##).unwrap();
-    // Match href='@/...' with single quotes
-    let href_re_single = Regex::new(r##"href='@/([^'#]*)(?:#([^']*))?'"##).unwrap();
-
-    let resolve = |caps: &regex::Captures, quote: &str| -> String {
-        let source_path = &caps[1];
-        let fragment = caps.get(2).map(|m| m.as_str()).unwrap_or("");
-
-        // Look up the route for this source path
-        if let Some(route) = source_to_route.get(source_path) {
-            // Ensure trailing slash for consistency with zola-style URLs
-            let route_with_slash = if route == "/" || route.ends_with('/') {
-                route.clone()
-            } else {
-                format!("{}/", route)
-            };
-            let href = if fragment.is_empty() {
-                route_with_slash
-            } else {
-                format!("{}#{}", route_with_slash, fragment)
-            };
-            format!("href={quote}{href}{quote}")
-        } else {
-            // Not found - leave unchanged, will be caught as dead link
-            caps[0].to_string()
-        }
-    };
-
-    // First pass: double quotes
-    let result = href_re_double.replace_all(html, |caps: &regex::Captures| resolve(caps, "\""));
-
-    // Second pass: single quotes
-    let result = href_re_single.replace_all(&result, |caps: &regex::Captures| resolve(caps, "'"));
-
-    result.into_owned()
-}
-
-/// Resolve relative links in HTML by joining them with the base route.
-///
-/// Relative links are those that don't start with `/`, `http://`, `https://`, `#`, `@/`, or `mailto:`.
-/// For example, if base_route is `/comparisons/` and we have `href="github-actions"`,
-/// it becomes `href="/comparisons/github-actions"`.
-///
-/// # Arguments
-/// * `html` - HTML content that may contain relative links
-/// * `base_route` - The route of the page containing this HTML (e.g., "/comparisons/")
-///
-/// # Returns
-/// HTML with relative links resolved to absolute paths.
-pub fn resolve_relative_links(html: &str, base_route: &str) -> String {
-    use regex::Regex;
-
-    // Ensure base_route ends with /
-    let base = if base_route.ends_with('/') {
-        base_route.to_string()
-    } else {
-        format!("{}/", base_route)
-    };
-
-    // Match href="..." with double quotes - capture the full href value
-    let href_re_double = Regex::new(r#"href="([^"]+)""#).unwrap();
-    // Match href='...' with single quotes
-    let href_re_single = Regex::new(r#"href='([^']+)'"#).unwrap();
-
-    let resolve = |caps: &regex::Captures, quote: &str, base: &str| -> String {
-        let href = &caps[1];
-
-        // Skip if already absolute or special
-        if href.starts_with('/')
-            || href.starts_with("http://")
-            || href.starts_with("https://")
-            || href.starts_with('#')
-            || href.starts_with("@/")
-            || href.starts_with("mailto:")
-            || href.starts_with("tel:")
-            || href.starts_with("javascript:")
-        {
-            return caps[0].to_string();
-        }
-
-        // Resolve relative link
-        let resolved = format!("{}{}", base, href);
-        format!("href={quote}{resolved}{quote}")
-    };
-
-    let base_clone = base.clone();
-    // First pass: double quotes
-    let result = href_re_double.replace_all(html, |caps: &regex::Captures| {
-        resolve(caps, "\"", &base_clone)
-    });
-
-    // Second pass: single quotes
-    let result =
-        href_re_single.replace_all(&result, |caps: &regex::Captures| resolve(caps, "'", &base));
-
-    result.into_owned()
 }
 
 /// Mark dead internal links in HTML using the cell
 ///
 /// Adds `data-dead` attribute to `<a>` tags with internal hrefs that don't exist in known_routes.
 /// Returns (modified_html, had_dead_links) tuple.
-/// Returns original HTML with no dead links if the cell is not available.
 pub async fn mark_dead_links(html: &str, known_routes: &HashSet<String>) -> (String, bool) {
-    match mark_dead_links_cell(html.to_string(), known_routes.clone()).await {
-        Ok(result) => {
-            // Check if any changes were made (simple heuristic)
-            let had_dead = result != html;
-            (result, had_dead)
-        }
+    let options = HtmlProcessOptions {
+        known_routes: Some(known_routes.clone()),
+        ..Default::default()
+    };
+
+    match process_html(html, options).await {
+        Ok(output) => (output.html, output.had_dead_links),
         Err(e) => {
             tracing::warn!("Dead link marking failed: {}", e);
             (html.to_string(), false)
@@ -240,125 +163,67 @@ pub async fn mark_dead_links(html: &str, known_routes: &HashSet<String>) -> (Str
     }
 }
 
-/// Information about responsive image variants for picture element generation
-pub struct ResponsiveImageInfo {
-    /// JXL srcset entries: vec of (path, width)
-    pub jxl_srcset: Vec<(String, u32)>,
-    /// WebP srcset entries: vec of (path, width)
-    pub webp_srcset: Vec<(String, u32)>,
-    /// Original dimensions
-    pub original_width: u32,
-    pub original_height: u32,
-    /// Thumbhash data URL for placeholder
-    pub thumbhash_data_url: String,
-}
+// Re-export ResponsiveImageInfo from the proto for convenience
+pub use cell_html_proto::ResponsiveImageInfo;
 
-/// Build a srcset string from path/width pairs
-fn build_srcset(entries: &[(String, u32)]) -> String {
-    entries
-        .iter()
-        .map(|(path, width)| format!("{path} {width}w"))
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-/// Transform `<img>` tags pointing to internal images into `<picture>` elements
+/// Resolve `@/` prefixed links in HTML using source path to route mapping.
 ///
-/// The `image_variants` map contains:
-/// - Key: original image path (e.g., "/images/photo.png")
-/// - Value: ResponsiveImageInfo with srcsets, dimensions, and thumbhash
-pub fn transform_images_to_picture(
+/// Now delegates to the HTML cell for proper parsing.
+pub async fn resolve_internal_links(
+    html: &str,
+    source_to_route: &HashMap<String, String>,
+) -> String {
+    let options = HtmlProcessOptions {
+        source_to_route: Some(source_to_route.clone()),
+        ..Default::default()
+    };
+
+    match process_html(html, options).await {
+        Ok(output) => output.html,
+        Err(e) => {
+            tracing::warn!("Internal link resolution failed: {}", e);
+            html.to_string()
+        }
+    }
+}
+
+/// Resolve relative links in HTML by joining with base route.
+///
+/// Now delegates to the HTML cell for proper parsing.
+pub async fn resolve_relative_links(html: &str, base_route: &str) -> String {
+    let options = HtmlProcessOptions {
+        base_route: Some(base_route.to_string()),
+        ..Default::default()
+    };
+
+    match process_html(html, options).await {
+        Ok(output) => output.html,
+        Err(e) => {
+            tracing::warn!("Relative link resolution failed: {}", e);
+            html.to_string()
+        }
+    }
+}
+
+/// Transform `<img>` tags to `<picture>` elements with responsive srcsets.
+///
+/// Now delegates to the HTML cell for proper parsing.
+pub async fn transform_images_to_picture(
     html: &str,
     image_variants: &HashMap<String, ResponsiveImageInfo>,
 ) -> String {
-    use regex::Regex;
-
-    // If no image variants, return unchanged
-    if image_variants.is_empty() {
-        return html.to_string();
-    }
-
-    // Match <img> tags with src attribute (double quotes)
-    let img_re_double = Regex::new(r#"<img\s+([^>]*?)src="([^"]+)"([^>]*?)(/?)>"#).unwrap();
-    // Match <img> tags with src attribute (single quotes)
-    let img_re_single = Regex::new(r#"<img\s+([^>]*?)src='([^']+)'([^>]*?)(/?)>"#).unwrap();
-
-    let transform = |caps: &regex::Captures, quote: &str| -> String {
-        let before_src = &caps[1];
-        let src = &caps[2];
-        let after_src = &caps[3];
-        let self_closing = &caps[4];
-
-        // Check if this src has image variants
-        if let Some(info) = image_variants.get(src) {
-            // Build srcset strings
-            let jxl_srcset = build_srcset(&info.jxl_srcset);
-            let webp_srcset = build_srcset(&info.webp_srcset);
-
-            // Get the largest WebP variant for fallback src
-            let fallback_src = info
-                .webp_srcset
-                .iter()
-                .max_by_key(|(_, w)| w)
-                .map(|(p, _)| p.as_str())
-                .unwrap_or("");
-
-            // Extract existing attributes to avoid duplicates
-            let has_width = before_src.contains("width=") || after_src.contains("width=");
-            let has_height = before_src.contains("height=") || after_src.contains("height=");
-            let has_loading = before_src.contains("loading=") || after_src.contains("loading=");
-            let has_decoding = before_src.contains("decoding=") || after_src.contains("decoding=");
-            let has_style = before_src.contains("style=") || after_src.contains("style=");
-
-            // Build extra attributes
-            let mut extra_attrs = String::new();
-            if !has_width {
-                extra_attrs.push_str(&format!(" width={quote}{}{quote}", info.original_width));
-            }
-            if !has_height {
-                extra_attrs.push_str(&format!(" height={quote}{}{quote}", info.original_height));
-            }
-            if !has_loading {
-                extra_attrs.push_str(&format!(" loading={quote}lazy{quote}"));
-            }
-            if !has_decoding {
-                extra_attrs.push_str(&format!(" decoding={quote}async{quote}"));
-            }
-            if !has_style {
-                extra_attrs.push_str(&format!(
-                    " style={quote}background:url({}) center/cover no-repeat{quote}",
-                    info.thumbhash_data_url
-                ));
-                extra_attrs.push_str(&format!(
-                    " onload={quote}this.style.background='none'{quote}"
-                ));
-            }
-
-            // Reconstruct the img tag with WebP src and extra attributes
-            let img_tag = format!(
-                "<img {before_src}src={quote}{fallback_src}{quote}{after_src}{extra_attrs}{self_closing}>"
-            );
-
-            // Build the picture element with responsive srcsets
-            format!(
-                "<picture>\
-                    <source srcset={quote}{jxl_srcset}{quote} type={quote}image/jxl{quote}>\
-                    <source srcset={quote}{webp_srcset}{quote} type={quote}image/webp{quote}>\
-                    {img_tag}\
-                </picture>"
-            )
-        } else {
-            caps[0].to_string()
-        }
+    let options = HtmlProcessOptions {
+        image_variants: Some(image_variants.clone()),
+        ..Default::default()
     };
 
-    // First pass: double quotes
-    let result = img_re_double.replace_all(html, |caps: &regex::Captures| transform(caps, "\""));
-
-    // Second pass: single quotes
-    let result = img_re_single.replace_all(&result, |caps: &regex::Captures| transform(caps, "'"));
-
-    result.into_owned()
+    match process_html(html, options).await {
+        Ok(output) => output.html,
+        Err(e) => {
+            tracing::warn!("Image transformation failed: {}", e);
+            html.to_string()
+        }
+    }
 }
 
 #[cfg(test)]
@@ -401,7 +266,7 @@ mod tests {
         // Without the cell, the function returns the original HTML with no dead links
         // The assertions here work for both cases
         if had_dead {
-            assert!(result.contains(r#"data-dead="/missing""#));
+            assert!(result.contains(r#"data-dead"#));
             assert!(!result.contains(r#"href="/exists" data-dead"#));
         }
     }

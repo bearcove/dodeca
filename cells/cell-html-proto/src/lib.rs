@@ -101,6 +101,18 @@ pub struct HtmlProcessInput {
     /// Minification options
     #[facet(default)]
     pub minify: Option<MinifyOptions>,
+
+    /// Source path to route mapping for resolving `@/` links
+    #[facet(default)]
+    pub source_to_route: Option<HashMap<String, String>>,
+
+    /// Base route for resolving relative links (e.g., "/guide/intro/")
+    #[facet(default)]
+    pub base_route: Option<String>,
+
+    /// Image variants for transforming `<img>` to `<picture>`
+    #[facet(default)]
+    pub image_variants: Option<HashMap<String, ResponsiveImageInfo>>,
 }
 
 /// Result of the unified process() method
@@ -219,13 +231,43 @@ pub struct ExtractedLinks {
     pub element_ids: Vec<String>,
 }
 
+/// Information about responsive image variants for picture element generation
+#[derive(Debug, Clone, Facet)]
+pub struct ResponsiveImageInfo {
+    /// JXL srcset entries: vec of (path, width)
+    pub jxl_srcset: Vec<(String, u32)>,
+    /// WebP srcset entries: vec of (path, width)
+    pub webp_srcset: Vec<(String, u32)>,
+    /// Original dimensions
+    pub original_width: u32,
+    pub original_height: u32,
+    /// Thumbhash data URL for placeholder
+    pub thumbhash_data_url: String,
+}
+
 // ============================================================================
 // Host service (cell calls these)
 // ============================================================================
 
+/// Result of CSS processing (URL rewriting + optional minification)
+#[derive(Debug, Clone, Facet)]
+#[repr(u8)]
+pub enum ProcessCssResult {
+    Success { css: String },
+    Error { message: String },
+}
+
+/// Result of JS processing (URL rewriting + optional minification)
+#[derive(Debug, Clone, Facet)]
+#[repr(u8)]
+pub enum ProcessJsResult {
+    Success { js: String },
+    Error { message: String },
+}
+
 /// Service implemented by the HOST (dodeca) that the cell can call.
 ///
-/// This enables the cell to delegate CSS/JS minification to specialized cells
+/// This enables the cell to delegate CSS/JS processing to specialized cells
 /// without needing direct cell-to-cell communication.
 #[allow(async_fn_in_trait)]
 #[roam::service]
@@ -239,4 +281,22 @@ pub trait HtmlHost {
     ///
     /// The host dispatches this to cell-js.
     async fn minify_js(&self, js: String) -> MinifyJsResult;
+
+    /// Process inline CSS: rewrite URLs using path_map.
+    ///
+    /// The host dispatches this to cell-css for URL rewriting.
+    async fn process_inline_css(
+        &self,
+        css: String,
+        path_map: HashMap<String, String>,
+    ) -> ProcessCssResult;
+
+    /// Process inline JS: rewrite string literals using path_map.
+    ///
+    /// The host dispatches this to cell-js for URL rewriting.
+    async fn process_inline_js(
+        &self,
+        js: String,
+        path_map: HashMap<String, String>,
+    ) -> ProcessJsResult;
 }

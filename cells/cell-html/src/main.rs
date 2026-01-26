@@ -14,9 +14,10 @@ use std::collections::{HashMap, HashSet};
 use color_eyre::Result;
 use hotmeal::{Document, LocalName, NodeId, NodeKind, QualName, Stem, StrTendril, ns};
 
+use cell_host_proto::HostServiceClient;
 use cell_html_proto::{
-    CodeExecutionMetadata, HtmlHostClient, HtmlProcessInput, HtmlProcessResult, HtmlProcessor,
-    HtmlProcessorDispatcher, HtmlResult, Injection,
+    CodeExecutionMetadata, HtmlProcessInput, HtmlProcessResult, HtmlProcessor,
+    HtmlProcessorDispatcher, HtmlResult, Injection, ResponsiveImageInfo,
 };
 use dodeca_cell_runtime::{ConnectionHandle, run_cell};
 
@@ -36,8 +37,8 @@ impl HtmlProcessorImpl {
     }
 
     /// Get a client for calling back to the host
-    fn host_client(&self) -> HtmlHostClient {
-        HtmlHostClient::new(self.handle().clone())
+    fn host_client(&self) -> HostServiceClient {
+        HostServiceClient::new(self.handle().clone())
     }
 }
 
@@ -70,12 +71,27 @@ impl HtmlProcessor for HtmlProcessorImpl {
                 had_code_buttons = inject_code_buttons_in_doc(&mut doc, code_metadata);
             }
 
-            // 4. Content injections (on the tree)
+            // 4. Resolve @/ internal links
+            if let Some(source_to_route) = &input.source_to_route {
+                resolve_internal_links_in_doc(&mut doc, source_to_route);
+            }
+
+            // 5. Resolve relative links
+            if let Some(base_route) = &input.base_route {
+                resolve_relative_links_in_doc(&mut doc, base_route);
+            }
+
+            // 6. Transform images to picture elements
+            if let Some(image_variants) = &input.image_variants {
+                transform_images_in_doc(&mut doc, image_variants);
+            }
+
+            // 7. Content injections (on the tree)
             for injection in &input.injections {
                 apply_injection(&mut doc, injection);
             }
 
-            // 5. Extract hrefs and element IDs for link checking
+            // 8. Extract hrefs and element IDs for link checking
             let hrefs = extract_hrefs(&doc);
             let element_ids = extract_element_ids(&doc);
 
@@ -84,28 +100,42 @@ impl HtmlProcessor for HtmlProcessorImpl {
         };
         // tendril and doc are dropped here, before any await
 
-        // Phase 2: Async minification (if requested)
-        let html = if let Some(ref minify_opts) = input.minify {
+        // Phase 2: Async processing (inline CSS/JS URL rewriting and minification)
+        let html = {
             let host = self.host_client();
             let mut current_html = html;
 
-            if minify_opts.minify_inline_css {
-                match minify_inline_css_string(&host, &current_html).await {
-                    Ok(minified) => current_html = minified,
-                    Err(e) => tracing::warn!("CSS minification failed: {}", e),
+            // Process inline CSS for URL rewriting (if path_map provided)
+            if let Some(ref path_map) = input.path_map {
+                match process_inline_css_urls(&host, &current_html, path_map).await {
+                    Ok(processed) => current_html = processed,
+                    Err(e) => tracing::warn!("Inline CSS URL rewriting failed: {}", e),
+                }
+
+                match process_inline_js_urls(&host, &current_html, path_map).await {
+                    Ok(processed) => current_html = processed,
+                    Err(e) => tracing::warn!("Inline JS URL rewriting failed: {}", e),
                 }
             }
 
-            if minify_opts.minify_inline_js {
-                match minify_inline_js_string(&host, &current_html).await {
-                    Ok(minified) => current_html = minified,
-                    Err(e) => tracing::warn!("JS minification failed: {}", e),
+            // Minification (if requested)
+            if let Some(ref minify_opts) = input.minify {
+                if minify_opts.minify_inline_css {
+                    match minify_inline_css_string(&host, &current_html).await {
+                        Ok(minified) => current_html = minified,
+                        Err(e) => tracing::warn!("CSS minification failed: {}", e),
+                    }
+                }
+
+                if minify_opts.minify_inline_js {
+                    match minify_inline_js_string(&host, &current_html).await {
+                        Ok(minified) => current_html = minified,
+                        Err(e) => tracing::warn!("JS minification failed: {}", e),
+                    }
                 }
             }
 
             current_html
-        } else {
-            html
         };
 
         HtmlProcessResult::Success {
@@ -296,11 +326,252 @@ fn collect_ids_recursive(doc: &Document, node_id: NodeId, ids: &mut Vec<String>)
 }
 
 // ============================================================================
-// Inline CSS/JS minification (string-based, for use across await points)
+// Inline CSS/JS processing (string-based, for use across await points)
 // ============================================================================
 
+/// Process inline `<style>` content for URL rewriting via host callback
+async fn process_inline_css_urls(
+    host: &HostServiceClient,
+    html: &str,
+    path_map: &HashMap<String, String>,
+) -> Result<String> {
+    // Phase 1: Extract CSS content (sync)
+    let css_to_process: Vec<(usize, String)> = {
+        let tendril = StrTendril::from(html);
+        let doc = hotmeal::parse(&tendril);
+
+        let mut results = Vec::new();
+        if let Some(head_id) = doc.head() {
+            for (idx, node_id) in doc
+                .children(head_id)
+                .filter(|&id| is_element(&doc, id, "style"))
+                .enumerate()
+            {
+                let text = get_text_content(&doc, node_id);
+                if !text.trim().is_empty() {
+                    results.push((idx, text));
+                }
+            }
+        }
+        // Also check body for inline styles
+        if let Some(body_id) = doc.body() {
+            let start_idx = results.len();
+            collect_inline_styles(&doc, body_id, &mut results, start_idx);
+        }
+        results
+    };
+
+    if css_to_process.is_empty() {
+        return Ok(html.to_string());
+    }
+
+    // Phase 2: Process CSS (async)
+    let mut processed: HashMap<usize, String> = HashMap::new();
+    for (idx, css) in css_to_process {
+        match host.process_inline_css(css.clone(), path_map.clone()).await {
+            Ok(cell_host_proto::ProcessCssResult::Success { css: proc_css }) => {
+                if proc_css != css {
+                    processed.insert(idx, proc_css);
+                }
+            }
+            Ok(cell_host_proto::ProcessCssResult::Error { message }) => {
+                tracing::warn!("CSS URL rewriting error: {}", message);
+            }
+            Err(e) => {
+                tracing::warn!("CSS URL rewriting RPC error: {}", e);
+            }
+        }
+    }
+
+    if processed.is_empty() {
+        return Ok(html.to_string());
+    }
+
+    // Phase 3: Apply processed CSS (sync)
+    let tendril = StrTendril::from(html);
+    let mut doc = hotmeal::parse(&tendril);
+
+    let mut style_idx = 0;
+    if let Some(head_id) = doc.head() {
+        let style_nodes: Vec<NodeId> = doc
+            .children(head_id)
+            .filter(|&id| is_element(&doc, id, "style"))
+            .collect();
+
+        for node_id in style_nodes {
+            if let Some(proc_css) = processed.get(&style_idx) {
+                replace_text_content(&mut doc, node_id, proc_css);
+            }
+            style_idx += 1;
+        }
+    }
+    if let Some(body_id) = doc.body() {
+        apply_processed_styles(&mut doc, body_id, &processed, &mut style_idx);
+    }
+
+    Ok(doc.to_html())
+}
+
+fn collect_inline_styles(
+    doc: &Document,
+    node_id: NodeId,
+    results: &mut Vec<(usize, String)>,
+    start_idx: usize,
+) {
+    if is_element(doc, node_id, "style") {
+        let text = get_text_content(doc, node_id);
+        if !text.trim().is_empty() {
+            results.push((start_idx + results.len(), text));
+        }
+        return;
+    }
+    for child_id in doc.children(node_id) {
+        collect_inline_styles(doc, child_id, results, start_idx);
+    }
+}
+
+fn apply_processed_styles(
+    doc: &mut Document,
+    node_id: NodeId,
+    processed: &HashMap<usize, String>,
+    idx: &mut usize,
+) {
+    if is_element(doc, node_id, "style") {
+        if let Some(proc_css) = processed.get(idx) {
+            replace_text_content(doc, node_id, proc_css);
+        }
+        *idx += 1;
+        return;
+    }
+    let children: Vec<NodeId> = doc.children(node_id).collect();
+    for child_id in children {
+        apply_processed_styles(doc, child_id, processed, idx);
+    }
+}
+
+/// Process inline `<script>` content for URL rewriting via host callback
+async fn process_inline_js_urls(
+    host: &HostServiceClient,
+    html: &str,
+    path_map: &HashMap<String, String>,
+) -> Result<String> {
+    // Phase 1: Extract JS content (sync)
+    let js_to_process: Vec<(usize, String)> = {
+        let tendril = StrTendril::from(html);
+        let doc = hotmeal::parse(&tendril);
+
+        let mut results = Vec::new();
+        // Check head
+        if let Some(head_id) = doc.head() {
+            for (idx, node_id) in doc
+                .children(head_id)
+                .filter(|&id| is_element(&doc, id, "script") && get_attr(&doc, id, "src").is_none())
+                .enumerate()
+            {
+                let text = get_text_content(&doc, node_id);
+                if !text.trim().is_empty() {
+                    results.push((idx, text));
+                }
+            }
+        }
+        // Check body
+        if let Some(body_id) = doc.body() {
+            let start_idx = results.len();
+            collect_inline_scripts(&doc, body_id, &mut results, start_idx);
+        }
+        results
+    };
+
+    if js_to_process.is_empty() {
+        return Ok(html.to_string());
+    }
+
+    // Phase 2: Process JS (async)
+    let mut processed: HashMap<usize, String> = HashMap::new();
+    for (idx, js) in js_to_process {
+        match host.process_inline_js(js.clone(), path_map.clone()).await {
+            Ok(cell_host_proto::ProcessJsResult::Success { js: proc_js }) => {
+                if proc_js != js {
+                    processed.insert(idx, proc_js);
+                }
+            }
+            Ok(cell_host_proto::ProcessJsResult::Error { message }) => {
+                tracing::warn!("JS URL rewriting error: {}", message);
+            }
+            Err(e) => {
+                tracing::warn!("JS URL rewriting RPC error: {}", e);
+            }
+        }
+    }
+
+    if processed.is_empty() {
+        return Ok(html.to_string());
+    }
+
+    // Phase 3: Apply processed JS (sync)
+    let tendril = StrTendril::from(html);
+    let mut doc = hotmeal::parse(&tendril);
+
+    let mut script_idx = 0;
+    if let Some(head_id) = doc.head() {
+        let script_nodes: Vec<NodeId> = doc
+            .children(head_id)
+            .filter(|&id| is_element(&doc, id, "script") && get_attr(&doc, id, "src").is_none())
+            .collect();
+
+        for node_id in script_nodes {
+            if let Some(proc_js) = processed.get(&script_idx) {
+                replace_text_content(&mut doc, node_id, proc_js);
+            }
+            script_idx += 1;
+        }
+    }
+    if let Some(body_id) = doc.body() {
+        apply_processed_scripts(&mut doc, body_id, &processed, &mut script_idx);
+    }
+
+    Ok(doc.to_html())
+}
+
+fn collect_inline_scripts(
+    doc: &Document,
+    node_id: NodeId,
+    results: &mut Vec<(usize, String)>,
+    start_idx: usize,
+) {
+    if is_element(doc, node_id, "script") && get_attr(doc, node_id, "src").is_none() {
+        let text = get_text_content(doc, node_id);
+        if !text.trim().is_empty() {
+            results.push((start_idx + results.len(), text));
+        }
+        return;
+    }
+    for child_id in doc.children(node_id) {
+        collect_inline_scripts(doc, child_id, results, start_idx);
+    }
+}
+
+fn apply_processed_scripts(
+    doc: &mut Document,
+    node_id: NodeId,
+    processed: &HashMap<usize, String>,
+    idx: &mut usize,
+) {
+    if is_element(doc, node_id, "script") && get_attr(doc, node_id, "src").is_none() {
+        if let Some(proc_js) = processed.get(idx) {
+            replace_text_content(doc, node_id, proc_js);
+        }
+        *idx += 1;
+        return;
+    }
+    let children: Vec<NodeId> = doc.children(node_id).collect();
+    for child_id in children {
+        apply_processed_scripts(doc, child_id, processed, idx);
+    }
+}
+
 /// Minify inline `<style>` content via host callback (string-based)
-async fn minify_inline_css_string(host: &HtmlHostClient, html: &str) -> Result<String> {
+async fn minify_inline_css_string(host: &HostServiceClient, html: &str) -> Result<String> {
     // Phase 1: Extract CSS content (sync, no await)
     let css_to_minify: Vec<(usize, String)> = {
         let tendril = StrTendril::from(html);
@@ -331,10 +602,10 @@ async fn minify_inline_css_string(host: &HtmlHostClient, html: &str) -> Result<S
     let mut minified: HashMap<usize, String> = HashMap::new();
     for (idx, css) in css_to_minify {
         match host.minify_css(css.clone()).await {
-            Ok(cell_html_proto::MinifyCssResult::Success { css: min_css }) => {
+            Ok(cell_host_proto::MinifyCssResult::Success { css: min_css }) => {
                 minified.insert(idx, min_css);
             }
-            Ok(cell_html_proto::MinifyCssResult::Error { message }) => {
+            Ok(cell_host_proto::MinifyCssResult::Error { message }) => {
                 tracing::warn!("CSS minification error: {}", message);
             }
             Err(e) => {
@@ -368,7 +639,7 @@ async fn minify_inline_css_string(host: &HtmlHostClient, html: &str) -> Result<S
 }
 
 /// Minify inline `<script>` content via host callback (string-based)
-async fn minify_inline_js_string(host: &HtmlHostClient, html: &str) -> Result<String> {
+async fn minify_inline_js_string(host: &HostServiceClient, html: &str) -> Result<String> {
     // Phase 1: Extract JS content (sync, no await)
     let js_to_minify: Vec<(usize, String)> = {
         let tendril = StrTendril::from(html);
@@ -399,10 +670,10 @@ async fn minify_inline_js_string(host: &HtmlHostClient, html: &str) -> Result<St
     let mut minified: HashMap<usize, String> = HashMap::new();
     for (idx, js) in js_to_minify {
         match host.minify_js(js.clone()).await {
-            Ok(cell_html_proto::MinifyJsResult::Success { js: min_js }) => {
+            Ok(cell_host_proto::MinifyJsResult::Success { js: min_js }) => {
                 minified.insert(idx, min_js);
             }
-            Ok(cell_html_proto::MinifyJsResult::Error { message }) => {
+            Ok(cell_host_proto::MinifyJsResult::Error { message }) => {
                 tracing::warn!("JS minification error: {}", message);
             }
             Err(e) => {
@@ -634,6 +905,227 @@ fn normalize_route(path: &str) -> String {
     } else {
         format!("/{}", parts.join("/"))
     }
+}
+
+// ============================================================================
+// Internal Link Resolution (@/ links)
+// ============================================================================
+
+fn resolve_internal_links_in_doc(doc: &mut Document, source_to_route: &HashMap<String, String>) {
+    if let Some(body_id) = doc.body() {
+        let mut anchors = Vec::new();
+        collect_anchors(doc, body_id, &mut anchors);
+
+        for node_id in anchors {
+            if let Some(href) = get_attr(doc, node_id, "href") {
+                if let Some(resolved) = resolve_internal_link(&href, source_to_route) {
+                    set_attr(doc, node_id, "href", &resolved);
+                }
+            }
+        }
+    }
+}
+
+/// Resolve an @/ link to its actual route
+fn resolve_internal_link(href: &str, source_to_route: &HashMap<String, String>) -> Option<String> {
+    // Only process @/ prefixed links
+    if !href.starts_with("@/") {
+        return None;
+    }
+
+    // Extract source path and optional fragment
+    let without_prefix = &href[2..]; // Remove "@/"
+    let (source_path, fragment) = match without_prefix.find('#') {
+        Some(pos) => (&without_prefix[..pos], Some(&without_prefix[pos + 1..])),
+        None => (without_prefix, None),
+    };
+
+    // Look up the route
+    if let Some(route) = source_to_route.get(source_path) {
+        // Ensure trailing slash
+        let route_with_slash = if route == "/" || route.ends_with('/') {
+            route.clone()
+        } else {
+            format!("{}/", route)
+        };
+
+        Some(match fragment {
+            Some(frag) => format!("{}#{}", route_with_slash, frag),
+            None => route_with_slash,
+        })
+    } else {
+        None // Leave unchanged, will be caught as dead link
+    }
+}
+
+// ============================================================================
+// Relative Link Resolution
+// ============================================================================
+
+fn resolve_relative_links_in_doc(doc: &mut Document, base_route: &str) {
+    // Ensure base ends with /
+    let base = if base_route.ends_with('/') {
+        base_route.to_string()
+    } else {
+        format!("{}/", base_route)
+    };
+
+    if let Some(body_id) = doc.body() {
+        let mut anchors = Vec::new();
+        collect_anchors(doc, body_id, &mut anchors);
+
+        for node_id in anchors {
+            if let Some(href) = get_attr(doc, node_id, "href") {
+                if let Some(resolved) = resolve_relative_link(&href, &base) {
+                    set_attr(doc, node_id, "href", &resolved);
+                }
+            }
+        }
+    }
+}
+
+/// Resolve a relative link to absolute path
+fn resolve_relative_link(href: &str, base: &str) -> Option<String> {
+    // Skip if already absolute or special
+    if href.starts_with('/')
+        || href.starts_with("http://")
+        || href.starts_with("https://")
+        || href.starts_with('#')
+        || href.starts_with("@/")
+        || href.starts_with("mailto:")
+        || href.starts_with("tel:")
+        || href.starts_with("javascript:")
+    {
+        return None;
+    }
+
+    // It's relative - join with base
+    Some(format!("{}{}", base, href))
+}
+
+// ============================================================================
+// Image to Picture Transformation
+// ============================================================================
+
+fn transform_images_in_doc(
+    doc: &mut Document,
+    image_variants: &HashMap<String, ResponsiveImageInfo>,
+) {
+    if image_variants.is_empty() {
+        return;
+    }
+
+    if let Some(body_id) = doc.body() {
+        // Collect all img elements that have variants
+        let mut img_nodes = Vec::new();
+        collect_images_with_variants(doc, body_id, image_variants, &mut img_nodes);
+
+        // Transform each img to picture (in reverse to preserve indices)
+        for (node_id, src, info) in img_nodes.into_iter().rev() {
+            transform_img_to_picture(doc, node_id, &src, info);
+        }
+    }
+}
+
+fn collect_images_with_variants<'a>(
+    doc: &Document,
+    node_id: NodeId,
+    image_variants: &'a HashMap<String, ResponsiveImageInfo>,
+    results: &mut Vec<(NodeId, String, &'a ResponsiveImageInfo)>,
+) {
+    if is_element(doc, node_id, "img") {
+        if let Some(src) = get_attr(doc, node_id, "src") {
+            if let Some(info) = image_variants.get(&src) {
+                results.push((node_id, src, info));
+            }
+        }
+    }
+
+    for child_id in doc.children(node_id) {
+        collect_images_with_variants(doc, child_id, image_variants, results);
+    }
+}
+
+fn transform_img_to_picture(
+    doc: &mut Document,
+    img_id: NodeId,
+    original_src: &str,
+    info: &ResponsiveImageInfo,
+) {
+    // Build srcset strings
+    let jxl_srcset = build_srcset(&info.jxl_srcset);
+    let webp_srcset = build_srcset(&info.webp_srcset);
+
+    // Get fallback src (largest WebP)
+    let fallback_src = info
+        .webp_srcset
+        .iter()
+        .max_by_key(|(_, w)| w)
+        .map(|(p, _)| p.as_str())
+        .unwrap_or(original_src);
+
+    // Check existing attributes on the img
+    let has_width = get_attr(doc, img_id, "width").is_some();
+    let has_height = get_attr(doc, img_id, "height").is_some();
+    let has_loading = get_attr(doc, img_id, "loading").is_some();
+    let has_decoding = get_attr(doc, img_id, "decoding").is_some();
+    let has_style = get_attr(doc, img_id, "style").is_some();
+
+    // Update img attributes
+    set_attr(doc, img_id, "src", fallback_src);
+    if !has_width {
+        set_attr(doc, img_id, "width", &info.original_width.to_string());
+    }
+    if !has_height {
+        set_attr(doc, img_id, "height", &info.original_height.to_string());
+    }
+    if !has_loading {
+        set_attr(doc, img_id, "loading", "lazy");
+    }
+    if !has_decoding {
+        set_attr(doc, img_id, "decoding", "async");
+    }
+    if !has_style {
+        set_attr(
+            doc,
+            img_id,
+            "style",
+            &format!(
+                "background:url({}) center/cover no-repeat",
+                info.thumbhash_data_url
+            ),
+        );
+        set_attr(doc, img_id, "onload", "this.style.background='none'");
+    }
+
+    // Create picture element
+    let picture = doc.create_element("picture");
+
+    // Create JXL source
+    let jxl_source = doc.create_element("source");
+    set_attr(doc, jxl_source, "srcset", &jxl_srcset);
+    set_attr(doc, jxl_source, "type", "image/jxl");
+    doc.append_child(picture, jxl_source);
+
+    // Create WebP source
+    let webp_source = doc.create_element("source");
+    set_attr(doc, webp_source, "srcset", &webp_srcset);
+    set_attr(doc, webp_source, "type", "image/webp");
+    doc.append_child(picture, webp_source);
+
+    // Replace img with picture containing img
+    // insert_before(sibling, new_node) inserts new_node before sibling
+    doc.insert_before(img_id, picture);
+    doc.remove(img_id);
+    doc.append_child(picture, img_id);
+}
+
+fn build_srcset(entries: &[(String, u32)]) -> String {
+    entries
+        .iter()
+        .map(|(path, width)| format!("{} {}w", path, width))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 // ============================================================================

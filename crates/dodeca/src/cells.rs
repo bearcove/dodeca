@@ -316,6 +316,100 @@ impl HostService for HostServiceImpl {
     async fn get_vite_port(&self, _cx: &roam::Context) -> Option<u16> {
         crate::host::Host::get().get_vite_port()
     }
+
+    // HTML Host callbacks
+    async fn minify_css(
+        &self,
+        _cx: &roam::Context,
+        css: String,
+    ) -> cell_host_proto::MinifyCssResult {
+        // Delegate to CSS cell for minification (empty path_map = minify only)
+        match css_cell().await {
+            Some(client) => match client.rewrite_and_minify(css, HashMap::new()).await {
+                Ok(cell_css_proto::CssResult::Success { css }) => {
+                    cell_host_proto::MinifyCssResult::Success { css }
+                }
+                Ok(cell_css_proto::CssResult::Error { message }) => {
+                    cell_host_proto::MinifyCssResult::Error { message }
+                }
+                Err(e) => cell_host_proto::MinifyCssResult::Error {
+                    message: format!("RPC error: {:?}", e),
+                },
+            },
+            None => cell_host_proto::MinifyCssResult::Error {
+                message: "CSS cell not available".to_string(),
+            },
+        }
+    }
+
+    async fn minify_js(&self, _cx: &roam::Context, js: String) -> cell_host_proto::MinifyJsResult {
+        // Delegate to JS cell for minification (using empty path_map for minify-only)
+        match js_cell().await {
+            Some(client) => {
+                let input = cell_js_proto::JsRewriteInput {
+                    js,
+                    path_map: HashMap::new(),
+                };
+                match client.rewrite_string_literals(input).await {
+                    Ok(js) => cell_host_proto::MinifyJsResult::Success { js },
+                    Err(e) => cell_host_proto::MinifyJsResult::Error {
+                        message: format!("RPC error: {:?}", e),
+                    },
+                }
+            }
+            None => cell_host_proto::MinifyJsResult::Error {
+                message: "JS cell not available".to_string(),
+            },
+        }
+    }
+
+    async fn process_inline_css(
+        &self,
+        _cx: &roam::Context,
+        css: String,
+        path_map: HashMap<String, String>,
+    ) -> cell_host_proto::ProcessCssResult {
+        // Delegate to CSS cell for URL rewriting
+        match css_cell().await {
+            Some(client) => match client.rewrite_and_minify(css, path_map).await {
+                Ok(cell_css_proto::CssResult::Success { css }) => {
+                    cell_host_proto::ProcessCssResult::Success { css }
+                }
+                Ok(cell_css_proto::CssResult::Error { message }) => {
+                    cell_host_proto::ProcessCssResult::Error { message }
+                }
+                Err(e) => cell_host_proto::ProcessCssResult::Error {
+                    message: format!("RPC error: {:?}", e),
+                },
+            },
+            None => cell_host_proto::ProcessCssResult::Error {
+                message: "CSS cell not available".to_string(),
+            },
+        }
+    }
+
+    async fn process_inline_js(
+        &self,
+        _cx: &roam::Context,
+        js: String,
+        path_map: HashMap<String, String>,
+    ) -> cell_host_proto::ProcessJsResult {
+        // Delegate to JS cell for string literal rewriting
+        match js_cell().await {
+            Some(client) => {
+                let input = cell_js_proto::JsRewriteInput { js, path_map };
+                match client.rewrite_string_literals(input).await {
+                    Ok(js) => cell_host_proto::ProcessJsResult::Success { js },
+                    Err(e) => cell_host_proto::ProcessJsResult::Error {
+                        message: format!("RPC error: {:?}", e),
+                    },
+                }
+            }
+            None => cell_host_proto::ProcessJsResult::Error {
+                message: "JS cell not available".to_string(),
+            },
+        }
+    }
 }
 
 /// Get the TUI display client for pushing updates to the TUI cell.

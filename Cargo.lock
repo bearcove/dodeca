@@ -1569,6 +1569,7 @@ dependencies = [
  "cell-http-proto",
  "cell-lifecycle-proto",
  "cell-tui-proto",
+ "facet",
  "facet-value",
  "roam",
 ]
@@ -1577,6 +1578,7 @@ dependencies = [
 name = "cell-html"
 version = "0.6.1"
 dependencies = [
+ "cell-host-proto",
  "cell-html-proto",
  "color-eyre",
  "dodeca-cell-runtime",

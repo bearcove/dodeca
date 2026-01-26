@@ -1338,8 +1338,8 @@ pub async fn all_rendered_html<DB: Db>(
             }
         };
         // Resolve relative links based on section route, then @/ links
-        let html = resolve_relative_links(&html, route.as_str());
-        let html = resolve_internal_links(&html, &source_route_map);
+        let html = resolve_relative_links(&html, route.as_str()).await;
+        let html = resolve_internal_links(&html, &source_route_map).await;
         pages.insert(route.clone(), html);
     }
 
@@ -1355,8 +1355,8 @@ pub async fn all_rendered_html<DB: Db>(
             }
         };
         // Resolve relative links based on the page's section route, then @/ links
-        let html = resolve_relative_links(&html, page.section_route.as_str());
-        let html = resolve_internal_links(&html, &source_route_map);
+        let html = resolve_relative_links(&html, page.section_route.as_str()).await;
+        let html = resolve_internal_links(&html, &source_route_map).await;
         pages.insert(route.clone(), html);
     }
 
@@ -1804,7 +1804,7 @@ pub async fn serve_html<DB: Db>(
     let injected_html = rewritten_html;
 
     // Transform <img> to <picture> for responsive images
-    let transformed_html = transform_images_to_picture(&injected_html, &image_variants);
+    let transformed_html = transform_images_to_picture(&injected_html, &image_variants).await;
     let transformed_has_doctype = transformed_html.contains("<!DOCTYPE");
 
     // Minify HTML (but skip for error pages to preserve the error marker comment)

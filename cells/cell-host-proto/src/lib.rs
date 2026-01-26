@@ -4,7 +4,9 @@
 //! RPC methods. Every cell connects to the same host service - no per-cell
 //! dispatcher configuration needed.
 
+use facet::Facet;
 use roam::Tunnel;
+use std::collections::HashMap;
 
 // Re-export types from other proto crates
 pub use cell_gingembre_proto::{
@@ -14,6 +16,42 @@ pub use cell_http_proto::{EvalResult, ScopeEntry, ServeContent};
 pub use cell_lifecycle_proto::{ReadyAck, ReadyMsg};
 pub use cell_tui_proto::{CommandResult, ServerCommand};
 pub use facet_value::Value;
+
+// ============================================================================
+// HTML Host Result Types (for HTML cell callbacks)
+// ============================================================================
+
+/// Result of CSS minification
+#[derive(Debug, Clone, Facet)]
+#[repr(u8)]
+pub enum MinifyCssResult {
+    Success { css: String },
+    Error { message: String },
+}
+
+/// Result of JS minification
+#[derive(Debug, Clone, Facet)]
+#[repr(u8)]
+pub enum MinifyJsResult {
+    Success { js: String },
+    Error { message: String },
+}
+
+/// Result of CSS URL rewriting
+#[derive(Debug, Clone, Facet)]
+#[repr(u8)]
+pub enum ProcessCssResult {
+    Success { css: String },
+    Error { message: String },
+}
+
+/// Result of JS URL rewriting
+#[derive(Debug, Clone, Facet)]
+#[repr(u8)]
+pub enum ProcessJsResult {
+    Success { js: String },
+    Error { message: String },
+}
 
 /// Unified host service that all cells can call.
 ///
@@ -94,4 +132,28 @@ pub trait HostService {
     /// Get the Vite dev server port if one is running.
     /// Returns None if Vite is not enabled for this project.
     async fn get_vite_port(&self) -> Option<u16>;
+
+    // =========================================================================
+    // HTML Host (for HTML cell callbacks)
+    // =========================================================================
+
+    /// Minify CSS content via CSS cell.
+    async fn minify_css(&self, css: String) -> MinifyCssResult;
+
+    /// Minify JavaScript content via JS cell.
+    async fn minify_js(&self, js: String) -> MinifyJsResult;
+
+    /// Process inline CSS: rewrite URLs using path_map via CSS cell.
+    async fn process_inline_css(
+        &self,
+        css: String,
+        path_map: HashMap<String, String>,
+    ) -> ProcessCssResult;
+
+    /// Process inline JS: rewrite string literals using path_map via JS cell.
+    async fn process_inline_js(
+        &self,
+        js: String,
+        path_map: HashMap<String, String>,
+    ) -> ProcessJsResult;
 }
