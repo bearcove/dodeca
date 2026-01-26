@@ -207,6 +207,27 @@ fn is_valid_for_browser_parity(html: &str) -> bool {
         }
     }
 
+    // Skip inputs with HTML breakout elements inside <math>.
+    // Per HTML5 spec, elements like <li> should NOT break out of MathML when inside a
+    // MathML text integration point (<mo>, <mi>, <mn>, <ms>, <mtext>). html5ever incorrectly
+    // breaks out of MathML for these elements regardless of integration point context.
+    // TODO: Report to html5ever - respect MathML text integration points
+    {
+        let lower = html.to_ascii_lowercase();
+        if let Some(math_pos) = lower.find("<math") {
+            let after_math = &lower[math_pos..];
+            // Check for common HTML elements that trigger the breakout bug
+            if after_math.contains("<li")
+                || after_math.contains("<div")
+                || after_math.contains("<p>")
+                || after_math.contains("<p ")
+                || after_math.contains("<table")
+            {
+                return false;
+            }
+        }
+    }
+
     // Skip inputs containing <details> - the adoption agency algorithm for formatting
     // elements (like <i>, <b>, <a>) behaves differently at <details> boundaries.
     // html5ever doesn't reopen formatting elements after </details>, browsers do.
