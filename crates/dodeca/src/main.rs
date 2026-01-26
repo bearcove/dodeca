@@ -47,7 +47,7 @@ use crate::types::{
 use camino::{Utf8Path, Utf8PathBuf};
 use eyre::{Result, eyre};
 use facet::Facet;
-use figue as args;
+use figue::{self as args, FigueBuiltins, driver::DriverResultExt};
 use ignore::WalkBuilder;
 use owo_colors::OwoColorize;
 use std::collections::BTreeMap;
@@ -58,6 +58,18 @@ use std::sync::Arc;
 fn is_data_file_extension(ext: &str) -> bool {
     let ext_lower = ext.to_lowercase();
     matches!(ext_lower.as_str(), "json" | "toml" | "yaml" | "yml")
+}
+
+/// ddc - Static site generator
+#[derive(Facet, Debug)]
+struct Args {
+    /// Command to run
+    #[facet(args::subcommand)]
+    command: Command,
+
+    /// Standard CLI options (--help, --version, --completions)
+    #[facet(flatten)]
+    builtins: FigueBuiltins,
 }
 
 /// Build command arguments
@@ -120,7 +132,6 @@ struct ServeArgs {
     public_access: bool,
 
     /// Control channel path to receive listening socket (for testing)
-    /// Unix: Unix socket path, Windows: named pipe path
     #[facet(args::named, default)]
     fd_socket: Option<String>,
 }
@@ -201,134 +212,22 @@ struct TermArgs {
     no_clipboard: bool,
 }
 
-/// Parsed command from CLI
+/// Available commands
+#[derive(Facet, Debug)]
+#[repr(u8)]
 enum Command {
-    Build(BuildArgs),
-    Serve(ServeArgs),
-    Clean(CleanArgs),
-    Static(StaticArgs),
+    /// Create a new project
     Init(InitArgs),
+    /// Build the site
+    Build(BuildArgs),
+    /// Build and serve with live reload
+    Serve(ServeArgs),
+    /// Serve static files from a directory
+    Static(StaticArgs),
+    /// Clear caches (use --all for full clean)
+    Clean(CleanArgs),
+    /// Record terminal session as HTML
     Term(TermArgs),
-}
-
-fn print_usage() {
-    eprintln!("{} - Static site generator\n", "ddc".cyan().bold());
-    eprintln!("{}", "USAGE:".yellow());
-    eprintln!("    ddc <COMMAND> [OPTIONS]\n");
-    eprintln!("{}", "COMMANDS:".yellow());
-    eprintln!("    {}       Create a new project", "init".green());
-    eprintln!("    {}      Build the site", "build".green());
-    eprintln!(
-        "    {}      Build and serve with live reload",
-        "serve".green()
-    );
-    eprintln!(
-        "    {}     Serve static files from a directory",
-        "static".green()
-    );
-    eprintln!(
-        "    {}      Clear caches (use --all for full clean)",
-        "clean".green()
-    );
-    eprintln!(
-        "    {}       Record terminal session as HTML",
-        "term".green()
-    );
-    eprintln!("\n{}", "INIT OPTIONS:".yellow());
-    eprintln!("    <name>           Project name (creates directory)");
-    eprintln!("    -t, --template   Template to use (minimal, blog)");
-    eprintln!("\n{}", "BUILD OPTIONS:".yellow());
-    eprintln!("    [path]           Project directory");
-    eprintln!("    -c, --content    Content directory");
-    eprintln!("    -o, --output     Output directory");
-    eprintln!("    --tui            Show TUI progress display");
-    eprintln!("\n{}", "SERVE OPTIONS:".yellow());
-    eprintln!("    [path]           Project directory");
-    eprintln!("    -c, --content    Content directory");
-    eprintln!("    -o, --output     Output directory");
-    eprintln!("    -a, --address    Address to bind on (default: 127.0.0.1)");
-    eprintln!("    -p, --port       Port to serve on (default: 4000)");
-    eprintln!("    --open           Open browser after starting server");
-    eprintln!("    --no-tui         Disable TUI (show plain output)");
-    eprintln!("    -P, --public     Listen on all interfaces (LAN access)");
-    eprintln!("\n{}", "STATIC OPTIONS:".yellow());
-    eprintln!("    [path]           Directory to serve (default: .)");
-    eprintln!("    -a, --address    Address to bind on (default: 127.0.0.1)");
-    eprintln!("    -p, --port       Port to serve on (default: 8080)");
-    eprintln!("    --open           Open browser after starting server");
-    eprintln!("    -P, --public     Listen on all interfaces (LAN access)");
-    eprintln!("\n{}", "CLEAN OPTIONS:".yellow());
-    eprintln!("    [path]           Project directory");
-    eprintln!("\n{}", "TERM OPTIONS:".yellow());
-    eprintln!("    -- <cmd>         Command to execute (optional)");
-    eprintln!("    -o, --output     Output file (default: /tmp/ddc-term)");
-    eprintln!("    --no-clipboard   Skip copying to clipboard");
-}
-
-fn parse_args() -> Result<Command> {
-    let args: Vec<String> = std::env::args().collect();
-
-    if args.len() < 2 {
-        print_usage();
-        return Err(eyre!("No command specified"));
-    }
-
-    let cmd = &args[1];
-    let rest: Vec<&str> = args[2..].iter().map(|s| s.as_str()).collect();
-
-    match cmd.as_str() {
-        "build" => {
-            let build_args: BuildArgs = figue::from_slice(&rest).map_err(|e| {
-                eprintln!("{e}");
-                eyre!("Failed to parse build arguments")
-            })?;
-            Ok(Command::Build(build_args))
-        }
-        "serve" => {
-            let serve_args: ServeArgs = figue::from_slice(&rest).map_err(|e| {
-                eprintln!("{e}");
-                eyre!("Failed to parse serve arguments")
-            })?;
-            Ok(Command::Serve(serve_args))
-        }
-        "clean" => {
-            let clean_args: CleanArgs = figue::from_slice(&rest).map_err(|e| {
-                eprintln!("{e}");
-                eyre!("Failed to parse clean arguments")
-            })?;
-            Ok(Command::Clean(clean_args))
-        }
-        "static" => {
-            let static_args: StaticArgs = figue::from_slice(&rest).map_err(|e| {
-                eprintln!("{e}");
-                eyre!("Failed to parse static arguments")
-            })?;
-            Ok(Command::Static(static_args))
-        }
-        "init" => {
-            let init_args: InitArgs = figue::from_slice(&rest).map_err(|e| {
-                eprintln!("{e}");
-                eyre!("Failed to parse init arguments")
-            })?;
-            Ok(Command::Init(init_args))
-        }
-        "term" => {
-            let term_args: TermArgs = figue::from_slice(&rest).map_err(|e| {
-                eprintln!("{e}");
-                eyre!("Failed to parse term arguments")
-            })?;
-            Ok(Command::Term(term_args))
-        }
-
-        "--help" | "-h" | "help" => {
-            print_usage();
-            std::process::exit(0);
-        }
-        _ => {
-            print_usage();
-            Err(eyre!("Unknown command: {}", cmd))
-        }
-    }
 }
 
 /// Resolved configuration for a build
@@ -431,14 +330,23 @@ fn main() -> Result<()> {
         ur_taking_me_with_you::die_with_parent();
     }
 
-    let command = parse_args()?;
+    // Parse CLI args with layered configuration support (CLI > env > file > defaults)
+    let cli_args: Vec<String> = std::env::args().skip(1).collect();
+    let config = args::builder::<Args>()
+        .expect("failed to build args schema")
+        .cli(|cli| cli.args(cli_args))
+        .env(|env| env.prefix("DDC"))
+        .help(|h| h.program_name("ddc").version(env!("CARGO_PKG_VERSION")))
+        .build();
+
+    let args = args::driver::Driver::new(config).run().expect_value();
 
     // Single runtime for all commands
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
 
-    rt.block_on(async_main(command))
+    rt.block_on(async_main(args.command))
 }
 
 async fn async_main(command: Command) -> Result<()> {
