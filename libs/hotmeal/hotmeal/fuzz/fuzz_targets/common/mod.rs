@@ -39,6 +39,58 @@ fn split_input(data: &[u8]) -> Option<(String, String)> {
     Some((html_a, html_b))
 }
 
+/// Check if a newline character reference appears immediately after <textarea>, <pre>, or <listing>.
+/// Returns true if such a pattern is found.
+fn has_newline_charref_after_raw_text_tag(html: &str) -> bool {
+    let lower = html.to_ascii_lowercase();
+
+    // Tags that strip leading newline per HTML5 spec
+    for tag in ["<textarea", "<pre", "<listing"] {
+        let mut search_pos = 0;
+        while let Some(tag_pos) = lower[search_pos..].find(tag) {
+            let abs_pos = search_pos + tag_pos;
+            let after_tag_name = &html[abs_pos + tag.len()..];
+
+            // Find the end of the start tag (the closing >)
+            // Handle both <textarea> and <textarea attr="val">
+            if let Some(gt_pos) = after_tag_name.find('>') {
+                let content_start = &html[abs_pos + tag.len() + gt_pos + 1..];
+
+                // Check for newline character references
+                if is_newline_charref(content_start) {
+                    return true;
+                }
+            }
+            search_pos = abs_pos + tag.len();
+        }
+    }
+    false
+}
+
+/// Check if the string starts with a character reference that resolves to newline (U+000A).
+fn is_newline_charref(s: &str) -> bool {
+    if !s.starts_with("&#") {
+        return false;
+    }
+    let after_amp_hash = &s[2..];
+
+    // Hex: &#x0*[aA] or &#X0*[aA]
+    if after_amp_hash.starts_with('x') || after_amp_hash.starts_with('X') {
+        let hex_part = &after_amp_hash[1..];
+        let stripped = hex_part.trim_start_matches('0');
+        return stripped.starts_with('a') || stripped.starts_with('A');
+    }
+
+    // Decimal: &#0*10
+    let stripped = after_amp_hash.trim_start_matches('0');
+    stripped.starts_with("10")
+        && !stripped[2..]
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_digit())
+            .unwrap_or(false)
+}
+
 /// Check if an HTML string should be skipped due to known differences.
 /// Returns true if the string is valid for browser parity testing.
 ///
@@ -160,6 +212,15 @@ fn is_valid_for_browser_parity(html: &str) -> bool {
     // html5ever doesn't reopen formatting elements after </details>, browsers do.
     // TODO: Report to html5ever - adoption agency should reopen formatting after </details>
     if html.to_ascii_lowercase().contains("<details") {
+        return false;
+    }
+
+    // Skip <textarea>, <pre>, or <listing> with leading newline from character reference.
+    // Per HTML5 spec, the first LF character token after these start tags should be
+    // stripped. This applies even when the LF comes from a character reference like &#xa
+    // or &#10. Browsers correctly strip it, but html5ever doesn't.
+    // TODO: Report to html5ever - should strip first LF from char ref after textarea/pre/listing
+    if has_newline_charref_after_raw_text_tag(html) {
         return false;
     }
 
