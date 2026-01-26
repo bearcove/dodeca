@@ -1490,7 +1490,6 @@ dependencies = [
  "facet-format",
  "facet-json",
  "facet-toml",
- "facet-value",
  "facet-yaml",
 ]
 
@@ -2634,11 +2633,9 @@ dependencies = [
  "dodeca-protocol",
  "eyre",
  "facet",
- "facet-format",
  "facet-json",
  "facet-postcard",
  "facet-styx",
- "facet-toml",
  "facet-value",
  "figue",
  "futures-util",
