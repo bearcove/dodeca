@@ -287,12 +287,12 @@ fn is_valid_for_browser_parity(html: &str) -> bool {
         }
     }
 
-    // Skip inputs containing C0 control characters (0x01-0x1F except tab, LF, FF)
+    // Skip inputs containing C0 control characters (0x01-0x1F except tab and LF)
     // There are complex structural differences between html5ever and Chrome involving
-    // control characters in edge cases. Needs further investigation.
+    // control characters in edge cases. Form feed (0x0C) causes tree structure differences.
     if html
         .bytes()
-        .any(|b| matches!(b, 0x01..=0x08 | 0x0B | 0x0E..=0x1F))
+        .any(|b| matches!(b, 0x01..=0x08 | 0x0B..=0x0C | 0x0E..=0x1F))
     {
         return false;
     }
