@@ -31,11 +31,108 @@ use tracing_subscriber::fmt::time::Uptime;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-/// Split raw bytes at 0xFF delimiter into two HTML strings.
-fn split_input(data: &[u8]) -> Option<(String, String)> {
-    let pos = data.iter().position(|&b| b == 0xFF)?;
-    let html_a = std::str::from_utf8(&data[..pos]).ok()?.to_owned();
-    let html_b = std::str::from_utf8(&data[pos + 1..]).ok()?.to_owned();
+/// Derive two related HTML strings from input using mutation.
+/// First 3 bytes control the mutation, rest is the base HTML.
+/// This ensures A and B are structurally related, exercising diff/patch logic.
+fn derive_html_pair(data: &[u8]) -> Option<(String, String)> {
+    // Need at least 3 control bytes + some HTML content
+    if data.len() < 8 {
+        return None;
+    }
+
+    let mutation_type = data[0] % 8;
+    let param1 = data[1] as usize;
+    let param2 = data[2] as usize;
+    let html = std::str::from_utf8(&data[3..]).ok()?;
+
+    if html.is_empty() {
+        return None;
+    }
+
+    let len = html.len();
+    let html_a = html.to_string();
+
+    let html_b = match mutation_type {
+        // Truncate from end
+        0 => {
+            let cut = (param1 % len).max(1);
+            html.get(..cut).unwrap_or(html).to_string()
+        }
+        // Remove prefix
+        1 => {
+            let cut = param1 % len;
+            html.get(cut..).unwrap_or("").to_string()
+        }
+        // Remove middle section
+        2 => {
+            let start = param1 % len;
+            let end = (param1 + param2) % len;
+            let (start, end) = (start.min(end), start.max(end));
+            format!(
+                "{}{}",
+                html.get(..start).unwrap_or(""),
+                html.get(end..).unwrap_or("")
+            )
+        }
+        // Insert text at position
+        3 => {
+            let pos = param1 % (len + 1);
+            let insert = match param2 % 4 {
+                0 => "<div>",
+                1 => "</div>",
+                2 => "<span>x</span>",
+                _ => "text",
+            };
+            format!(
+                "{}{}{}",
+                html.get(..pos).unwrap_or(""),
+                insert,
+                html.get(pos..).unwrap_or("")
+            )
+        }
+        // Duplicate a section
+        4 => {
+            let start = param1 % len;
+            let end = ((param1 + param2) % len).max(start + 1).min(len);
+            let section = html.get(start..end).unwrap_or("");
+            format!("{}{}", html, section)
+        }
+        // Swap two halves
+        5 => {
+            let mid = param1 % len.max(1);
+            format!(
+                "{}{}",
+                html.get(mid..).unwrap_or(""),
+                html.get(..mid).unwrap_or("")
+            )
+        }
+        // Replace a character
+        6 => {
+            let pos = param1 % len;
+            let replacement = ((param2 % 26) as u8 + b'a') as char;
+            let mut chars: Vec<char> = html.chars().collect();
+            if pos < chars.len() {
+                chars[pos] = replacement;
+            }
+            chars.into_iter().collect()
+        }
+        // Append suffix
+        _ => {
+            let suffix = match param2 % 4 {
+                0 => "<p>new</p>",
+                1 => "<b>bold</b>",
+                2 => "<!-- comment -->",
+                _ => " extra text",
+            };
+            format!("{}{}", html, suffix)
+        }
+    };
+
+    // Ensure B is not identical to A (unless truncated to empty, which is filtered later)
+    if html_a == html_b && !html_b.is_empty() {
+        return None;
+    }
+
     Some((html_a, html_b))
 }
 
@@ -335,17 +432,22 @@ pub fn prepare_single_html_input(data: &[u8]) -> Option<String> {
     Some(html.to_string())
 }
 
-/// Splits the input data into two HTML fragments for parity testing.
-/// Returns raw body content (no DOCTYPE) for fragment parsing.
+/// Derives two related HTML fragments from input for parity testing.
+/// Uses mutation-based approach: A is the base HTML, B is a mutation of A.
+/// This ensures meaningful diff/patch testing rather than unrelated documents.
 pub fn prepare_html_inputs(data: &[u8]) -> Option<(String, String)> {
-    // Split at 0xFF delimiter
-    let (html_a, html_b) = split_input(data)?;
+    let (html_a, html_b) = derive_html_pair(data)?;
 
+    // Both must pass validity checks
     if !is_valid_for_browser_parity(&html_a) || !is_valid_for_browser_parity(&html_b) {
         return None;
     }
 
-    // Return raw content - will be parsed as body fragments
+    // Ensure both have some content
+    if html_a.trim().is_empty() || html_b.trim().is_empty() {
+        return None;
+    }
+
     Some((html_a, html_b))
 }
 
