@@ -48,7 +48,7 @@ use crate::types::{
 use camino::{Utf8Path, Utf8PathBuf};
 use eyre::{Result, eyre};
 use facet::Facet;
-use figue::{self as args, FigueBuiltins, driver::DriverResultExt};
+use figue::{self as args, FigueBuiltins};
 use ignore::WalkBuilder;
 use owo_colors::OwoColorize;
 use std::collections::BTreeMap;
@@ -340,7 +340,7 @@ fn main() -> Result<()> {
         .help(|h| h.program_name("ddc").version(env!("CARGO_PKG_VERSION")))
         .build();
 
-    let args = args::driver::Driver::new(config).run().expect_value();
+    let args = args::Driver::new(config).run().unwrap();
 
     // Single runtime for all commands
     let rt = tokio::runtime::Builder::new_current_thread()
