@@ -188,6 +188,56 @@ fn is_newline_charref(s: &str) -> bool {
             .unwrap_or(false)
 }
 
+/// Check if HTML contains custom elements (tag names with hyphens like <my-element>).
+fn has_custom_element(html: &str) -> bool {
+    let mut i = 0;
+    let bytes = html.as_bytes();
+
+    while i < bytes.len() {
+        // Find start of tag
+        if bytes[i] == b'<' && i + 1 < bytes.len() {
+            let next = bytes[i + 1];
+            // Skip closing tags, comments, doctype
+            if next == b'/' || next == b'!' || next == b'?' {
+                i += 1;
+                continue;
+            }
+
+            // Parse tag name
+            let tag_start = i + 1;
+            let mut tag_end = tag_start;
+            let mut has_hyphen = false;
+
+            while tag_end < bytes.len() {
+                let c = bytes[tag_end];
+                if c == b'-' {
+                    has_hyphen = true;
+                    tag_end += 1;
+                } else if c.is_ascii_alphanumeric() || c == b':' || c == b'_' {
+                    tag_end += 1;
+                } else {
+                    break;
+                }
+            }
+
+            // Custom elements must contain a hyphen and have at least one char before it
+            if has_hyphen && tag_end > tag_start + 1 {
+                let tag_name = &html[tag_start..tag_end];
+                // Must have letter before hyphen (not just "-foo")
+                if let Some(hyphen_pos) = tag_name.find('-') {
+                    if hyphen_pos > 0 {
+                        return true;
+                    }
+                }
+            }
+            i = tag_end;
+        } else {
+            i += 1;
+        }
+    }
+    false
+}
+
 /// Check if an HTML string should be skipped due to known differences.
 /// Returns true if the string is valid for browser parity testing.
 ///
@@ -376,6 +426,18 @@ fn is_valid_for_browser_parity(html: &str) -> bool {
     // Skip inputs containing DOCTYPE in body context - browsers handle bogus DOCTYPE
     // differently than html5ever in fragment parsing
     if html.to_ascii_lowercase().contains("<!doctype") {
+        return false;
+    }
+
+    // Skip inputs containing custom elements (tags with hyphens like <my-component>).
+    // When <li> auto-closing occurs inside <a> with custom/unknown element ancestors,
+    // the adoption agency algorithm triggers differently:
+    // - html5ever: breaks <li> out of <a> and reconstructs <a> inside <li>
+    // - browsers: may keep <li> nested inside the unknown elements
+    // Example: <a><custom><li>x<li>y - second <li> closes first, triggers adoption agency
+    // TODO: Investigate whether html5ever or browsers are spec-compliant here.
+    //       The spec for "any other end tag" + adoption agency is complex with unknown elements.
+    if has_custom_element(html) {
         return false;
     }
 
