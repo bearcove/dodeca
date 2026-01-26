@@ -108,10 +108,7 @@ fn parse_args() -> Result<XtaskCommand, String> {
     let args: Vec<String> = env::args().skip(1).collect();
     let args_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
 
-    let parsed: XtaskArgs = figue::from_slice(&args_refs).map_err(|e| {
-        eprintln!("{e}");
-        "Failed to parse arguments".to_string()
-    })?;
+    let parsed: XtaskArgs = figue::from_slice(&args_refs).unwrap();
 
     Ok(parsed.command)
 }
