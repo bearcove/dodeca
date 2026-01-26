@@ -24,6 +24,7 @@ mod queries;
 mod render;
 mod revision;
 mod serve;
+mod spawn;
 mod svg;
 mod template_host;
 mod theme_resolver;
@@ -352,7 +353,7 @@ fn main() -> Result<()> {
 async fn async_main(command: Command) -> Result<()> {
     // Spawn background task to print SHM diagnostics periodically when SHM_DEBUG is set
     if std::env::var("SHM_DEBUG").is_ok() {
-        tokio::spawn(async {
+        crate::spawn::spawn(async {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
             loop {
                 interval.tick().await;
@@ -1947,7 +1948,7 @@ async fn start_file_watcher(
         }
     });
 
-    tokio::spawn(async move {
+    crate::spawn::spawn(async move {
         use tokio::time::{Duration, Instant};
 
         let debounce = Duration::from_millis(100);
@@ -2208,7 +2209,7 @@ async fn serve_plain(
 
     // Start the cell server in background ASAP so we can accept connections early.
     let server_clone = server.clone();
-    tokio::spawn(async move {
+    crate::spawn::spawn(async move {
         if let Err(e) = cell_server::start_cell_server_with_shutdown(
             server_clone,
             cell_path,
@@ -2915,7 +2916,7 @@ async fn serve_with_tui(
                         cas_dir: Utf8PathBuf,
                         code_exec_dir: Utf8PathBuf,
                         cell_path: std::path::PathBuf| {
-        tokio::spawn(async move {
+        crate::spawn::spawn(async move {
             let ips = get_bind_ips(mode);
             let requested_port = preferred_port.unwrap_or(4000);
 
@@ -2929,7 +2930,7 @@ async fn serve_with_tui(
             let cell_path_clone = cell_path.clone();
             let event_tx_clone = event_tx.clone();
 
-            let server_task = tokio::spawn(async move {
+            let server_task = crate::spawn::spawn(async move {
                 if let Err(e) = cell_server::start_cell_server_with_shutdown(
                     server_clone,
                     cell_path_clone,
@@ -3082,7 +3083,7 @@ async fn serve_with_tui(
     let current_shutdown = Arc::new(std::sync::Mutex::new(shutdown_tx.clone()));
     let current_shutdown_for_handler = current_shutdown.clone();
 
-    tokio::spawn(async move {
+    crate::spawn::spawn(async move {
         while let Some(cmd) = cmd_rx.recv().await {
             let new_mode = match cmd {
                 tui::ServerCommand::GoPublic => tui::BindMode::Lan,
@@ -3131,7 +3132,7 @@ async fn serve_with_tui(
     let mut proto_cmd_rx = proto_cmd_rx; // Move the receiver from earlier
     let filter_handle_for_bridge = filter_handle.clone();
     let event_tx_for_bridge = event_tx.clone();
-    tokio::spawn(async move {
+    crate::spawn::spawn(async move {
         while let Some(proto_cmd) = proto_cmd_rx.recv().await {
             match proto_cmd {
                 cell_tui_proto::ServerCommand::CycleLogLevel => {
@@ -3195,7 +3196,7 @@ async fn serve_with_tui(
     // Spawn forwarders to push updates to TUI cell via RPC
     // Forward progress updates
     let tui_client_progress = tui_client.clone();
-    tokio::spawn(async move {
+    crate::spawn::spawn(async move {
         while progress_rx.changed().await.is_ok() {
             let progress = progress_rx.borrow().clone();
             let _ = tui_client_progress
@@ -3206,7 +3207,7 @@ async fn serve_with_tui(
 
     // Forward server status updates
     let tui_client_status = tui_client.clone();
-    tokio::spawn(async move {
+    crate::spawn::spawn(async move {
         while server_rx.changed().await.is_ok() {
             let status = server_rx.borrow().clone();
             let _ = tui_client_status
@@ -3382,7 +3383,7 @@ async fn serve_static(
 
     // Start the cell server with our static content service
     let content_service_clone = content_service.clone();
-    tokio::spawn(async move {
+    crate::spawn::spawn(async move {
         if let Err(e) = cell_server::start_static_cell_server(
             content_service_clone,
             cell_path,

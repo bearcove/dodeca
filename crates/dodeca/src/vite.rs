@@ -148,11 +148,11 @@ impl ViteServer {
         let stderr = child.stderr.take().expect("stderr was piped");
 
         let tx_clone = tx.clone();
-        tokio::spawn(async move {
+        crate::spawn::spawn(async move {
             relay_output(stdout, tx_clone).await;
         });
 
-        tokio::spawn(async move {
+        crate::spawn::spawn(async move {
             relay_output(stderr, tx).await;
         });
 

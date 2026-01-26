@@ -66,7 +66,7 @@ impl WebSocketTunnel for HostWebSocketTunnel {
 
         // Spawn a task to handle the devtools protocol on this tunnel
         let server = self.server.clone();
-        tokio::spawn(async move {
+        crate::spawn::spawn(async move {
             use futures_util::FutureExt;
             tracing::debug!(channel_id, "DevTools tunnel handler task spawned");
             let result =
@@ -110,7 +110,7 @@ async fn handle_devtools_tunnel(channel_id: u64, tunnel: Tunnel, server: Arc<Sit
     // Monitor the pump tasks for errors
     let read_handle_channel_id = channel_id;
     let write_handle_channel_id = channel_id;
-    tokio::spawn(async move {
+    crate::spawn::spawn(async move {
         match read_handle.await {
             Ok(Ok(())) => tracing::debug!(read_handle_channel_id, "tunnel read pump completed ok"),
             Ok(Err(e)) => {
@@ -121,7 +121,7 @@ async fn handle_devtools_tunnel(channel_id: u64, tunnel: Tunnel, server: Arc<Sit
             }
         }
     });
-    tokio::spawn(async move {
+    crate::spawn::spawn(async move {
         match write_handle.await {
             Ok(Ok(())) => {
                 tracing::debug!(write_handle_channel_id, "tunnel write pump completed ok")
@@ -468,7 +468,7 @@ pub async fn start_cell_server_with_shutdown(
     let shutdown_flag = Arc::new(AtomicBool::new(false));
     if let Some(mut shutdown_rx) = shutdown_rx.clone() {
         let shutdown_flag = shutdown_flag.clone();
-        tokio::spawn(async move {
+        crate::spawn::spawn(async move {
             let _ = shutdown_rx.changed().await;
             if *shutdown_rx.borrow() {
                 shutdown_flag.store(true, Ordering::Relaxed);
@@ -496,7 +496,7 @@ pub async fn start_cell_server_with_shutdown(
 
     // Start accepting connections immediately
     let accept_server = server.clone();
-    let accept_task = tokio::spawn(async move {
+    let accept_task = crate::spawn::spawn(async move {
         run_async_accept_loop(tokio_listeners, accept_server, shutdown_rx, shutdown_flag).await
     });
 
@@ -527,7 +527,7 @@ async fn run_async_accept_loop(
         let server = server.clone();
         let shutdown_flag = shutdown_flag.clone();
 
-        let task_handle = tokio::spawn(async move {
+        let task_handle = crate::spawn::spawn(async move {
             loop {
                 if shutdown_flag.load(Ordering::Relaxed) {
                     break;
@@ -556,7 +556,7 @@ async fn run_async_accept_loop(
                 );
 
                 let server = server.clone();
-                tokio::spawn(async move {
+                crate::spawn::spawn(async move {
                     if let Err(e) = handle_browser_connection(conn_id, stream, server).await {
                         tracing::warn!(
                             conn_id,
@@ -701,7 +701,7 @@ async fn handle_browser_connection(
 
     // Use the server side of the duplex for the browser connection
     let mut tunnel_stream = server_stream;
-    tokio::spawn(async move {
+    crate::spawn::spawn(async move {
         let bridge_started = Instant::now();
         tracing::trace!(conn_id, channel_id, "browser <-> tunnel bridge: start");
         match tokio::io::copy_bidirectional(&mut browser_stream, &mut tunnel_stream).await {

@@ -676,7 +676,7 @@ async fn spawn_cell_process(cell_name: &str, pending: PendingCell, quiet_mode: b
             if cell_name == "http" {
                 if let Some(site_server) = Host::get().site_server() {
                     let server = site_server.clone();
-                    tokio::spawn(async move {
+                    crate::spawn::spawn(async move {
                         crate::cell_server::accept_browser_connections(
                             incoming_connections,
                             server,
@@ -734,7 +734,7 @@ async fn spawn_cell_process(cell_name: &str, pending: PendingCell, quiet_mode: b
 
     // Spawn child management task
     let cell_label = cell_name.to_string();
-    tokio::spawn(async move {
+    crate::spawn::spawn(async move {
         debug!(cell = %cell_label, "child monitor: waiting for exit");
         match child.wait().await {
             Ok(status) => {
@@ -771,7 +771,7 @@ fn spawn_stdio_pump<R>(label: String, _stream: &'static str, reader: R)
 where
     R: AsyncRead + Unpin + Send + 'static,
 {
-    tokio::spawn(async move {
+    crate::spawn::spawn(async move {
         let target = format!("cell-{label}");
         let mut reader = BufReader::new(reader);
         let mut line = String::new();

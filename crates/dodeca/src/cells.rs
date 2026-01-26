@@ -616,7 +616,7 @@ async fn init_cells_inner() -> eyre::Result<()> {
     debug!("init_cells_inner: spawning driver task");
 
     // Spawn driver task
-    let driver_handle = tokio::spawn(async move {
+    let driver_handle = crate::spawn::spawn(async move {
         info!("MultiPeerHostDriver: starting (lazy spawning mode)");
         debug!("[driver task] before driver.run()");
 
@@ -639,7 +639,7 @@ async fn init_cells_inner() -> eyre::Result<()> {
     });
 
     // Also spawn a watchdog that checks if driver task panics
-    tokio::spawn(async move {
+    crate::spawn::spawn(async move {
         match driver_handle.await {
             Ok(()) => {
                 error!("MultiPeerHostDriver task completed normally (this shouldn't happen early)");
@@ -659,7 +659,7 @@ async fn init_cells_inner() -> eyre::Result<()> {
 
     // Spawn tracing consumer task (receives records from cells)
     if let Some(mut tracing_rx) = crate::host::Host::get().take_tracing_receiver() {
-        tokio::spawn(async move {
+        crate::spawn::spawn(async move {
             debug!("Tracing consumer: starting");
             while let Some(tagged) = tracing_rx.recv().await {
                 // Dispatch through the host's tracing subscriber

@@ -353,7 +353,7 @@ impl SiteServer {
 
         // Spawn notification tasks and collect failures
         let server = Arc::clone(self);
-        tokio::spawn(async move {
+        crate::spawn::spawn(async move {
             let mut failed_ids = Vec::new();
 
             // Send to all browsers concurrently
