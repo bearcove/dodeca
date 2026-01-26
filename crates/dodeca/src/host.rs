@@ -484,37 +484,52 @@ impl_cell_client!(cell_term_proto::TermRecorderClient, "term");
 // ============================================================================
 
 impl Host {
-    /// Get a typed cell client, spawning if needed (async).
+    /// Get a connection handle for a cell by name, spawning if needed.
     ///
-    /// This will spawn the cell process if it's pending and wait for it to be ready.
-    pub async fn client_async<C: CellClient>(&self) -> Option<C> {
+    /// This is the non-generic implementation that does all the work.
+    /// By keeping this separate from the generic `client_async<C>`, we avoid
+    /// monomorphizing the entire async state machine for each cell client type.
+    async fn get_or_spawn_cell_handle(&self, cell_name: &'static str) -> Option<ConnectionHandle> {
         // Ensure cell registry is initialized (idempotent, registers for lazy spawning, doesn't spawn)
         if let Err(e) = crate::cells::ensure_cell_registry_initialized().await {
-            tracing::error!(cell = C::CELL_NAME, error = %e, "Cell registry initialization failed");
+            tracing::error!(cell = cell_name, error = %e, "Cell registry initialization failed");
             return None;
         }
 
         // Fast path: cell is already ready (spawned and reported ready)
-        if crate::cells::cell_ready_registry().is_ready(C::CELL_NAME) {
-            let handle = self.get_cell_handle(C::CELL_NAME)?;
+        if crate::cells::cell_ready_registry().is_ready(cell_name) {
+            let handle = self.get_cell_handle(cell_name)?;
             debug!(
-                cell = C::CELL_NAME,
-                "client_async: already ready (fast path)"
+                cell = cell_name,
+                "get_or_spawn_cell_handle: already ready (fast path)"
             );
-            return Some(C::from_handle(handle));
+            return Some(handle);
         }
 
-        debug!(cell = C::CELL_NAME, "client_async: not ready, spawning");
+        debug!(
+            cell = cell_name,
+            "get_or_spawn_cell_handle: not ready, spawning"
+        );
 
         // Slow path: spawn the cell (creates and registers handle)
-        self.spawn_pending_cell(C::CELL_NAME).await?;
+        self.spawn_pending_cell(cell_name).await?;
 
         // Get the handle that was just registered during spawn
-        let handle = self.get_cell_handle(C::CELL_NAME)?;
+        let handle = self.get_cell_handle(cell_name)?;
         debug!(
-            cell = C::CELL_NAME,
-            "client_async: spawn complete, returning client"
+            cell = cell_name,
+            "get_or_spawn_cell_handle: spawn complete, returning handle"
         );
+        Some(handle)
+    }
+
+    /// Get a typed cell client, spawning if needed (async).
+    ///
+    /// This will spawn the cell process if it's pending and wait for it to be ready.
+    /// The heavy lifting is done by `get_or_spawn_cell_handle`, which is non-generic.
+    #[inline(always)]
+    pub async fn client_async<C: CellClient>(&self) -> Option<C> {
+        let handle = self.get_or_spawn_cell_handle(C::CELL_NAME).await?;
         Some(C::from_handle(handle))
     }
 }
