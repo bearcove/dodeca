@@ -165,19 +165,40 @@ fn restore(&mut self, save_point: SavePoint);
 - Simplified parser implementations
 - Better object-safety for future `dyn FormatParser` usage
 
+### 8. facet-rs/facet#1939 - Implement dyn FormatParser
+
+**Problem**: Each format (JSON, YAML, TOML) monomorphizes `FormatDeserializer` separately when used for runtime format selection.
+
+**Fix (PR #1939)**: Implement `FormatParser` for `&mut dyn DynParser<'de>`:
+```rust
+// Single function handles all formats via dynamic dispatch
+fn deserialize_value(parser: &mut dyn DynParser<'_>) -> Result<Value, DynDeserializeError> {
+    let mut de = FormatDeserializer::new(parser);
+    de.deserialize()
+}
+```
+
+**Also**: Switched dodeca from `serde_yaml` to `facet_yaml` for data file parsing.
+
+**Result**:
+- Enables runtime format selection with single deserializer monomorphization
+- facet_format: 267k → 282k (+15k for dyn dispatch infrastructure)
+- tokio: 302k → 149k (-153k, unrelated improvement from dependency updates)
+- Net total: 2.1M → 2.16M (slight increase from adding facet-yaml dependency)
+
 ## Final Results
 
 | Crate | Before | After | Savings | % |
 |-------|--------|-------|---------|---|
-| tokio | 510k | 302k | 208k | 41% |
-| picante | 378k | 249k | 129k | 34% |
-| facet_format | 385k | 267k | 118k | 31% |
+| tokio | 510k | 149k | 361k | 71% |
+| picante | 378k | 242k | 136k | 36% |
+| facet_format | 385k | 282k | 103k | 27% |
 | roam_session | 101k | 25k | 76k | 75% |
-| core | 481k | 397k | 84k | 17% |
-| alloc | 351k | 313k | 38k | 11% |
-| **Total** | **3.0M** | **2.1M** | **~900k** | **30%** |
+| core | 481k | 382k | 99k | 21% |
+| alloc | 351k | 308k | 43k | 12% |
+| **Total** | **3.0M** | **2.16M** | **~840k** | **28%** |
 
-*(Measurements after all PRs including facet #1936 ProbeStream GAT removal)*
+*(Measurements after facet #1939 dyn FormatParser and switching to facet-yaml)*
 
 ## Remaining Opportunities
 
