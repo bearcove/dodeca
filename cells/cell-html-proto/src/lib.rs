@@ -113,6 +113,11 @@ pub struct HtmlProcessInput {
     /// Image variants for transforming `<img>` to `<picture>`
     #[facet(default)]
     pub image_variants: Option<HashMap<String, ResponsiveImageInfo>>,
+
+    /// Vite CSS map: entry path -> list of CSS URLs to inject
+    /// Used to inject CSS links for Vite entry points found in the HTML
+    #[facet(default)]
+    pub vite_css_map: Option<HashMap<String, Vec<String>>>,
 }
 
 /// Result of the unified process() method

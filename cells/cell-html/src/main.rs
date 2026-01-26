@@ -86,12 +86,17 @@ impl HtmlProcessor for HtmlProcessorImpl {
                 transform_images_in_doc(&mut doc, image_variants);
             }
 
-            // 7. Content injections (on the tree)
+            // 7. Inject Vite CSS links
+            if let Some(vite_css_map) = &input.vite_css_map {
+                inject_vite_css_in_doc(&mut doc, vite_css_map);
+            }
+
+            // 8. Content injections (on the tree)
             for injection in &input.injections {
                 apply_injection(&mut doc, injection);
             }
 
-            // 8. Extract hrefs and element IDs for link checking
+            // 9. Extract hrefs and element IDs for link checking
             let hrefs = extract_hrefs(&doc);
             let element_ids = extract_element_ids(&doc);
 
@@ -1126,6 +1131,116 @@ fn build_srcset(entries: &[(String, u32)]) -> String {
         .map(|(path, width)| format!("{} {}w", path, width))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+// ============================================================================
+// Vite CSS Injection
+// ============================================================================
+
+fn inject_vite_css_in_doc(doc: &mut Document, vite_css_map: &HashMap<String, Vec<String>>) {
+    if vite_css_map.is_empty() {
+        return;
+    }
+
+    // Collect all CSS URLs that need to be injected
+    let mut css_to_inject: Vec<String> = Vec::new();
+
+    // Find script src attributes and inline script imports
+    if let Some(head_id) = doc.head() {
+        collect_vite_entries_from_scripts(doc, head_id, vite_css_map, &mut css_to_inject);
+    }
+    if let Some(body_id) = doc.body() {
+        collect_vite_entries_from_scripts(doc, body_id, vite_css_map, &mut css_to_inject);
+    }
+
+    if css_to_inject.is_empty() {
+        return;
+    }
+
+    // Inject link tags into head
+    if let Some(head_id) = doc.head() {
+        for url in css_to_inject {
+            let link = doc.create_element("link");
+            set_attr(doc, link, "rel", "stylesheet");
+            set_attr(doc, link, "href", &url);
+            doc.append_child(head_id, link);
+        }
+    }
+}
+
+fn collect_vite_entries_from_scripts(
+    doc: &Document,
+    node_id: NodeId,
+    vite_css_map: &HashMap<String, Vec<String>>,
+    css_to_inject: &mut Vec<String>,
+) {
+    if is_element(doc, node_id, "script") {
+        // Check for src attribute
+        if let Some(src) = get_attr(doc, node_id, "src") {
+            if let Some(css_urls) = vite_css_map.get(&src) {
+                for url in css_urls {
+                    if !css_to_inject.contains(url) {
+                        css_to_inject.push(url.clone());
+                    }
+                }
+            }
+        }
+
+        // Check inline script for import statements
+        let text = get_text_content(doc, node_id);
+        if !text.is_empty() {
+            extract_imports_from_js(&text, vite_css_map, css_to_inject);
+        }
+    }
+
+    for child_id in doc.children(node_id) {
+        collect_vite_entries_from_scripts(doc, child_id, vite_css_map, css_to_inject);
+    }
+}
+
+/// Extract import paths from JavaScript text without regex
+fn extract_imports_from_js(
+    js: &str,
+    vite_css_map: &HashMap<String, Vec<String>>,
+    css_to_inject: &mut Vec<String>,
+) {
+    // Simple parser for: import ... from "path" or import ... from 'path'
+    // This is not a full JS parser but handles common cases
+    for line in js.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("import ") {
+            continue;
+        }
+
+        // Find "from" keyword
+        if let Some(from_pos) = trimmed.find(" from ") {
+            let after_from = &trimmed[from_pos + 6..].trim();
+            // Extract the path from quotes
+            let path = if after_from.starts_with('"') {
+                after_from
+                    .trim_start_matches('"')
+                    .split('"')
+                    .next()
+                    .unwrap_or("")
+            } else if after_from.starts_with('\'') {
+                after_from
+                    .trim_start_matches('\'')
+                    .split('\'')
+                    .next()
+                    .unwrap_or("")
+            } else {
+                continue;
+            };
+
+            if let Some(css_urls) = vite_css_map.get(path) {
+                for url in css_urls {
+                    if !css_to_inject.contains(url) {
+                        css_to_inject.push(url.clone());
+                    }
+                }
+            }
+        }
+    }
 }
 
 // ============================================================================

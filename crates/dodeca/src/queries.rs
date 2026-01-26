@@ -1657,9 +1657,7 @@ pub async fn serve_html<DB: Db>(
     route: Route,
 ) -> PicanteResult<Result<Option<String>, SiteError>> {
     tracing::debug!(route = %route.as_str(), "serve_html: rendering");
-    use crate::url_rewrite::{
-        ResponsiveImageInfo, rewrite_urls_in_html, transform_images_to_picture,
-    };
+    use crate::url_rewrite::ResponsiveImageInfo;
 
     let site_tree = match build_tree(db).await? {
         Ok(tree) => tree,
@@ -1791,20 +1789,25 @@ pub async fn serve_html<DB: Db>(
         }
     }
 
-    // Inject CSS links for Vite entry points BEFORE URL rewriting
-    // We need to find script tags with src matching Vite entry source paths (e.g., /src/monaco/main.ts)
-    // and inject the corresponding CSS <link> tags
-    let html_with_css = inject_vite_css_links(&raw_html, &vite_css_map);
+    // Process HTML in a single pass via the HTML cell:
+    // - Inject CSS links for Vite entry points
+    // - Rewrite URLs (transforms /src/monaco/main.ts -> /monaco.xxx.js)
+    // - Transform <img> to <picture> for responsive images
+    let process_options = crate::url_rewrite::HtmlProcessOptions {
+        path_map: Some(path_map),
+        vite_css_map: Some(vite_css_map),
+        image_variants: Some(image_variants),
+        ..Default::default()
+    };
 
-    // Rewrite URLs in HTML (this transforms /src/monaco/main.ts -> /monaco.xxx.js)
-    let rewritten_html = rewrite_urls_in_html(&html_with_css, &path_map).await;
-    let rewritten_has_doctype = rewritten_html.contains("<!DOCTYPE");
-
-    // Use injected_html as alias for clarity in subsequent steps
-    let injected_html = rewritten_html;
-
-    // Transform <img> to <picture> for responsive images
-    let transformed_html = transform_images_to_picture(&injected_html, &image_variants).await;
+    let transformed_html = match crate::url_rewrite::process_html(&raw_html, process_options).await
+    {
+        Ok(output) => output.html,
+        Err(e) => {
+            tracing::warn!(route = %route, error = %e, "HTML processing failed, using raw HTML");
+            raw_html.clone()
+        }
+    };
     let transformed_has_doctype = transformed_html.contains("<!DOCTYPE");
 
     // Minify HTML (but skip for error pages to preserve the error marker comment)
@@ -1820,7 +1823,6 @@ pub async fn serve_html<DB: Db>(
         tracing::error!(
             route = %route,
             raw_has_doctype,
-            rewritten_has_doctype,
             transformed_has_doctype,
             final_has_doctype = final_html.contains("<!DOCTYPE"),
             final_len = final_html.len(),
@@ -1830,79 +1832,6 @@ pub async fn serve_html<DB: Db>(
     }
 
     Ok(Ok(Some(final_html)))
-}
-
-/// Inject CSS `<link>` tags for Vite entry points found in HTML
-///
-/// Scans the HTML for:
-/// - `<script src="/src/...">` attributes
-/// - `import ... from '/src/...'` statements in inline scripts
-///
-/// For each Vite entry found, injects the corresponding CSS links into `<head>`.
-fn inject_vite_css_links(html: &str, vite_css_map: &HashMap<String, Vec<String>>) -> String {
-    if vite_css_map.is_empty() {
-        return html.to_string();
-    }
-
-    // Collect all CSS URLs that need to be injected
-    let mut css_to_inject: Vec<String> = Vec::new();
-
-    // Pattern 1: <script src="/src/..."> or <script type="module" src="/src/...">
-    let script_src_re = regex::Regex::new(r#"<script[^>]*\ssrc=["']([^"']+)["'][^>]*>"#).unwrap();
-    for cap in script_src_re.captures_iter(html) {
-        let src = &cap[1];
-        if let Some(css_urls) = vite_css_map.get(src) {
-            for url in css_urls {
-                if !css_to_inject.contains(url) {
-                    css_to_inject.push(url.clone());
-                }
-            }
-        }
-    }
-
-    // Pattern 2: import ... from '/src/...' in inline scripts
-    let import_re = regex::Regex::new(r#"import\s+.*?\s+from\s+['"]([^'"]+)['"]"#).unwrap();
-    for cap in import_re.captures_iter(html) {
-        let import_path = &cap[1];
-        if let Some(css_urls) = vite_css_map.get(import_path) {
-            for url in css_urls {
-                if !css_to_inject.contains(url) {
-                    css_to_inject.push(url.clone());
-                }
-            }
-        }
-    }
-
-    if css_to_inject.is_empty() {
-        return html.to_string();
-    }
-
-    tracing::debug!(
-        css_count = css_to_inject.len(),
-        css_urls = ?css_to_inject,
-        "Injecting Vite CSS links"
-    );
-
-    // Build the link tags to inject
-    let link_tags: String = css_to_inject
-        .iter()
-        .map(|url| format!(r#"<link rel="stylesheet" href="{url}">"#))
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    // Try to inject before </head>, or before first <link>, or at the start
-    if let Some(pos) = html.find("</head>") {
-        let mut result = html.to_string();
-        result.insert_str(pos, &format!("{link_tags}\n"));
-        result
-    } else if let Some(pos) = html.find("<link") {
-        let mut result = html.to_string();
-        result.insert_str(pos, &format!("{link_tags}\n"));
-        result
-    } else {
-        // Fallback: prepend to HTML
-        format!("{link_tags}\n{html}")
-    }
 }
 
 /// Check if a path is a font file

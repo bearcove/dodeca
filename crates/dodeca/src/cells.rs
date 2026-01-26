@@ -1071,36 +1071,6 @@ pub async fn optimize_svg_cell(input: String) -> Result<SvgoResult, eyre::Error>
     optimize_svg(input).await
 }
 
-pub async fn mark_dead_links_cell(
-    html: String,
-    known_routes: std::collections::HashSet<String>,
-) -> Result<String, eyre::Error> {
-    let client = html_cell()
-        .await
-        .ok_or_else(|| eyre::eyre!("HTML cell not available"))?;
-    match client.mark_dead_links(html, known_routes).await {
-        Ok(cell_html_proto::HtmlResult::Success { html }) => Ok(html),
-        Ok(cell_html_proto::HtmlResult::SuccessWithFlag { html, .. }) => Ok(html),
-        Ok(cell_html_proto::HtmlResult::Error { message }) => Err(eyre::eyre!(message)),
-        Err(e) => Err(eyre::eyre!("RPC error: {:?}", e)),
-    }
-}
-
-pub async fn rewrite_urls_in_html_cell(
-    html: String,
-    path_map: HashMap<String, String>,
-) -> Result<String, eyre::Error> {
-    let client = html_cell()
-        .await
-        .ok_or_else(|| eyre::eyre!("HTML cell not available"))?;
-    match client.rewrite_urls(html, path_map).await {
-        Ok(cell_html_proto::HtmlResult::Success { html }) => Ok(html),
-        Ok(cell_html_proto::HtmlResult::SuccessWithFlag { html, .. }) => Ok(html),
-        Ok(cell_html_proto::HtmlResult::Error { message }) => Err(eyre::eyre!(message)),
-        Err(e) => Err(eyre::eyre!("RPC error: {:?}", e)),
-    }
-}
-
 /// Extract links and element IDs from HTML using the HTML cell's parser.
 /// This uses a proper HTML parser instead of regex.
 pub async fn extract_links_from_html(

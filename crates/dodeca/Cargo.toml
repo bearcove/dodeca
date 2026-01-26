@@ -79,7 +79,6 @@ roam-tracing.workspace = true
 roam-fdpass.workspace = true
 roam-local.workspace = true
 rapidhash.workspace = true
-regex.workspace = true
 arboard = { version = "3", default-features = false }
 strid.workspace = true
 tokio.workspace = true
@@ -94,5 +93,4 @@ dodeca-config = { path = "../dodeca-config" }
 facet-styx.workspace = true
 
 [dev-dependencies]
-regex.workspace = true
 tokio.workspace = true

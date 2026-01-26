@@ -79,6 +79,7 @@ pub async fn process_html(
         source_to_route: options.source_to_route,
         base_route: options.base_route,
         image_variants: options.image_variants,
+        vite_css_map: options.vite_css_map,
     };
 
     match client.process(input).await {
@@ -114,9 +115,12 @@ pub struct HtmlProcessOptions {
     pub base_route: Option<String>,
     /// Image variants for picture element transformation
     pub image_variants: Option<HashMap<String, cell_html_proto::ResponsiveImageInfo>>,
+    /// Vite CSS map: entry path -> list of CSS URLs to inject
+    pub vite_css_map: Option<HashMap<String, Vec<String>>>,
 }
 
 /// Output from HTML processing
+#[allow(dead_code)] // Fields may be used for future link checking
 pub struct HtmlProcessOutput {
     /// Processed HTML
     pub html: String,
@@ -126,22 +130,6 @@ pub struct HtmlProcessOutput {
     pub hrefs: Vec<String>,
     /// All id attributes from elements
     pub element_ids: Vec<String>,
-}
-
-/// Simple URL rewriting (HTML attributes only, no other transformations)
-pub async fn rewrite_urls_in_html(html: &str, path_map: &HashMap<String, String>) -> String {
-    let options = HtmlProcessOptions {
-        path_map: Some(path_map.clone()),
-        ..Default::default()
-    };
-
-    match process_html(html, options).await {
-        Ok(output) => output.html,
-        Err(e) => {
-            tracing::warn!("HTML URL rewriting failed: {}", e);
-            html.to_string()
-        }
-    }
 }
 
 /// Mark dead internal links in HTML using the cell
@@ -205,52 +193,10 @@ pub async fn resolve_relative_links(html: &str, base_route: &str) -> String {
     }
 }
 
-/// Transform `<img>` tags to `<picture>` elements with responsive srcsets.
-///
-/// Now delegates to the HTML cell for proper parsing.
-pub async fn transform_images_to_picture(
-    html: &str,
-    image_variants: &HashMap<String, ResponsiveImageInfo>,
-) -> String {
-    let options = HtmlProcessOptions {
-        image_variants: Some(image_variants.clone()),
-        ..Default::default()
-    };
-
-    match process_html(html, options).await {
-        Ok(output) => output.html,
-        Err(e) => {
-            tracing::warn!("Image transformation failed: {}", e);
-            html.to_string()
-        }
-    }
-}
-
 #[cfg(test)]
 #[allow(clippy::disallowed_methods)]
 mod tests {
     use super::*;
-
-    #[tokio::test]
-    async fn test_html_attribute_rewriting() {
-        // Note: This test requires the html cell to be running
-        // Without the cell, the function returns the original HTML
-        let mut path_map = HashMap::new();
-        path_map.insert("/style.css".to_string(), "/style.abc123.css".to_string());
-        path_map.insert("/app.js".to_string(), "/app.def456.js".to_string());
-
-        let html = r#"<html><head><link href="/style.css"></head><body><script src="/app.js"></script></body></html>"#;
-        let result = rewrite_urls_in_html(html, &path_map).await;
-
-        // With cell: URLs are rewritten
-        // Without cell: returns original HTML
-        if result.contains("abc123") {
-            assert!(result.contains(r#"href="/style.abc123.css""#));
-            assert!(result.contains(r#"src="/app.def456.js""#));
-        } else {
-            assert_eq!(result, html, "Without cell, HTML should be unchanged");
-        }
-    }
 
     #[tokio::test]
     async fn test_dead_link_marking() {

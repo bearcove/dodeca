@@ -2650,7 +2650,6 @@ dependencies = [
  "owo-colors",
  "picante",
  "rapidhash 4.2.1",
- "regex",
  "roam",
  "roam-fdpass",
  "roam-local",
