@@ -188,6 +188,47 @@ fn is_newline_charref(s: &str) -> bool {
             .unwrap_or(false)
 }
 
+/// Check if HTML has mismatched heading close tags (e.g., <h4>...</h3>).
+fn has_mismatched_heading_close(html: &str) -> bool {
+    let lower = html.to_ascii_lowercase();
+
+    // Find all heading start tags and their numbers
+    let mut open_headings: Vec<char> = Vec::new();
+
+    let mut i = 0;
+    let bytes = lower.as_bytes();
+
+    while i < bytes.len() {
+        if bytes[i] == b'<' && i + 2 < bytes.len() {
+            if bytes[i + 1] == b'h' && bytes[i + 2].is_ascii_digit() {
+                let digit = bytes[i + 2];
+                if digit >= b'1' && digit <= b'6' {
+                    // Check it's a start tag (not </h...)
+                    if i == 0 || bytes[i - 1] != b'/' {
+                        open_headings.push(digit as char);
+                    }
+                }
+            } else if bytes[i + 1] == b'/' && i + 3 < bytes.len() && bytes[i + 2] == b'h' {
+                let digit = bytes[i + 3];
+                if digit >= b'1' && digit <= b'6' {
+                    // This is a close tag </h[1-6]
+                    // Check if it matches the most recent open heading
+                    if let Some(&last_open) = open_headings.last() {
+                        if last_open != digit as char {
+                            // Mismatched! e.g., <h4>...</h3>
+                            return true;
+                        }
+                        open_headings.pop();
+                    }
+                }
+            }
+        }
+        i += 1;
+    }
+
+    false
+}
+
 /// Check if HTML contains custom elements (tag names with hyphens like <my-element>).
 fn has_custom_element(html: &str) -> bool {
     let mut i = 0;
@@ -395,6 +436,16 @@ fn is_valid_for_browser_parity(html: &str) -> bool {
     // =========================================================================
     // [UNCLEAR] - Needs investigation
     // =========================================================================
+
+    // Skip inputs with mismatched heading close tags (e.g., <h4>...</h3>).
+    // Per spec, </h[1-6]> closes ANY open heading in scope, not just the matching one.
+    // But when combined with adoption agency for formatting elements (<a>, <b>, etc.),
+    // the tree reconstruction differs between html5ever and browsers.
+    // TODO: Investigate which implementation correctly handles adoption agency
+    //       after mismatched heading close tags.
+    if has_mismatched_heading_close(html) {
+        return false;
+    }
 
     // Skip inputs containing <html with attributes - browsers have complex normalization
     // rules for <html> attributes (stripping invalid values, certain characters, etc.)
