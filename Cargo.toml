@@ -59,17 +59,18 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
 ] }
 
 # Serialization - Facet ecosystem (git)
+# Do NOT change those to path dependencies, use the patch blocks below.
 hotmeal = { git = "https://github.com/bearcove/hotmeal", branch = "main" }
 hotmeal-wasm = { git = "https://github.com/bearcove/hotmeal", branch = "main" }
 
-facet = { path = "../facet/facet" }
-facet-default = { path = "../facet/facet-default" }
-facet-format = { path = "../facet/facet-format" }
-facet-json = { path = "../facet/facet-json" }
-facet-postcard = { path = "../facet/facet-postcard" }
-facet-toml = { path = "../facet/facet-toml" }
-facet-value = { path = "../facet/facet-value" }
-facet-yaml = { path = "../facet/facet-yaml" }
+facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-default = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-format = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-postcard = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-toml = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 
 facet-styx = { git = "https://github.com/bearcove/styx", branch = "main" }
 styx-embed = { git = "https://github.com/bearcove/styx", branch = "main" }
@@ -169,21 +170,21 @@ rust-version = "1.91"
 [patch.crates-io]
 facet-svg = { git = "https://github.com/facet-rs/facet-xml", branch = "main" }
 facet-xml = { git = "https://github.com/facet-rs/facet-xml", branch = "main" }
-facet = { path = "../facet/facet" }
-facet-core = { path = "../facet/facet-core" }
-facet-format = { path = "../facet/facet-format" }
-facet-json = { path = "../facet/facet-json" }
-facet-macro-parse = { path = "../facet/facet-macro-parse" }
-facet-macro-types = { path = "../facet/facet-macro-types" }
-facet-macros = { path = "../facet/facet-macros" }
-facet-macros-impl = { path = "../facet/facet-macros-impl" }
-facet-postcard = { path = "../facet/facet-postcard" }
-facet-pretty = { path = "../facet/facet-pretty" }
-facet-reflect = { path = "../facet/facet-reflect" }
-facet-solver = { path = "../facet/facet-solver" }
-facet-toml = { path = "../facet/facet-toml" }
-facet-value = { path = "../facet/facet-value" }
-facet-yaml = { path = "../facet/facet-yaml" }
+facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-core = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-format = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-macro-parse = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-macro-types = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-macros = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-macros-impl = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-postcard = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-pretty = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-reflect = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-solver = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-toml = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 pikru = { git = "https://github.com/bearcove/pikru", branch = "main" }
 
 # Uncomment to use local facet for development
@@ -237,25 +238,25 @@ pikru = { git = "https://github.com/bearcove/pikru", branch = "main" }
 # facet-yaml = { path = "../facet/facet-yaml" }
 
 # Patch git dependencies to use local facet
-[patch."https://github.com/facet-rs/facet"]
-facet = { path = "../facet/facet" }
-facet-core = { path = "../facet/facet-core" }
-facet-default = { path = "../facet/facet-default" }
-facet-dessert = { path = "../facet/facet-dessert" }
-facet-format = { path = "../facet/facet-format" }
-facet-json = { path = "../facet/facet-json" }
-facet-macro-parse = { path = "../facet/facet-macro-parse" }
-facet-macro-types = { path = "../facet/facet-macro-types" }
-facet-macros = { path = "../facet/facet-macros" }
-facet-macros-impl = { path = "../facet/facet-macros-impl" }
-facet-path = { path = "../facet/facet-path" }
-facet-postcard = { path = "../facet/facet-postcard" }
-facet-pretty = { path = "../facet/facet-pretty" }
-facet-reflect = { path = "../facet/facet-reflect" }
-facet-solver = { path = "../facet/facet-solver" }
-facet-toml = { path = "../facet/facet-toml" }
-facet-value = { path = "../facet/facet-value" }
-facet-yaml = { path = "../facet/facet-yaml" }
+# [patch."https://github.com/facet-rs/facet"]
+# facet = { path = "../facet/facet" }
+# facet-core = { path = "../facet/facet-core" }
+# facet-default = { path = "../facet/facet-default" }
+# facet-dessert = { path = "../facet/facet-dessert" }
+# facet-format = { path = "../facet/facet-format" }
+# facet-json = { path = "../facet/facet-json" }
+# facet-macro-parse = { path = "../facet/facet-macro-parse" }
+# facet-macro-types = { path = "../facet/facet-macro-types" }
+# facet-macros = { path = "../facet/facet-macros" }
+# facet-macros-impl = { path = "../facet/facet-macros-impl" }
+# facet-path = { path = "../facet/facet-path" }
+# facet-postcard = { path = "../facet/facet-postcard" }
+# facet-pretty = { path = "../facet/facet-pretty" }
+# facet-reflect = { path = "../facet/facet-reflect" }
+# facet-solver = { path = "../facet/facet-solver" }
+# facet-toml = { path = "../facet/facet-toml" }
+# facet-value = { path = "../facet/facet-value" }
+# facet-yaml = { path = "../facet/facet-yaml" }
 
 # Uncomment to use local styx for development
 # [patch."https://github.com/bearcove/styx"]
@@ -285,7 +286,6 @@ split-debuginfo = "unpacked"
 inherits = "dev"
 opt-level = 0
 debug = "line-tables-only"
-
 
 # Test profile with full debug symbols for profiling
 [profile.test]

@@ -1,11 +1,10 @@
 //! Dodeca data cell (cell-data)
 //!
 //! This cell handles loading and parsing data files (JSON, TOML, YAML).
-//! Uses dyn dispatch to share a single deserializer across all formats.
 
 use cell_data_proto::{DataFormat, DataLoader, DataLoaderDispatcher, LoadDataResult, Value};
 use dodeca_cell_runtime::run_cell;
-use facet_format::{DynDeserializeError, DynParser, FormatDeserializer};
+use facet_format::{DeserializeError, FormatDeserializer, FormatParser};
 
 /// Data loader implementation
 #[derive(Clone)]
@@ -29,7 +28,7 @@ impl DataLoader for DataLoaderImpl {
 fn parse_data(content: &str, format: DataFormat) -> Result<Value, String> {
     match format {
         DataFormat::Json => {
-            let mut parser = facet_json::JsonParser::new(content.as_bytes());
+            let mut parser = facet_json::JsonParser::<true>::new(content.as_bytes());
             deserialize_value(&mut parser).map_err(|e| format!("JSON parse error: {e}"))
         }
         DataFormat::Toml => {
@@ -38,8 +37,7 @@ fn parse_data(content: &str, format: DataFormat) -> Result<Value, String> {
             deserialize_value(&mut parser).map_err(|e| format!("TOML parse error: {e}"))
         }
         DataFormat::Yaml => {
-            let mut parser = facet_yaml::YamlParser::new(content)
-                .map_err(|e| format!("YAML parse error: {e}"))?;
+            let mut parser = facet_yaml::YamlParser::new(content);
             deserialize_value(&mut parser).map_err(|e| format!("YAML parse error: {e}"))
         }
     }
@@ -48,7 +46,7 @@ fn parse_data(content: &str, format: DataFormat) -> Result<Value, String> {
 /// Deserialize a Value using dynamic dispatch.
 ///
 /// This function only has one monomorphization regardless of parser type.
-fn deserialize_value(parser: &mut dyn DynParser<'_>) -> Result<Value, DynDeserializeError> {
+fn deserialize_value(parser: &mut dyn FormatParser<'_>) -> Result<Value, DeserializeError> {
     let mut de = FormatDeserializer::new(parser);
     de.deserialize()
 }
