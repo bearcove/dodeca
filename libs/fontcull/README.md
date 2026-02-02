@@ -8,24 +8,7 @@ Pure Rust font subsetting library powered by [klippa](https://github.com/googlef
 
 ## Library usage
 
-```rust
-use fontcull::{subset_font_to_woff2, decompress_font};
-use std::collections::HashSet;
-
-// Subset a font to only include specific characters
-let font_data = std::fs::read("font.ttf").unwrap();
-let chars: HashSet<char> = "Hello World".chars().collect();
-let woff2 = subset_font_to_woff2(&font_data, &chars).unwrap();
-std::fs::write("font-subset.woff2", woff2).unwrap();
-
-// Can also decompress WOFF/WOFF2 to TTF
-let woff2_data = std::fs::read("font.woff2").unwrap();
-let ttf_data = decompress_font(&woff2_data).unwrap();
-```
-
-### Features
-
-- `static-analysis`: Static HTML/CSS parsing for font usage detection
+See the [fontcull crate documentation](https://docs.rs/fontcull) for API details and examples.
 
 ## CLI
 
