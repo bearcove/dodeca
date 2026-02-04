@@ -210,8 +210,8 @@ pikru = { git = "https://github.com/bearcove/pikru", branch = "main" }
 # facet-yaml = { path = "../facet/facet-yaml" }
 
 # Uncomment to use local figue for development
-[patch."https://github.com/bearcove/figue"]
-figue = { path = "../figue/crates/figue" }
+# [patch."https://github.com/bearcove/figue"]
+# figue = { path = "../figue/crates/figue" }
 
 # Uncomment to use local hotmeal for development
 # [patch."https://github.com/bearcove/hotmeal"]
