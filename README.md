@@ -30,7 +30,7 @@ highlighting, and more can be plugged in independently.
 Install dodeca:
 
 ```bash
-cargo install dodeca
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/bearcove/dodeca/releases/latest/download/dodeca-installer.sh | sh
 ```
 
 Create a new site:
