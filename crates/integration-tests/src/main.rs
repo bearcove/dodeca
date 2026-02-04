@@ -651,6 +651,25 @@ fn collect_tests() -> Vec<Test> {
             func: sass::scss_change_triggers_rebuild,
             ignored: false,
         },
+        // mermaid tests
+        Test {
+            name: "mermaid_flowchart_rendered_to_svg",
+            module: "mermaid",
+            func: mermaid::mermaid_flowchart_rendered_to_svg,
+            ignored: false,
+        },
+        Test {
+            name: "mermaid_sequence_diagram_rendered",
+            module: "mermaid",
+            func: mermaid::mermaid_sequence_diagram_rendered,
+            ignored: false,
+        },
+        Test {
+            name: "mermaid_no_raw_code_blocks",
+            module: "mermaid",
+            func: mermaid::mermaid_no_raw_code_blocks,
+            ignored: false,
+        },
         // picante_cache tests
         Test {
             name: "navigating_twice_should_not_recompute_queries",
