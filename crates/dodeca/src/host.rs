@@ -752,21 +752,24 @@ async fn spawn_cell_process(cell_name: &str, pending: PendingCell, quiet_mode: b
 
     // Spawn child management task
     let cell_label = cell_name.to_string();
+    let registry = crate::cells::cell_ready_registry().clone();
     crate::spawn::spawn(async move {
         debug!(cell = %cell_label, "child monitor: waiting for exit");
         match child.wait().await {
-            Ok(status) => {
-                if !status.success() {
-                    eprintln!("FATAL: {} cell crashed with status: {}", cell_label, status);
-                    std::process::exit(1);
-                }
+            Ok(status) if !status.success() => {
+                let msg = format!("cell exited with status: {}", status);
+                error!(cell = %cell_label, %status, "Cell process crashed");
+                registry.mark_failed(&cell_label, msg);
             }
             Err(e) => {
-                eprintln!("FATAL: {} cell wait error: {}", cell_label, e);
-                std::process::exit(1);
+                let msg = format!("cell wait error: {}", e);
+                error!(cell = %cell_label, error = ?e, "Cell process wait failed");
+                registry.mark_failed(&cell_label, msg);
+            }
+            Ok(_) => {
+                info!(cell = %cell_label, "child monitor: cell exited normally");
             }
         }
-        info!(cell = %cell_label, "child monitor: cell exited normally");
     });
 
     debug!(cell = cell_name, "spawn_cell_process: done");
@@ -851,13 +854,28 @@ async fn wait_for_cell_ready(cell_name: &str) {
             break;
         }
 
+        // Check if cell has been marked as failed (child process crashed)
+        if let Some(reason) = crate::cells::cell_ready_registry().failure_reason(cell_name) {
+            error!(
+                cell = cell_name,
+                elapsed_ms = start.elapsed().as_millis(),
+                %reason,
+                "Cell process failed during startup"
+            );
+            // Give stdio pump tasks time to flush cell's stderr (e.g., panic messages)
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            std::process::exit(1);
+        }
+
         if start.elapsed() >= timeout {
             error!(
                 cell = cell_name,
                 elapsed_ms = start.elapsed().as_millis(),
                 timeout_secs,
                 check_count,
-                "Cell failed to start within timeout - exiting"
+                "Cell failed to start within timeout. \
+                 The cell process was spawned but never reported ready. \
+                 Check cell logs above for crash or startup errors."
             );
             // Give stdio pump tasks time to flush cell's stderr (e.g., panic messages)
             tokio::time::sleep(Duration::from_millis(100)).await;

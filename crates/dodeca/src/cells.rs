@@ -88,12 +88,14 @@ pub fn set_quiet_mode(quiet: bool) {
 #[derive(Clone)]
 pub struct CellReadyRegistry {
     ready: Arc<DashMap<String, ReadyMsg>>,
+    failed: Arc<DashMap<String, String>>,
 }
 
 impl CellReadyRegistry {
     fn new() -> Self {
         Self {
             ready: Arc::new(DashMap::new()),
+            failed: Arc::new(DashMap::new()),
         }
     }
 
@@ -115,6 +117,16 @@ impl CellReadyRegistry {
 
     pub fn is_ready(&self, cell_name: &str) -> bool {
         self.ready.contains_key(cell_name)
+    }
+
+    /// Mark a cell as failed (called from child monitor task when process crashes).
+    pub fn mark_failed(&self, cell_name: &str, reason: String) {
+        self.failed.insert(cell_name.to_string(), reason);
+    }
+
+    /// Check if a cell has been marked as failed, returning the failure reason.
+    pub fn failure_reason(&self, cell_name: &str) -> Option<String> {
+        self.failed.get(cell_name).map(|r| r.value().clone())
     }
 }
 
