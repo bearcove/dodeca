@@ -25,3 +25,9 @@ tracing = { version = "0.1.41", default-features = false, features = ["std"] }
 tracing-subscriber = "0.3.20"
 trybuild = "1.0"
 unsynn = "0.3.0"
+
+# [patch."https://github.com/facet-rs/facet"]
+# facet = { path = "../facet/facet" }
+# facet-core = { path = "../facet/facet-core" }
+# facet-postcard = { path = "../facet/facet-postcard" }
+# facet-reflect = { path = "../facet/facet-reflect" }
