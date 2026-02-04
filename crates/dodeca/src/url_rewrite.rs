@@ -126,7 +126,7 @@ pub struct HtmlProcessOutput {
     pub html: String,
     /// Whether any dead links were found
     pub had_dead_links: bool,
-    /// All href values from <a> elements
+    /// All href values from `<a>` elements
     pub hrefs: Vec<String>,
     /// All id attributes from elements
     pub element_ids: Vec<String>,
@@ -134,7 +134,7 @@ pub struct HtmlProcessOutput {
 
 /// Mark dead internal links in HTML using the cell
 ///
-/// Adds `data-dead` attribute to `<a>` tags with internal hrefs that don't exist in known_routes.
+/// Adds `data-dead` attribute to ``<a>`` tags with internal hrefs that don't exist in known_routes.
 /// Returns (modified_html, had_dead_links) tuple.
 pub async fn mark_dead_links(html: &str, known_routes: &HashSet<String>) -> (String, bool) {
     let options = HtmlProcessOptions {

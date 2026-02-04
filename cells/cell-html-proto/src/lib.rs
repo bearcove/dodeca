@@ -131,7 +131,7 @@ pub enum HtmlProcessResult {
         had_dead_links: bool,
         /// Whether any code buttons were injected
         had_code_buttons: bool,
-        /// All href values from <a> elements (for link checking)
+        /// All href values from `<a>` elements (for link checking)
         hrefs: Vec<String>,
         /// All id attributes from any element (for fragment validation)
         element_ids: Vec<String>,

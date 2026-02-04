@@ -109,9 +109,11 @@ This is the getting started guide.
 </head>
 <body>
   <h1>{{ page.title }}</h1>
+  {% if page.extra and page.extra.difficulty %}
   <div class="meta" data-difficulty="{{ page.extra.difficulty }}" data-time="{{ page.extra.reading_time }}">
     Difficulty: {{ page.extra.difficulty }}, Reading time: {{ page.extra.reading_time }} min
   </div>
+  {% endif %}
   {{ page.content | safe }}
 </body>
 </html>

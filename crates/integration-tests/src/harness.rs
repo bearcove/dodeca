@@ -1157,10 +1157,10 @@ impl InlineSite {
         fs::create_dir_all(fixture_dir.join(".config")).expect("create config dir");
         fs::create_dir_all(fixture_dir.join(".cache")).expect("create cache dir");
 
-        // Write config
+        // Write config (Styx format)
         fs::write(
-            fixture_dir.join(".config/dodeca.yaml"),
-            "content: content\noutput: public\n",
+            fixture_dir.join(".config/dodeca.styx"),
+            "content content\noutput public\n",
         )
         .expect("write config");
 

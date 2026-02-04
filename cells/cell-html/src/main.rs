@@ -296,10 +296,10 @@ fn extract_hrefs(doc: &Document) -> Vec<String> {
 }
 
 fn collect_hrefs_recursive(doc: &Document, node_id: NodeId, hrefs: &mut Vec<String>) {
-    if is_element(doc, node_id, "a") {
-        if let Some(href) = get_attr(doc, node_id, "href") {
-            hrefs.push(href);
-        }
+    if is_element(doc, node_id, "a")
+        && let Some(href) = get_attr(doc, node_id, "href")
+    {
+        hrefs.push(href);
     }
     for child_id in doc.children(node_id) {
         collect_hrefs_recursive(doc, child_id, hrefs);
@@ -320,10 +320,10 @@ fn extract_element_ids(doc: &Document) -> Vec<String> {
 }
 
 fn collect_ids_recursive(doc: &Document, node_id: NodeId, ids: &mut Vec<String>) {
-    if let Some(id) = get_attr(doc, node_id, "id") {
-        if !id.is_empty() {
-            ids.push(id);
-        }
+    if let Some(id) = get_attr(doc, node_id, "id")
+        && !id.is_empty()
+    {
+        ids.push(id);
     }
     for child_id in doc.children(node_id) {
         collect_ids_recursive(doc, child_id, ids);
@@ -922,10 +922,10 @@ fn resolve_internal_links_in_doc(doc: &mut Document, source_to_route: &HashMap<S
         collect_anchors(doc, body_id, &mut anchors);
 
         for node_id in anchors {
-            if let Some(href) = get_attr(doc, node_id, "href") {
-                if let Some(resolved) = resolve_internal_link(&href, source_to_route) {
-                    set_attr(doc, node_id, "href", &resolved);
-                }
+            if let Some(href) = get_attr(doc, node_id, "href")
+                && let Some(resolved) = resolve_internal_link(&href, source_to_route)
+            {
+                set_attr(doc, node_id, "href", &resolved);
             }
         }
     }
@@ -980,10 +980,10 @@ fn resolve_relative_links_in_doc(doc: &mut Document, base_route: &str) {
         collect_anchors(doc, body_id, &mut anchors);
 
         for node_id in anchors {
-            if let Some(href) = get_attr(doc, node_id, "href") {
-                if let Some(resolved) = resolve_relative_link(&href, &base) {
-                    set_attr(doc, node_id, "href", &resolved);
-                }
+            if let Some(href) = get_attr(doc, node_id, "href")
+                && let Some(resolved) = resolve_relative_link(&href, &base)
+            {
+                set_attr(doc, node_id, "href", &resolved);
             }
         }
     }
@@ -1038,12 +1038,11 @@ fn collect_images_with_variants<'a>(
     image_variants: &'a HashMap<String, ResponsiveImageInfo>,
     results: &mut Vec<(NodeId, String, &'a ResponsiveImageInfo)>,
 ) {
-    if is_element(doc, node_id, "img") {
-        if let Some(src) = get_attr(doc, node_id, "src") {
-            if let Some(info) = image_variants.get(&src) {
-                results.push((node_id, src, info));
-            }
-        }
+    if is_element(doc, node_id, "img")
+        && let Some(src) = get_attr(doc, node_id, "src")
+        && let Some(info) = image_variants.get(&src)
+    {
+        results.push((node_id, src, info));
     }
 
     for child_id in doc.children(node_id) {
@@ -1176,12 +1175,12 @@ fn collect_vite_entries_from_scripts(
 ) {
     if is_element(doc, node_id, "script") {
         // Check for src attribute
-        if let Some(src) = get_attr(doc, node_id, "src") {
-            if let Some(css_urls) = vite_css_map.get(&src) {
-                for url in css_urls {
-                    if !css_to_inject.contains(url) {
-                        css_to_inject.push(url.clone());
-                    }
+        if let Some(src) = get_attr(doc, node_id, "src")
+            && let Some(css_urls) = vite_css_map.get(&src)
+        {
+            for url in css_urls {
+                if !css_to_inject.contains(url) {
+                    css_to_inject.push(url.clone());
                 }
             }
         }

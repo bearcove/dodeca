@@ -77,16 +77,16 @@ pub fn type_error_shows_ariadne_formatted_source() {
     html.assert_ok();
     html.assert_contains(RENDER_ERROR_MARKER);
 
-    // Verify ariadne formatting is present in the error output
-    // Ariadne uses box-drawing characters like │ (U+2502) and ─ (U+2500)
-    // and shows source context with line numbers
+    // Verify the HTML error page shows source context with line numbers
+    // The error page renders styled HTML with source-context, line-number, and error-marker classes
     let body = &html.body;
-    let has_ariadne_chars = body.contains('│') || body.contains("───");
-    let has_line_indicator = body.contains(":1:") || body.contains(":2:");
+    let has_source_context = body.contains("source-context");
+    let has_line_numbers = body.contains("line-number");
+    let has_error_marker = body.contains("error-marker");
 
     assert!(
-        has_ariadne_chars || has_line_indicator,
-        "Expected ariadne-formatted error with source context.\nActual body contains: {}",
+        has_source_context && has_line_numbers && has_error_marker,
+        "Expected HTML error page with source context.\nActual body contains: {}",
         if body.len() > 500 {
             format!("{}...", &body[..500])
         } else {
