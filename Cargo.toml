@@ -186,6 +186,7 @@ facet-toml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 pikru = { git = "https://github.com/bearcove/pikru", branch = "main" }
+dagre_rust = { git = "https://github.com/bearcove/dagre-rust", branch = "main" }
 
 # Uncomment to use local facet for development
 # [patch.crates-io]
