@@ -1,2 +1,10 @@
 #!/bin/bash
+set -euo pipefail
+
 captain
+
+# Regenerate CI workflow files and stage them.
+# This ensures ci.yml always reflects the current set of cells/crates.
+cargo xtask ci-github
+cargo xtask ci-forgejo
+git add .github/workflows/ci.yml .forgejo/workflows/ci.yml install.sh

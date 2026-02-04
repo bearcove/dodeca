@@ -1,0 +1,6 @@
+`dodeca-devtools` is a Sycamore-powered devtools overlay for dodeca.
+
+It provides an in-browser development UI compiled to WebAssembly and injected
+into pages during `ddc serve`.
+
+This crate is part of the Dodeca workspace.

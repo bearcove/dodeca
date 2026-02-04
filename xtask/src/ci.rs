@@ -1107,6 +1107,34 @@ pub fn build_ci_workflow(platform: CiPlatform, repo_root: &Utf8Path) -> Workflow
     // Track jobs required before release (assemble + integration per target)
     let mut all_release_needs: Vec<String> = Vec::new();
 
+    // Verify generated CI files are up to date (no dependencies, runs in parallel with everything)
+    jobs.insert(
+        "check-ci".to_string(),
+        Job::with_runner(ci_linux_runner(platform).runner.to_runs_on())
+            .name("Check CI up to date")
+            .timeout(10)
+            .steps([
+                checkout(platform),
+                install_rust(platform),
+                if ci_linux_runner(platform).runner.is_self_hosted() {
+                    local_cache_with_targets(platform, false, "check-ci", "/home/amos/.cache")
+                } else {
+                    rust_cache_with_targets(
+                        platform,
+                        false,
+                        targets
+                            .iter()
+                            .find(|t| t.triple == "x86_64-unknown-linux-gnu")
+                            .expect("Linux target should exist"),
+                    )
+                },
+                Step::run(
+                    "Check CI files are up to date",
+                    "cargo xtask ci-github --check && cargo xtask ci-forgejo --check",
+                ),
+            ]),
+    );
+
     // Cache step for CI Linux jobs
     let linux_target = targets
         .iter()
@@ -1565,6 +1593,26 @@ pub fn build_forgejo_workflow(repo_root: &Utf8Path) -> Workflow {
 
     let mut jobs = IndexMap::new();
     let mut all_release_needs: Vec<String> = Vec::new();
+
+    // -------------------------------------------------------------------------
+    // Check CI files are up to date (no dependencies, runs in parallel)
+    // -------------------------------------------------------------------------
+    jobs.insert(
+        "check-ci".to_string(),
+        Job::with_runner(RunnerSpec::labels(FORGEJO_LINUX_LABELS).to_runs_on())
+            .name("Check CI up to date")
+            .timeout(10)
+            .steps([
+                checkout(platform),
+                install_rust(platform),
+                ctree_cache_restore("check-ci", linux_cache_base),
+                Step::run(
+                    "Check CI files are up to date",
+                    "cargo xtask ci-github --check && cargo xtask ci-forgejo --check",
+                ),
+                ctree_cache_save("check-ci", linux_cache_base),
+            ]),
+    );
 
     // -------------------------------------------------------------------------
     // Build WASM job (must run before clippy and ddc builds)

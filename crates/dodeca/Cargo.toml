@@ -24,7 +24,6 @@ path = "src/main.rs"
 
 [dependencies]
 cell-code-execution-proto = { path = "../../cells/cell-code-execution-proto" }
-cell-config-proto = { path = "../../cells/cell-config-proto" }
 cell-vite-proto = { path = "../../cells/cell-vite-proto" }
 dodeca-config = { path = "../dodeca-config" }
 cell-lifecycle-proto = { path = "../../cells/cell-lifecycle-proto" }
@@ -42,6 +41,7 @@ cell-js-proto = { path = "../../cells/cell-js-proto" }
 cell-jxl-proto = { path = "../../cells/cell-jxl-proto" }
 cell-linkcheck-proto = { path = "../../cells/cell-linkcheck-proto" }
 cell-markdown-proto = { path = "../../cells/cell-markdown-proto" }
+cell-mermaid-proto = { path = "../../cells/cell-mermaid-proto" }
 cell-minify-proto = { path = "../../cells/cell-minify-proto" }
 cell-sass-proto = { path = "../../cells/cell-sass-proto" }
 cell-svgo-proto = { path = "../../cells/cell-svgo-proto" }
@@ -62,6 +62,7 @@ figue.workspace = true
 
 facet-json.workspace = true
 facet-postcard.workspace = true
+facet-styx.workspace = true
 styx-embed.workspace = true
 facet-value.workspace = true
 futures-util.workspace = true

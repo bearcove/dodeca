@@ -186,6 +186,7 @@ facet-toml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 pikru = { git = "https://github.com/bearcove/pikru", branch = "main" }
+dagre_rust = { git = "https://github.com/bearcove/dagre-rust", branch = "main" }
 
 # Uncomment to use local facet for development
 # [patch.crates-io]
@@ -210,8 +211,8 @@ pikru = { git = "https://github.com/bearcove/pikru", branch = "main" }
 # facet-yaml = { path = "../facet/facet-yaml" }
 
 # Uncomment to use local figue for development
-[patch."https://github.com/bearcove/figue"]
-figue = { path = "../figue/crates/figue" }
+# [patch."https://github.com/bearcove/figue"]
+# figue = { path = "../figue/crates/figue" }
 
 # Uncomment to use local hotmeal for development
 # [patch."https://github.com/bearcove/hotmeal"]

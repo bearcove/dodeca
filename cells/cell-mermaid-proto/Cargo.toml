@@ -1,5 +1,5 @@
 [package]
-name = "cell-config-proto"
+name = "cell-mermaid-proto"
 version = "0.6.1"
 edition = "2024"
 
@@ -9,6 +9,4 @@ edition = "2024"
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [dependencies]
-dodeca-config = { path = "../../crates/dodeca-config" }
-facet.workspace = true
 roam.workspace = true

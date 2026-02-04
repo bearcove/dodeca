@@ -14,7 +14,6 @@
 use cell_code_execution_proto::{
     CodeExecutionResult, CodeExecutorClient, ExecuteSamplesInput, ExtractSamplesInput,
 };
-use cell_config_proto::ConfigParserClient;
 use cell_css_proto::{CssProcessorClient, CssResult};
 use cell_data_proto::DataLoaderClient;
 use cell_dialoguer_proto::DialoguerClient;
@@ -33,6 +32,7 @@ use cell_jxl_proto::{JXLEncodeInput, JXLProcessorClient, JXLResult};
 use cell_lifecycle_proto::CellLifecycle;
 use cell_linkcheck_proto::{LinkCheckInput, LinkCheckResult, LinkCheckerClient, LinkStatus};
 use cell_markdown_proto::MarkdownProcessorClient;
+use cell_mermaid_proto::MermaidRendererClient;
 use cell_minify_proto::{MinifierClient, MinifyResult};
 use cell_sass_proto::{SassCompilerClient, SassInput, SassResult};
 use cell_svgo_proto::{SvgoOptimizerClient, SvgoResult};
@@ -88,12 +88,14 @@ pub fn set_quiet_mode(quiet: bool) {
 #[derive(Clone)]
 pub struct CellReadyRegistry {
     ready: Arc<DashMap<String, ReadyMsg>>,
+    failed: Arc<DashMap<String, String>>,
 }
 
 impl CellReadyRegistry {
     fn new() -> Self {
         Self {
             ready: Arc::new(DashMap::new()),
+            failed: Arc::new(DashMap::new()),
         }
     }
 
@@ -115,6 +117,16 @@ impl CellReadyRegistry {
 
     pub fn is_ready(&self, cell_name: &str) -> bool {
         self.ready.contains_key(cell_name)
+    }
+
+    /// Mark a cell as failed (called from child monitor task when process crashes).
+    pub fn mark_failed(&self, cell_name: &str, reason: String) {
+        self.failed.insert(cell_name.to_string(), reason);
+    }
+
+    /// Check if a cell has been marked as failed, returning the failure reason.
+    pub fn failure_reason(&self, cell_name: &str) -> Option<String> {
+        self.failed.get(cell_name).map(|r| r.value().clone())
     }
 }
 
@@ -410,6 +422,13 @@ impl HostService for HostServiceImpl {
             },
         }
     }
+
+    async fn render_mermaid(&self, _cx: &roam::Context, diagram: String) -> Result<String, String> {
+        let client = mermaid_cell()
+            .await
+            .ok_or_else(|| "Mermaid cell not available".to_string())?;
+        client.render(diagram).await.map_err(|e| format!("{:?}", e))
+    }
 }
 
 /// Get the TUI display client for pushing updates to the TUI cell.
@@ -499,6 +518,7 @@ const CELL_DEFS: &[CellDef] = &[
     CellDef::new("webp"),
     CellDef::new("jxl"),
     CellDef::new("markdown"),
+    CellDef::new("mermaid"),
     CellDef::new("html"),
     CellDef::new("minify"),
     CellDef::new("css"),
@@ -513,7 +533,6 @@ const CELL_DEFS: &[CellDef] = &[
     CellDef::new("http"),
     CellDef::new("gingembre"),
     CellDef::new("data"),
-    CellDef::new("config"),
     CellDef::new("vite"),
     // Term needs terminal access for PTY recording
     CellDef::new("term").inherit_stdio(),
@@ -833,6 +852,7 @@ cell_client_accessor!(jxl_cell, "jxl", JXLProcessorClient);
 
 // Text processing
 cell_client_accessor!(markdown_cell, "markdown", MarkdownProcessorClient);
+cell_client_accessor!(mermaid_cell, "mermaid", MermaidRendererClient);
 cell_client_accessor!(html_cell, "html", HtmlProcessorClient);
 cell_client_accessor!(minify_cell, "minify", MinifierClient);
 cell_client_accessor!(css_cell, "css", CssProcessorClient);
@@ -845,9 +865,6 @@ cell_client_accessor!(gingembre_cell, "gingembre", TemplateRendererClient);
 
 // Data processing
 cell_client_accessor!(data_cell, "data", DataLoaderClient);
-
-// Config parsing
-cell_client_accessor!(config_cell, "config", ConfigParserClient);
 
 // Vite management
 cell_client_accessor!(vite_cell, "vite", ViteManagerClient);

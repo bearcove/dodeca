@@ -2,6 +2,7 @@
 /target
 .dodeca.db
 /docs/public/
+public/
 .cache/
 bloaty_report*
 *.mm_profdata
