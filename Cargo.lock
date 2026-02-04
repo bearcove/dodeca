@@ -1453,24 +1453,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cell-config"
-version = "0.6.1"
-dependencies = [
- "cell-config-proto",
- "dodeca-cell-runtime",
- "facet-styx",
-]
-
-[[package]]
-name = "cell-config-proto"
-version = "0.6.1"
-dependencies = [
- "dodeca-config",
- "facet",
- "roam",
-]
-
-[[package]]
 name = "cell-css"
 version = "0.6.1"
 dependencies = [
