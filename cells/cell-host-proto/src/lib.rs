@@ -156,4 +156,11 @@ pub trait HostService {
         js: String,
         path_map: HashMap<String, String>,
     ) -> ProcessJsResult;
+
+    // =========================================================================
+    // Markdown Host (for markdown cell callbacks)
+    // =========================================================================
+
+    /// Render a Mermaid diagram to SVG via the mermaid cell.
+    async fn render_mermaid(&self, diagram: String) -> Result<String, String>;
 }

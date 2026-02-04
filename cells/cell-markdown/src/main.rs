@@ -1,15 +1,18 @@
 //! Dodeca markdown processing cell (cell-markdown)
 //!
 //! This cell uses marq for markdown rendering with direct code block rendering.
+//! Mermaid diagrams are rendered via callback to the host, which delegates to the mermaid cell.
 
+use cell_host_proto::HostServiceClient;
 use cell_markdown_proto::*;
-use dodeca_cell_runtime::run_cell;
+use dodeca_cell_runtime::{ConnectionHandle, run_cell};
 use marq::{
-    AasvgHandler, ArboriumHandler, CompareHandler, InlineCodeHandler, LinkResolver, PikruHandler,
-    RenderOptions, TermHandler, render,
+    AasvgHandler, ArboriumHandler, CodeBlockHandler, CompareHandler, InlineCodeHandler,
+    LinkResolver, PikruHandler, RenderOptions, TermHandler, render,
 };
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::{Arc, OnceLock};
 
 /// Escape HTML special characters
 fn html_escape(s: &str) -> String {
@@ -77,8 +80,52 @@ impl LinkResolver for PassthroughLinkResolver {
     }
 }
 
+/// Handler for rendering Mermaid diagrams via host callback to the mermaid cell.
+struct MermaidHandler {
+    handle: Arc<OnceLock<ConnectionHandle>>,
+}
+
+impl MermaidHandler {
+    fn new(handle: Arc<OnceLock<ConnectionHandle>>) -> Self {
+        Self { handle }
+    }
+
+    fn host_client(&self) -> HostServiceClient {
+        HostServiceClient::new(self.handle.get().expect("handle not initialized").clone())
+    }
+}
+
+impl CodeBlockHandler for MermaidHandler {
+    fn render<'a>(
+        &'a self,
+        language: &'a str,
+        code: &'a str,
+    ) -> Pin<Box<dyn Future<Output = marq::Result<String>> + Send + 'a>> {
+        let code = code.to_string();
+        let language = language.to_string();
+        let host = self.host_client();
+
+        Box::pin(async move {
+            host.render_mermaid(code)
+                .await
+                .map_err(|e| marq::Error::CodeBlockHandler {
+                    language,
+                    message: format!("{:?}", e),
+                })
+        })
+    }
+}
+
 #[derive(Clone)]
-pub struct MarkdownProcessorImpl;
+pub struct MarkdownProcessorImpl {
+    handle: Arc<OnceLock<ConnectionHandle>>,
+}
+
+impl MarkdownProcessorImpl {
+    fn new(handle: Arc<OnceLock<ConnectionHandle>>) -> Self {
+        Self { handle }
+    }
+}
 
 impl MarkdownProcessor for MarkdownProcessorImpl {
     async fn parse_frontmatter(
@@ -109,6 +156,7 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
             .with_handler(&["compare"], CompareHandler::new())
             .with_handler(&["pikchr"], PikruHandler::new())
             .with_handler(&["term"], TermHandler::new())
+            .with_handler(&["mermaid"], MermaidHandler::new(self.handle.clone()))
             .with_default_handler(ArboriumHandler::new())
             .with_source_path(&source_path)
             // Pass through @/ links unchanged - dodeca will resolve them with site tree
@@ -192,7 +240,8 @@ fn convert_req(r: marq::ReqDefinition) -> ReqDefinition {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("markdown", |_handle| {
-        MarkdownProcessorDispatcher::new(MarkdownProcessorImpl)
+    run_cell!("markdown", |handle| {
+        let processor = MarkdownProcessorImpl::new(handle);
+        MarkdownProcessorDispatcher::new(processor)
     })
 }

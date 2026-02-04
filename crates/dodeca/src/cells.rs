@@ -33,6 +33,7 @@ use cell_jxl_proto::{JXLEncodeInput, JXLProcessorClient, JXLResult};
 use cell_lifecycle_proto::CellLifecycle;
 use cell_linkcheck_proto::{LinkCheckInput, LinkCheckResult, LinkCheckerClient, LinkStatus};
 use cell_markdown_proto::MarkdownProcessorClient;
+use cell_mermaid_proto::MermaidRendererClient;
 use cell_minify_proto::{MinifierClient, MinifyResult};
 use cell_sass_proto::{SassCompilerClient, SassInput, SassResult};
 use cell_svgo_proto::{SvgoOptimizerClient, SvgoResult};
@@ -410,6 +411,13 @@ impl HostService for HostServiceImpl {
             },
         }
     }
+
+    async fn render_mermaid(&self, _cx: &roam::Context, diagram: String) -> Result<String, String> {
+        let client = mermaid_cell()
+            .await
+            .ok_or_else(|| "Mermaid cell not available".to_string())?;
+        client.render(diagram).await.map_err(|e| format!("{:?}", e))
+    }
 }
 
 /// Get the TUI display client for pushing updates to the TUI cell.
@@ -499,6 +507,7 @@ const CELL_DEFS: &[CellDef] = &[
     CellDef::new("webp"),
     CellDef::new("jxl"),
     CellDef::new("markdown"),
+    CellDef::new("mermaid"),
     CellDef::new("html"),
     CellDef::new("minify"),
     CellDef::new("css"),
@@ -833,6 +842,7 @@ cell_client_accessor!(jxl_cell, "jxl", JXLProcessorClient);
 
 // Text processing
 cell_client_accessor!(markdown_cell, "markdown", MarkdownProcessorClient);
+cell_client_accessor!(mermaid_cell, "mermaid", MermaidRendererClient);
 cell_client_accessor!(html_cell, "html", HtmlProcessorClient);
 cell_client_accessor!(minify_cell, "minify", MinifierClient);
 cell_client_accessor!(css_cell, "css", CssProcessorClient);

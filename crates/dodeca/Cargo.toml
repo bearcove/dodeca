@@ -42,6 +42,7 @@ cell-js-proto = { path = "../../cells/cell-js-proto" }
 cell-jxl-proto = { path = "../../cells/cell-jxl-proto" }
 cell-linkcheck-proto = { path = "../../cells/cell-linkcheck-proto" }
 cell-markdown-proto = { path = "../../cells/cell-markdown-proto" }
+cell-mermaid-proto = { path = "../../cells/cell-mermaid-proto" }
 cell-minify-proto = { path = "../../cells/cell-minify-proto" }
 cell-sass-proto = { path = "../../cells/cell-sass-proto" }
 cell-svgo-proto = { path = "../../cells/cell-svgo-proto" }
