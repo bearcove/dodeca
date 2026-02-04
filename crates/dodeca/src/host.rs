@@ -480,7 +480,6 @@ impl_cell_client!(cell_gingembre_proto::TemplateRendererClient, "gingembre");
 impl_cell_client!(cell_tui_proto::TuiDisplayClient, "tui");
 impl_cell_client!(cell_term_proto::TermRecorderClient, "term");
 impl_cell_client!(cell_data_proto::DataLoaderClient, "data");
-impl_cell_client!(cell_config_proto::ConfigParserClient, "config");
 impl_cell_client!(cell_vite_proto::ViteManagerClient, "vite");
 
 // ============================================================================

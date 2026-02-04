@@ -3,10 +3,10 @@
 //! Searches for `.config/dodeca.styx` walking up from the current directory.
 //! The project root is the parent of `.config/`.
 //!
-//! Config parsing is delegated to the config cell to reduce monomorphization.
+//! Config parsing uses facet-styx directly — config is a bootstrap concern
+//! that must be resolved before cells are available.
 
 use camino::{Utf8Path, Utf8PathBuf};
-use cell_config_proto::ParseConfigResult;
 use eyre::{Result, eyre};
 use std::env;
 use std::fs;
@@ -149,12 +149,12 @@ impl ResolvedConfig {
 
 impl ResolvedConfig {
     /// Discover and load configuration from current directory
-    pub async fn discover() -> Result<Option<Self>> {
+    pub fn discover() -> Result<Option<Self>> {
         let config_path = find_config_file()?;
 
         match config_path {
             Some(path) => {
-                let resolved = load_config(&path).await?;
+                let resolved = load_config(&path)?;
                 Ok(Some(resolved))
             }
             None => Ok(None),
@@ -162,7 +162,7 @@ impl ResolvedConfig {
     }
 
     /// Discover and load configuration from a specific project path
-    pub async fn discover_from(project_path: &Utf8Path) -> Result<Option<Self>> {
+    pub fn discover_from(project_path: &Utf8Path) -> Result<Option<Self>> {
         let config_dir = project_path.join(CONFIG_DIR);
 
         // Check for legacy configs and error if found
@@ -170,7 +170,7 @@ impl ResolvedConfig {
 
         let styx_file = config_dir.join(CONFIG_FILE_STYX);
         if styx_file.exists() {
-            let resolved = load_config(&styx_file).await?;
+            let resolved = load_config(&styx_file)?;
             return Ok(Some(resolved));
         }
 
@@ -253,23 +253,12 @@ fn find_config_file() -> Result<Option<Utf8PathBuf>> {
     }
 }
 
-/// Load and resolve configuration from a config file path via the config cell
-async fn load_config(config_path: &Utf8Path) -> Result<ResolvedConfig> {
+/// Load and resolve configuration from a config file path
+fn load_config(config_path: &Utf8Path) -> Result<ResolvedConfig> {
     let content = fs::read_to_string(config_path)?;
 
-    let client = crate::cells::config_cell()
-        .await
-        .ok_or_else(|| eyre!("Config cell not available"))?;
-
-    let config: DodecaConfig = match client.parse_styx(content).await {
-        Ok(ParseConfigResult::Success { config }) => *config,
-        Ok(ParseConfigResult::Error { message }) => {
-            return Err(eyre!("Failed to parse {}: {}", config_path, message));
-        }
-        Err(e) => {
-            return Err(eyre!("RPC error parsing {}: {:?}", config_path, e));
-        }
-    };
+    let config: DodecaConfig = facet_styx::from_str(&content)
+        .map_err(|e| eyre!("Failed to parse {}: {}", config_path, e))?;
 
     // Project root is the parent of .config/
     let config_dir = config_path
@@ -358,6 +347,3 @@ pub fn set_global_config(config: ResolvedConfig) -> Result<()> {
 pub fn global_config() -> Option<&'static ResolvedConfig> {
     RESOLVED_CONFIG.get()
 }
-
-// Note: Config parsing tests are now handled by the config cell.
-// The cell uses facet-styx for parsing.

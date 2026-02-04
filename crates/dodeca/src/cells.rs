@@ -14,7 +14,6 @@
 use cell_code_execution_proto::{
     CodeExecutionResult, CodeExecutorClient, ExecuteSamplesInput, ExtractSamplesInput,
 };
-use cell_config_proto::ConfigParserClient;
 use cell_css_proto::{CssProcessorClient, CssResult};
 use cell_data_proto::DataLoaderClient;
 use cell_dialoguer_proto::DialoguerClient;
@@ -522,7 +521,6 @@ const CELL_DEFS: &[CellDef] = &[
     CellDef::new("http"),
     CellDef::new("gingembre"),
     CellDef::new("data"),
-    CellDef::new("config"),
     CellDef::new("vite"),
     // Term needs terminal access for PTY recording
     CellDef::new("term").inherit_stdio(),
@@ -855,9 +853,6 @@ cell_client_accessor!(gingembre_cell, "gingembre", TemplateRendererClient);
 
 // Data processing
 cell_client_accessor!(data_cell, "data", DataLoaderClient);
-
-// Config parsing
-cell_client_accessor!(config_cell, "config", ConfigParserClient);
 
 // Vite management
 cell_client_accessor!(vite_cell, "vite", ViteManagerClient);

@@ -2650,7 +2650,6 @@ dependencies = [
  "ariadne 0.5.1",
  "camino",
  "cell-code-execution-proto",
- "cell-config-proto",
  "cell-css-proto",
  "cell-data-proto",
  "cell-dialoguer-proto",
