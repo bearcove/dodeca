@@ -28,9 +28,9 @@ mkdir my-site
 cd my-site
 ```
 
-Create `.config/dodeca.yaml`:
+Create `.config/dodeca.styx`:
 
-```yaml
+```styx
 content: content
 output: public
 ```

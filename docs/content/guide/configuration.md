@@ -6,7 +6,7 @@ weight = 30
 
 Configuration lives in `.config/dodeca.styx` in your project root.
 
-> YAML format (`.config/dodeca.yaml`) is also supported for backwards compatibility.
+> YAML format (`.config/dodeca.yaml`) and KDL format (`.config/dodeca.kdl`) are also supported for backwards compatibility.
 
 ## Basic settings
 

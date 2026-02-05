@@ -13,7 +13,7 @@ Place your Sass files in a `sass/` directory at your project root:
 ```
 my-site/
 ├── .config/
-│   └── dodeca.yaml
+│   └── dodeca.styx
 ├── content/
 ├── sass/
 │   ├── main.scss        # Entry point (required)

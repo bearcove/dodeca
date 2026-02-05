@@ -77,7 +77,7 @@ A typical project with Vite might look like:
 ```
 my-site/
 ├── .config/
-│   └── dodeca.yaml
+│   └── dodeca.styx
 ├── content/
 │   └── index.md
 ├── templates/
