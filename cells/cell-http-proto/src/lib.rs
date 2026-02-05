@@ -1,9 +1,8 @@
 //! RPC protocol for dodeca dev server cell
 //!
-//! Defines three RPC services:
+//! Defines two RPC services:
 //! - `ContentService`: Host implements, cell calls (for content from picante DB)
 //! - `TcpTunnel`: Cell implements, host calls (for L4 TCP tunneling)
-//! - `WebSocketTunnel`: Host implements, cell calls (for devtools WebSocket)
 //!
 //! # Tunnel Architecture
 //!
@@ -82,26 +81,4 @@ pub trait ContentService {
 
     /// Evaluate an expression in the context of a route (REPL)
     async fn eval_expression(&self, route: String, expression: String) -> crate::EvalResult;
-}
-
-/// WebSocket tunnel service implemented by the host.
-///
-/// The cell calls `open()` when a browser opens a WebSocket connection
-/// to the devtools endpoint (/_/ws), passing a tunnel for bidirectional
-/// byte streaming. The host handles the devtools protocol directly.
-///
-/// Workflow:
-/// 1. Browser opens WebSocket to cell at /_/ws
-/// 2. Cell creates `tunnel_pair()` → `(local, remote)`
-/// 3. Cell calls `WebSocketTunnelClient::open(remote)` via RPC
-/// 4. Cell pumps `local` ↔ browser WebSocket
-/// 5. Host handles devtools protocol on `remote`
-#[allow(async_fn_in_trait)]
-#[roam::service]
-pub trait WebSocketTunnel {
-    /// Open a new WebSocket tunnel to the host.
-    ///
-    /// The cell passes a tunnel for data transfer. The host handles
-    /// the devtools protocol (scope inspection, eval, reload broadcasts).
-    async fn open(&self, tunnel: Tunnel);
 }

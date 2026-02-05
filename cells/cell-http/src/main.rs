@@ -15,7 +15,7 @@
 //! - Runs axum internally on localhost (not exposed to network)
 //! - Implements TcpTunnel service (host opens tunnels for each browser connection)
 //! - Calls ContentService on host for all content (HTML, CSS, static files)
-//! - Opens WebSocketTunnel to host for devtools (just pipes bytes)
+//! - Runs roam RPC session for devtools (forwarded to host via virtual connection)
 //! - Uses SHM transport for zero-copy content transfer
 
 use std::sync::Arc;
@@ -212,7 +212,7 @@ fn build_router(ctx: Arc<dyn RouterContext>) -> axum::Router {
     }
 
     Router::new()
-        // Devtools WebSocket - opens tunnel to host, just pipes bytes
+        // Devtools WebSocket - roam RPC session forwarded to host
         .route("/_/ws", get(devtools::ws_handler))
         // Legacy endpoints
         .route("/__dodeca", get(devtools::ws_handler))

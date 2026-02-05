@@ -475,16 +475,6 @@ impl SiteServer {
         self.revision_tx.borrow().generation
     }
 
-    /// Get a snapshot of current errors (for sending to newly connected devtools clients)
-    pub fn get_current_errors(&self) -> Vec<dodeca_protocol::ErrorInfo> {
-        self.current_errors
-            .read()
-            .unwrap()
-            .values()
-            .cloned()
-            .collect()
-    }
-
     /// Check if a path is configured as a stable asset
     fn is_stable_asset(&self, path: &str) -> bool {
         self.stable_assets.iter().any(|p| p == path)

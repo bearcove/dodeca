@@ -5,7 +5,6 @@
 //! dispatcher configuration needed.
 
 use facet::Facet;
-use roam::Tunnel;
 use std::collections::HashMap;
 
 // Re-export types from other proto crates
@@ -107,13 +106,6 @@ pub trait HostService {
 
     /// Evaluate an expression in the context of a route.
     async fn eval_expression(&self, route: String, expression: String) -> EvalResult;
-
-    // =========================================================================
-    // WebSocket Tunnel (for devtools)
-    // =========================================================================
-
-    /// Open a WebSocket tunnel to the host for devtools.
-    async fn open_websocket(&self, tunnel: Tunnel);
 
     // =========================================================================
     // TUI Commands (TUI cell → host)

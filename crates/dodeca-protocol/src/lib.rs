@@ -10,10 +10,6 @@
 //! - cell-http forwards roam RPC calls via `ForwardingDispatcher`
 //! - Host implements `DevtoolsService`
 //!
-//! # Legacy Protocol
-//!
-//! The `ClientMessage` and `ServerMessage` types are kept for backwards
-//! compatibility during migration.
 
 use facet::Facet;
 
@@ -94,37 +90,8 @@ pub enum DevtoolsEvent {
 }
 
 // ============================================================================
-// Legacy Protocol (for migration)
+// Shared Types
 // ============================================================================
-
-/// Messages sent from server to client
-#[derive(Debug, Clone, PartialEq, Facet)]
-#[repr(u8)]
-pub enum ServerMessage {
-    /// Full page reload requested
-    Reload,
-
-    /// CSS hot reload
-    CssChanged { path: String },
-
-    /// DOM patches to apply (facet-postcard blob)
-    Patches(Vec<u8>),
-
-    /// A template error occurred
-    Error(ErrorInfo),
-
-    /// Error was resolved (template now renders successfully)
-    ErrorResolved { route: String },
-
-    /// Response to a scope query
-    ScopeResponse {
-        request_id: u32,
-        scope: Vec<ScopeEntry>,
-    },
-
-    /// Response to an expression evaluation
-    EvalResponse { request_id: u32, result: EvalResult },
-}
 
 /// Result of expression evaluation (facet-compatible)
 #[derive(Debug, Clone, PartialEq, Facet)]
@@ -150,31 +117,6 @@ impl From<EvalResult> for Result<ScopeValue, String> {
             EvalResult::Err(e) => Err(e),
         }
     }
-}
-
-/// Messages sent from client to server
-#[derive(Debug, Clone, PartialEq, Facet)]
-#[repr(u8)]
-pub enum ClientMessage {
-    /// Tell server which route we're viewing
-    Route { path: String },
-
-    /// Request the scope for a route/snapshot
-    GetScope {
-        request_id: u32,
-        snapshot_id: Option<String>,
-        path: Option<Vec<String>>, // Path into the scope tree
-    },
-
-    /// Evaluate an expression in a snapshot's context
-    Eval {
-        request_id: u32,
-        snapshot_id: String,
-        expression: String,
-    },
-
-    /// Dismiss an error (user acknowledged it)
-    DismissError { route: String },
 }
 
 /// Information about a template error
