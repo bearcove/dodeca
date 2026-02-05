@@ -20,6 +20,8 @@
 
 use facet_value::Value;
 use fs_err as fs;
+use globset::Glob;
+use hotmeal::{Document, NodeId, NodeKind, StrTendril};
 use owo_colors::OwoColorize;
 use regex::Regex;
 use std::cell::Cell;
@@ -984,6 +986,49 @@ fn render_logs(mut lines: Vec<LogLine>) -> Vec<String> {
         .collect()
 }
 
+fn matches_glob(pattern: &str, value: &str) -> bool {
+    match Glob::new(pattern) {
+        Ok(glob) => glob.compile_matcher().is_match(value),
+        Err(err) => {
+            tracing::debug!("Invalid glob pattern '{}': {}", pattern, err);
+            false
+        }
+    }
+}
+
+fn find_attr_in_node<F>(
+    doc: &Document,
+    node_id: NodeId,
+    tag: &str,
+    attr: &str,
+    matcher: &F,
+) -> Option<String>
+where
+    F: Fn(&str) -> bool,
+{
+    let node = doc.get(node_id);
+    if let NodeKind::Element(elem) = &node.kind
+        && elem.tag.as_ref() == tag
+    {
+        for (name, value) in &elem.attrs {
+            if name.local.as_ref() == attr {
+                let value_str = value.as_ref();
+                if matcher(value_str) {
+                    return Some(value_str.to_string());
+                }
+            }
+        }
+    }
+
+    for child_id in doc.children(node_id) {
+        if let Some(found) = find_attr_in_node(doc, child_id, tag, attr, matcher) {
+            return Some(found);
+        }
+    }
+
+    None
+}
+
 /// An HTTP response
 pub struct Response {
     pub status: u16,
@@ -1030,25 +1075,17 @@ impl Response {
     /// Find an <img> tag's src attribute matching a glob pattern
     /// Returns the matched src value (without host) or None
     pub fn img_src(&self, pattern: &str) -> Option<String> {
-        // Convert glob pattern to regex (non-greedy to avoid capturing too much)
-        let pattern_re = pattern.replace(".", r"\.").replace("*", "[^\"]*?");
-        let re = Regex::new(&format!(r#"<img[^>]+src="({}[^"]*)""#, pattern_re)).ok()?;
-
-        re.captures(&self.body)
-            .and_then(|caps| caps.get(1))
-            .map(|m| m.as_str().to_string())
+        let tendril = StrTendril::from(self.body.as_str());
+        let doc = hotmeal::parse(&tendril);
+        find_attr_in_node(&doc, doc.root, "img", "src", &|value| matches_glob(pattern, value))
     }
 
     /// Find a <link> tag's href attribute matching a glob pattern
     /// Returns the matched href value (without host) or None
     pub fn css_link(&self, pattern: &str) -> Option<String> {
-        // Convert glob pattern to regex (non-greedy to avoid capturing too much)
-        let pattern_re = pattern.replace(".", r"\.").replace("*", "[^\"]*?");
-        let re = Regex::new(&format!(r#"<link[^>]+href="({}[^"]*)""#, pattern_re)).ok()?;
-
-        re.captures(&self.body)
-            .and_then(|caps| caps.get(1))
-            .map(|m| m.as_str().to_string())
+        let tendril = StrTendril::from(self.body.as_str());
+        let doc = hotmeal::parse(&tendril);
+        find_attr_in_node(&doc, doc.root, "link", "href", &|value| matches_glob(pattern, value))
     }
 
     /// Extract a value using a regex with one capture group
@@ -1432,4 +1469,26 @@ fn parse_json_log(json: &Value) -> Option<ParsedJsonLog> {
         message,
         fields,
     })
+}
+
+#[cfg(test)]
+mod unit_tests {
+    use super::matches_glob;
+
+    #[test]
+    fn matches_glob_handles_basic_patterns() {
+        assert!(matches_glob("/css/style.*.css", "/css/style.123.css"));
+        assert!(matches_glob("/images/test.*.svg", "/images/test.hash.svg"));
+        assert!(matches_glob("exact", "exact"));
+        assert!(!matches_glob("exact", "exactly"));
+        assert!(!matches_glob("/css/style.*.css", "/css/style.css.map"));
+    }
+
+    #[test]
+    fn matches_glob_handles_multiple_wildcards() {
+        assert!(matches_glob("*style*css", "/css/style.123.css"));
+        assert!(matches_glob("*/style.*.css", "/css/style.123.css"));
+        assert!(matches_glob("*/style.*.css", "/assets/css/style.123.css"));
+        assert!(!matches_glob("*/style.*.css", "/assets/css/style.123.css.map"));
+    }
 }
