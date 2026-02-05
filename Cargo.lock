@@ -4429,6 +4429,7 @@ dependencies = [
  "facet-json",
  "facet-value",
  "fs-err",
+ "globset",
  "hotmeal",
  "owo-colors",
  "regex",

@@ -17,6 +17,7 @@ chrono = { version = "0.4", default-features = false, features = ["std", "clock"
 dashmap = "6"
 indexmap = "2"
 regex = "1.12"
+globset = "0.4"
 url = "2"
 
 # Error handling
