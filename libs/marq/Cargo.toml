@@ -19,26 +19,68 @@ highlight = ["dep:arborium"]
 aasvg = ["dep:aasvg"]
 # Pikchr diagram rendering
 pikru = ["dep:pikru"]
+# Mermaid.rs diagram rendering
+mermaid = ["dep:mermaid-rs-renderer"]
 # All handlers
-all-handlers = ["highlight", "aasvg", "pikru"]
+all-handlers = ["highlight", "aasvg", "pikru", "mermaid"]
 
 # Default set of languages (enabled by default)
 default-langs = [
-    "lang-asm", "lang-c", "lang-cpp", "lang-rust", "lang-zig",
-    "lang-bash", "lang-fish", "lang-powershell", "lang-zsh",
-    "lang-css", "lang-html", "lang-javascript", "lang-scss", "lang-svelte",
-    "lang-typescript", "lang-tsx", "lang-vue",
-    "lang-elixir", "lang-go", "lang-graphql", "lang-java", "lang-php",
-    "lang-python", "lang-ruby",
-    "lang-clojure", "lang-haskell", "lang-ocaml", "lang-scala",
-    "lang-julia", "lang-r", "lang-sql",
-    "lang-dockerfile", "lang-ini", "lang-jinja2", "lang-json",
-    "lang-markdown", "lang-nginx", "lang-toml", "lang-typst", "lang-xml",
-    "lang-yaml", "lang-styx",
-    "lang-cmake", "lang-meson", "lang-nix", "lang-hcl",
-    "lang-capnp", "lang-textproto", "lang-thrift",
-    "lang-diff", "lang-kotlin", "lang-lua", "lang-perl", "lang-swift",
-    "lang-vim",
+  "lang-asm",
+  "lang-c",
+  "lang-cpp",
+  "lang-rust",
+  "lang-zig",
+  "lang-bash",
+  "lang-fish",
+  "lang-powershell",
+  "lang-zsh",
+  "lang-css",
+  "lang-html",
+  "lang-javascript",
+  "lang-scss",
+  "lang-svelte",
+  "lang-typescript",
+  "lang-tsx",
+  "lang-vue",
+  "lang-elixir",
+  "lang-go",
+  "lang-graphql",
+  "lang-java",
+  "lang-php",
+  "lang-python",
+  "lang-ruby",
+  "lang-clojure",
+  "lang-haskell",
+  "lang-ocaml",
+  "lang-scala",
+  "lang-julia",
+  "lang-r",
+  "lang-sql",
+  "lang-dockerfile",
+  "lang-ini",
+  "lang-jinja2",
+  "lang-json",
+  "lang-markdown",
+  "lang-nginx",
+  "lang-toml",
+  "lang-typst",
+  "lang-xml",
+  "lang-yaml",
+  "lang-styx",
+  "lang-cmake",
+  "lang-meson",
+  "lang-nix",
+  "lang-hcl",
+  "lang-capnp",
+  "lang-textproto",
+  "lang-thrift",
+  "lang-diff",
+  "lang-kotlin",
+  "lang-lua",
+  "lang-perl",
+  "lang-swift",
+  "lang-vim",
 ]
 
 # Individual language features (forwarded to arborium)
@@ -118,6 +160,7 @@ regex.workspace = true
 arborium = { workspace = true, optional = true }
 aasvg = { workspace = true, optional = true }
 pikru = { workspace = true, optional = true }
+mermaid-rs-renderer = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "macros"] }
@@ -134,6 +177,9 @@ facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 # Markdown
 pulldown-cmark = "0.13"
 
+# Mermaid
+mermaid-rs-renderer = "0.1"
+
 # Error handling
 thiserror = "2.0"
 
@@ -141,7 +187,15 @@ thiserror = "2.0"
 regex = "1.12"
 
 # Async runtime
-tokio = { version = "1.48", features = ["full", "macros", "process", "rt", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "1.48", features = [
+  "full",
+  "macros",
+  "process",
+  "rt",
+  "rt-multi-thread",
+  "sync",
+  "time",
+] }
 
 # ASCII diagrams to SVG
 aasvg = "1.0"
@@ -169,3 +223,6 @@ facet-toml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 pikru = { git = "https://github.com/bearcove/pikru", branch = "main" }
+
+# Mermaid's haunted
+dagre_rust = { git = "https://github.com/bearcove/dagre-rust", branch = "main" }

@@ -4,6 +4,7 @@
 //! - `highlight` - Syntax highlighting via arborium
 //! - `aasvg` - ASCII art to SVG conversion
 //! - `pikru` - Pikchr diagram rendering
+//! - `mermaid` - Mermaid diagram rendering
 
 use std::future::Future;
 use std::pin::Pin;
@@ -254,6 +255,45 @@ impl CodeBlockHandler for PikruHandler {
                     message: format!("render error: {}", e),
                 }),
             }
+        })
+    }
+}
+
+/// Mermaid diagram handler.
+///
+/// Renders Mermaid diagrams to SVG using mermaid-rs-renderer.
+///
+/// Requires the `mermaid` feature.
+#[cfg(feature = "mermaid")]
+pub struct MermaidHandler;
+
+#[cfg(feature = "mermaid")]
+impl MermaidHandler {
+    /// Create a new MermaidHandler.
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[cfg(feature = "mermaid")]
+impl Default for MermaidHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "mermaid")]
+impl CodeBlockHandler for MermaidHandler {
+    fn render<'a>(
+        &'a self,
+        _language: &'a str,
+        code: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<String>> + Send + 'a>> {
+        Box::pin(async move {
+            mermaid_rs_renderer::render(code).map_err(|e| crate::Error::CodeBlockHandler {
+                language: "mermaid".to_string(),
+                message: e.to_string(),
+            })
         })
     }
 }

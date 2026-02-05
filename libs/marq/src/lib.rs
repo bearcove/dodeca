@@ -56,6 +56,9 @@ pub use handlers::AasvgHandler;
 #[cfg(feature = "pikru")]
 pub use handlers::PikruHandler;
 
+#[cfg(feature = "mermaid")]
+pub use handlers::MermaidHandler;
+
 // Always-available handlers
 pub use handlers::TermHandler;
 
