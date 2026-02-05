@@ -32,7 +32,6 @@ use cell_jxl_proto::{JXLEncodeInput, JXLProcessorClient, JXLResult};
 use cell_lifecycle_proto::CellLifecycle;
 use cell_linkcheck_proto::{LinkCheckInput, LinkCheckResult, LinkCheckerClient, LinkStatus};
 use cell_markdown_proto::MarkdownProcessorClient;
-use cell_mermaid_proto::MermaidRendererClient;
 use cell_minify_proto::{MinifierClient, MinifyResult};
 use cell_sass_proto::{SassCompilerClient, SassInput, SassResult};
 use cell_svgo_proto::{SvgoOptimizerClient, SvgoResult};
@@ -421,13 +420,6 @@ impl HostService for HostServiceImpl {
                 message: "JS cell not available".to_string(),
             },
         }
-    }
-
-    async fn render_mermaid(&self, _cx: &roam::Context, diagram: String) -> Result<String, String> {
-        let client = mermaid_cell()
-            .await
-            .ok_or_else(|| "Mermaid cell not available".to_string())?;
-        client.render(diagram).await.map_err(|e| format!("{:?}", e))
     }
 }
 
