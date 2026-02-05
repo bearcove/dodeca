@@ -1006,11 +1006,10 @@ fn matches_glob(pattern: &str, value: &str) -> bool {
         if index == 0 && !starts_with_wildcard && pos != 0 {
             return false;
         }
+        if index == parts.len() - 1 && !ends_with_wildcard {
+            return remainder[pos..].ends_with(part);
+        }
         remainder = &remainder[pos + part.len()..];
-    }
-
-    if !ends_with_wildcard {
-        return value.ends_with(parts.last().unwrap());
     }
 
     true
@@ -1047,6 +1046,28 @@ where
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::matches_glob;
+
+    #[test]
+    fn matches_glob_handles_basic_patterns() {
+        assert!(matches_glob("/css/style.*.css", "/css/style.123.css"));
+        assert!(matches_glob("/images/test.*.svg", "/images/test.hash.svg"));
+        assert!(matches_glob("exact", "exact"));
+        assert!(!matches_glob("exact", "exactly"));
+        assert!(!matches_glob("/css/style.*.css", "/css/style.css.map"));
+    }
+
+    #[test]
+    fn matches_glob_handles_multiple_wildcards() {
+        assert!(matches_glob("*style*css", "/css/style.123.css"));
+        assert!(matches_glob("*/style.*.css", "/css/style.123.css"));
+        assert!(matches_glob("*/style.*.css", "/assets/css/style.123.css"));
+        assert!(!matches_glob("*/style.*.css", "/assets/css/style.123.css.map"));
+    }
 }
 
 /// An HTTP response

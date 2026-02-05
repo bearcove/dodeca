@@ -73,6 +73,28 @@ fn extract_page_titles(html: &str, context: &str) -> Vec<String> {
     titles
 }
 
+#[cfg(test)]
+mod tests {
+    use super::extract_page_titles;
+
+    #[test]
+    fn extract_page_titles_from_nav_links() {
+        let html = r#"<!doctype html>
+<html>
+  <body>
+    <nav id="page-list">
+      <a href="/one">One</a>
+      <a href="/two"><span>Two</span></a>
+    </nav>
+  </body>
+</html>
+"#;
+        let titles = extract_page_titles(html, "test");
+        assert_eq!(titles, vec!["One".to_string(), "Two".to_string()]);
+        assert!(extract_page_titles("<html></html>", "test").is_empty());
+    }
+}
+
 pub fn adding_page_updates_section_pages_list() {
     let site = TestSite::new("sample-site");
 
