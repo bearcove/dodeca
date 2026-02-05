@@ -458,7 +458,6 @@ macro_rules! impl_cell_client {
 // Implement for all cell clients (using logical names, not binary names)
 impl_cell_client!(cell_sass_proto::SassCompilerClient, "sass");
 impl_cell_client!(cell_markdown_proto::MarkdownProcessorClient, "markdown");
-impl_cell_client!(cell_mermaid_proto::MermaidRendererClient, "mermaid");
 impl_cell_client!(cell_html_proto::HtmlProcessorClient, "html");
 impl_cell_client!(cell_css_proto::CssProcessorClient, "css");
 impl_cell_client!(cell_image_proto::ImageProcessorClient, "image");

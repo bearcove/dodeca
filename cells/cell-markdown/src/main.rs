@@ -3,12 +3,11 @@
 //! This cell uses marq for markdown rendering with direct code block rendering.
 //! Mermaid diagrams are rendered via callback to the host, which delegates to the mermaid cell.
 
-use cell_host_proto::HostServiceClient;
 use cell_markdown_proto::*;
 use dodeca_cell_runtime::{ConnectionHandle, run_cell};
 use marq::{
-    AasvgHandler, ArboriumHandler, CodeBlockHandler, CompareHandler, InlineCodeHandler,
-    LinkResolver, PikruHandler, RenderOptions, TermHandler, render,
+    AasvgHandler, ArboriumHandler, CompareHandler, InlineCodeHandler, LinkResolver, MermaidHandler,
+    PikruHandler, RenderOptions, TermHandler, render,
 };
 use std::future::Future;
 use std::pin::Pin;
@@ -22,7 +21,7 @@ fn html_escape(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
-/// Inline code handler that converts `r[rule.name]` to links.
+/// Inline code handler that converts rules to links.
 /// Links to #r-rule.name anchors on the same page.
 struct RuleRefHandler;
 
@@ -30,12 +29,12 @@ impl InlineCodeHandler for RuleRefHandler {
     fn render(&self, code: &str) -> Option<String> {
         let code = code.trim();
 
-        // Match r[rule.id] pattern
+        // Match rule marker pattern
         if !code.starts_with("r[") || !code.ends_with(']') {
             return None;
         }
 
-        // Extract rule.id from r[rule.id]
+        // Extract rule.id from marker
         let rule_id = &code[2..code.len() - 1];
 
         // Validate it looks like a rule ID (alphanumeric, dots, dashes, underscores)
@@ -80,50 +79,14 @@ impl LinkResolver for PassthroughLinkResolver {
     }
 }
 
-/// Handler for rendering Mermaid diagrams via host callback to the mermaid cell.
-struct MermaidHandler {
-    handle: Arc<OnceLock<ConnectionHandle>>,
-}
-
-impl MermaidHandler {
-    fn new(handle: Arc<OnceLock<ConnectionHandle>>) -> Self {
-        Self { handle }
-    }
-
-    fn host_client(&self) -> HostServiceClient {
-        HostServiceClient::new(self.handle.get().expect("handle not initialized").clone())
-    }
-}
-
-impl CodeBlockHandler for MermaidHandler {
-    fn render<'a>(
-        &'a self,
-        language: &'a str,
-        code: &'a str,
-    ) -> Pin<Box<dyn Future<Output = marq::Result<String>> + Send + 'a>> {
-        let code = code.to_string();
-        let language = language.to_string();
-        let host = self.host_client();
-
-        Box::pin(async move {
-            host.render_mermaid(code)
-                .await
-                .map_err(|e| marq::Error::CodeBlockHandler {
-                    language,
-                    message: format!("{:?}", e),
-                })
-        })
-    }
-}
-
 #[derive(Clone)]
 pub struct MarkdownProcessorImpl {
-    handle: Arc<OnceLock<ConnectionHandle>>,
+    _handle: Arc<OnceLock<ConnectionHandle>>,
 }
 
 impl MarkdownProcessorImpl {
     fn new(handle: Arc<OnceLock<ConnectionHandle>>) -> Self {
-        Self { handle }
+        Self { _handle: handle }
     }
 }
 
@@ -156,12 +119,12 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
             .with_handler(&["compare"], CompareHandler::new())
             .with_handler(&["pikchr"], PikruHandler::new())
             .with_handler(&["term"], TermHandler::new())
-            .with_handler(&["mermaid"], MermaidHandler::new(self.handle.clone()))
+            .with_handler(&["mermaid"], MermaidHandler::new())
             .with_default_handler(ArboriumHandler::new())
             .with_source_path(&source_path)
             // Pass through @/ links unchanged - dodeca will resolve them with site tree
             .with_link_resolver(PassthroughLinkResolver)
-            // Convert `r[rule.name]` inline code to links
+            // Convert rule marker inline code to links
             .with_inline_code_handler(RuleRefHandler);
 
         // Render markdown with all code blocks rendered inline

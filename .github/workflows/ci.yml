@@ -132,7 +132,7 @@ jobs:
           name: ddc-linux-x64
           path: target/release/ddc
   build-cells-linux-x64-1: 
-    name: Build cells (linux-x64) [cell-code-execution, cell-css, cell-data, cell-dialoguer, cell-fonts, cell-gingembre, cell-html, cell-html-diff, cell-http, cell-image, cell-js, cell-jxl, cell-linkcheck, cell-markdown, cell-mermaid, cell-minify, cell-sass, cell-svgo, cell-term, cell-tui, cell-vite, cell-webp]
+    name: Build cells (linux-x64) [cell-code-execution, cell-css, cell-data, cell-dialoguer, cell-fonts, cell-gingembre, cell-html, cell-html-diff, cell-http, cell-image, cell-js, cell-jxl, cell-linkcheck, cell-markdown, cell-minify, cell-sass, cell-svgo, cell-term, cell-tui, cell-vite, cell-webp]
     runs-on: 
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
@@ -149,9 +149,9 @@ jobs:
           cache-on-failure: "true"
           cache-targets: "true"
       - name: Build cells
-        run: cargo build --release -p cell-code-execution --bin ddc-cell-code-execution -p cell-css --bin ddc-cell-css -p cell-data --bin ddc-cell-data -p cell-dialoguer --bin ddc-cell-dialoguer -p cell-fonts --bin ddc-cell-fonts -p cell-gingembre --bin ddc-cell-gingembre -p cell-html --bin ddc-cell-html -p cell-html-diff --bin ddc-cell-html-diff -p cell-http --bin ddc-cell-http -p cell-image --bin ddc-cell-image -p cell-js --bin ddc-cell-js -p cell-jxl --bin ddc-cell-jxl -p cell-linkcheck --bin ddc-cell-linkcheck -p cell-markdown --bin ddc-cell-markdown -p cell-mermaid --bin ddc-cell-mermaid -p cell-minify --bin ddc-cell-minify -p cell-sass --bin ddc-cell-sass -p cell-svgo --bin ddc-cell-svgo -p cell-term --bin ddc-cell-term -p cell-tui --bin ddc-cell-tui -p cell-vite --bin ddc-cell-vite -p cell-webp --bin ddc-cell-webp --verbose
+        run: cargo build --release -p cell-code-execution --bin ddc-cell-code-execution -p cell-css --bin ddc-cell-css -p cell-data --bin ddc-cell-data -p cell-dialoguer --bin ddc-cell-dialoguer -p cell-fonts --bin ddc-cell-fonts -p cell-gingembre --bin ddc-cell-gingembre -p cell-html --bin ddc-cell-html -p cell-html-diff --bin ddc-cell-html-diff -p cell-http --bin ddc-cell-http -p cell-image --bin ddc-cell-image -p cell-js --bin ddc-cell-js -p cell-jxl --bin ddc-cell-jxl -p cell-linkcheck --bin ddc-cell-linkcheck -p cell-markdown --bin ddc-cell-markdown -p cell-minify --bin ddc-cell-minify -p cell-sass --bin ddc-cell-sass -p cell-svgo --bin ddc-cell-svgo -p cell-term --bin ddc-cell-term -p cell-tui --bin ddc-cell-tui -p cell-vite --bin ddc-cell-vite -p cell-webp --bin ddc-cell-webp --verbose
       - name: Test cells
-        run: cargo test --release -p cell-code-execution -p cell-css -p cell-data -p cell-dialoguer -p cell-fonts -p cell-gingembre -p cell-html -p cell-html-diff -p cell-http -p cell-image -p cell-js -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-mermaid -p cell-minify -p cell-sass -p cell-svgo -p cell-term -p cell-tui -p cell-vite -p cell-webp
+        run: cargo test --release -p cell-code-execution -p cell-css -p cell-data -p cell-dialoguer -p cell-fonts -p cell-gingembre -p cell-html -p cell-html-diff -p cell-http -p cell-image -p cell-js -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-minify -p cell-sass -p cell-svgo -p cell-term -p cell-tui -p cell-vite -p cell-webp
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with: 
@@ -171,7 +171,6 @@ jobs:
             target/release/ddc-cell-jxl
             target/release/ddc-cell-linkcheck
             target/release/ddc-cell-markdown
-            target/release/ddc-cell-mermaid
             target/release/ddc-cell-minify
             target/release/ddc-cell-sass
             target/release/ddc-cell-svgo
@@ -329,13 +328,6 @@ jobs:
             echo '✓ ddc-cell-markdown'
           fi
           
-          if [[ ! -x dist/ddc-cell-mermaid ]]; then
-            echo '❌ MISSING: ddc-cell-mermaid'
-            missing=1
-          else
-            echo '✓ ddc-cell-mermaid'
-          fi
-          
           if [[ ! -x dist/ddc-cell-minify ]]; then
             echo '❌ MISSING: ddc-cell-minify'
             missing=1
@@ -393,7 +385,7 @@ jobs:
           fi
           
           echo ''
-          echo 'All 23 binaries verified.'
+          echo 'All 22 binaries verified.'
       - name: Run integration tests
         run: cargo xtask integration --no-build
         env: 
@@ -518,7 +510,7 @@ jobs:
           name: ddc-macos-arm64
           path: target/release/ddc
   build-cells-macos-arm64-1: 
-    name: Build cells (macos-arm64) [cell-code-execution, cell-css, cell-data, cell-dialoguer, cell-fonts, cell-gingembre, cell-html, cell-html-diff, cell-http, cell-image, cell-js, cell-jxl, cell-linkcheck, cell-markdown, cell-mermaid, cell-minify, cell-sass, cell-svgo, cell-term, cell-tui, cell-vite, cell-webp]
+    name: Build cells (macos-arm64) [cell-code-execution, cell-css, cell-data, cell-dialoguer, cell-fonts, cell-gingembre, cell-html, cell-html-diff, cell-http, cell-image, cell-js, cell-jxl, cell-linkcheck, cell-markdown, cell-minify, cell-sass, cell-svgo, cell-term, cell-tui, cell-vite, cell-webp]
     runs-on: 
       - mac-arm64-oakhost
     timeout-minutes: 30
@@ -536,9 +528,9 @@ jobs:
           cache-targets: "true"
           cache-bin: "false"
       - name: Build cells
-        run: cargo build --release -p cell-code-execution --bin ddc-cell-code-execution -p cell-css --bin ddc-cell-css -p cell-data --bin ddc-cell-data -p cell-dialoguer --bin ddc-cell-dialoguer -p cell-fonts --bin ddc-cell-fonts -p cell-gingembre --bin ddc-cell-gingembre -p cell-html --bin ddc-cell-html -p cell-html-diff --bin ddc-cell-html-diff -p cell-http --bin ddc-cell-http -p cell-image --bin ddc-cell-image -p cell-js --bin ddc-cell-js -p cell-jxl --bin ddc-cell-jxl -p cell-linkcheck --bin ddc-cell-linkcheck -p cell-markdown --bin ddc-cell-markdown -p cell-mermaid --bin ddc-cell-mermaid -p cell-minify --bin ddc-cell-minify -p cell-sass --bin ddc-cell-sass -p cell-svgo --bin ddc-cell-svgo -p cell-term --bin ddc-cell-term -p cell-tui --bin ddc-cell-tui -p cell-vite --bin ddc-cell-vite -p cell-webp --bin ddc-cell-webp --verbose
+        run: cargo build --release -p cell-code-execution --bin ddc-cell-code-execution -p cell-css --bin ddc-cell-css -p cell-data --bin ddc-cell-data -p cell-dialoguer --bin ddc-cell-dialoguer -p cell-fonts --bin ddc-cell-fonts -p cell-gingembre --bin ddc-cell-gingembre -p cell-html --bin ddc-cell-html -p cell-html-diff --bin ddc-cell-html-diff -p cell-http --bin ddc-cell-http -p cell-image --bin ddc-cell-image -p cell-js --bin ddc-cell-js -p cell-jxl --bin ddc-cell-jxl -p cell-linkcheck --bin ddc-cell-linkcheck -p cell-markdown --bin ddc-cell-markdown -p cell-minify --bin ddc-cell-minify -p cell-sass --bin ddc-cell-sass -p cell-svgo --bin ddc-cell-svgo -p cell-term --bin ddc-cell-term -p cell-tui --bin ddc-cell-tui -p cell-vite --bin ddc-cell-vite -p cell-webp --bin ddc-cell-webp --verbose
       - name: Test cells
-        run: cargo test --release -p cell-code-execution -p cell-css -p cell-data -p cell-dialoguer -p cell-fonts -p cell-gingembre -p cell-html -p cell-html-diff -p cell-http -p cell-image -p cell-js -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-mermaid -p cell-minify -p cell-sass -p cell-svgo -p cell-term -p cell-tui -p cell-vite -p cell-webp
+        run: cargo test --release -p cell-code-execution -p cell-css -p cell-data -p cell-dialoguer -p cell-fonts -p cell-gingembre -p cell-html -p cell-html-diff -p cell-http -p cell-image -p cell-js -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-minify -p cell-sass -p cell-svgo -p cell-term -p cell-tui -p cell-vite -p cell-webp
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with: 
@@ -558,7 +550,6 @@ jobs:
             target/release/ddc-cell-jxl
             target/release/ddc-cell-linkcheck
             target/release/ddc-cell-markdown
-            target/release/ddc-cell-mermaid
             target/release/ddc-cell-minify
             target/release/ddc-cell-sass
             target/release/ddc-cell-svgo
@@ -717,13 +708,6 @@ jobs:
             echo '✓ ddc-cell-markdown'
           fi
           
-          if [[ ! -x dist/ddc-cell-mermaid ]]; then
-            echo '❌ MISSING: ddc-cell-mermaid'
-            missing=1
-          else
-            echo '✓ ddc-cell-mermaid'
-          fi
-          
           if [[ ! -x dist/ddc-cell-minify ]]; then
             echo '❌ MISSING: ddc-cell-minify'
             missing=1
@@ -781,7 +765,7 @@ jobs:
           fi
           
           echo ''
-          echo 'All 23 binaries verified.'
+          echo 'All 22 binaries verified.'
       - name: Run integration tests
         run: cargo xtask integration --no-build
         env: 
