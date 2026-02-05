@@ -81,12 +81,12 @@ impl LinkResolver for PassthroughLinkResolver {
 
 #[derive(Clone)]
 pub struct MarkdownProcessorImpl {
-    handle: Arc<OnceLock<ConnectionHandle>>,
+    _handle: Arc<OnceLock<ConnectionHandle>>,
 }
 
 impl MarkdownProcessorImpl {
     fn new(handle: Arc<OnceLock<ConnectionHandle>>) -> Self {
-        Self { handle }
+        Self { _handle: handle }
     }
 }
 
