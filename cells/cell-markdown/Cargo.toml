@@ -13,7 +13,6 @@ name = "ddc-cell-markdown"
 path = "src/main.rs"
 
 [dependencies]
-cell-host-proto = { path = "../cell-host-proto" }
 cell-markdown-proto = { path = "../cell-markdown-proto" }
 dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }
 marq = { git = "https://github.com/bearcove/marq", features = [

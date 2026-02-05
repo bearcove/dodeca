@@ -508,7 +508,12 @@ async fn async_main(command: Command) -> Result<()> {
             )
             .await
         }
-        Command::Init(args) => init::run_init(args.name, args.template).await,
+        Command::Init(args) => {
+            // Initialize tracing early so errors are visible
+            logging::init_standard_tracing();
+
+            init::run_init(args.name, args.template).await
+        }
         Command::Term(args) => run_term(args).await,
     }
 }

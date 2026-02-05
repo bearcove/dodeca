@@ -48,7 +48,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use std::time::SystemTime;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 
 use crate::serve::SiteServer;
 
@@ -510,7 +510,7 @@ const CELL_DEFS: &[CellDef] = &[
     CellDef::new("fonts"),
     CellDef::new("linkcheck"),
     CellDef::new("html-diff"),
-    CellDef::new("dialoguer"),
+    CellDef::new("dialoguer").inherit_stdio(),
     CellDef::new("code-execution"),
     CellDef::new("http"),
     CellDef::new("gingembre"),
@@ -545,7 +545,7 @@ impl CellRegistry {
 async fn init_cells() -> CellRegistry {
     match init_cells_inner().await {
         Ok(()) => {
-            info!("Cell infrastructure initialized");
+            debug!("Cell infrastructure initialized");
         }
         Err(e) => {
             let _ = INIT_ERROR.set(e.to_string());
@@ -593,7 +593,7 @@ async fn init_cells_inner() -> eyre::Result<()> {
     let max_guests: u32 = env_or("DODECA_SHM_MAX_GUESTS", 24);
     let ring_size: u32 = env_or("DODECA_SHM_RING_SIZE", 128);
 
-    info!(
+    debug!(
         slots_per_guest,
         max_guests, ring_size, max_payload_mb, "SHM config (override with DODECA_SHM_* env vars)"
     );
@@ -718,7 +718,7 @@ async fn init_cells_inner() -> eyre::Result<()> {
 
     // Spawn driver task
     let driver_handle = crate::spawn::spawn(async move {
-        info!("MultiPeerHostDriver: starting (lazy spawning mode)");
+        debug!("MultiPeerHostDriver: starting (lazy spawning mode)");
         debug!("[driver task] before driver.run()");
 
         let result = driver.run().await;
