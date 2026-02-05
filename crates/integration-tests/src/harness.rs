@@ -986,7 +986,7 @@ fn render_logs(mut lines: Vec<LogLine>) -> Vec<String> {
         .collect()
 }
 
-fn glob_matches(pattern: &str, value: &str) -> bool {
+fn matches_glob(pattern: &str, value: &str) -> bool {
     match Glob::new(pattern) {
         Ok(glob) => glob.compile_matcher().is_match(value),
         Err(err) => {
@@ -1077,7 +1077,7 @@ impl Response {
     pub fn img_src(&self, pattern: &str) -> Option<String> {
         let tendril = StrTendril::from(self.body.as_str());
         let doc = hotmeal::parse(&tendril);
-        find_attr_in_node(&doc, doc.root, "img", "src", &|value| glob_matches(pattern, value))
+        find_attr_in_node(&doc, doc.root, "img", "src", &|value| matches_glob(pattern, value))
     }
 
     /// Find a <link> tag's href attribute matching a glob pattern
@@ -1085,7 +1085,7 @@ impl Response {
     pub fn css_link(&self, pattern: &str) -> Option<String> {
         let tendril = StrTendril::from(self.body.as_str());
         let doc = hotmeal::parse(&tendril);
-        find_attr_in_node(&doc, doc.root, "link", "href", &|value| glob_matches(pattern, value))
+        find_attr_in_node(&doc, doc.root, "link", "href", &|value| matches_glob(pattern, value))
     }
 
     /// Extract a value using a regex with one capture group
@@ -1473,22 +1473,22 @@ fn parse_json_log(json: &Value) -> Option<ParsedJsonLog> {
 
 #[cfg(test)]
 mod unit_tests {
-    use super::glob_matches;
+    use super::matches_glob;
 
     #[test]
     fn matches_glob_handles_basic_patterns() {
-        assert!(glob_matches("/css/style.*.css", "/css/style.123.css"));
-        assert!(glob_matches("/images/test.*.svg", "/images/test.hash.svg"));
-        assert!(glob_matches("exact", "exact"));
-        assert!(!glob_matches("exact", "exactly"));
-        assert!(!glob_matches("/css/style.*.css", "/css/style.css.map"));
+        assert!(matches_glob("/css/style.*.css", "/css/style.123.css"));
+        assert!(matches_glob("/images/test.*.svg", "/images/test.hash.svg"));
+        assert!(matches_glob("exact", "exact"));
+        assert!(!matches_glob("exact", "exactly"));
+        assert!(!matches_glob("/css/style.*.css", "/css/style.css.map"));
     }
 
     #[test]
     fn matches_glob_handles_multiple_wildcards() {
-        assert!(glob_matches("*style*css", "/css/style.123.css"));
-        assert!(glob_matches("*/style.*.css", "/css/style.123.css"));
-        assert!(glob_matches("*/style.*.css", "/assets/css/style.123.css"));
-        assert!(!glob_matches("*/style.*.css", "/assets/css/style.123.css.map"));
+        assert!(matches_glob("*style*css", "/css/style.123.css"));
+        assert!(matches_glob("*/style.*.css", "/css/style.123.css"));
+        assert!(matches_glob("*/style.*.css", "/assets/css/style.123.css"));
+        assert!(!matches_glob("*/style.*.css", "/assets/css/style.123.css.map"));
     }
 }
