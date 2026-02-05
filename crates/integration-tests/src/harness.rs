@@ -20,6 +20,7 @@
 
 use facet_value::Value;
 use fs_err as fs;
+use hotmeal::{Document, NodeId, NodeKind, StrTendril};
 use owo_colors::OwoColorize;
 use regex::Regex;
 use std::cell::Cell;
@@ -984,6 +985,70 @@ fn render_logs(mut lines: Vec<LogLine>) -> Vec<String> {
         .collect()
 }
 
+fn matches_glob(pattern: &str, value: &str) -> bool {
+    if !pattern.contains('*') {
+        return value == pattern;
+    }
+
+    let parts: Vec<&str> = pattern.split('*').filter(|part| !part.is_empty()).collect();
+    if parts.is_empty() {
+        return true;
+    }
+
+    let starts_with_wildcard = pattern.starts_with('*');
+    let ends_with_wildcard = pattern.ends_with('*');
+    let mut remainder = value;
+
+    for (index, part) in parts.iter().enumerate() {
+        let Some(pos) = remainder.find(part) else {
+            return false;
+        };
+        if index == 0 && !starts_with_wildcard && pos != 0 {
+            return false;
+        }
+        remainder = &remainder[pos + part.len()..];
+    }
+
+    if !ends_with_wildcard {
+        return value.ends_with(parts.last().unwrap());
+    }
+
+    true
+}
+
+fn find_attr_in_node<F>(
+    doc: &Document,
+    node_id: NodeId,
+    tag: &str,
+    attr: &str,
+    matcher: &F,
+) -> Option<String>
+where
+    F: Fn(&str) -> bool,
+{
+    let node = doc.get(node_id);
+    if let NodeKind::Element(elem) = &node.kind
+        && elem.tag.as_ref() == tag
+    {
+        for (name, value) in &elem.attrs {
+            if name.local.as_ref() == attr {
+                let value_str = value.as_ref();
+                if matcher(value_str) {
+                    return Some(value_str.to_string());
+                }
+            }
+        }
+    }
+
+    for child_id in doc.children(node_id) {
+        if let Some(found) = find_attr_in_node(doc, child_id, tag, attr, matcher) {
+            return Some(found);
+        }
+    }
+
+    None
+}
+
 /// An HTTP response
 pub struct Response {
     pub status: u16,
@@ -1030,25 +1095,17 @@ impl Response {
     /// Find an <img> tag's src attribute matching a glob pattern
     /// Returns the matched src value (without host) or None
     pub fn img_src(&self, pattern: &str) -> Option<String> {
-        // Convert glob pattern to regex (non-greedy to avoid capturing too much)
-        let pattern_re = pattern.replace(".", r"\.").replace("*", "[^\"]*?");
-        let re = Regex::new(&format!(r#"<img[^>]+src="({}[^"]*)""#, pattern_re)).ok()?;
-
-        re.captures(&self.body)
-            .and_then(|caps| caps.get(1))
-            .map(|m| m.as_str().to_string())
+        let tendril = StrTendril::from(self.body.as_str());
+        let doc = hotmeal::parse(&tendril);
+        find_attr_in_node(&doc, doc.root, "img", "src", &|value| matches_glob(pattern, value))
     }
 
     /// Find a <link> tag's href attribute matching a glob pattern
     /// Returns the matched href value (without host) or None
     pub fn css_link(&self, pattern: &str) -> Option<String> {
-        // Convert glob pattern to regex (non-greedy to avoid capturing too much)
-        let pattern_re = pattern.replace(".", r"\.").replace("*", "[^\"]*?");
-        let re = Regex::new(&format!(r#"<link[^>]+href="({}[^"]*)""#, pattern_re)).ok()?;
-
-        re.captures(&self.body)
-            .and_then(|caps| caps.get(1))
-            .map(|m| m.as_str().to_string())
+        let tendril = StrTendril::from(self.body.as_str());
+        let doc = hotmeal::parse(&tendril);
+        find_attr_in_node(&doc, doc.root, "link", "href", &|value| matches_glob(pattern, value))
     }
 
     /// Extract a value using a regex with one capture group

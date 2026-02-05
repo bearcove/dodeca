@@ -1,26 +1,80 @@
 use super::*;
+use hotmeal::{Document, NodeId, NodeKind, StrTendril};
+
+fn find_nav_by_id(doc: &Document, node_id: NodeId, nav_id: &str) -> Option<NodeId> {
+    let node = doc.get(node_id);
+    if let NodeKind::Element(elem) = &node.kind
+        && elem.tag.as_ref() == "nav"
+        && elem
+            .attrs
+            .iter()
+            .any(|(name, value)| name.local.as_ref() == "id" && value.as_ref() == nav_id)
+    {
+        return Some(node_id);
+    }
+
+    for child_id in doc.children(node_id) {
+        if let Some(found) = find_nav_by_id(doc, child_id, nav_id) {
+            return Some(found);
+        }
+    }
+
+    None
+}
+
+fn collect_text(doc: &Document, node_id: NodeId, out: &mut String) {
+    match &doc.get(node_id).kind {
+        NodeKind::Text(text) => out.push_str(text.as_ref()),
+        NodeKind::Element(_) | NodeKind::Document => {
+            for child_id in doc.children(node_id) {
+                collect_text(doc, child_id, out);
+            }
+        }
+        NodeKind::Comment(_) => {}
+    }
+}
+
+fn collect_link_titles(doc: &Document, node_id: NodeId, titles: &mut Vec<String>) {
+    let node = doc.get(node_id);
+    if let NodeKind::Element(elem) = &node.kind
+        && elem.tag.as_ref() == "a"
+    {
+        let mut text = String::new();
+        collect_text(doc, node_id, &mut text);
+        let title = text.trim();
+        if !title.is_empty() {
+            titles.push(title.to_string());
+        }
+    }
+
+    for child_id in doc.children(node_id) {
+        collect_link_titles(doc, child_id, titles);
+    }
+}
+
+fn nav_exists(html: &str, nav_id: &str) -> bool {
+    let tendril = StrTendril::from(html);
+    let doc = hotmeal::parse(&tendril);
+    find_nav_by_id(&doc, doc.root, nav_id).is_some()
+}
+
+fn extract_page_titles(html: &str, context: &str) -> Vec<String> {
+    let tendril = StrTendril::from(html);
+    let doc = hotmeal::parse(&tendril);
+
+    let Some(nav_id) = find_nav_by_id(&doc, doc.root, "page-list") else {
+        tracing::debug!("{}: No page-list nav found in HTML", context);
+        return Vec::new();
+    };
+
+    let mut titles = Vec::new();
+    collect_link_titles(&doc, nav_id, &mut titles);
+    tracing::debug!("{}: Found {} pages: {:?}", context, titles.len(), titles);
+    titles
+}
 
 pub fn adding_page_updates_section_pages_list() {
     let site = TestSite::new("sample-site");
-
-    // Helper function to extract and log page titles consistently
-    let extract_page_titles = |html: &str, context: &str| -> Vec<String> {
-        // (?s) enables DOTALL mode so .* matches across newlines (minification is disabled)
-        let nav_re = regex::Regex::new(r#"(?s)<nav id="page-list">(.*?)</nav>"#).unwrap();
-        if let Some(caps) = nav_re.captures(html) {
-            let nav_html = &caps[1];
-            let title_re = regex::Regex::new(r#">([^<]+)</a>"#).unwrap();
-            let titles: Vec<String> = title_re
-                .captures_iter(nav_html)
-                .map(|c| c.get(1).unwrap().as_str().trim().to_string())
-                .collect();
-            tracing::debug!("{}: Found {} pages: {:?}", context, titles.len(), titles);
-            titles
-        } else {
-            tracing::debug!("{}: No page-list nav found in HTML", context);
-            Vec::new()
-        }
-    };
 
     // First, do an initial request to make sure the site is responding
     tracing::debug!("Doing initial request to establish baseline");
@@ -67,9 +121,7 @@ pub fn adding_page_updates_section_pages_list() {
                 return None;
             }
 
-            // (?s) enables DOTALL mode so .* matches across newlines (minification is disabled)
-            let nav_re = regex::Regex::new(r#"(?s)<nav id="page-list">(.*?)</nav>"#).unwrap();
-            if nav_re.is_match(&html.body) {
+            if nav_exists(&html.body, "page-list") {
                 tracing::debug!("Found page-list nav, template successfully applied");
                 Some(html)
             } else {
