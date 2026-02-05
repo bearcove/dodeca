@@ -41,7 +41,7 @@ use cell_vite_proto::ViteManagerClient;
 use cell_webp_proto::{WebPEncodeInput, WebPProcessorClient, WebPResult};
 use dashmap::DashMap;
 use facet::Facet;
-use roam::Tunnel;
+
 use roam_shm::driver::MultiPeerHostDriver;
 use roam_shm::{SegmentConfig, ShmHost};
 use std::collections::HashMap;
@@ -301,16 +301,6 @@ impl HostService for HostServiceImpl {
         } else {
             cell_host_proto::EvalResult::Err("Not in serve mode".to_string())
         }
-    }
-
-    // WebSocket Tunnel
-    async fn open_websocket(&self, cx: &roam::Context, tunnel: Tunnel) {
-        if let Some(server) = &self.site_server {
-            use cell_http_proto::WebSocketTunnel;
-            let ws_tunnel = crate::cell_server::HostWebSocketTunnel::new(server.clone());
-            ws_tunnel.open(cx, tunnel).await
-        }
-        // Not in serve mode - drop the tunnel
     }
 
     // TUI Commands (TUI → Host)
