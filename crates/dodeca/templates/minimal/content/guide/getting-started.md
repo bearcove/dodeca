@@ -12,7 +12,7 @@ You're reading your first page! Edit this file at `content/guide/getting-started
 ```
 {{site_name}}/
 ├── .config/
-│   └── dodeca.yaml     # Configuration
+│   └── dodeca.styx     # Configuration
 ├── content/
 │   ├── _index.md       # Home page
 │   └── guide/

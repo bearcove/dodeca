@@ -1,7 +1,7 @@
 //! Configuration types for dodeca static site generator.
 //!
 //! This crate contains the configuration structs that are parsed from
-//! `.config/dodeca.styx` (or `.config/dodeca.yaml`).
+//! `.config/dodeca.styx`.
 
 use std::collections::HashMap;
 

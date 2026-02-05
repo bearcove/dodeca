@@ -62,7 +62,7 @@ ddc build [path] [OPTIONS]
 
 ### Arguments
 
-- `[path]` - Project directory (optional). If omitted, searches from the current directory upward for `.config/dodeca.yaml`.
+- `[path]` - Project directory (optional). If omitted, searches from the current directory upward for `.config/dodeca.styx`.
 
 ### Options
 
@@ -98,7 +98,7 @@ ddc serve [path] [OPTIONS]
 
 ### Arguments
 
-- `[path]` - Project directory (optional). If omitted, searches from the current directory upward for `.config/dodeca.yaml`.
+- `[path]` - Project directory (optional). If omitted, searches from the current directory upward for `.config/dodeca.styx`.
 
 ### Options
 
@@ -192,7 +192,7 @@ ddc clean [path]
 
 ### Arguments
 
-- `[path]` - Project directory (optional). If omitted, searches from the current directory upward for `.config/dodeca.yaml`.
+- `[path]` - Project directory (optional). If omitted, searches from the current directory upward for `.config/dodeca.styx`.
 
 ### Examples
 
@@ -252,7 +252,7 @@ ddc term -o recording.html -- make test
 
 ## Project Discovery
 
-When no `[path]` argument is provided, `ddc` searches for a project configuration by looking for `.config/dodeca.yaml` in:
+When no `[path]` argument is provided, `ddc` searches for a project configuration by looking for `.config/dodeca.styx` in:
 
 1. The current working directory
 2. Each parent directory, up to the filesystem root

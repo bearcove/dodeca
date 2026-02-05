@@ -65,7 +65,7 @@ ddc serve ../styx --no-tui
 
 ## Testing
 
-The dodeca repository itself is a dodeca website (it has `.config/dodeca.yaml`).
+The dodeca repository itself is a dodeca website (it has `.config/dodeca.styx`).
 To test, run from the dodeca directory:
 
 ```bash

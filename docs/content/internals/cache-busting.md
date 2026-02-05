@@ -16,7 +16,7 @@ CSS `url()` values are rewritten too:
 @font-face { src: url('/fonts/inter.x9k3j1.woff2'); }
 ```
 
-Some files need stable paths (favicons, robots.txt). Configure them in `dodeca.yaml`:
+Some files need stable paths (favicons, robots.txt). Configure them in `dodeca.styx`:
 
 ```yaml
 stable_assets:

@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - 'docs/**'
-      - '.config/dodeca.yaml'
+      - '.config/dodeca.styx'
       - '.github/workflows/website.yml'
   workflow_dispatch:
 

@@ -13,7 +13,7 @@ Place static files in a `static/` directory alongside your `content/` directory:
 ```
 my-site/
 ├── .config/
-│   └── dodeca.yaml
+│   └── dodeca.styx
 ├── content/
 │   └── ...
 ├── static/
@@ -76,7 +76,7 @@ Some assets need stable URLs that don't change:
 - `robots.txt` (search engines expect fixed location)
 - `og-image.png` (social media caches preview images)
 
-Configure these in `.config/dodeca.yaml`:
+Configure these in `.config/dodeca.styx`:
 
 ```yaml
 stable_assets:

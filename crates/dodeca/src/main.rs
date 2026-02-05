@@ -76,15 +76,15 @@ struct Args {
 /// Build command arguments
 #[derive(Facet, Debug)]
 struct BuildArgs {
-    /// Project directory (looks for .config/dodeca.yaml here)
+    /// Project directory (looks for .config/dodeca.styx here)
     #[facet(args::positional, default)]
     path: Option<String>,
 
-    /// Content directory (uses .config/dodeca.yaml if not specified)
+    /// Content directory (uses .config/dodeca.styx if not specified)
     #[facet(args::named, args::short = 'c', default)]
     content: Option<String>,
 
-    /// Output directory (uses .config/dodeca.yaml if not specified)
+    /// Output directory (uses .config/dodeca.styx if not specified)
     #[facet(args::named, args::short = 'o', default)]
     output: Option<String>,
 
@@ -96,15 +96,15 @@ struct BuildArgs {
 /// Serve command arguments
 #[derive(Facet, Debug)]
 struct ServeArgs {
-    /// Project directory (looks for .config/dodeca.yaml here)
+    /// Project directory (looks for .config/dodeca.styx here)
     #[facet(args::positional, default)]
     path: Option<String>,
 
-    /// Content directory (uses .config/dodeca.yaml if not specified)
+    /// Content directory (uses .config/dodeca.styx if not specified)
     #[facet(args::named, args::short = 'c', default)]
     content: Option<String>,
 
-    /// Output directory (uses .config/dodeca.yaml if not specified)
+    /// Output directory (uses .config/dodeca.styx if not specified)
     #[facet(args::named, args::short = 'o', default)]
     output: Option<String>,
 
@@ -140,7 +140,7 @@ struct ServeArgs {
 /// Clean command arguments
 #[derive(Facet, Debug)]
 struct CleanArgs {
-    /// Project directory (looks for .config/dodeca.yaml here)
+    /// Project directory (looks for .config/dodeca.styx here)
     #[facet(args::positional, default)]
     path: Option<String>,
 
@@ -283,25 +283,7 @@ fn resolve_dirs(
                 stable_assets: cfg.stable_assets,
             })
         }
-        None => {
-            let config_path = path
-                .as_ref()
-                .map(|p| format!("{}/.config/dodeca.yaml", p))
-                .unwrap_or_else(|| ".config/dodeca.yaml".to_string());
-            Err(eyre!(
-                "{}\n\n\
-                     Create a config file at {} with:\n\n\
-                     \x20   {}\n\
-                     \x20   {}\n\n\
-                     Or specify both {} and {} on the command line.",
-                "No configuration found.".red().bold(),
-                config_path.cyan(),
-                "content: path/to/content".green(),
-                "output: path/to/output".green(),
-                "--content".yellow(),
-                "--output".yellow()
-            ))
-        }
+        None => Err(eyre!("No configuration found.")),
     }
 }
 

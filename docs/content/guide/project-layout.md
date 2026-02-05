@@ -6,7 +6,7 @@ weight = 15
 
 A minimal dodeca site is a directory with:
 
-- `.config/dodeca.yaml` (required)
+- `.config/dodeca.styx` (required)
 - `content/` (required)
 - `templates/` (required)
 
@@ -21,7 +21,7 @@ Common optional directories:
 ```
 my-site/
 ├── .config/
-│   └── dodeca.yaml
+│   └── dodeca.styx
 ├── content/
 │   ├── _index.md
 │   └── guide/
@@ -35,7 +35,7 @@ my-site/
 ├── static/
 │   └── images/
 │       └── logo.png
-└── public/               # build output (configured via dodeca.yaml)
+└── public/               # build output (configured via dodeca.styx)
 ```
 
 ## Content model
