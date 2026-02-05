@@ -74,7 +74,7 @@ fn extract_page_titles(html: &str, context: &str) -> Vec<String> {
 }
 
 #[cfg(test)]
-mod tests {
+mod unit_tests {
     use super::extract_page_titles;
 
     #[test]

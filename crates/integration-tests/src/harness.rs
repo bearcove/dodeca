@@ -1007,7 +1007,7 @@ fn matches_glob(pattern: &str, value: &str) -> bool {
             return false;
         }
         if index == parts.len() - 1 && !ends_with_wildcard {
-            return remainder[pos..].ends_with(part);
+            return remainder.ends_with(part);
         }
         remainder = &remainder[pos + part.len()..];
     }
@@ -1049,7 +1049,7 @@ where
 }
 
 #[cfg(test)]
-mod tests {
+mod unit_tests {
     use super::matches_glob;
 
     #[test]
