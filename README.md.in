@@ -24,11 +24,17 @@ highlighting, and more can be plugged in independently.
 
 Install dodeca:
 
+The recommended way to install dodeca is from GitHub releases. Releases ship the `ddc` binary plus a set of helper binaries (`ddc-cell-*`) used for things like image processing, Sass, search indexing, etc.
+
 ```bash
-cargo install dodeca
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/bearcove/dodeca/releases/latest/download/dodeca-installer.sh | sh
 ```
 
-Create a new site:
+Supported by the installer:
+- macOS (Apple Silicon / `arm64`)
+- Linux (`x86_64`)
+
+After that, you can create a new site:
 
 ```bash
 ddc init my-site
