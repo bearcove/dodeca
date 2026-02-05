@@ -987,9 +987,13 @@ fn render_logs(mut lines: Vec<LogLine>) -> Vec<String> {
 }
 
 fn glob_matches(pattern: &str, value: &str) -> bool {
-    Glob::new(pattern)
-        .map(|glob| glob.compile_matcher().is_match(value))
-        .unwrap_or(false)
+    match Glob::new(pattern) {
+        Ok(glob) => glob.compile_matcher().is_match(value),
+        Err(err) => {
+            tracing::debug!("Invalid glob pattern '{}': {}", pattern, err);
+            false
+        }
+    }
 }
 
 fn find_attr_in_node<F>(
