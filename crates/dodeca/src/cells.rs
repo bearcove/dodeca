@@ -844,7 +844,6 @@ cell_client_accessor!(jxl_cell, "jxl", JXLProcessorClient);
 
 // Text processing
 cell_client_accessor!(markdown_cell, "markdown", MarkdownProcessorClient);
-cell_client_accessor!(mermaid_cell, "mermaid", MermaidRendererClient);
 cell_client_accessor!(html_cell, "html", HtmlProcessorClient);
 cell_client_accessor!(minify_cell, "minify", MinifierClient);
 cell_client_accessor!(css_cell, "css", CssProcessorClient);
