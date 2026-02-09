@@ -1177,6 +1177,7 @@ pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<Result<SiteOutput, Sit
                 files.push(OutputFile::Html {
                     route: route.clone(),
                     content: served.html,
+                    head_injections: served.head_injections,
                     hrefs: extracted.hrefs,
                     element_ids: extracted.element_ids,
                 });
@@ -1196,6 +1197,7 @@ pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<Result<SiteOutput, Sit
                 files.push(OutputFile::Html {
                     route: route.clone(),
                     content: served.html,
+                    head_injections: served.head_injections,
                     hrefs: extracted.hrefs,
                     element_ids: extracted.element_ids,
                 });

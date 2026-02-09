@@ -4,7 +4,7 @@
 //! This enables instant incremental rebuilds with zero disk I/O.
 
 /// Picante cache version - bump this when making incompatible changes to picante inputs/queries
-pub const PICANTE_CACHE_VERSION: u32 = 4;
+pub const PICANTE_CACHE_VERSION: u32 = 5;
 
 use eyre::Result;
 use hotmeal_server::LiveReloadServer;
@@ -531,8 +531,6 @@ impl SiteServer {
     /// Notify all connected browsers to reload
     /// Computes patches for all cached routes and sends them
     pub async fn trigger_reload(self: &Arc<Self>) {
-        use crate::cells::diff_html_cell;
-
         // Check for CSS changes first
         let old_css_path = {
             let cache = self.css_cache.read().unwrap();
@@ -562,15 +560,10 @@ impl SiteServer {
             }
         }
 
-        // Get all cached routes and compute patches
-        let cached_routes: Vec<String> = {
-            let cache = self.html_cache.read().unwrap();
-            cache.keys().cloned().collect()
-        };
+        // Get all cached routes from LiveReloadServer
+        let cached_routes: Vec<String> = { self.live_reload.lock().unwrap().cached_routes() };
 
         if cached_routes.is_empty() {
-            // No pages have been visited yet - nothing to patch
-            // This can happen if files change before any page is loaded
             tracing::debug!("No cached routes, nothing to patch");
             return;
         }
@@ -581,122 +574,84 @@ impl SiteServer {
         );
 
         for route in cached_routes {
-            // Get old HTML from cache
-            let old_html = {
-                let cache = self.html_cache.read().unwrap();
-                cache.get(&route).cloned()
+            // Get new HTML + head_injections (re-render)
+            tracing::debug!("trigger_reload: re-rendering {}", route);
+            let new_content = self.find_content(&route).await;
+            let (new_html, new_head_injections) = match new_content {
+                Some(ServeContent::Html {
+                    html,
+                    head_injections,
+                }) => (Some(html), head_injections),
+                _ => (None, Vec::new()),
             };
 
-            // Get new HTML (re-render) - this creates a fresh snapshot
-            tracing::debug!("trigger_reload: re-rendering {}", route);
-            let new_html = self.find_content(&route).await.and_then(|c| match c {
-                ServeContent::Html(html) => Some(html),
-                _ => None,
-            });
-
-            // Handle case where route was deleted (old exists, new doesn't)
-            if old_html.is_some() && new_html.is_none() {
+            // Handle case where route was deleted
+            if new_html.is_none() {
                 tracing::info!("{} - route deleted, sending full reload", route);
-                // Remove from cache
-                {
-                    let mut cache = self.html_cache.write().unwrap();
-                    cache.remove(&route);
-                }
-                // Send full page reload since we can't patch a deleted page
+                self.live_reload.lock().unwrap().remove_route(&route);
                 let _ = self.livereload_tx.send(LiveReloadMsg::Reload);
                 self.notify_browsers(dodeca_protocol::DevtoolsEvent::Reload);
                 continue;
             }
 
-            if let (Some(old), Some(new)) = (old_html, new_html.clone()) {
-                let old_has_error = old.contains(crate::render::RENDER_ERROR_MARKER);
-                let new_has_error = new.contains(crate::render::RENDER_ERROR_MARKER);
-                tracing::debug!(
-                    "trigger_reload: {} - old_has_error={}, new_has_error={}, html_changed={}",
-                    route,
-                    old_has_error,
-                    new_has_error,
-                    old != new
-                );
+            let new_html = new_html.unwrap();
 
-                if old != new {
-                    // If the new HTML is an error page, don't patch it in
-                    // The error has already been sent to devtools via LiveReloadMsg::Error
-                    // and we want to keep the old working HTML in cache
-                    if new_has_error {
-                        tracing::info!("🔴 {} - template error detected in trigger_reload", route);
-                        continue;
-                    }
+            // If the new HTML is an error page, don't patch it in
+            if new_html.contains(crate::render::RENDER_ERROR_MARKER) {
+                tracing::info!("🔴 {} - template error detected in trigger_reload", route);
+                continue;
+            }
 
-                    // Update cache
-                    {
-                        let mut cache = self.html_cache.write().unwrap();
-                        if let Some(html) = &new_html {
-                            cache.insert(route.clone(), html.clone());
-                        }
-                    }
+            // Use LiveReloadServer to diff, handling both HTML patches and head injection changes
+            let head_injections_joined = new_head_injections.join("");
+            let event = self.live_reload.lock().unwrap().diff_route_with_head(
+                &route,
+                &new_html,
+                &head_injections_joined,
+            );
 
-                    // Try to diff using the cell
-                    match diff_html_cell(cell_html_diff_proto::DiffInput {
-                        old_html: old.clone(),
-                        new_html: new.clone(),
-                    })
-                    .await
-                    {
-                        Ok(diff_outcome) => {
-                            if diff_outcome.patches_blob.is_empty() {
-                                // DOM structure identical but HTML differs (whitespace/comments?)
-                                // This is a no-op - no need to reload for invisible changes
-                                tracing::debug!(
-                                    "{} - HTML changed but DOM identical, no-op",
-                                    route
-                                );
-                            } else {
-                                let patch_bytes = diff_outcome.patches_blob.len();
-
-                                tracing::debug!("{} - patching: {} bytes", route, patch_bytes);
-                                let receiver_count_before = self.livereload_tx.receiver_count();
-                                let patches = diff_outcome.patches_blob;
-                                let send_result = self.livereload_tx.send(LiveReloadMsg::Patches {
-                                    route: route.clone(),
-                                    patches: patches.clone(),
-                                });
-                                tracing::debug!(
-                                    route = %route,
-                                    receiver_count_before,
-                                    receivers_notified = send_result.as_ref().map(|n| *n).unwrap_or(0),
-                                    "livereload: sent Patches to broadcast channel"
-                                );
-                                // Also notify via RPC
-                                self.notify_browsers(dodeca_protocol::DevtoolsEvent::Patches(
-                                    patches,
-                                ));
-                            }
-                        }
-                        Err(e) => {
-                            // Cell not available or diff failed - fall back to full reload
-                            tracing::debug!(
-                                "{} - html_diff failed ({}), sending full reload",
-                                route,
-                                e
-                            );
-                            let _ = self.livereload_tx.send(LiveReloadMsg::Reload);
-                            self.notify_browsers(dodeca_protocol::DevtoolsEvent::Reload);
-                        }
-                    }
+            match event {
+                Some(hotmeal_server::LiveReloadEvent::Patches {
+                    route: patch_route,
+                    patches_blob,
+                }) => {
+                    let patch_bytes = patches_blob.len();
+                    tracing::debug!("{} - patching: {} bytes", patch_route, patch_bytes);
+                    let _ = self.livereload_tx.send(LiveReloadMsg::Patches {
+                        route: patch_route,
+                        patches: patches_blob.clone(),
+                    });
+                    self.notify_browsers(dodeca_protocol::DevtoolsEvent::Patches(patches_blob));
+                }
+                Some(hotmeal_server::LiveReloadEvent::HeadChanged { .. }) => {
+                    tracing::debug!("{} - head injections changed, sending full reload", route);
+                    let _ = self.livereload_tx.send(LiveReloadMsg::Reload);
+                    self.notify_browsers(dodeca_protocol::DevtoolsEvent::Reload);
+                }
+                Some(hotmeal_server::LiveReloadEvent::Reload) => {
+                    tracing::debug!("{} - full reload requested", route);
+                    let _ = self.livereload_tx.send(LiveReloadMsg::Reload);
+                    self.notify_browsers(dodeca_protocol::DevtoolsEvent::Reload);
+                }
+                None => {
+                    // No changes for this route
                 }
             }
         }
-
-        // Note: we don't send a fallback reload here. All meaningful changes
-        // (templates, content, CSS, static assets) result in cache-busted URL
-        // changes which appear as HTML patches. If nothing changed, nothing changed.
     }
 
     /// Cache HTML for a route (called when serving pages)
     fn cache_html(&self, route: &str, html: &str) {
-        let mut cache = self.html_cache.write().unwrap();
-        cache.insert(route.to_string(), html.to_string());
+        self.live_reload.lock().unwrap().cache_html(route, html);
+    }
+
+    /// Cache head injections for a route (called when serving pages)
+    fn cache_head_injections(&self, route: &str, head_injections: &[String]) {
+        let joined = head_injections.join("");
+        self.live_reload
+            .lock()
+            .unwrap()
+            .cache_head_injections(route, &joined);
     }
 
     /// Cache CSS path (called when serving CSS)
@@ -821,9 +776,9 @@ impl SiteServer {
         tracing::debug!(route = %route_path, has_result = serve_html_result.is_ok(), "find_content: serve_html returned");
 
         // Process the result, tracking if we got an error for devtools notification
-        let (html, maybe_render_error) = match serve_html_result {
-            Ok(Ok(Some(html))) => (Some(html), None),
-            Ok(Ok(None)) => (None, None),
+        let (html, head_injections, maybe_render_error) = match serve_html_result {
+            Ok(Ok(Some(served))) => (Some(served.html), served.head_injections, None),
+            Ok(Ok(None)) => (None, Vec::new(), None),
             Ok(Err(site_error)) => {
                 use crate::queries::SiteError;
                 match site_error {
@@ -840,6 +795,7 @@ impl SiteServer {
                                 &format!("Failed to parse {} file(s)", build_error.errors.len()),
                                 &error_text,
                             )),
+                            Vec::new(),
                             None, // Parse errors don't have structured ErrorInfo yet
                         )
                     }
@@ -898,7 +854,7 @@ impl SiteServer {
                         // Format as HTML error page for the browser
                         let html =
                             crate::error_pages::render_structured_error_page(&render_error.error);
-                        (Some(html), Some(error_info))
+                        (Some(html), Vec::new(), Some(error_info))
                     }
                 }
             }
@@ -965,9 +921,13 @@ impl SiteServer {
                 self.render_options,
                 routes_for_dead_links,
                 &code_results,
+                &head_injections,
             )
             .await;
-            return Some(ServeContent::Html(html));
+            return Some(ServeContent::Html {
+                html,
+                head_injections,
+            });
         }
 
         // 2. Try to serve CSS (check if path matches cache-busted CSS path)
@@ -1395,9 +1355,13 @@ impl SiteServer {
         let generation = self.current_generation();
 
         match self.find_content(path).await {
-            Some(ServeContent::Html(html)) => {
-                // Cache HTML for smart reload patching
+            Some(ServeContent::Html {
+                html,
+                head_injections,
+            }) => {
+                // Cache HTML and head injections for smart reload patching
                 self.cache_html(path, &html);
+                self.cache_head_injections(path, &head_injections);
                 // Extract route from path
                 let route = if path == "/" {
                     "/".to_string()
@@ -1559,7 +1523,10 @@ fn similarity_score(requested: &str, requested_parts: &[&str], route: &str) -> u
 
 /// Content types that can be served
 enum ServeContent {
-    Html(String),
+    Html {
+        html: String,
+        head_injections: Vec<String>,
+    },
     Css(String),
     Static(Vec<u8>, &'static str),
     /// Static file served at original path (no caching, for favicon etc.)

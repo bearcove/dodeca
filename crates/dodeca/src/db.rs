@@ -258,6 +258,8 @@ pub enum OutputFile {
     Html {
         route: Route,
         content: String,
+        /// HTML snippets to inject into `<head>` (e.g., Mermaid.js CDN script)
+        head_injections: Vec<String>,
         /// All href values from `<a>` elements (for link checking)
         hrefs: Vec<String>,
         /// All id attribute values (for fragment validation)
