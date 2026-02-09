@@ -222,6 +222,9 @@ pikru = { git = "https://github.com/bearcove/pikru", branch = "main" }
 # hotmeal-server = { path = "../hotmeal/hotmeal-server" }
 # hotmeal-wasm = { path = "../hotmeal/hotmeal-wasm" }
 
+# [patch."https://github.com/bearcove/marq"]
+# marq = { path = "../marq" }
+
 # [patch."https://github.com/facet-rs/facet-xml"]
 # facet-dom = { path = "../facet-xml/facet-dom" }
 # facet-svg = { path = "../facet-xml/facet-svg" }
