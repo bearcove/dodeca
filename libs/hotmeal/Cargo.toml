@@ -1,5 +1,5 @@
 [workspace]
-members = ["cinereus", "hotmeal", "hotmeal-wasm"]
+members = ["cinereus", "hotmeal", "hotmeal-server", "hotmeal-wasm"]
 exclude = ["hotmeal/fuzz"]
 resolver = "3"
 
@@ -20,6 +20,15 @@ facet-testhelpers = { git = "https://github.com/facet-rs/facet", branch = "main"
 # Local crates
 cinereus = { path = "cinereus", version = "0.42.0" }
 hotmeal = { path = "hotmeal", version = "0.1.0" }
+hotmeal-server = { path = "hotmeal-server", version = "0.1.0" }
+
+# Serialization
+facet-postcard = { git = "https://github.com/facet-rs/facet", branch = "main" }
+
+# RPC
+roam = { git = "https://github.com/bearcove/roam", branch = "main" }
+roam-session = { git = "https://github.com/bearcove/roam", branch = "main" }
+roam-websocket = { git = "https://github.com/bearcove/roam", branch = "main" }
 
 # Data structures
 indextree = "4.7"

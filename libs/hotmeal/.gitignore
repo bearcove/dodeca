@@ -1,4 +1,5 @@
 /target
+.handoffs
 hotmeal/fuzz/target
 hotmeal/fuzz/artifacts
 .tracey/
