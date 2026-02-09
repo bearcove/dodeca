@@ -191,8 +191,37 @@ where
     trace!(matched_pairs = matching.len(), "generate_edit_script start");
     let mut ops = Ops::new();
 
+    // Pre-compute descendants of opaque nodes (excluding the opaque nodes themselves).
+    // These nodes are part of atomic subtrees and should not participate in edit generation.
+    let mut opaque_descendants_a: std::collections::HashSet<indextree::NodeId> =
+        std::collections::HashSet::new();
+    for a_id in tree_a.iter() {
+        if tree_a.is_opaque(a_id) {
+            for desc in tree_a.descendants(a_id) {
+                if desc != a_id {
+                    opaque_descendants_a.insert(desc);
+                }
+            }
+        }
+    }
+    let mut opaque_descendants_b: std::collections::HashSet<indextree::NodeId> =
+        std::collections::HashSet::new();
+    for b_id in tree_b.iter() {
+        if tree_b.is_opaque(b_id) {
+            for desc in tree_b.descendants(b_id) {
+                if desc != b_id {
+                    opaque_descendants_b.insert(desc);
+                }
+            }
+        }
+    }
+
     // Phase 1: Text and property changes for matched nodes
     for (a_id, b_id) in matching.pairs() {
+        // Skip descendants of opaque nodes — their content is handled separately
+        if opaque_descendants_a.contains(&a_id) || opaque_descendants_b.contains(&b_id) {
+            continue;
+        }
         // Handle text changes (for text/comment nodes)
         let a_text = tree_a.text(a_id);
         let b_text = tree_b.text(b_id);
@@ -244,6 +273,10 @@ where
             let parent_b = tree_b.parent(b_id);
 
             if let Some(parent_b) = parent_b {
+                // Skip descendants of opaque nodes — opaque subtrees are atomic
+                if opaque_descendants_b.contains(&b_id) {
+                    continue;
+                }
                 let pos = tree_b.position(b_id);
                 ops.push(EditOp::Insert {
                     node_b: b_id,
@@ -264,6 +297,10 @@ where
             b = usize::from(b_id),
             "checking matched pair for move"
         );
+        // Skip descendants of opaque nodes — opaque subtrees are atomic
+        if opaque_descendants_a.contains(&a_id) || opaque_descendants_b.contains(&b_id) {
+            continue;
+        }
         // Skip root
         let Some(parent_a) = tree_a.parent(a_id) else {
             debug!(
@@ -337,6 +374,10 @@ where
     // Process in post-order so children are deleted before parents
     for a_id in tree_a.post_order() {
         if !matching.contains_a(a_id) {
+            // Skip descendants of opaque nodes — opaque subtrees are atomic
+            if opaque_descendants_a.contains(&a_id) {
+                continue;
+            }
             ops.push(EditOp::Delete { node_a: a_id });
         }
     }
@@ -938,6 +979,242 @@ mod tests {
         assert!(
             has_move,
             "Expected Move operation for text node moving from deleted parent.\nOps: {:#?}",
+            ops
+        );
+    }
+
+    /// Wrapper around Tree that marks specific nodes as opaque.
+    struct OpaqueTree<T: TreeTypes> {
+        inner: Tree<T>,
+        opaque_nodes: std::collections::HashSet<NodeId>,
+    }
+
+    impl<T: TreeTypes> OpaqueTree<T> {
+        fn new(inner: Tree<T>) -> Self {
+            Self {
+                inner,
+                opaque_nodes: std::collections::HashSet::default(),
+            }
+        }
+
+        fn mark_opaque(&mut self, id: NodeId) {
+            self.opaque_nodes.insert(id);
+        }
+    }
+
+    impl<T: TreeTypes> crate::tree::DiffTree for OpaqueTree<T> {
+        type Types = T;
+
+        fn root(&self) -> NodeId {
+            self.inner.root()
+        }
+
+        fn node_count(&self) -> usize {
+            self.inner.node_count()
+        }
+
+        fn hash(&self, id: NodeId) -> crate::tree::NodeHash {
+            self.inner.hash(id)
+        }
+
+        fn kind(&self, id: NodeId) -> &T::Kind {
+            self.inner.kind(id)
+        }
+
+        fn properties(&self, id: NodeId) -> &T::Props {
+            self.inner.properties(id)
+        }
+
+        fn text(&self, id: NodeId) -> Option<&T::Text> {
+            self.inner.text(id)
+        }
+
+        fn parent(&self, id: NodeId) -> Option<NodeId> {
+            self.inner.parent(id)
+        }
+
+        fn children(&self, id: NodeId) -> impl Iterator<Item = NodeId> + '_ {
+            self.inner.children(id)
+        }
+
+        fn child_count(&self, id: NodeId) -> usize {
+            self.inner.child_count(id)
+        }
+
+        fn position(&self, id: NodeId) -> usize {
+            self.inner.position(id)
+        }
+
+        fn height(&self, id: NodeId) -> usize {
+            self.inner.height(id)
+        }
+
+        fn iter(&self) -> impl Iterator<Item = NodeId> + '_ {
+            self.inner.iter()
+        }
+
+        fn post_order(&self) -> impl Iterator<Item = NodeId> + '_ {
+            self.inner.post_order()
+        }
+
+        fn descendants(&self, id: NodeId) -> impl Iterator<Item = NodeId> + '_ {
+            self.inner.descendants(id)
+        }
+
+        fn is_opaque(&self, id: NodeId) -> bool {
+            self.opaque_nodes.contains(&id)
+        }
+    }
+
+    #[test]
+    fn test_opaque_no_edits_for_children() {
+        // Tree A: root -> opaque_div -> [leaf_a]
+        // Tree B: root -> opaque_div -> [leaf_b]  (different child)
+        //
+        // Even though children differ, the edit script should not contain
+        // Insert/Delete/Move for children of opaque nodes.
+        let mut raw_a: Tree<TestTypes> = Tree::new(NodeData::simple_u64(100, "root"));
+        let opaque_a = raw_a.add_child(raw_a.root, NodeData::simple_u64(10, "div"));
+        raw_a.add_child(opaque_a, NodeData::simple_u64(1, "text"));
+
+        let mut tree_a = OpaqueTree::new(raw_a);
+        tree_a.mark_opaque(opaque_a);
+
+        let mut raw_b: Tree<TestTypes> = Tree::new(NodeData::simple_u64(200, "root"));
+        let opaque_b = raw_b.add_child(raw_b.root, NodeData::simple_u64(20, "div"));
+        raw_b.add_child(opaque_b, NodeData::simple_u64(2, "text"));
+
+        let mut tree_b = OpaqueTree::new(raw_b);
+        tree_b.mark_opaque(opaque_b);
+
+        let matching = compute_matching(&tree_a, &tree_b, &MatchingConfig::default());
+        let ops = generate_edit_script(&tree_a, &tree_b, &matching);
+
+        // Should have NO Insert, Delete, or Move operations for opaque children
+        let structural_ops: Vec<_> = ops
+            .iter()
+            .filter(|op| {
+                matches!(
+                    op,
+                    EditOp::Insert { .. } | EditOp::Delete { .. } | EditOp::Move { .. }
+                )
+            })
+            .collect();
+
+        assert!(
+            structural_ops.is_empty(),
+            "Edit script should not contain structural ops for opaque children, got: {:?}",
+            structural_ops
+        );
+    }
+
+    #[test]
+    fn test_opaque_deeply_nested_no_edits() {
+        // Tree A: root -> opaque_div -> wrapper -> [deep1, deep2]
+        // Tree B: root -> opaque_div -> wrapper -> [deep3]
+        //
+        // Deeply nested children should also be skipped.
+        let mut raw_a: Tree<TestTypes> = Tree::new(NodeData::simple_u64(100, "root"));
+        let opaque_a = raw_a.add_child(raw_a.root, NodeData::simple_u64(10, "div"));
+        let wrapper_a = raw_a.add_child(opaque_a, NodeData::simple_u64(5, "span"));
+        raw_a.add_child(wrapper_a, NodeData::simple_u64(1, "text"));
+        raw_a.add_child(wrapper_a, NodeData::simple_u64(2, "text"));
+
+        let mut tree_a = OpaqueTree::new(raw_a);
+        tree_a.mark_opaque(opaque_a);
+
+        let mut raw_b: Tree<TestTypes> = Tree::new(NodeData::simple_u64(200, "root"));
+        let opaque_b = raw_b.add_child(raw_b.root, NodeData::simple_u64(20, "div"));
+        let wrapper_b = raw_b.add_child(opaque_b, NodeData::simple_u64(6, "span"));
+        raw_b.add_child(wrapper_b, NodeData::simple_u64(3, "text"));
+
+        let mut tree_b = OpaqueTree::new(raw_b);
+        tree_b.mark_opaque(opaque_b);
+
+        let matching = compute_matching(&tree_a, &tree_b, &MatchingConfig::default());
+        let ops = generate_edit_script(&tree_a, &tree_b, &matching);
+
+        let structural_ops: Vec<_> = ops
+            .iter()
+            .filter(|op| {
+                matches!(
+                    op,
+                    EditOp::Insert { .. } | EditOp::Delete { .. } | EditOp::Move { .. }
+                )
+            })
+            .collect();
+
+        assert!(
+            structural_ops.is_empty(),
+            "Deeply nested opaque children should not produce structural ops, got: {:?}",
+            structural_ops
+        );
+    }
+
+    #[test]
+    fn test_opaque_sibling_still_edited() {
+        // Tree A: root -> [opaque_div -> [old_text], normal_span]
+        // Tree B: root -> [opaque_div -> [new_text], normal_span, new_leaf]
+        //
+        // The opaque div's children change should produce no ops,
+        // but the new_leaf sibling should produce an Insert.
+        let mut raw_a: Tree<TestTypes> = Tree::new(NodeData::simple_u64(100, "root"));
+        let opaque_a = raw_a.add_child(raw_a.root, NodeData::simple_u64(10, "div"));
+        raw_a.add_child(opaque_a, NodeData::simple_u64(1, "text"));
+        raw_a.add_child(raw_a.root, NodeData::simple_u64(20, "span"));
+
+        let mut tree_a = OpaqueTree::new(raw_a);
+        tree_a.mark_opaque(opaque_a);
+
+        let mut raw_b: Tree<TestTypes> = Tree::new(NodeData::simple_u64(200, "root"));
+        let opaque_b = raw_b.add_child(raw_b.root, NodeData::simple_u64(20, "div"));
+        raw_b.add_child(opaque_b, NodeData::simple_u64(2, "text"));
+        raw_b.add_child(raw_b.root, NodeData::simple_u64(20, "span"));
+        raw_b.add_child(raw_b.root, NodeData::simple_u64(30, "p"));
+
+        let mut tree_b = OpaqueTree::new(raw_b);
+        tree_b.mark_opaque(opaque_b);
+
+        let matching = compute_matching(&tree_a, &tree_b, &MatchingConfig::default());
+        let ops = generate_edit_script(&tree_a, &tree_b, &matching);
+
+        // Should have an Insert for the new <p> sibling
+        let inserts: Vec<_> = ops
+            .iter()
+            .filter(|op| matches!(op, EditOp::Insert { .. }))
+            .collect();
+
+        assert_eq!(
+            inserts.len(),
+            1,
+            "Should have exactly one insert for the new sibling, got: {:?}",
+            ops
+        );
+    }
+
+    #[test]
+    fn test_opaque_identical_no_ops() {
+        // When opaque nodes are identical (same hash), no ops at all.
+        let mut raw_a: Tree<TestTypes> = Tree::new(NodeData::simple_u64(100, "root"));
+        let opaque_a = raw_a.add_child(raw_a.root, NodeData::simple_u64(10, "div"));
+        raw_a.add_child(opaque_a, NodeData::simple_u64(1, "text"));
+
+        let mut tree_a = OpaqueTree::new(raw_a);
+        tree_a.mark_opaque(opaque_a);
+
+        let mut raw_b: Tree<TestTypes> = Tree::new(NodeData::simple_u64(100, "root"));
+        let opaque_b = raw_b.add_child(raw_b.root, NodeData::simple_u64(10, "div"));
+        raw_b.add_child(opaque_b, NodeData::simple_u64(1, "text"));
+
+        let mut tree_b = OpaqueTree::new(raw_b);
+        tree_b.mark_opaque(opaque_b);
+
+        let matching = compute_matching(&tree_a, &tree_b, &MatchingConfig::default());
+        let ops = generate_edit_script(&tree_a, &tree_b, &matching);
+
+        assert!(
+            ops.is_empty(),
+            "Identical opaque trees should produce no edit ops, got: {:?}",
             ops
         );
     }

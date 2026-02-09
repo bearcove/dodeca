@@ -480,6 +480,23 @@ fn apply_patch(doc: &Document, patch: &Patch, slots: &mut Slots) -> Result<(), J
                 slots,
             )?;
         }
+
+        Patch::OpaqueChanged { path, content } => {
+            let el = find_element(doc, path, slots)?;
+            // Dispatch a CustomEvent so client-side JS can handle the content change
+            let detail = js_sys::Object::new();
+            js_sys::Reflect::set(
+                &detail,
+                &JsValue::from_str("content"),
+                &JsValue::from_str(content),
+            )?;
+            let init = web_sys::CustomEventInit::new();
+            init.set_bubbles(true);
+            init.set_detail(&detail);
+            let event =
+                web_sys::CustomEvent::new_with_event_init_dict("hotmeal:opaque-changed", &init)?;
+            el.dispatch_event(&event)?;
+        }
     }
 
     Ok(())

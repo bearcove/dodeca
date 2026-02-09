@@ -321,6 +321,42 @@ impl<'a> Document<'a> {
     pub fn child_count(&self, node: NodeId) -> usize {
         node.children(&self.arena).count()
     }
+
+    /// Clone a subtree from another document into this document's arena.
+    /// Returns the NodeId of the cloned root in this document's arena.
+    fn clone_subtree_from(&mut self, source: &Document<'_>, source_id: NodeId) -> NodeId {
+        let source_node = source.get(source_id);
+        let new_node = self.arena.new_node(NodeData {
+            kind: match &source_node.kind {
+                NodeKind::Element(elem) => NodeKind::Element(ElementData {
+                    tag: elem.tag.clone(),
+                    attrs: elem
+                        .attrs
+                        .iter()
+                        .map(|(k, v)| {
+                            (
+                                k.clone(),
+                                Stem::Owned(compact_str::CompactString::new(v.as_ref())),
+                            )
+                        })
+                        .collect(),
+                }),
+                NodeKind::Text(t) => {
+                    NodeKind::Text(Stem::Owned(compact_str::CompactString::new(t.as_ref())))
+                }
+                NodeKind::Comment(t) => {
+                    NodeKind::Comment(Stem::Owned(compact_str::CompactString::new(t.as_ref())))
+                }
+                NodeKind::Document => NodeKind::Document,
+            },
+            ns: source_node.ns,
+        });
+        for child_id in source_id.children(&source.arena) {
+            let cloned_child = self.clone_subtree_from(source, child_id);
+            new_node.append(cloned_child, &mut self.arena);
+        }
+        new_node
+    }
 }
 
 impl Default for Document<'_> {
@@ -358,6 +394,15 @@ impl<'a> Document<'a> {
         };
         let mut output = String::new();
         for child_id in body_id.children(&self.arena) {
+            self.serialize_node(&mut output, child_id);
+        }
+        output
+    }
+
+    /// Serialize the inner HTML of a node (its children, not the node itself).
+    pub fn serialize_inner_html(&self, node_id: NodeId) -> String {
+        let mut output = String::new();
+        for child_id in node_id.children(&self.arena) {
             self.serialize_node(&mut output, child_id);
         }
         output
@@ -624,6 +669,29 @@ impl<'a> Document<'a> {
                     debug!("UpdateProps: final attrs_count={}", elem.attrs.len());
                     // Attributes not in changes are implicitly removed (we cleared attrs and only
                     // added back what's in changes)
+                }
+            }
+            Patch::OpaqueChanged { path, content } => {
+                let node_id = self.navigate_slot_path(&path.0, slots)?;
+                // Remove all existing children
+                let children: Vec<_> = node_id.children(&self.arena).collect();
+                for child in children {
+                    child.detach(&mut self.arena);
+                }
+                // Parse the new content and attach as children
+                // We parse a minimal document wrapper to get the content nodes
+                let wrapper_html =
+                    format!("<html><body><div>{}</div></body></html>", content.as_ref());
+                let wrapper_tendril = StrTendril::from(wrapper_html.as_str());
+                let wrapper_doc = crate::dom::parse(&wrapper_tendril);
+                if let Some(body_id) = wrapper_doc.body() {
+                    // The content is inside body > div
+                    if let Some(div_id) = body_id.children(&wrapper_doc.arena).next() {
+                        for child_id in div_id.children(&wrapper_doc.arena) {
+                            let cloned = self.clone_subtree_from(&wrapper_doc, child_id);
+                            node_id.append(cloned, &mut self.arena);
+                        }
+                    }
                 }
             }
         }

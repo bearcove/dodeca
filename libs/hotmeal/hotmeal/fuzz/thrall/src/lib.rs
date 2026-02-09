@@ -163,6 +163,14 @@ pub fn compute_and_apply_patches(
     response_rx.blocking_recv().unwrap()
 }
 
+/// Compute diff and apply patches in the browser, returning the result for comparison.
+///
+/// Convenience wrapper around [`compute_and_apply_patches`] for use in tests.
+/// Returns `None` if the browser connection failed.
+pub fn test_roundtrip(old_html: String, new_html: String) -> Option<ComputeAndApplyResult> {
+    compute_and_apply_patches(old_html, new_html)
+}
+
 /// Parse HTML in the browser and return the DOM tree (blocking, synchronous).
 ///
 /// Returns `None` if the browser connection failed.

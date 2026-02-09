@@ -125,6 +125,13 @@ pub trait DiffTree {
 
     /// Get all descendants of a node (including the node itself).
     fn descendants(&self, id: NodeId) -> impl Iterator<Item = NodeId> + '_;
+
+    /// Whether this node is opaque (treated as atomic during diffing).
+    /// Opaque nodes are matched but their children are never recursed into.
+    /// When an opaque node's content changes, the caller handles it separately.
+    fn is_opaque(&self, _id: NodeId) -> bool {
+        false
+    }
 }
 
 /// A structural hash of a node and all its descendants (Merkle-tree style).

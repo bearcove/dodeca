@@ -233,6 +233,15 @@ fn top_down_phase<TA, TB>(
             match_subtrees(tree_a, tree_b, a_id, b_id, matching);
         } else {
             trace!(a = usize::from(a_id), a_kind = %a_kind, b = usize::from(b_id), b_kind = %b_kind, "top_down: no hash match");
+
+            // If either node is opaque, match the pair but don't recurse into children
+            if tree_a.is_opaque(a_id) || tree_b.is_opaque(b_id) {
+                if a_kind == b_kind && !matching.contains_a(a_id) && !matching.contains_b(b_id) {
+                    matching.add(a_id, b_id);
+                }
+                continue;
+            }
+
             // Hashes differ - try to match children
             // IMPORTANT: Only consider children of b_id, NOT arbitrary nodes from tree B
             // This prevents cross-level matching that causes spurious operations
@@ -273,6 +282,11 @@ fn match_subtrees<TA, TB>(
     }
 
     matching.add(a_id, b_id);
+
+    // If either node is opaque, match the pair but don't recurse into children
+    if tree_a.is_opaque(a_id) || tree_b.is_opaque(b_id) {
+        return;
+    }
 
     // Match children in order (they should be identical if hashes match)
     let a_children: Vec<_> = tree_a.children(a_id).collect();
@@ -388,10 +402,38 @@ fn bottom_up_phase<TA, TB>(
     TA: DiffTree,
     TB: DiffTree<Types = TA::Types>,
 {
-    // Build index for tree B by kind
+    // Lazy descendant maps - only compute descendants for nodes we actually compare
+    let desc_a = LazyDescendantMap::new(tree_a);
+    let desc_b = LazyDescendantMap::new(tree_b);
+
+    // Build a set of nodes that are descendants of opaque nodes (excluding the opaque
+    // nodes themselves). These should be skipped entirely in bottom-up matching.
+    let mut opaque_descendants_a: HashSet<NodeId> = HashSet::default();
+    for a_id in tree_a.iter() {
+        if tree_a.is_opaque(a_id) {
+            // Skip the opaque node itself, but mark all its descendants
+            for desc in tree_a.descendants(a_id) {
+                if desc != a_id {
+                    opaque_descendants_a.insert(desc);
+                }
+            }
+        }
+    }
+    let mut opaque_descendants_b: HashSet<NodeId> = HashSet::default();
+    for b_id in tree_b.iter() {
+        if tree_b.is_opaque(b_id) {
+            for desc in tree_b.descendants(b_id) {
+                if desc != b_id {
+                    opaque_descendants_b.insert(desc);
+                }
+            }
+        }
+    }
+
+    // Build index for tree B by kind (excluding opaque descendants)
     let mut b_by_kind: HashMap<<TA::Types as TreeTypes>::Kind, Vec<NodeId>> = HashMap::default();
     for b_id in tree_b.iter() {
-        if !matching.contains_b(b_id) {
+        if !matching.contains_b(b_id) && !opaque_descendants_b.contains(&b_id) {
             b_by_kind
                 .entry(tree_b.kind(b_id).clone())
                 .or_default()
@@ -399,14 +441,10 @@ fn bottom_up_phase<TA, TB>(
         }
     }
 
-    // Lazy descendant maps - only compute descendants for nodes we actually compare
-    let desc_a = LazyDescendantMap::new(tree_a);
-    let desc_b = LazyDescendantMap::new(tree_b);
-
     // PASS 1: Match internal nodes (non-leaves)
     // Use BFS order so parents are matched before children, enabling position-based matching
     for a_id in tree_a.iter() {
-        if matching.contains_a(a_id) {
+        if matching.contains_a(a_id) || opaque_descendants_a.contains(&a_id) {
             continue;
         }
 
@@ -532,7 +570,7 @@ fn bottom_up_phase<TA, TB>(
     // PASS 2: Match leaf nodes
     // Now that internal nodes are matched, ancestry constraints are established
     for a_id in tree_a.iter() {
-        if matching.contains_a(a_id) {
+        if matching.contains_a(a_id) || opaque_descendants_a.contains(&a_id) {
             continue;
         }
 
@@ -721,5 +759,232 @@ mod tests {
             "Identical leaves should match"
         );
         assert_eq!(matching.get_b(child1_a), Some(child1_b));
+    }
+
+    /// Wrapper around Tree that marks specific nodes as opaque.
+    struct OpaqueTree<T: TreeTypes> {
+        inner: Tree<T>,
+        opaque_nodes: std::collections::HashSet<NodeId>,
+    }
+
+    impl<T: TreeTypes> OpaqueTree<T> {
+        fn new(inner: Tree<T>) -> Self {
+            Self {
+                inner,
+                opaque_nodes: std::collections::HashSet::default(),
+            }
+        }
+
+        fn mark_opaque(&mut self, id: NodeId) {
+            self.opaque_nodes.insert(id);
+        }
+    }
+
+    impl<T: TreeTypes> DiffTree for OpaqueTree<T> {
+        type Types = T;
+
+        fn root(&self) -> NodeId {
+            self.inner.root()
+        }
+
+        fn node_count(&self) -> usize {
+            self.inner.node_count()
+        }
+
+        fn hash(&self, id: NodeId) -> crate::tree::NodeHash {
+            self.inner.hash(id)
+        }
+
+        fn kind(&self, id: NodeId) -> &T::Kind {
+            self.inner.kind(id)
+        }
+
+        fn properties(&self, id: NodeId) -> &T::Props {
+            self.inner.properties(id)
+        }
+
+        fn text(&self, id: NodeId) -> Option<&T::Text> {
+            self.inner.text(id)
+        }
+
+        fn parent(&self, id: NodeId) -> Option<NodeId> {
+            self.inner.parent(id)
+        }
+
+        fn children(&self, id: NodeId) -> impl Iterator<Item = NodeId> + '_ {
+            self.inner.children(id)
+        }
+
+        fn child_count(&self, id: NodeId) -> usize {
+            self.inner.child_count(id)
+        }
+
+        fn position(&self, id: NodeId) -> usize {
+            self.inner.position(id)
+        }
+
+        fn height(&self, id: NodeId) -> usize {
+            self.inner.height(id)
+        }
+
+        fn iter(&self) -> impl Iterator<Item = NodeId> + '_ {
+            self.inner.iter()
+        }
+
+        fn post_order(&self) -> impl Iterator<Item = NodeId> + '_ {
+            self.inner.post_order()
+        }
+
+        fn descendants(&self, id: NodeId) -> impl Iterator<Item = NodeId> + '_ {
+            self.inner.descendants(id)
+        }
+
+        fn is_opaque(&self, id: NodeId) -> bool {
+            self.opaque_nodes.contains(&id)
+        }
+    }
+
+    #[test]
+    fn test_opaque_node_matched_but_children_not() {
+        // Tree A: root -> opaque_div -> [leaf1, leaf2]
+        // Tree B: root -> opaque_div -> [leaf3, leaf4]  (different children)
+        //
+        // The opaque nodes should be matched (same kind), but their children
+        // should NOT be matched at all.
+        let mut raw_a: Tree<TestTypes> = Tree::new(NodeData::simple_u64(100, "root"));
+        let opaque_a = raw_a.add_child(raw_a.root, NodeData::simple_u64(10, "div"));
+        let leaf1 = raw_a.add_child(opaque_a, NodeData::simple_u64(1, "text"));
+        let leaf2 = raw_a.add_child(opaque_a, NodeData::simple_u64(2, "text"));
+
+        let mut tree_a = OpaqueTree::new(raw_a);
+        tree_a.mark_opaque(opaque_a);
+
+        let mut raw_b: Tree<TestTypes> = Tree::new(NodeData::simple_u64(200, "root"));
+        let opaque_b = raw_b.add_child(raw_b.root, NodeData::simple_u64(20, "div"));
+        let leaf3 = raw_b.add_child(opaque_b, NodeData::simple_u64(3, "text"));
+        let leaf4 = raw_b.add_child(opaque_b, NodeData::simple_u64(4, "text"));
+
+        let mut tree_b = OpaqueTree::new(raw_b);
+        tree_b.mark_opaque(opaque_b);
+
+        let matching = compute_matching(&tree_a, &tree_b, &MatchingConfig::default());
+
+        // Root should match
+        assert!(matching.contains_a(tree_a.root()), "root should be matched");
+
+        // Opaque div should be matched (same kind, both opaque)
+        assert!(
+            matching.contains_a(opaque_a),
+            "opaque node should be matched"
+        );
+        assert_eq!(
+            matching.get_b(opaque_a),
+            Some(opaque_b),
+            "opaque_a should match opaque_b"
+        );
+
+        // Children of opaque nodes should NOT be matched
+        assert!(
+            !matching.contains_a(leaf1),
+            "child of opaque node should not be matched"
+        );
+        assert!(
+            !matching.contains_a(leaf2),
+            "child of opaque node should not be matched"
+        );
+        assert!(
+            !matching.contains_b(leaf3),
+            "child of opaque node in tree_b should not be matched"
+        );
+        assert!(
+            !matching.contains_b(leaf4),
+            "child of opaque node in tree_b should not be matched"
+        );
+    }
+
+    #[test]
+    fn test_opaque_deeply_nested_children_not_matched() {
+        // Tree A: root -> opaque_div -> wrapper -> [deep_leaf]
+        // Tree B: root -> opaque_div -> wrapper -> [deep_leaf]
+        //
+        // Even deeply nested children inside opaque nodes should not be matched.
+        let mut raw_a: Tree<TestTypes> = Tree::new(NodeData::simple_u64(100, "root"));
+        let opaque_a = raw_a.add_child(raw_a.root, NodeData::simple_u64(10, "div"));
+        let wrapper_a = raw_a.add_child(opaque_a, NodeData::simple_u64(5, "span"));
+        let deep_a = raw_a.add_child(wrapper_a, NodeData::simple_u64(1, "text"));
+
+        let mut tree_a = OpaqueTree::new(raw_a);
+        tree_a.mark_opaque(opaque_a);
+
+        let mut raw_b: Tree<TestTypes> = Tree::new(NodeData::simple_u64(100, "root"));
+        let opaque_b = raw_b.add_child(raw_b.root, NodeData::simple_u64(10, "div"));
+        let wrapper_b = raw_b.add_child(opaque_b, NodeData::simple_u64(5, "span"));
+        let deep_b = raw_b.add_child(wrapper_b, NodeData::simple_u64(1, "text"));
+
+        let mut tree_b = OpaqueTree::new(raw_b);
+        tree_b.mark_opaque(opaque_b);
+
+        let matching = compute_matching(&tree_a, &tree_b, &MatchingConfig::default());
+
+        // Opaque node should be matched
+        assert!(matching.contains_a(opaque_a), "opaque should be matched");
+
+        // All descendants should NOT be matched
+        assert!(
+            !matching.contains_a(wrapper_a),
+            "wrapper inside opaque should not be matched"
+        );
+        assert!(
+            !matching.contains_a(deep_a),
+            "deeply nested child should not be matched"
+        );
+        assert!(
+            !matching.contains_b(wrapper_b),
+            "wrapper_b inside opaque should not be matched"
+        );
+        assert!(
+            !matching.contains_b(deep_b),
+            "deep_b inside opaque should not be matched"
+        );
+    }
+
+    #[test]
+    fn test_opaque_sibling_still_matched() {
+        // Tree A: root -> [opaque_div -> [leaf], normal_span -> [leaf]]
+        // Tree B: root -> [opaque_div -> [leaf], normal_span -> [leaf]]
+        //
+        // The opaque div's children should not be matched, but the normal
+        // sibling and its children should match normally.
+        let mut raw_a: Tree<TestTypes> = Tree::new(NodeData::simple_u64(100, "root"));
+        let opaque_a = raw_a.add_child(raw_a.root, NodeData::simple_u64(10, "div"));
+        let _opaque_child_a = raw_a.add_child(opaque_a, NodeData::simple_u64(1, "text"));
+        let normal_a = raw_a.add_child(raw_a.root, NodeData::simple_u64(20, "span"));
+        let normal_child_a = raw_a.add_child(normal_a, NodeData::simple_u64(3, "text"));
+
+        let mut tree_a = OpaqueTree::new(raw_a);
+        tree_a.mark_opaque(opaque_a);
+
+        let mut raw_b: Tree<TestTypes> = Tree::new(NodeData::simple_u64(100, "root"));
+        let opaque_b = raw_b.add_child(raw_b.root, NodeData::simple_u64(10, "div"));
+        let _opaque_child_b = raw_b.add_child(opaque_b, NodeData::simple_u64(1, "text"));
+        let normal_b = raw_b.add_child(raw_b.root, NodeData::simple_u64(20, "span"));
+        let normal_child_b = raw_b.add_child(normal_b, NodeData::simple_u64(3, "text"));
+
+        let mut tree_b = OpaqueTree::new(raw_b);
+        tree_b.mark_opaque(opaque_b);
+
+        let matching = compute_matching(&tree_a, &tree_b, &MatchingConfig::default());
+
+        // Normal span and its child should be matched
+        assert!(
+            matching.contains_a(normal_a),
+            "normal sibling should be matched"
+        );
+        assert_eq!(matching.get_b(normal_a), Some(normal_b));
+        assert!(
+            matching.contains_a(normal_child_a),
+            "normal child should be matched"
+        );
+        assert_eq!(matching.get_b(normal_child_a), Some(normal_child_b));
     }
 }
