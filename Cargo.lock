@@ -9376,8 +9376,3 @@ checksum = "410e9ecef634c709e3831c2cfdb8d9c32164fae1c67496d5b68fff728eec37fe"
 dependencies = [
  "zune-core 0.5.1",
 ]
-
-[[patch.unused]]
-name = "dagre_rust"
-version = "0.0.5"
-source = "git+https://github.com/bearcove/dagre-rust?branch=main#cc2f9f9e2d9211a4dee30afe57a0397254838206"
