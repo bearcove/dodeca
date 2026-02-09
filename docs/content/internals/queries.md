@@ -5,16 +5,65 @@ weight = 30
 
 Every computation is a Picante query. Queries are memoized and track dependencies automatically.
 
-**Inputs** (raw data from disk): `SourceFile`, `TemplateFile`, `SassFile`, `StaticFile`, `OgTemplateFile`.
+## Inputs
 
-**Content**: `parse_file` → `build_tree` → `render_page` / `render_section` → `all_rendered_html` → `build_site`.
+Raw data from disk — these are `#[picante::input]` types that enter the system when files change:
 
-**Templates**: `load_template` → `load_all_templates` → renders.
+`SourceFile`, `TemplateFile`, `SassFile`, `StaticFile`, `OgTemplateFile`.
 
-**Styles**: `load_sass` → `compile_sass` → `css_output` (cache-busted).
+## Content Pipeline
 
-**Images**: `image_metadata` → `image_input_hash` → `process_image` (JXL + WebP at multiple sizes).
+```mermaid
+flowchart LR
+    SF[SourceFile] --> parse_file
+    parse_file --> build_tree
+    build_tree --> render_page
+    build_tree --> render_section
+    render_page --> all_rendered_html
+    render_section --> all_rendered_html
+    all_rendered_html --> build_site
+```
 
-**Fonts**: `font_char_analysis` (find used chars) → `subset_font`.
+## Template Pipeline
 
-**Assets**: `optimize_svg`, `static_file_output` (cache-busted).
+```mermaid
+flowchart LR
+    TF[TemplateFile] --> load_template
+    load_template --> load_all_templates
+    load_all_templates --> render_page
+    load_all_templates --> render_section
+```
+
+## Style Pipeline
+
+```mermaid
+flowchart LR
+    SASS[SassFile] --> load_sass --> compile_sass --> css_output["css_output<br/>(cache-busted)"]
+```
+
+## Image Pipeline
+
+```mermaid
+flowchart LR
+    IMG["StaticFile<br/>image"] --> image_metadata --> image_input_hash --> process_image
+    process_image --> JXL[JXL variants]
+    process_image --> WebP[WebP variants]
+    process_image --> JPEG[JPEG fallback]
+```
+
+## Font Pipeline
+
+```mermaid
+flowchart LR
+    HTML[all_rendered_html] --> font_char_analysis["font_char_analysis<br/>(find used chars)"]
+    FONT["StaticFile<br/>font"] --> font_char_analysis
+    font_char_analysis --> subset_font
+```
+
+## Asset Pipeline
+
+```mermaid
+flowchart LR
+    SVG["StaticFile<br/>SVG"] --> optimize_svg --> static_file_output["static_file_output<br/>(cache-busted)"]
+    OTHER["StaticFile<br/>other"] --> static_file_output
+```

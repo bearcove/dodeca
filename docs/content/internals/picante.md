@@ -8,10 +8,10 @@ dodeca uses [Picante](https://picante.bearcove.eu/), an async incremental query 
 
 When you change a file, picante traces exactly which outputs depend on it and only recomputes those. Edit `features.md` and only that page re-renders—other pages, CSS, images, and fonts stay cached.
 
-```
-SourceFile → parse_file → build_tree → render_page → all_rendered_html → build_site
-                                ↑
-TemplateFile → load_template ───┘
+```mermaid
+flowchart LR
+    SF[SourceFile] --> parse_file --> build_tree --> render_page --> all_rendered_html --> build_site
+    TF[TemplateFile] --> load_template --> build_tree
 ```
 
 The cache persists to disk via [facet-postcard](https://github.com/facet-rs/facet). Even a cold start benefits from previous work. Large outputs (images, fonts) are stored separately in content-addressed storage (CAS) to keep the picante database small.

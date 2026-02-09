@@ -8,31 +8,24 @@ weight = 50
 
 Dodeca uses cells to keep the core binary small and fast to link. Heavy dependencies live in cells, which compile and link independently as separate processes.
 
-Cells communicate with the main dodeca process via [roam](https://github.com/bearcove/roam) RPC over shared memory (SHM), enabling zero-copy data transfer.
+Cells communicate with the main dodeca process via [roam](https://github.com/bearcove/roam) RPC over shared memory (SHM).
 
 ---
 
 ## Architecture
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│                          Core dodeca                                  │
-│  ┌─────────┐ ┌─────────┐ ┌──────────┐ ┌─────────────────────────────┐│
-│  │ Picante │ │Markdown │ │ Template │ │      Cell Host              ││
-│  │(queries)│ │ Parser  │ │  Engine  │ │  - TCP listener (browsers)  ││
-│  └─────────┘ └─────────┘ └──────────┘ │  - RPC dispatcher           ││
-│                                        │  - ContentService impl      ││
-│                                        └──────────────┬──────────────┘│
-└───────────────────────────────────────────────────────┼───────────────┘
-                                                        │ SHM (zero-copy)
-                                                        ▼
-                               ┌─────────────────────────────────────┐
-                               │           dodeca-cell-http           │
-                               │   - Internal axum HTTP server       │
-                               │   - TcpTunnel service (host→cell)   │
-                               │   - ContentService client (cell→host)│
-                               │   - WebSocket for devtools          │
-                               └─────────────────────────────────────┘
+```mermaid
+flowchart LR
+    B["Browser"] -- "TCP" --> HOST
+
+    HOST["Host<br/>(Picante · Cell Host)"]
+
+    HOST -- "SHM" --> HTTP["cell-http<br/>axum · TcpTunnel<br/>WebSocket"]
+    HOST -- "SHM" --> MD[cell-markdown]
+    HOST -- "SHM" --> GIN[cell-gingembre]
+    HOST -- "SHM" --> IMG[cell-image]
+    HOST -- "SHM" --> STYLE["cell-sass<br/>cell-css"]
+    HOST -- "SHM" --> MORE["cell-fonts · cell-svgo<br/>cell-minify · ..."]
 ```
 
 ## Current Cells
@@ -77,7 +70,7 @@ Each cell gets:
 
 ## Benefits
 
-- **Zero-copy performance** - Content transfers directly through shared memory
+- **Shared memory transfers** - Large payloads go through SHM rather than pipes or sockets
 - **Process isolation** - Cells run in separate processes, improving stability
 - **Bidirectional RPC** - Both host and cell can initiate calls
 - **TCP tunneling** - Browser connections are accepted by host and tunneled to cell
@@ -131,23 +124,24 @@ Each cell follows this pattern:
 
 Host and cell communicate bidirectionally via shared memory:
 
-```
-Browser                Host (dodeca)                Cell (dodeca-cell-http)
-   │                        │                                │
-   │── TCP connect ────────▶│                                │
-   │                        │── TcpTunnel.open() ───────────▶│
-   │                        │◀── tunnel handle ──────────────│
-   │                        │                                │
-   │── HTTP request ───────▶│── tunnel chunk ───────────────▶│
-   │                        │                                │ (internal axum)
-   │                        │                                │
-   │                        │◀── find_content("/foo") ───────│
-   │                        │ (queries Picante DB)           │
-   │                        │── ServeContent::Html {...} ───▶│
-   │                        │                                │
-   │                        │◀── tunnel response chunk ──────│
-   │◀── HTTP response ──────│                                │
-   │                        │                                │
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant H as Host (dodeca)
+    participant C as Cell (dodeca-cell-http)
+
+    B->>H: TCP connect
+    H->>C: TcpTunnel.open()
+    C-->>H: tunnel handle
+
+    B->>H: HTTP request
+    H->>C: tunnel chunk
+    Note right of C: internal axum processes request
+    C->>H: find_content("/foo")
+    Note right of H: queries Picante DB
+    H-->>C: ServeContent::Html { ... }
+    C-->>H: tunnel response chunk
+    H-->>B: HTTP response
 ```
 
 The host accepts browser TCP connections and tunnels them to the cell via `TcpTunnel`. The cell processes HTTP requests internally and calls back to the host for content via `ContentService`.

@@ -357,6 +357,23 @@ article pre.mermaid {
     border-radius: 0;
 }
 
+/* ============================================
+   Code blocks with language header
+   ============================================ */
+.code-block .code-header {
+    padding: 0.4rem 1rem;
+    font-size: 0.75rem;
+    font-family: var(--font-mono);
+    color: var(--fg-muted);
+    border-bottom: 1px solid var(--border);
+}
+
+.code-block pre {
+    border: none;
+    border-radius: 0;
+    margin-bottom: 0;
+}
+
 .code-block pre {
     background: none;
     padding: 0;
@@ -465,6 +482,19 @@ footer a:hover {
 
     article h1 {
         font-size: 1.75rem;
+    }
+}
+
+/* ============================================
+   Wide screens — give diagrams room to breathe
+   ============================================ */
+@media (min-width: 1400px) {
+    :root {
+        --content-max: 840px;
+    }
+
+    .layout {
+        max-width: 1200px;
     }
 }
 

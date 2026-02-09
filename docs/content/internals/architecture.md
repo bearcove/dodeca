@@ -4,85 +4,40 @@ description = "How dodeca's host, cells, and caching layers work together"
 weight = 0
 +++
 
-This document describes dodeca's architecture: how the host process orchestrates cells, tracks dependencies, and manages caching.
+The host process is the brain — it tracks dependencies, manages caching, and orchestrates work. Cells are the muscles — stateless worker processes that do the heavy lifting (image processing, template rendering, markdown parsing, etc.) and communicate via shared memory.
 
-## Overview
-
-Dodeca separates concerns into three layers:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    HOST (dodeca binary)                     │
-│                                                             │
-│  ┌───────────────────────────────────────────────────────┐  │
-│  │                      PICANTE                          │  │
-│  │  • Tracks dependencies between queries                │  │
-│  │  • Caches query results (memoization)                 │  │
-│  │  • Knows what's stale when inputs change              │  │
-│  │  • Persists cache to disk via facet-postcard          │  │
-│  └───────────────────────────────────────────────────────┘  │
-│                            │                                │
-│  ┌────────────────────────┼────────────────────────────┐   │
-│  │          CAS           │                            │   │
-│  │  • Content-addressed   │  Host reads/writes         │   │
-│  │  • Large blobs on disk │  Cells never touch         │   │
-│  │  • Survives restarts   │                            │   │
-│  └────────────────────────┼────────────────────────────┘   │
-│                           │                                 │
-│  ┌────────────────────────▼────────────────────────────┐   │
-│  │              PROVIDER SERVICES                       │   │
-│  │  • resolve_template(name) → content                 │   │
-│  │  • resolve_import(path) → content                   │   │
-│  │  • get_data(key) → value                            │   │
-│  │  (all picante-tracked!)                             │   │
-│  └────────────────────────┬────────────────────────────┘   │
-└───────────────────────────┼─────────────────────────────────┘
-                            │ roam RPC + SHM
-┌───────────────────────────▼─────────────────────────────────┐
-│                  CELLS (separate processes)                 │
-│  • Pure async functions                                     │
-│  • No caching knowledge                                     │
-│  • Call back to host for dependencies                       │
-│  • Return large blobs via shared memory                     │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    HOST[Host] -- "SHM" --> MD[Markdown]
+    HOST -- "SHM" --> IMG[Images]
+    HOST -- "SHM" --> GIN[Templates]
+    HOST -- "SHM" --> MORE["...23 cells"]
 ```
 
-## Design Principles
+The host owns all caching through two complementary systems:
 
-### 1. Host owns all caching
+- **Picante** — incremental query runtime. Tracks dependencies between queries, memoizes results, knows exactly what's stale when an input changes. Small outputs (parsed frontmatter, rendered HTML, template ASTs) live here.
+- **CAS** — content-addressed blob store. Large outputs (processed images, subsetted fonts) are stored by content hash in `.cache/blobs/`. Picante stores only the hashes, keeping its database small.
 
-All caching decisions live in the host:
+Cells have no caching logic. They're pure functions: give them inputs, get outputs. This keeps invalidation simple — one place to reason about staleness.
 
-- **Picante** handles query memoization and dependency tracking
-- **CAS** handles large blob storage (images, fonts, processed outputs)
-- **Cells have no caching logic** — they're pure functions
-
-This means:
-- Consistent cache invalidation across all functionality
-- Single source of truth for "what needs rebuilding"
-- Cells stay simple and stateless
-
-### 2. Cells call back to host for dependencies
+## Cell callbacks
 
 When a cell needs additional data, it calls back to the host:
 
-```
-Host                              Cell (e.g., template renderer)
-  │                                        │
-  │── render(page, template_name) ────────▶│
-  │                                        │
-  │◀── resolve_template("base.html") ──────│
-  │    (picante tracks this dependency!)   │
-  │                                        │
-  │── template content ───────────────────▶│
-  │                                        │
-  │◀── resolve_template("partials/nav") ───│
-  │    (another tracked dependency!)       │
-  │                                        │
-  │── template content ───────────────────▶│
-  │                                        │
-  │◀── rendered HTML ──────────────────────│
-  │                                        │
+```mermaid
+sequenceDiagram
+    participant H as Host
+    participant C as Cell (template renderer)
+
+    H->>C: render(page, template_name)
+    C->>H: resolve_template("base.html")
+    Note right of H: picante tracks this dependency!
+    H-->>C: template content
+    C->>H: resolve_template("partials/nav")
+    Note right of H: another tracked dependency!
+    H-->>C: template content
+    C-->>H: rendered HTML
 ```
 
 The magic: **cell callbacks flow through picante-tracked host APIs**. When the template cell calls `resolve_template("base.html")`, the host:
@@ -93,7 +48,7 @@ The magic: **cell callbacks flow through picante-tracked host APIs**. When the t
 
 If `base.html` changes later, picante knows to re-render pages that included it — even though the actual rendering happened in a cell.
 
-### 3. Large blobs go through CAS, not picante
+## Large blobs go through CAS, not Picante
 
 Picante's cache is serialized via facet-postcard. Storing large blobs there would be expensive:
 
@@ -122,24 +77,25 @@ pub struct StaticFile {
 
 When actual content is needed, the host reads from CAS using the hash.
 
-### 4. Shared memory for large transfers
+## Shared memory for large transfers
 
 Cells run as separate processes. Transferring large blobs (images, fonts) over RPC would be expensive.
 
-Roam uses shared memory (SHM) for zero-copy transfers:
+Roam uses shared memory (SHM) for large transfers:
 
-```
-Host                              Cell
-  │                                  │
-  │── process_image(hash) ──────────▶│
-  │                                  │
-  │   (cell reads input from SHM)    │
-  │   (cell writes output to SHM)    │
-  │                                  │
-  │◀── output_hash ──────────────────│
-  │                                  │
-  │   (host reads output from SHM)   │
-  │   (host writes to CAS)           │
+```mermaid
+sequenceDiagram
+    participant H as Host
+    participant SHM as Shared Memory
+    participant C as Cell
+
+    H->>SHM: write input blob
+    H->>C: process_image(hash)
+    C->>SHM: read input
+    C->>SHM: write output
+    C-->>H: output_hash
+    H->>SHM: read output
+    H->>H: store in CAS
 ```
 
 The host:
@@ -153,37 +109,26 @@ Cells never touch CAS directly — the host handles all persistence.
 
 Here's how a page render flows through the system:
 
-```
-1. Input change detected
-   └─▶ SourceFile("features.md") updated in picante
+```mermaid
+sequenceDiagram
+    participant H as Host (Picante)
+    participant C as Template Cell
 
-2. Picante checks dependencies
-   └─▶ render_page("/features") depends on this file → stale
+    Note over H: features.md changed → render_page stale
 
-3. Host invokes render query
-   └─▶ render_page(db, "/features")
-       │
-       ├─▶ build_tree(db) [cached, inputs unchanged]
-       │
-       └─▶ call template cell via roam
-           │
-           ├─◀ cell calls resolve_template("page.html")
-           │   └─▶ host returns template [picante tracks dependency]
-           │
-           ├─◀ cell calls resolve_template("base.html")
-           │   └─▶ host returns template [picante tracks dependency]
-           │
-           ├─◀ cell calls get_data("site.title")
-           │   └─▶ host returns value [picante tracks dependency]
-           │
-           └─▶ cell returns rendered HTML
+    H->>C: render via roam RPC
+    C->>H: resolve_template("page.html")
+    H-->>C: template content
+    C->>H: resolve_template("base.html")
+    H-->>C: template content
+    C->>H: get_data("site.title")
+    H-->>C: value
+    C-->>H: rendered HTML
 
-4. Host stores result
-   └─▶ picante caches rendered HTML for this route
+    Note over H: cache result
 
-5. Later: template changes
-   └─▶ TemplateFile("base.html") updated
-       └─▶ picante invalidates all pages that resolved "base.html"
+    Note over H: later: base.html changes
+    Note over H: invalidate all pages that used it
 ```
 
 ## Cell Categories

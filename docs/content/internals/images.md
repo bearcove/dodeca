@@ -3,6 +3,19 @@ title = "Image Processing"
 weight = 23
 +++
 
+```mermaid
+flowchart LR
+    SRC["Source image<br/>(PNG/JPEG)"] --> META[image_metadata]
+    META --> HASH[image_input_hash]
+    HASH --> PROC[process_image]
+    PROC --> JXL["400w / 800w / 1200w<br/>.jxl"]
+    PROC --> WEBP["400w / 800w / 1200w<br/>.webp"]
+    PROC --> JPEG["400w / 800w / 1200w<br/>.jpg (fallback)"]
+    JXL --> PIC["&lt;picture&gt; element"]
+    WEBP --> PIC
+    JPEG --> PIC
+```
+
 A single markdown image becomes a responsive `<picture>` with JPEG XL, WebP, and JPEG fallbacks at multiple sizes:
 
 ```html
