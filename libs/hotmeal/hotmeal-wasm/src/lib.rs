@@ -806,12 +806,7 @@ fn serialize_insert_content(out: &mut String, content: &InsertContent) {
             out.push('>');
         }
         InsertContent::Text(text) => {
-            out.push_str(
-                &text
-                    .replace('&', "&amp;")
-                    .replace('<', "&lt;")
-                    .replace('>', "&gt;"),
-            );
+            out.push_str(&text.replace('&', "&amp;").replace('<', "&lt;"));
         }
         InsertContent::Comment(text) => {
             out.push_str("<!--");

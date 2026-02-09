@@ -1570,9 +1570,7 @@ struct AttrValue(
 
 // Helper functions
 fn html_escape_text(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
+    s.replace('&', "&amp;").replace('<', "&lt;")
 }
 
 fn html_escape_attr(s: &str) -> String {

@@ -834,7 +834,6 @@ impl<'a> Document<'a> {
                     match c {
                         '&' => out.push_str("&amp;"),
                         '<' => out.push_str("&lt;"),
-                        '>' => out.push_str("&gt;"),
                         _ => out.push(c),
                     }
                 }
@@ -1983,7 +1982,7 @@ mod tests {
         let doc = parse(&html);
         assert_eq!(
             doc.to_html(),
-            "<html><head></head><body><div>&lt;script&gt; &amp; \"quotes\"</div></body></html>"
+            "<html><head></head><body><div>&lt;script> &amp; \"quotes\"</div></body></html>"
         );
     }
 
@@ -2106,8 +2105,20 @@ mod tests {
         let output = doc.to_html();
 
         assert!(
-            output.contains("1 &lt; 2 &amp; 3 &gt; 1"),
+            output.contains("1 &lt; 2 &amp; 3 > 1"),
             "Normal text should be escaped. Got: {}",
+            output
+        );
+    }
+
+    #[test]
+    fn test_gt_not_escaped_in_text_nodes() {
+        let html = t("<pre>[*] --> Foo</pre>");
+        let doc = parse(&html);
+        let output = doc.to_html();
+        assert!(
+            output.contains("[*] --> Foo"),
+            "Greater-than should not be escaped in text nodes. Got: {}",
             output
         );
     }
