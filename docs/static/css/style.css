@@ -340,8 +340,7 @@ article code {
     border-radius: 4px;
 }
 
-article pre,
-.code-block {
+article pre {
     background: var(--code-bg);
     padding: 0.75rem 1rem;
     border-radius: 6px;
@@ -360,6 +359,14 @@ article pre.mermaid {
 /* ============================================
    Code blocks with language header
    ============================================ */
+.code-block {
+    background: var(--code-bg);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 1rem;
+    border: 1px solid var(--border);
+}
+
 .code-block .code-header {
     padding: 0.4rem 1rem;
     font-size: 0.75rem;
@@ -369,17 +376,12 @@ article pre.mermaid {
 }
 
 .code-block pre {
-    border: none;
-    border-radius: 0;
-    margin-bottom: 0;
-}
-
-.code-block pre {
     background: none;
-    padding: 0;
+    padding: 0.75rem 1rem;
     margin: 0;
     border: none;
     border-radius: 0;
+    overflow-x: auto;
 }
 
 article pre code {

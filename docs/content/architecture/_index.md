@@ -1,6 +1,6 @@
 +++
-title = "Internals"
-weight = 20
+title = "Architecture"
+weight = 60
 +++
 
 How dodeca works under the hood.
