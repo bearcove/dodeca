@@ -136,13 +136,14 @@ impl Parser {
             TokenKind::Set => self.parse_set(start),
             TokenKind::Continue => self.parse_continue(start),
             TokenKind::Break => self.parse_break(start),
+            TokenKind::Call => self.parse_call(start),
             _ => {
                 let span = self.current.span;
                 let found = format!("{:?}", self.current.kind);
                 Err(SyntaxError {
                     found,
                     expected:
-                        "if, for, block, extends, include, import, macro, set, continue, or break"
+                        "if, for, block, extends, include, import, macro, set, continue, break, or call"
                             .to_string(),
                     loc: SourceLocation::new(span, self.source.named_source()),
                 })?
@@ -205,13 +206,14 @@ impl Parser {
             TokenKind::Set => self.parse_set(start)?,
             TokenKind::Continue => self.parse_continue(start)?,
             TokenKind::Break => self.parse_break(start)?,
+            TokenKind::Call => self.parse_call(start)?,
             _ => {
                 let span = self.current.span;
                 let found = format!("{:?}", self.current.kind);
                 return Err(SyntaxError {
                     found,
                     expected:
-                        "if, for, block, extends, include, import, macro, set, continue, or break"
+                        "if, for, block, extends, include, import, macro, set, continue, break, or call"
                             .to_string(),
                     loc: SourceLocation::new(span, self.source.named_source()),
                 })?;
@@ -522,6 +524,119 @@ impl Parser {
         Ok(Node::Break(BreakNode {
             span: span(start.offset(), end.offset() + end.len() - start.offset()),
         }))
+    }
+
+    /// Parse call block: {% call func(kwargs) %}raw content{% endcall %}
+    ///
+    /// The content between the tags is captured as raw text (not parsed as template nodes).
+    /// This allows passing arbitrary content (like code snippets) to functions.
+    fn parse_call(&mut self, start: Span) -> Result<Node, TemplateError> {
+        self.expect(&TokenKind::Call)?;
+
+        let func_name = self.expect_ident()?;
+
+        // Parse kwargs: func(key=value, ...)
+        self.expect(&TokenKind::LParen)?;
+        let (_args, kwargs) = self.parse_call_args()?;
+        self.expect(&TokenKind::RParen)?;
+        self.expect(&TokenKind::TagClose)?;
+
+        // Record where content starts (right after the closing %})
+        let content_start = self.previous.span.offset() + self.previous.span.len();
+
+        // Now scan the raw source for {% endcall %}
+        // We need to find the `{%` that introduces `endcall`
+        let source = self.lexer.source().clone();
+        let remaining = &source[content_start..];
+
+        // Find {% endcall %} in the remaining source
+        let endcall_offset =
+            Self::find_endcall_tag(remaining).ok_or_else(|| -> TemplateError {
+                SyntaxError {
+                    found: "end of template".to_string(),
+                    expected: "{% endcall %}".to_string(),
+                    loc: SourceLocation::new(start, self.source.named_source()),
+                }
+                .into()
+            })?;
+
+        let raw_content = remaining[..endcall_offset].to_string();
+
+        // Skip the lexer past {% endcall %} by advancing to after the endcall tag
+        // We need to find the end of the endcall tag (%}) in the source
+        let _endcall_tag_start = content_start + endcall_offset;
+
+        // Advance the lexer position to after the endcall tag
+        // The lexer is currently positioned at content_start (it returned TagClose).
+        // We need to consume tokens until we get past the endcall tag.
+        // Since we know the structure, let's just lex forward:
+        // The lexer will see the raw text as Text, then TagOpen, Endcall, TagClose
+
+        // Reset lexer state - consume tokens until we get past {% endcall %}
+        loop {
+            let token = self.lexer.next_token();
+            match &token.kind {
+                TokenKind::Eof => {
+                    self.current = token;
+                    break;
+                }
+                TokenKind::Endcall => {
+                    // We're inside the {% endcall %} tag, consume the closing %}
+                    let close = self.lexer.next_token();
+                    if !matches!(close.kind, TokenKind::TagClose) {
+                        return Err(SyntaxError {
+                            found: format!("{:?}", close.kind),
+                            expected: "TagClose".to_string(),
+                            loc: SourceLocation::new(close.span, self.source.named_source()),
+                        }
+                        .into());
+                    }
+                    self.previous = close;
+                    // Get the next token after endcall for continued parsing
+                    self.current = self.lexer.next_token();
+                    break;
+                }
+                _ => {
+                    // Skip text and TagOpen tokens before Endcall
+                    continue;
+                }
+            }
+        }
+
+        let end = self.previous.span;
+
+        Ok(Node::CallBlock(CallBlockNode {
+            func_name,
+            kwargs,
+            raw_content,
+            span: span(start.offset(), end.offset() + end.len() - start.offset()),
+        }))
+    }
+
+    /// Find the byte offset of `{%` that introduces `endcall` within a source slice.
+    /// Returns the offset relative to the start of the slice (i.e., the position of `{%`).
+    fn find_endcall_tag(source: &str) -> Option<usize> {
+        let mut pos = 0;
+        let bytes = source.as_bytes();
+        while pos + 1 < bytes.len() {
+            if bytes[pos] == b'{' && bytes[pos + 1] == b'%' {
+                // Found a tag open — check if the keyword is "endcall"
+                let after_open = &source[pos + 2..];
+                let trimmed = after_open.trim_start();
+                if trimmed.starts_with("endcall") {
+                    // Verify it's the full keyword (not "endcallx")
+                    let rest = &trimmed["endcall".len()..];
+                    if rest.is_empty()
+                        || rest.starts_with(char::is_whitespace)
+                        || rest.starts_with("%}")
+                    {
+                        return Some(pos);
+                    }
+                }
+            }
+            pos += 1;
+        }
+        None
     }
 
     // r[impl macro.def.params]

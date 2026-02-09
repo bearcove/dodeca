@@ -980,6 +980,22 @@ pub struct CheckOptions {
     pub rate_limit_ms: u64,
 }
 
+pub async fn highlight_code_cell(lang: &str, code: &str) -> Result<String, eyre::Error> {
+    let client = markdown_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Markdown cell not available"))?;
+    match client
+        .highlight_code(lang.to_string(), code.to_string())
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))?
+    {
+        cell_markdown_proto::HighlightResult::Success { html } => Ok(html),
+        cell_markdown_proto::HighlightResult::Error { message } => {
+            Err(eyre::eyre!("Highlight error: {}", message))
+        }
+    }
+}
+
 pub async fn parse_and_render_markdown_cell(
     source_path: &str,
     content: &str,

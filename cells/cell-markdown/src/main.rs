@@ -117,7 +117,7 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
         let opts = RenderOptions::new()
             .with_handler(&["aa", "aasvg"], AasvgHandler::new())
             .with_handler(&["compare"], CompareHandler::new())
-            .with_handler(&["pikchr"], PikruHandler::new())
+            .with_handler(&["pikchr"], PikruHandler::with_css_variables(true))
             .with_handler(&["term"], TermHandler::new())
             .with_handler(&["mermaid"], MermaidHandler::new())
             .with_default_handler(ArboriumHandler::new())
@@ -138,6 +138,30 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
             Err(e) => MarkdownResult::Error {
                 message: e.to_string(),
             },
+        }
+    }
+
+    async fn highlight_code(
+        &self,
+        _cx: &dodeca_cell_runtime::Context,
+        lang: String,
+        code: String,
+    ) -> HighlightResult {
+        use marq::CodeBlockHandler;
+
+        let handler = ArboriumHandler::new();
+        match handler.render(&lang, &code).await {
+            Ok(output) => HighlightResult::Success { html: output.html },
+            Err(_e) => {
+                // Fallback: return escaped code in a plain code-block div
+                let escaped = html_escape(&code);
+                let escaped_lang = html_escape(&lang);
+                HighlightResult::Success {
+                    html: format!(
+                        "<div class=\"code-block\" data-lang=\"{escaped_lang}\"><pre><code>{escaped}</code></pre></div>"
+                    ),
+                }
+            }
         }
     }
 
