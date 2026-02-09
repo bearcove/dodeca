@@ -2255,4 +2255,64 @@ Third paragraph.
             doc.html
         );
     }
+
+    #[tokio::test]
+    async fn test_head_injections_collected() {
+        use crate::handlers::MermaidHandler;
+
+        let md = "```mermaid\ngraph TD\n    A-->B\n```\n";
+        let opts = RenderOptions::new().with_handler(&["mermaid"], MermaidHandler::new());
+        let doc = render(md, &opts).await.unwrap();
+
+        assert_eq!(
+            doc.head_injections.len(),
+            1,
+            "Should have exactly one head injection"
+        );
+        assert!(
+            doc.head_injections[0].contains("mermaid"),
+            "Head injection should contain mermaid script"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_head_injections_deduplicated() {
+        use crate::handlers::MermaidHandler;
+
+        let md = "```mermaid\ngraph TD\n    A-->B\n```\n\n```mermaid\ngraph LR\n    X-->Y\n```\n";
+        let opts = RenderOptions::new().with_handler(&["mermaid"], MermaidHandler::new());
+        let doc = render(md, &opts).await.unwrap();
+
+        assert_eq!(
+            doc.head_injections.len(),
+            1,
+            "Two mermaid blocks should produce only one head injection, got: {}",
+            doc.head_injections.len()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_mermaid_code_block_renders_client_side() {
+        use crate::handlers::MermaidHandler;
+
+        let md = "```mermaid\ngraph TD\n    A-->B\n```\n";
+        let opts = RenderOptions::new().with_handler(&["mermaid"], MermaidHandler::new());
+        let doc = render(md, &opts).await.unwrap();
+
+        assert!(
+            doc.html.contains("data-hotmeal-opaque=\"mermaid\""),
+            "Should have hotmeal opaque wrapper: {}",
+            doc.html
+        );
+        assert!(
+            doc.html.contains("<pre class=\"mermaid\">"),
+            "Should have pre.mermaid: {}",
+            doc.html
+        );
+        assert!(
+            doc.html.contains("A--&gt;B"),
+            "Mermaid code should be HTML-escaped: {}",
+            doc.html
+        );
+    }
 }
