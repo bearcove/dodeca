@@ -33,7 +33,7 @@ mod reqs;
 pub use frontmatter::{Frontmatter, FrontmatterFormat, parse_frontmatter, strip_frontmatter};
 pub use handler::{
     BoxedHandler, BoxedInlineCodeHandler, BoxedLinkResolver, BoxedReqHandler, CodeBlockHandler,
-    DefaultReqHandler, InlineCodeHandler, LinkResolver, ReqHandler,
+    CodeBlockOutput, DefaultReqHandler, HeadInjection, InlineCodeHandler, LinkResolver, ReqHandler,
 };
 pub use headings::{Heading, slugify};
 pub use links::resolve_link;
@@ -56,10 +56,8 @@ pub use handlers::AasvgHandler;
 #[cfg(feature = "pikru")]
 pub use handlers::PikruHandler;
 
-#[cfg(feature = "mermaid")]
-pub use handlers::MermaidHandler;
-
 // Always-available handlers
+pub use handlers::MermaidHandler;
 pub use handlers::TermHandler;
 
 /// Error type for marq operations.
