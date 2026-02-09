@@ -29,6 +29,19 @@ This page describes what’s currently implemented in dodeca (as shipped in this
 ## Diagrams
 
 - **ASCII diagrams** - render plain text diagrams as SVG using [aasvg](https://crates.io/crates/aasvg)
+- **Mermaid diagrams** - rendered client-side via mermaid.js
+
+### Mermaid Example
+
+```mermaid
+flowchart LR
+    A[Source Files] --> B[picante]
+    B --> C{Changed?}
+    C -->|Yes| D[Rebuild]
+    C -->|No| E[Cache Hit]
+    D --> F[Output]
+    E --> F
+```
 
 ## Code Sample Execution
 

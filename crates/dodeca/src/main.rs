@@ -1353,13 +1353,19 @@ pub async fn build(
 
     for output in &site_output.files {
         match output {
-            OutputFile::Html { route, content, .. } => {
+            OutputFile::Html {
+                route,
+                content,
+                head_injections,
+                ..
+            } => {
                 // Apply livereload injection with build info (no dead link checking in build mode)
                 let final_html = inject_livereload_with_build_info(
                     content,
                     render_options,
                     None,
                     &site_output.code_execution_results,
+                    head_injections,
                 )
                 .await;
                 let path = route_to_path(output_dir, route);

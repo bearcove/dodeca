@@ -1323,8 +1323,16 @@ enum CodeTarget {
 fn collect_code_targets(doc: &Document, node_id: NodeId, targets: &mut Vec<CodeTarget>) {
     if let Some(tag) = tag_name(doc, node_id) {
         if tag == "pre" {
-            targets.push(CodeTarget::Pre(node_id));
-            return; // Don't recurse into pre
+            // Only target <pre> elements that contain a <code> child (i.e. generated
+            // from fenced code blocks). Raw HTML <pre> blocks (e.g. <pre class="mermaid">)
+            // should pass through untouched — no copy button, no style injection.
+            let has_code_child = doc
+                .children(node_id)
+                .any(|child_id| is_element(doc, child_id, "code"));
+            if has_code_child {
+                targets.push(CodeTarget::Pre(node_id));
+            }
+            return; // Don't recurse into pre either way
         }
         if tag == "div"
             && let Some(class) = get_attr(doc, node_id, "class")

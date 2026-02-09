@@ -133,6 +133,7 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
                 html: doc.html, // Fully rendered, no placeholders
                 headings: doc.headings.into_iter().map(convert_heading).collect(),
                 reqs: doc.reqs.into_iter().map(convert_req).collect(),
+                head_injections: doc.head_injections,
             },
             Err(e) => MarkdownResult::Error {
                 message: e.to_string(),
@@ -165,11 +166,13 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
                 html,
                 headings,
                 reqs,
+                head_injections,
             } => ParseResult::Success {
                 frontmatter: convert_frontmatter(fm),
                 html,
                 headings,
                 reqs,
+                head_injections,
             },
             MarkdownResult::Error { message } => ParseResult::Error { message },
         }

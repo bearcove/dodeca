@@ -350,6 +350,13 @@ article pre,
     border: 1px solid var(--border);
 }
 
+article pre.mermaid {
+    background: none;
+    padding: 0;
+    border: none;
+    border-radius: 0;
+}
+
 .code-block pre {
     background: none;
     padding: 0;

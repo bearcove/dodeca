@@ -19,5 +19,4 @@ marq = { git = "https://github.com/bearcove/marq", features = [
   "aasvg",
   "highlight",
   "pikru",
-  "mermaid",
 ] }

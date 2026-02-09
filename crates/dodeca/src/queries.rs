@@ -317,13 +317,14 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
     };
 
     // Handle the enum result
-    let (frontmatter, html_output, headings_raw, reqs_raw) = match parse_result {
+    let (frontmatter, html_output, headings_raw, reqs_raw, head_injections) = match parse_result {
         ParseResult::Success {
             frontmatter,
             html,
             headings,
             reqs,
-        } => (frontmatter, html, headings, reqs),
+            head_injections,
+        } => (frontmatter, html, headings, reqs, head_injections),
         ParseResult::Error { message } => {
             return Ok(Err(MarkdownParseError { message }));
         }
@@ -369,6 +370,7 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
         is_section,
         headings,
         reqs,
+        head_injections,
         last_updated: last_modified,
         extra,
         template: frontmatter.template,
@@ -496,6 +498,7 @@ pub async fn build_tree<DB: Db>(db: &DB) -> PicanteResult<BuildTreeResult> {
                 body_html: data.body_html.clone(),
                 headings: data.headings.clone(),
                 reqs: data.reqs.clone(),
+                head_injections: data.head_injections.clone(),
                 last_updated: data.last_updated,
                 extra: data.extra.clone(),
                 template: data.template.clone(),
@@ -512,6 +515,7 @@ pub async fn build_tree<DB: Db>(db: &DB) -> PicanteResult<BuildTreeResult> {
         body_html: HtmlBody::from_static(""),
         headings: Vec::new(),
         reqs: Vec::new(),
+        head_injections: Vec::new(),
         last_updated: 0,
         extra: Value::default(),
         template: None,
@@ -530,6 +534,7 @@ pub async fn build_tree<DB: Db>(db: &DB) -> PicanteResult<BuildTreeResult> {
                 section_route,
                 headings: data.headings.clone(),
                 rules: data.reqs.clone(),
+                head_injections: data.head_injections.clone(),
                 last_updated: data.last_updated,
                 extra: data.extra.clone(),
                 template: data.template.clone(),
@@ -1164,14 +1169,15 @@ pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<Result<SiteOutput, Sit
     // This reuses the exact same pipeline as `ddc serve`, ensuring consistency
     for route in site_tree.sections.keys() {
         match serve_html(db, route.clone()).await? {
-            Ok(Some(html)) => {
+            Ok(Some(served)) => {
                 // Extract links using HTML cell (proper parser, not regex)
-                let extracted = crate::cells::extract_links_from_html(html.clone())
+                let extracted = crate::cells::extract_links_from_html(served.html.clone())
                     .await
                     .unwrap_or_default();
                 files.push(OutputFile::Html {
                     route: route.clone(),
-                    content: html,
+                    content: served.html,
+                    head_injections: served.head_injections,
                     hrefs: extracted.hrefs,
                     element_ids: extracted.element_ids,
                 });
@@ -1183,14 +1189,15 @@ pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<Result<SiteOutput, Sit
 
     for route in site_tree.pages.keys() {
         match serve_html(db, route.clone()).await? {
-            Ok(Some(html)) => {
+            Ok(Some(served)) => {
                 // Extract links using HTML cell (proper parser, not regex)
-                let extracted = crate::cells::extract_links_from_html(html.clone())
+                let extracted = crate::cells::extract_links_from_html(served.html.clone())
                     .await
                     .unwrap_or_default();
                 files.push(OutputFile::Html {
                     route: route.clone(),
-                    content: html,
+                    content: served.html,
+                    head_injections: served.head_injections,
                     hrefs: extracted.hrefs,
                     element_ids: extracted.element_ids,
                 });
@@ -1655,7 +1662,7 @@ pub async fn static_url_map<DB: Db>(db: &DB) -> PicanteResult<HashMap<String, St
 pub async fn serve_html<DB: Db>(
     db: &DB,
     route: Route,
-) -> PicanteResult<Result<Option<String>, SiteError>> {
+) -> PicanteResult<Result<Option<crate::db::ServedHtml>, SiteError>> {
     tracing::debug!(route = %route.as_str(), "serve_html: rendering");
     use crate::url_rewrite::ResponsiveImageInfo;
 
@@ -1664,12 +1671,14 @@ pub async fn serve_html<DB: Db>(
         Err(errors) => return Ok(Err(BuildError { errors }.into())),
     };
 
-    // Check if route exists in site tree
-    let route_exists =
-        site_tree.sections.contains_key(&route) || site_tree.pages.contains_key(&route);
-    if !route_exists {
+    // Check if route exists in site tree and collect head_injections
+    let head_injections = if let Some(section) = site_tree.sections.get(&route) {
+        section.head_injections.clone()
+    } else if let Some(page) = site_tree.pages.get(&route) {
+        page.head_injections.clone()
+    } else {
         return Ok(Ok(None));
-    }
+    };
 
     // Get the raw HTML for this route
     let all_html = match all_rendered_html(db).await? {
@@ -1831,7 +1840,10 @@ pub async fn serve_html<DB: Db>(
         );
     }
 
-    Ok(Ok(Some(final_html)))
+    Ok(Ok(Some(crate::db::ServedHtml {
+        html: final_html,
+        head_injections,
+    })))
 }
 
 /// Check if a path is a font file

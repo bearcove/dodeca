@@ -108,6 +108,8 @@ pub enum MarkdownResult {
         headings: Vec<Heading>,
         /// Requirement definitions for specification traceability
         reqs: Vec<ReqDefinition>,
+        /// HTML snippets to inject into the page's `<head>` (deduplicated by key)
+        head_injections: Vec<String>,
     },
     /// Error during rendering
     Error { message: String },
@@ -138,6 +140,8 @@ pub enum ParseResult {
         headings: Vec<Heading>,
         /// Requirement definitions for specification traceability
         reqs: Vec<ReqDefinition>,
+        /// HTML snippets to inject into the page's `<head>` (deduplicated by key)
+        head_injections: Vec<String>,
     },
     /// Error during parsing
     Error { message: String },

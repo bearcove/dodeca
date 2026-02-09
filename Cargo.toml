@@ -62,6 +62,7 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
 # Serialization - Facet ecosystem (git)
 # Do NOT change those to path dependencies, use the patch blocks below.
 hotmeal = { git = "https://github.com/bearcove/hotmeal", branch = "main" }
+hotmeal-server = { git = "https://github.com/bearcove/hotmeal", branch = "main", features = ["tracing"] }
 hotmeal-wasm = { git = "https://github.com/bearcove/hotmeal", branch = "main" }
 
 facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
@@ -187,7 +188,6 @@ facet-toml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 pikru = { git = "https://github.com/bearcove/pikru", branch = "main" }
-dagre_rust = { git = "https://github.com/bearcove/dagre-rust", branch = "main" }
 
 # Uncomment to use local facet for development
 # [patch.crates-io]
@@ -219,7 +219,11 @@ dagre_rust = { git = "https://github.com/bearcove/dagre-rust", branch = "main" }
 # [patch."https://github.com/bearcove/hotmeal"]
 # cinereus = { path = "../hotmeal/cinereus" }
 # hotmeal = { path = "../hotmeal/hotmeal" }
+# hotmeal-server = { path = "../hotmeal/hotmeal-server" }
 # hotmeal-wasm = { path = "../hotmeal/hotmeal-wasm" }
+
+# [patch."https://github.com/bearcove/marq"]
+# marq = { path = "../marq" }
 
 # [patch."https://github.com/facet-rs/facet-xml"]
 # facet-dom = { path = "../facet-xml/facet-dom" }

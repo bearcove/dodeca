@@ -23,7 +23,7 @@ use cell_host_proto::{
     CallFunctionResult, CommandResult, HostService, KeysAtResult, LoadTemplateResult, ReadyAck,
     ReadyMsg, ResolveDataResult, ServeContent, ServerCommand, Value,
 };
-use cell_html_diff_proto::{DiffInput, DiffOutcome, HtmlDifferClient};
+use cell_html_diff_proto::HtmlDifferClient;
 use cell_html_proto::HtmlProcessorClient;
 use cell_http_proto::{ScopeEntry, TcpTunnelClient};
 use cell_image_proto::{ImageProcessorClient, ImageResult, ResizeInput, ThumbhashInput};
@@ -913,16 +913,6 @@ pub async fn subset_font(input: SubsetFontInput) -> Result<FontResult, eyre::Err
         .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
 }
 
-pub async fn diff_html(input: DiffInput) -> Result<DiffOutcome, eyre::Error> {
-    let client = html_diff_cell()
-        .await
-        .ok_or_else(|| eyre::eyre!("HTML diff cell not available"))?;
-    client
-        .diff_html(input)
-        .await
-        .map_err(|e| eyre::eyre!("diff_html error: {:?}", e))
-}
-
 pub async fn execute_code_samples(
     input: ExecuteSamplesInput,
 ) -> Result<CodeExecutionResult, eyre::Error> {
@@ -1054,10 +1044,6 @@ pub async fn eval_expression_cell(
         .await
         .map_err(|e| eyre::eyre!("RPC call error: {:?}", e))?;
     Ok(result)
-}
-
-pub async fn diff_html_cell(input: DiffInput) -> Result<DiffOutcome, eyre::Error> {
-    diff_html(input).await
 }
 
 pub async fn minify_html_cell(input: String) -> Result<MinifyResult, eyre::Error> {
