@@ -7,8 +7,9 @@
 pub const PICANTE_CACHE_VERSION: u32 = 4;
 
 use eyre::Result;
+use hotmeal_server::LiveReloadServer;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use tokio::sync::{broadcast, watch};
 
 use crate::db::{
@@ -202,8 +203,8 @@ pub struct SiteServer {
     pub livereload_tx: broadcast::Sender<LiveReloadMsg>,
     /// Render options (dev mode, etc.)
     pub render_options: RenderOptions,
-    /// Cached HTML for each route (for computing patches)
-    html_cache: RwLock<HashMap<String, String>>,
+    /// Live reload server: caches HTML + head injections per route, computes patches
+    live_reload: Mutex<LiveReloadServer>,
     /// Cached CSS path (cache-busted) for detecting CSS-only changes
     css_cache: RwLock<Option<String>>,
     /// Asset paths that should be served at original paths (no cache-busting)
@@ -250,7 +251,7 @@ impl SiteServer {
             db: Arc::new(db),
             livereload_tx,
             render_options,
-            html_cache: RwLock::new(HashMap::new()),
+            live_reload: Mutex::new(LiveReloadServer::new()),
             css_cache: RwLock::new(None),
             stable_assets,
             current_errors: RwLock::new(HashMap::new()),

@@ -426,15 +426,16 @@ pub async fn inject_livereload(
     options: RenderOptions,
     known_routes: Option<&HashSet<String>>,
 ) -> String {
-    inject_livereload_with_build_info(html, options, known_routes, &[]).await
+    inject_livereload_with_build_info(html, options, known_routes, &[], &[]).await
 }
 
-/// Inject livereload script, copy buttons, build info, and optionally mark dead links
+/// Inject livereload script, copy buttons, build info, head injections, and optionally mark dead links
 pub async fn inject_livereload_with_build_info(
     html: &str,
     options: RenderOptions,
     known_routes: Option<&HashSet<String>>,
     code_execution_results: &[CodeExecutionResult],
+    head_injections: &[String],
 ) -> String {
     let mut result = html.to_string();
     let mut has_dead_links = false;
@@ -463,10 +464,11 @@ pub async fn inject_livereload_with_build_info(
     let config = crate::config::global_config().expect("Config not initialized");
     let syntax_css = generate_syntax_highlight_css(&config.light_theme_css, &config.dark_theme_css);
     let term_css = format!("<style>\n{}</style>", cell_term_proto::generate_css());
+    let head_injection_html = head_injections.join("");
     let scripts_to_inject = format!(
-        "{syntax_css}{term_css}{COPY_BUTTON_STYLES}{COPY_BUTTON_SCRIPT}{build_info_assets}"
+        "{syntax_css}{term_css}{COPY_BUTTON_STYLES}{COPY_BUTTON_SCRIPT}{build_info_assets}{head_injection_html}"
     );
-    result = inject_into_head(&result, &scripts_to_inject);
+    result = hotmeal_server::inject_into_head(&result, &scripts_to_inject);
 
     if options.livereload {
         // Only inject dead link styles if there are actually dead links
@@ -496,27 +498,10 @@ pub async fn inject_livereload_with_build_info(
 </script>"##
         );
         // Inject styles and script into <head>
-        inject_into_head(&result, &format!("{styles}{devtools_script}"))
+        hotmeal_server::inject_into_head(&result, &format!("{styles}{devtools_script}"))
     } else {
         result
     }
-}
-
-/// Inject content after the opening `<head>` tag.
-/// Handles both `<head>` and `<head ...>` with attributes.
-fn inject_into_head(html: &str, content: &str) -> String {
-    let lower = html.to_lowercase();
-    if let Some(head_start) = lower.find("<head") {
-        // Find the closing > of the <head> tag
-        if let Some(rel_end) = lower[head_start..].find('>') {
-            let insert_pos = head_start + rel_end + 1;
-            let mut result = html.to_string();
-            result.insert_str(insert_pos, content);
-            return result;
-        }
-    }
-    // Fallback: prepend (shouldn't happen with valid HTML)
-    format!("{content}{html}")
 }
 
 // ============================================================================

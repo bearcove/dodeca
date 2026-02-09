@@ -169,6 +169,8 @@ pub struct Section {
     pub headings: Vec<Heading>,
     /// Requirement definitions for specification traceability
     pub reqs: Vec<ReqDefinition>,
+    /// HTML snippets to inject into the page's `<head>` (e.g., Mermaid.js CDN script)
+    pub head_injections: Vec<String>,
     /// Last modification time as Unix timestamp (seconds since epoch)
     pub last_updated: i64,
     /// Custom fields from the `[extra]` table in frontmatter
@@ -189,6 +191,8 @@ pub struct Page {
     pub headings: Vec<Heading>,
     /// Rule definitions for specification traceability
     pub rules: Vec<ReqDefinition>,
+    /// HTML snippets to inject into the page's `<head>` (e.g., Mermaid.js CDN script)
+    pub head_injections: Vec<String>,
     /// Last modification time as Unix timestamp (seconds since epoch)
     pub last_updated: i64,
     /// Custom fields from the `[extra]` table in frontmatter
@@ -207,6 +211,13 @@ pub struct SiteTree {
 /// Rendered HTML output for a page or section
 #[derive(Debug, Clone, PartialEq, Eq, Hash, facet::Facet)]
 pub struct RenderedHtml(pub String);
+
+/// Output of serve_html: rendered HTML + head injections
+#[derive(Debug, Clone, PartialEq, Eq, Hash, facet::Facet)]
+pub struct ServedHtml {
+    pub html: String,
+    pub head_injections: Vec<String>,
+}
 
 /// Output of parsing: contains all the data needed for tree building
 #[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
@@ -229,6 +240,8 @@ pub struct ParsedData {
     pub headings: Vec<Heading>,
     /// Rule definitions for specification traceability
     pub reqs: Vec<ReqDefinition>,
+    /// HTML snippets to inject into the page's `<head>` (e.g., Mermaid.js CDN script)
+    pub head_injections: Vec<String>,
     /// Last modification time as Unix timestamp (seconds since epoch)
     pub last_updated: i64,
     /// Custom fields from the `[extra]` table in frontmatter
