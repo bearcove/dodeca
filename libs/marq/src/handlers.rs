@@ -308,15 +308,17 @@ function mermaidTheme() {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default';
 }
 
-async function reinitMermaid() {
+async function renderMermaidNode(pre) {
+  pre.removeAttribute('data-processed');
+  pre.innerHTML = pre.dataset.mermaidSource;
   mermaid.initialize({ startOnLoad: false, theme: mermaidTheme() });
+  await mermaid.run({ nodes: [pre] });
+}
+
+async function reinitAllMermaid() {
   const nodes = document.querySelectorAll('pre.mermaid');
   for (const pre of nodes) {
-    pre.removeAttribute('data-processed');
-    pre.innerHTML = pre.dataset.mermaidSource ?? pre.innerHTML;
-  }
-  if (nodes.length > 0) {
-    await mermaid.run({ nodes: [...nodes] });
+    await renderMermaidNode(pre);
   }
 }
 
@@ -327,17 +329,22 @@ for (const pre of document.querySelectorAll('pre.mermaid')) {
 
 mermaid.initialize({ startOnLoad: true, theme: mermaidTheme() });
 
-window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', reinitMermaid);
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', reinitAllMermaid);
 
 document.addEventListener('hotmeal:opaque-changed', async (e) => {
-  if (e.detail?.key === 'mermaid') {
-    const el = e.detail.element;
-    const pre = el.querySelector('pre.mermaid');
-    if (pre) {
-      pre.dataset.mermaidSource = pre.innerHTML;
-      pre.removeAttribute('data-processed');
-      await mermaid.run({ nodes: [pre] });
-    }
+  if (e.detail?.key !== 'mermaid') return;
+  const el = e.detail.element;
+  if (!el) return;
+
+  // The opaque patch gives us new HTML content — apply it to the DOM
+  if (e.detail.content) {
+    el.innerHTML = e.detail.content;
+  }
+
+  const pre = el.querySelector('pre.mermaid');
+  if (pre) {
+    pre.dataset.mermaidSource = pre.textContent;
+    await renderMermaidNode(pre);
   }
 });
 </script>"#;
