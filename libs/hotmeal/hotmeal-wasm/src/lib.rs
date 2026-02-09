@@ -650,6 +650,12 @@ fn apply_patch(
                 &JsValue::from_str("content"),
                 &JsValue::from_str(content),
             )?;
+            // Include the opaque key from data-hotmeal-opaque attribute
+            if let Some(key) = el.get_attribute("data-hotmeal-opaque") {
+                js_sys::Reflect::set(&detail, &JsValue::from_str("key"), &JsValue::from_str(&key))?;
+            }
+            // Include the element itself so listeners don't have to rely on e.target
+            js_sys::Reflect::set(&detail, &JsValue::from_str("element"), &el)?;
             let init = web_sys::CustomEventInit::new();
             init.set_bubbles(true);
             init.set_detail(&detail);
