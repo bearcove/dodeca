@@ -1,16 +1,19 @@
 //! Built-in code block handlers.
 //!
-//! These handlers are available when their respective feature flags are enabled:
+//! Some handlers are available when their respective feature flags are enabled:
 //! - `highlight` - Syntax highlighting via arborium
 //! - `aasvg` - ASCII art to SVG conversion
 //! - `pikru` - Pikchr diagram rendering
-//! - `mermaid` - Mermaid diagram rendering
+//!
+//! The following handlers are always available:
+//! - `TermHandler` - Terminal output passthrough
+//! - `MermaidHandler` - Client-side Mermaid.js diagrams
 
 use std::future::Future;
 use std::pin::Pin;
 
 use crate::Result;
-use crate::handler::CodeBlockHandler;
+use crate::handler::{CodeBlockHandler, CodeBlockOutput};
 
 /// Syntax highlighting handler using arborium.
 ///
@@ -63,7 +66,7 @@ impl CodeBlockHandler for ArboriumHandler {
         &'a self,
         language: &'a str,
         code: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<String>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<CodeBlockOutput>> + Send + 'a>> {
         Box::pin(async move {
             use crate::handler::html_escape;
 
@@ -72,7 +75,8 @@ impl CodeBlockHandler for ArboriumHandler {
                 let escaped = html_escape(code);
                 return Ok(format!(
                     "<div class=\"code-block\"><pre><code>{escaped}</code></pre></div>"
-                ));
+                )
+                .into());
             }
 
             // Map common language aliases to arborium language names
@@ -101,11 +105,13 @@ impl CodeBlockHandler for ArboriumHandler {
             if self.show_language_header {
                 Ok(format!(
                     "<div class=\"code-block\" data-lang=\"{escaped_lang}\"><div class=\"code-header\">{escaped_lang}</div><pre><code class=\"language-{escaped_lang}\">{highlighted_code}</code></pre></div>"
-                ))
+                )
+                .into())
             } else {
                 Ok(format!(
                     "<div class=\"code-block\" data-lang=\"{escaped_lang}\"><pre><code class=\"language-{escaped_lang}\">{highlighted_code}</code></pre></div>"
-                ))
+                )
+                .into())
             }
         })
     }
@@ -136,14 +142,15 @@ impl CodeBlockHandler for TermHandler {
         &'a self,
         _language: &'a str,
         code: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<String>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<CodeBlockOutput>> + Send + 'a>> {
         Box::pin(async move {
             // Pass through the HTML without escaping - it's already valid HTML
             // from the terminal renderer (contains <t-b>, <t-f>, etc. elements)
             Ok(format!(
                 "<div class=\"code-block term-output\"><pre><code>{}</code></pre></div>",
                 code
-            ))
+            )
+            .into())
         })
     }
 }
@@ -175,10 +182,10 @@ impl CodeBlockHandler for AasvgHandler {
         &'a self,
         _language: &'a str,
         code: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<String>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<CodeBlockOutput>> + Send + 'a>> {
         Box::pin(async move {
             let svg = aasvg::render(code);
-            Ok(svg)
+            Ok(svg.into())
         })
     }
 }
@@ -220,7 +227,7 @@ impl CodeBlockHandler for PikruHandler {
         &'a self,
         _language: &'a str,
         code: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<String>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<CodeBlockOutput>> + Send + 'a>> {
         Box::pin(async move {
             // Parse the pikchr source
             let program = match pikru::parse::parse(code) {
@@ -249,7 +256,7 @@ impl CodeBlockHandler for PikruHandler {
                 css_variables: self.css_variables,
             };
             match pikru::render::render_with_options(&program, &options) {
-                Ok(svg) => Ok(svg),
+                Ok(svg) => Ok(svg.into()),
                 Err(e) => Err(crate::Error::CodeBlockHandler {
                     language: "pik".to_string(),
                     message: format!("render error: {}", e),
@@ -261,13 +268,12 @@ impl CodeBlockHandler for PikruHandler {
 
 /// Mermaid diagram handler.
 ///
-/// Renders Mermaid diagrams to SVG using mermaid-rs-renderer.
-///
-/// Requires the `mermaid` feature.
-#[cfg(feature = "mermaid")]
+/// Emits a `<pre class="mermaid">` block for client-side rendering by
+/// Mermaid.js, wrapped in `data-hotmeal-opaque` for live-reload compatibility.
+/// Includes a head injection that loads Mermaid.js from CDN and listens for
+/// `hotmeal:opaque-changed` events to re-render after live-reload patches.
 pub struct MermaidHandler;
 
-#[cfg(feature = "mermaid")]
 impl MermaidHandler {
     /// Create a new MermaidHandler.
     pub fn new() -> Self {
@@ -275,24 +281,47 @@ impl MermaidHandler {
     }
 }
 
-#[cfg(feature = "mermaid")]
 impl Default for MermaidHandler {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[cfg(feature = "mermaid")]
 impl CodeBlockHandler for MermaidHandler {
     fn render<'a>(
         &'a self,
         _language: &'a str,
         code: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<String>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<CodeBlockOutput>> + Send + 'a>> {
         Box::pin(async move {
-            mermaid_rs_renderer::render(code).map_err(|e| crate::Error::CodeBlockHandler {
-                language: "mermaid".to_string(),
-                message: e.to_string(),
+            use crate::handler::{HeadInjection, html_escape};
+
+            let escaped = html_escape(code);
+            let html = format!(
+                "<div data-hotmeal-opaque=\"mermaid\"><pre class=\"mermaid\">{escaped}</pre></div>"
+            );
+
+            let script = r#"<script type="module">
+import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+mermaid.initialize({ startOnLoad: true });
+document.addEventListener('hotmeal:opaque-changed', async (e) => {
+  if (e.detail?.key === 'mermaid') {
+    const el = e.detail.element;
+    const pre = el.querySelector('pre.mermaid');
+    if (pre) {
+      pre.removeAttribute('data-processed');
+      await mermaid.run({ nodes: [pre] });
+    }
+  }
+});
+</script>"#;
+
+            Ok(CodeBlockOutput {
+                html,
+                head_injections: vec![HeadInjection {
+                    key: "mermaid".to_string(),
+                    html: script.to_string(),
+                }],
             })
         })
     }
@@ -427,7 +456,7 @@ impl CodeBlockHandler for CompareHandler {
         &'a self,
         _language: &'a str,
         code: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<String>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<CodeBlockOutput>> + Send + 'a>> {
         Box::pin(async move {
             use crate::handler::html_escape;
 
@@ -438,7 +467,8 @@ impl CodeBlockHandler for CompareHandler {
                 let escaped = html_escape(code);
                 return Ok(format!(
                     "<div class=\"code-block\"><pre><code>{escaped}</code></pre></div>"
-                ));
+                )
+                .into());
             }
 
             let mut html = String::new();
@@ -462,7 +492,7 @@ impl CodeBlockHandler for CompareHandler {
 
             html.push_str("</div>");
 
-            Ok(html)
+            Ok(html.into())
         })
     }
 }
@@ -557,13 +587,14 @@ format = "toml""#;
 /// yaml
 key: value"#;
 
-            let result = handler.render("compare", code).await.unwrap();
+            let output = handler.render("compare", code).await.unwrap();
 
-            assert!(result.contains(r#"class="compare-container""#));
-            assert!(result.contains(r#"class="compare-section""#));
-            assert!(result.contains(r#"class="compare-header""#));
-            assert!(result.contains("json"));
-            assert!(result.contains("yaml"));
+            assert!(output.html.contains(r#"class="compare-container""#));
+            assert!(output.html.contains(r#"class="compare-section""#));
+            assert!(output.html.contains(r#"class="compare-header""#));
+            assert!(output.html.contains("json"));
+            assert!(output.html.contains("yaml"));
+            assert!(output.head_injections.is_empty());
         }
 
         #[tokio::test]
@@ -571,11 +602,49 @@ key: value"#;
             let handler = CompareHandler::new();
             let code = "no valid sections";
 
-            let result = handler.render("compare", code).await.unwrap();
+            let output = handler.render("compare", code).await.unwrap();
 
             // Should fall back to plain text rendering
-            assert!(result.contains("<div class=\"code-block\"><pre><code>"));
-            assert!(result.contains("no valid sections"));
+            assert!(
+                output
+                    .html
+                    .contains("<div class=\"code-block\"><pre><code>")
+            );
+            assert!(output.html.contains("no valid sections"));
+        }
+    }
+
+    mod mermaid_handler_tests {
+        use super::*;
+
+        #[tokio::test]
+        async fn test_mermaid_handler_output() {
+            let handler = MermaidHandler::new();
+            let code = "graph TD\n    A-->B";
+            let output = handler.render("mermaid", code).await.unwrap();
+
+            // Wrapped in data-hotmeal-opaque
+            assert!(
+                output.html.contains("data-hotmeal-opaque=\"mermaid\""),
+                "Should have hotmeal opaque wrapper: {}",
+                output.html
+            );
+            // Contains pre.mermaid
+            assert!(
+                output.html.contains("<pre class=\"mermaid\">"),
+                "Should have pre.mermaid: {}",
+                output.html
+            );
+            // Code is HTML-escaped
+            assert!(
+                output.html.contains("A--&gt;B"),
+                "Code should be HTML-escaped: {}",
+                output.html
+            );
+            // Head injection present
+            assert_eq!(output.head_injections.len(), 1);
+            assert_eq!(output.head_injections[0].key, "mermaid");
+            assert!(output.head_injections[0].html.contains("mermaid"));
         }
     }
 }

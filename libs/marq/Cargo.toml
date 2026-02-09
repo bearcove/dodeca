@@ -19,10 +19,8 @@ highlight = ["dep:arborium"]
 aasvg = ["dep:aasvg"]
 # Pikchr diagram rendering
 pikru = ["dep:pikru"]
-# Mermaid.rs diagram rendering
-mermaid = ["dep:mermaid-rs-renderer"]
 # All handlers
-all-handlers = ["highlight", "aasvg", "pikru", "mermaid"]
+all-handlers = ["highlight", "aasvg", "pikru"]
 
 # Default set of languages (enabled by default)
 default-langs = [
@@ -160,7 +158,6 @@ regex.workspace = true
 arborium = { workspace = true, optional = true }
 aasvg = { workspace = true, optional = true }
 pikru = { workspace = true, optional = true }
-mermaid-rs-renderer = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "macros"] }
@@ -176,9 +173,6 @@ facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 
 # Markdown
 pulldown-cmark = "0.13"
-
-# Mermaid
-mermaid-rs-renderer = "0.1"
 
 # Error handling
 thiserror = "2.0"
@@ -223,6 +217,3 @@ facet-toml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 pikru = { git = "https://github.com/bearcove/pikru", branch = "main" }
-
-# Mermaid's haunted
-dagre_rust = { git = "https://github.com/bearcove/dagre-rust", branch = "main" }

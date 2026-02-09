@@ -10,6 +10,38 @@ use std::sync::Arc;
 use crate::Result;
 use crate::reqs::ReqDefinition;
 
+/// An HTML snippet to inject into the page's `<head>` (or body end).
+///
+/// Multiple handlers can request injections; they are deduplicated by `key`
+/// so that e.g. the Mermaid.js loader script is only included once even if
+/// multiple mermaid code blocks appear in a document.
+pub struct HeadInjection {
+    /// Unique key for deduplication (e.g., "mermaid").
+    pub key: String,
+    /// HTML to inject (e.g., a `<script>` or `<link>` tag).
+    pub html: String,
+}
+
+/// The output of a code block handler.
+///
+/// Contains the rendered HTML that replaces the code block, plus optional
+/// [`HeadInjection`]s that the caller should include in the page.
+pub struct CodeBlockOutput {
+    /// HTML where the code block appeared.
+    pub html: String,
+    /// Additional page resources (scripts, stylesheets, etc.).
+    pub head_injections: Vec<HeadInjection>,
+}
+
+impl From<String> for CodeBlockOutput {
+    fn from(html: String) -> Self {
+        Self {
+            html,
+            head_injections: vec![],
+        }
+    }
+}
+
 /// A handler for rendering code blocks.
 ///
 /// Implementations can provide syntax highlighting, diagram rendering,
@@ -22,12 +54,13 @@ pub trait CodeBlockHandler: Send + Sync {
     /// * `code` - The raw code content
     ///
     /// # Returns
-    /// The rendered HTML string, or an error if rendering fails.
+    /// A [`CodeBlockOutput`] containing the rendered HTML and any head injections,
+    /// or an error if rendering fails.
     fn render<'a>(
         &'a self,
         language: &'a str,
         code: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<String>> + Send + 'a>>;
+    ) -> Pin<Box<dyn Future<Output = Result<CodeBlockOutput>> + Send + 'a>>;
 }
 
 /// Type alias for a boxed code block handler.
@@ -147,7 +180,7 @@ impl CodeBlockHandler for RawCodeHandler {
         &'a self,
         language: &'a str,
         code: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<String>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<CodeBlockOutput>> + Send + 'a>> {
         Box::pin(async move {
             let escaped = html_escape(code);
             let lang_class = if language.is_empty() {
@@ -158,7 +191,8 @@ impl CodeBlockHandler for RawCodeHandler {
             Ok(format!(
                 "<div class=\"code-block\"><pre><code{}>{}</code></pre></div>",
                 lang_class, escaped
-            ))
+            )
+            .into())
         })
     }
 }
@@ -194,17 +228,19 @@ mod tests {
     #[tokio::test]
     async fn test_raw_code_handler() {
         let handler = RawCodeHandler;
-        let result = handler.render("rust", "fn main() {}").await.unwrap();
+        let output = handler.render("rust", "fn main() {}").await.unwrap();
         assert_eq!(
-            result,
+            output.html,
             "<div class=\"code-block\"><pre><code class=\"language-rust\">fn main() {}</code></pre></div>"
         );
+        assert!(output.head_injections.is_empty());
     }
 
     #[tokio::test]
     async fn test_raw_code_handler_escapes_html() {
         let handler = RawCodeHandler;
-        let result = handler.render("html", "<div>test</div>").await.unwrap();
-        assert!(result.contains("&lt;div&gt;"));
+        let output = handler.render("html", "<div>test</div>").await.unwrap();
+        assert!(output.html.contains("&lt;div&gt;"));
+        assert!(output.head_injections.is_empty());
     }
 }

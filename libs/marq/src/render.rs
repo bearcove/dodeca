@@ -1,6 +1,6 @@
 //! Main rendering pipeline.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -10,7 +10,7 @@ use crate::Result;
 use crate::frontmatter::{Frontmatter, FrontmatterFormat};
 use crate::handler::{
     BoxedHandler, BoxedInlineCodeHandler, BoxedLinkResolver, BoxedReqHandler, CodeBlockHandler,
-    DefaultReqHandler, InlineCodeHandler, RawCodeHandler, ReqHandler, html_escape,
+    CodeBlockOutput, DefaultReqHandler, InlineCodeHandler, RawCodeHandler, ReqHandler, html_escape,
 };
 use crate::headings::{Heading, slugify};
 use crate::links::resolve_link;
@@ -241,6 +241,10 @@ pub struct Document {
     /// All document elements (headings and requirements) in document order.
     /// Useful for building hierarchical structures like outlines with coverage.
     pub elements: Vec<DocElement>,
+
+    /// HTML snippets to inject into the page's `<head>` (or body end).
+    /// Already deduplicated by key during rendering.
+    pub head_injections: Vec<String>,
 }
 
 /// Convert a byte offset to a 1-indexed line number.
@@ -284,6 +288,7 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
     let mut reqs: Vec<ReqDefinition> = Vec::new();
     let mut elements: Vec<DocElement> = Vec::new();
     let mut code_samples: Vec<CodeSample> = Vec::new();
+    let mut head_injection_map: BTreeMap<String, String> = BTreeMap::new();
 
     // Output HTML - built directly as we process
     let mut html = String::new();
@@ -630,8 +635,14 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                     // a newline before the closing ``` fence, which would otherwise
                     // render as extra whitespace inside the <code> element.
                     let code_trimmed = code.trim_end_matches('\n');
-                    let rendered = handler.render(&base_language, code_trimmed).await?;
+                    let CodeBlockOutput {
+                        html: rendered,
+                        head_injections,
+                    } = handler.render(&base_language, code_trimmed).await?;
                     html.push_str(&rendered);
+                    for inj in head_injections {
+                        head_injection_map.entry(inj.key).or_insert(inj.html);
+                    }
 
                     code_samples.push(CodeSample {
                         line,
@@ -775,6 +786,7 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
         reqs,
         code_samples,
         elements,
+        head_injections: head_injection_map.into_values().collect(),
     })
 }
 
@@ -1060,8 +1072,10 @@ async fn render_blockquote_req_content(
                     .unwrap_or(default_code_handler);
                 // Strip trailing newline from code
                 let code_trimmed = code_block_content.trim_end_matches('\n');
-                let rendered = handler.render(&code_block_lang, code_trimmed).await?;
-                html.push_str(&rendered);
+                let output = handler.render(&code_block_lang, code_trimmed).await?;
+                // Head injections from blockquote code blocks are discarded here;
+                // the top-level render() call is responsible for collecting them.
+                html.push_str(&output.html);
             }
             Event::Text(t) if in_code_block => {
                 code_block_content.push_str(t);
