@@ -328,7 +328,6 @@ article a:hover {
 article img {
     max-width: 100%;
     height: auto;
-    border-radius: 8px;
     margin: 1rem 0;
 }
 
@@ -565,4 +564,198 @@ pre,
 }
 .code-block .copy-btn.copied {
     background: rgba(50, 160, 50, 0.9);
+}
+
+/* ============================================
+   Landing Page — Feature Rows
+   ============================================ */
+.home .features {
+    border-bottom: 1px solid var(--border);
+}
+
+.feature-row {
+    display: flex;
+    gap: 3rem;
+    align-items: center;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 4rem 2rem;
+}
+
+.feature-row:not(:last-child) {
+    border-bottom: 1px solid var(--border);
+}
+
+.feature-row:nth-child(even) {
+    flex-direction: row-reverse;
+}
+
+.feature-text {
+    flex: 1;
+}
+
+.feature-text h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    color: var(--fg);
+}
+
+.feature-text p {
+    font-size: 0.95rem;
+    color: var(--fg-muted);
+    line-height: 1.6;
+    margin: 0;
+}
+
+.feature-text a {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+.feature-text a:hover {
+    text-decoration: underline;
+}
+
+.feature-text code {
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    background: var(--code-bg);
+    padding: 0.15em 0.35em;
+    border-radius: 3px;
+}
+
+.feature-visual {
+    flex: 1;
+    min-width: 0;
+}
+
+.feature-code {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem 1.25rem;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    line-height: 1.5;
+    overflow-x: auto;
+    margin: 0;
+    color: var(--fg);
+}
+
+.feature-code code {
+    font-family: inherit;
+    font-size: inherit;
+    background: none;
+    padding: 0;
+}
+
+.feature-image {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+}
+
+.feature-video {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+}
+
+/* Code blocks inside feature visuals — compact sizing */
+.feature-visual .code-block {
+    margin: 0;
+}
+
+.feature-visual .code-block .code-header {
+    font-size: 0.7rem;
+    padding: 0.3rem 1rem;
+}
+
+.feature-visual .code-block pre {
+    padding: 0.75rem 1rem;
+}
+
+.feature-visual .code-block pre code {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    line-height: 1.5;
+}
+
+.feature-placeholder {
+    background: var(--code-bg);
+    border: 1px dashed var(--border);
+    border-radius: 6px;
+    padding: 3rem 1.5rem;
+    text-align: center;
+    color: var(--fg-muted);
+    font-size: 0.9rem;
+}
+
+/* ============================================
+   Landing Page — Ecosystem
+   ============================================ */
+.home .ecosystem {
+    padding: 2.5rem 2rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.ecosystem-inner {
+    max-width: 700px;
+    margin: 0 auto;
+    text-align: center;
+}
+
+.ecosystem-inner p {
+    font-size: 0.9rem;
+    color: var(--fg-muted);
+    line-height: 1.8;
+    margin: 0;
+}
+
+.ecosystem-inner a {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+.ecosystem-inner a:hover {
+    text-decoration: underline;
+}
+
+/* ============================================
+   Landing Page — Bottom CTA
+   ============================================ */
+.home .bottom-cta {
+    padding: 4rem 2rem;
+}
+
+.bottom-cta-inner {
+    max-width: 500px;
+    margin: 0 auto;
+    text-align: center;
+}
+
+.bottom-cta-inner h2 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    color: var(--fg);
+}
+
+.bottom-cta-inner p {
+    font-size: 1rem;
+    color: var(--fg-muted);
+    margin-bottom: 1.5rem;
+}
+
+/* ============================================
+   Landing Page — Responsive
+   ============================================ */
+@media (max-width: 768px) {
+    .feature-row,
+    .feature-row:nth-child(even) {
+        flex-direction: column;
+        gap: 1.5rem;
+        padding: 3rem 1.5rem;
+    }
 }

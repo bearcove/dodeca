@@ -642,6 +642,41 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
                 Node::Macro(_macro_def) => {
                     // Macro definitions are collected by collect_macros before rendering
                 }
+                Node::CallBlock(call_block) => {
+                    // Evaluate kwargs to concrete values
+                    let eval = Evaluator::new(&self.ctx, &self.source);
+                    let mut kwargs = Vec::with_capacity(call_block.kwargs.len());
+                    for (ident, expr) in &call_block.kwargs {
+                        let value = eval.eval_concrete(expr).await?;
+                        kwargs.push((ident.name.clone(), value));
+                    }
+
+                    // Add the raw content as the "body" kwarg
+                    kwargs.push((
+                        "body".to_string(),
+                        Value::from(call_block.raw_content.as_str()),
+                    ));
+
+                    // Call the registered function
+                    let result = self
+                        .ctx
+                        .call_fn(&call_block.func_name.name, &[], &kwargs)
+                        .ok_or_else(|| {
+                            TemplateError::GlobalFn(format!(
+                                "Unknown function: {}",
+                                call_block.func_name.name
+                            ))
+                        })?
+                        .await
+                        .map_err(|e| TemplateError::GlobalFn(e.to_string()))?;
+
+                    // Output as safe HTML (function returns ready-to-use HTML)
+                    let s = match result.destructure_ref() {
+                        DestructuredRef::String(s) => s.to_string(),
+                        _ => format!("{result:?}"),
+                    };
+                    self.output.push_str(&s);
+                }
                 Node::Continue(_) => {
                     return Ok(LoopControl::Continue);
                 }

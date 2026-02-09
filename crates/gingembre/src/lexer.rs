@@ -57,6 +57,8 @@ pub enum TokenKind {
     Set,
     Continue,
     Break,
+    Call,
+    Endcall,
 
     // Delimiters
     ExprOpen,     // {{
@@ -131,6 +133,8 @@ impl TokenKind {
             "set" => TokenKind::Set,
             "continue" => TokenKind::Continue,
             "break" => TokenKind::Break,
+            "call" => TokenKind::Call,
+            "endcall" => TokenKind::Endcall,
             // r[impl ident.syntax]
             // r[impl ident.case-sensitive]
             _ => TokenKind::Ident(s.to_string()),

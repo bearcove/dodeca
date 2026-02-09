@@ -502,6 +502,22 @@ impl TemplateHost for TemplateHostImpl {
                 }
             }
 
+            "highlight" => {
+                let lang = get_kwarg("lang").unwrap_or_default();
+                let body = get_kwarg("body").unwrap_or_default();
+                // Trim leading/trailing whitespace from the captured block content
+                let body = body.trim();
+
+                match crate::cells::highlight_code_cell(&lang, body).await {
+                    Ok(html) => CallFunctionResult::Success {
+                        value: Value::from(html.as_str()),
+                    },
+                    Err(e) => CallFunctionResult::Error {
+                        message: format!("highlight error: {}", e),
+                    },
+                }
+            }
+
             _ => {
                 tracing::warn!(
                     context_id = context_id.0,

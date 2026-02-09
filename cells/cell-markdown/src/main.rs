@@ -141,6 +141,30 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
         }
     }
 
+    async fn highlight_code(
+        &self,
+        _cx: &dodeca_cell_runtime::Context,
+        lang: String,
+        code: String,
+    ) -> HighlightResult {
+        use marq::CodeBlockHandler;
+
+        let handler = ArboriumHandler::new();
+        match handler.render(&lang, &code).await {
+            Ok(output) => HighlightResult::Success { html: output.html },
+            Err(_e) => {
+                // Fallback: return escaped code in a plain code-block div
+                let escaped = html_escape(&code);
+                let escaped_lang = html_escape(&lang);
+                HighlightResult::Success {
+                    html: format!(
+                        "<div class=\"code-block\" data-lang=\"{escaped_lang}\"><pre><code>{escaped}</code></pre></div>"
+                    ),
+                }
+            }
+        }
+    }
+
     async fn parse_and_render(
         &self,
         cx: &dodeca_cell_runtime::Context,

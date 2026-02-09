@@ -51,6 +51,8 @@ pub enum Node {
     Continue(ContinueNode),
     /// Break statement: {% break %}
     Break(BreakNode),
+    /// Call block: {% call func(kwargs) %}raw content{% endcall %}
+    CallBlock(CallBlockNode),
 }
 
 impl Node {
@@ -69,6 +71,7 @@ impl Node {
             Node::Macro(n) => n.span,
             Node::Continue(n) => n.span,
             Node::Break(n) => n.span,
+            Node::CallBlock(n) => n.span,
         }
     }
 }
@@ -218,6 +221,18 @@ pub struct ContinueNode {
 /// Break statement: {% break %}
 #[derive(Debug, Clone)]
 pub struct BreakNode {
+    pub span: Span,
+}
+
+/// Call block: {% call func(kwargs) %}raw content{% endcall %}
+///
+/// Captures the raw text between the opening and closing tags and passes it
+/// to the named function as the `body` kwarg.
+#[derive(Debug, Clone)]
+pub struct CallBlockNode {
+    pub func_name: Ident,
+    pub kwargs: Vec<(Ident, Expr)>,
+    pub raw_content: String,
     pub span: Span,
 }
 

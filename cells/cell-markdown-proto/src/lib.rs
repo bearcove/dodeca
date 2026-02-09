@@ -129,6 +129,16 @@ pub enum FrontmatterResult {
     Error { message: String },
 }
 
+/// Result of syntax highlighting
+#[derive(Debug, Clone, Facet)]
+#[repr(u8)]
+pub enum HighlightResult {
+    /// Successfully highlighted code
+    Success { html: String },
+    /// Error during highlighting
+    Error { message: String },
+}
+
 /// Result of combined parse (frontmatter + markdown)
 #[derive(Debug, Clone, Facet)]
 #[repr(u8)]
@@ -180,4 +190,14 @@ pub trait MarkdownProcessor {
     /// - `source_path`: Path to the source file (e.g., "spec/_index.md") for resolving relative links
     /// - `content`: The full content including frontmatter and markdown body
     async fn parse_and_render(&self, source_path: String, content: String) -> ParseResult;
+
+    /// Highlight a code snippet with syntax coloring.
+    ///
+    /// Returns HTML with the code wrapped in a `code-block` div, using arborium
+    /// for tree-sitter based highlighting.
+    ///
+    /// # Parameters
+    /// - `lang`: The language identifier (e.g., "rust", "toml", "javascript")
+    /// - `code`: The raw code to highlight
+    async fn highlight_code(&self, lang: String, code: String) -> HighlightResult;
 }
