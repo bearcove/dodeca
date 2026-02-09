@@ -303,12 +303,38 @@ impl CodeBlockHandler for MermaidHandler {
 
             let script = r#"<script type="module">
 import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
-mermaid.initialize({ startOnLoad: true });
+
+function mermaidTheme() {
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default';
+}
+
+async function reinitMermaid() {
+  mermaid.initialize({ startOnLoad: false, theme: mermaidTheme() });
+  const nodes = document.querySelectorAll('pre.mermaid');
+  for (const pre of nodes) {
+    pre.removeAttribute('data-processed');
+    pre.innerHTML = pre.dataset.mermaidSource ?? pre.innerHTML;
+  }
+  if (nodes.length > 0) {
+    await mermaid.run({ nodes: [...nodes] });
+  }
+}
+
+// stash original source before first render so we can re-render on theme change
+for (const pre of document.querySelectorAll('pre.mermaid')) {
+  pre.dataset.mermaidSource = pre.innerHTML;
+}
+
+mermaid.initialize({ startOnLoad: true, theme: mermaidTheme() });
+
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', reinitMermaid);
+
 document.addEventListener('hotmeal:opaque-changed', async (e) => {
   if (e.detail?.key === 'mermaid') {
     const el = e.detail.element;
     const pre = el.querySelector('pre.mermaid');
     if (pre) {
+      pre.dataset.mermaidSource = pre.innerHTML;
       pre.removeAttribute('data-processed');
       await mermaid.run({ nodes: [pre] });
     }
