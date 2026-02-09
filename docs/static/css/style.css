@@ -43,6 +43,7 @@
     --code-bg: light-dark(#f0f0f0, #161616);
     --border: light-dark(#e0e0e0, #262626);
     --font-sans: "Public Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-display: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
     --font-mono: "Iosevka", "SF Mono", Consolas, monospace;
     --sidebar-width: 220px;
     --content-max: 720px;
@@ -577,7 +578,7 @@ pre,
     display: flex;
     gap: 3rem;
     align-items: center;
-    max-width: 900px;
+    max-width: 1100px;
     margin: 0 auto;
     padding: 4rem 2rem;
 }
@@ -595,17 +596,20 @@ pre,
 }
 
 .feature-text h3 {
-    font-size: 1.25rem;
-    font-weight: 600;
+    font-family: var(--font-display);
+    font-size: 2rem;
+    font-weight: 900;
     margin-bottom: 0.75rem;
     color: var(--fg);
+    letter-spacing: -0.03em;
+    line-height: 1.1;
 }
 
 .feature-text p {
-    font-size: 0.95rem;
+    font-size: 1rem;
     color: var(--fg-muted);
     line-height: 1.6;
-    margin: 0;
+    margin: 0 0 0.5rem;
 }
 
 .feature-text a {
@@ -626,7 +630,7 @@ pre,
 }
 
 .feature-visual {
-    flex: 1;
+    flex: 1.4;
     min-width: 0;
 }
 
