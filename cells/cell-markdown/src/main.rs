@@ -117,7 +117,7 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
         let opts = RenderOptions::new()
             .with_handler(&["aa", "aasvg"], AasvgHandler::new())
             .with_handler(&["compare"], CompareHandler::new())
-            .with_handler(&["pikchr"], PikruHandler::new())
+            .with_handler(&["pikchr"], PikruHandler::with_css_variables(true))
             .with_handler(&["term"], TermHandler::new())
             .with_handler(&["mermaid"], MermaidHandler::new())
             .with_default_handler(ArboriumHandler::new())

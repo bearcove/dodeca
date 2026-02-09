@@ -35,9 +35,24 @@ Fenced code blocks with the `mermaid` language tag are rendered as diagrams clie
 ````markdown
 ```mermaid
 graph LR
-    A --> B --> C
+    A[Request] --> B{Cache?}
+    B -->|Hit| C[Serve]
+    B -->|Miss| D[Build]
+    D --> E[(Store)]
+    E --> C
 ```
 ````
+
+Result:
+
+```mermaid
+graph LR
+    A[Request] --> B{Cache?}
+    B -->|Hit| C[Serve]
+    B -->|Miss| D[Build]
+    D --> E[(Store)]
+    E --> C
+```
 
 The Mermaid.js library is automatically injected when any page uses mermaid blocks.
 
@@ -47,9 +62,31 @@ The Mermaid.js library is automatically injected when any page uses mermaid bloc
 
 ````markdown
 ```pikchr
-box "Hello"; arrow; box "World"
+oval "Source" fit
+arrow right 75%
+box "Parse" fit
+arrow right 75%
+box "Transform" fit
+arrow right 75%
+box "Render" fit
+arrow right 75%
+file "Output" fit
 ```
 ````
+
+Result:
+
+```pikchr
+oval "Source" fit
+arrow right 75%
+box "Parse" fit
+arrow right 75%
+box "Transform" fit
+arrow right 75%
+box "Render" fit
+arrow right 75%
+file "Output" fit
+```
 
 ## ASCII art diagrams
 
@@ -57,11 +94,29 @@ Code blocks tagged with `aasvg` are converted from ASCII art to SVG:
 
 ````markdown
 ```aasvg
-+-------+    +-------+
-| Hello |--->| World |
-+-------+    +-------+
++----------+       +----------+       +----------+
+|  Client  +------>|  Server  +------>| Database |
++----------+       +----+-----+       +----------+
+                        |
+                        v
+                   +----+-----+
+                   |  Cache   |
+                   +----------+
 ```
 ````
+
+Result:
+
+```aasvg
++----------+       +----------+       +----------+
+|  Client  +------>|  Server  +------>| Database |
++----------+       +----+-----+       +----------+
+                        |
+                        v
+                   +----+-----+
+                   |  Cache   |
+                   +----------+
+```
 
 ## Terminal recordings
 
