@@ -1242,33 +1242,6 @@ fn extract_imports_from_js(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn injects_vite_css_for_built_script_paths() {
-        let html = r#"
-            <html>
-              <head></head>
-              <body><script src="/assets/main-AbCdEf.js"></script></body>
-            </html>
-        "#;
-        let mut map = HashMap::new();
-        map.insert(
-            "/assets/main-AbCdEf.js".to_string(),
-            vec!["/assets/main-XyZ.css".to_string()],
-        );
-
-        let tendril = StrTendril::from(html);
-        let mut doc = hotmeal::parse(&tendril);
-        inject_vite_css_in_doc(&mut doc, &map);
-        let output = doc.to_html();
-
-        assert!(output.contains(r#"href="/assets/main-XyZ.css""#));
-    }
-}
-
 // ============================================================================
 // Code Button Injection
 // ============================================================================
@@ -1507,4 +1480,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let processor = HtmlProcessorImpl::new(handle);
         HtmlProcessorDispatcher::new(processor)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn injects_vite_css_for_built_script_paths() {
+        let html = r#"
+            <html>
+              <head></head>
+              <body><script src="/assets/main-AbCdEf.js"></script></body>
+            </html>
+        "#;
+        let mut map = HashMap::new();
+        map.insert(
+            "/assets/main-AbCdEf.js".to_string(),
+            vec!["/assets/main-XyZ.css".to_string()],
+        );
+
+        let tendril = StrTendril::from(html);
+        let mut doc = hotmeal::parse(&tendril);
+        inject_vite_css_in_doc(&mut doc, &map);
+        let output = doc.to_html();
+
+        assert!(output.contains(r#"href="/assets/main-XyZ.css""#));
+    }
 }
