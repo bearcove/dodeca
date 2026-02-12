@@ -537,6 +537,13 @@ fn collect_tests() -> Vec<Test> {
             func: static_assets::image_files_processed,
             ignored: false,
         },
+        #[cfg(unix)]
+        Test {
+            name: "symlinked_static_files_are_served",
+            module: "static_assets",
+            func: static_assets::symlinked_static_files_are_served,
+            ignored: false,
+        },
         // livereload tests
         Test {
             name: "test_new_section_detected",
