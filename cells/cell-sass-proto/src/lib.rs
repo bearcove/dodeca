@@ -19,6 +19,9 @@ pub enum SassResult {
 #[derive(Debug, Clone, Facet)]
 pub struct SassInput {
     pub files: HashMap<String, String>,
+    /// Additional filesystem load paths (for `@use` / `@import` resolution).
+    #[facet(default)]
+    pub load_paths: Vec<String>,
 }
 
 /// SASS compilation service implemented by the cell.

@@ -623,9 +623,8 @@ impl Parser {
                 // Found a tag open — check if the keyword is "endcall"
                 let after_open = &source[pos + 2..];
                 let trimmed = after_open.trim_start();
-                if trimmed.starts_with("endcall") {
+                if let Some(rest) = trimmed.strip_prefix("endcall") {
                     // Verify it's the full keyword (not "endcallx")
-                    let rest = &trimmed["endcall".len()..];
                     if rest.is_empty()
                         || rest.starts_with(char::is_whitespace)
                         || rest.starts_with("%}")

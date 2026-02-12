@@ -858,7 +858,11 @@ impl BuildContext {
             let static_files: Vec<Utf8PathBuf> = WalkBuilder::new(&static_dir)
                 .build()
                 .filter_map(|e| e.ok())
-                .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
+                .filter(|e| {
+                    e.file_type()
+                        .map(|ft| ft.is_file() || ft.is_symlink())
+                        .unwrap_or(false)
+                })
                 .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
                 .collect();
 
@@ -880,7 +884,11 @@ impl BuildContext {
             let dist_files: Vec<Utf8PathBuf> = WalkBuilder::new(&dist_dir)
                 .build()
                 .filter_map(|e| e.ok())
-                .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
+                .filter(|e| {
+                    e.file_type()
+                        .map(|ft| ft.is_file() || ft.is_symlink())
+                        .unwrap_or(false)
+                })
                 .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
                 .collect();
 
