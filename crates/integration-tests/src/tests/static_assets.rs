@@ -52,9 +52,10 @@ pub fn symlinked_static_files_are_served() {
     let site = TestSite::new("sample-site");
     let fixture_dir = site.fixture_dir();
 
+    let valid_font = fixture_dir.join("static/fonts/test.woff2");
     let source_file = fixture_dir.join("vendor/iosevka.woff2");
     std::fs::create_dir_all(source_file.parent().expect("source parent")).expect("create vendor");
-    std::fs::write(&source_file, b"fake-font").expect("write source font");
+    std::fs::copy(&valid_font, &source_file).expect("copy source font");
 
     let link_path = fixture_dir.join("static/fonts/iosevka.woff2");
     std::fs::create_dir_all(link_path.parent().expect("link parent")).expect("create static/fonts");
