@@ -575,6 +575,24 @@ fn collect_tests() -> Vec<Test> {
             func: section_pages::adding_page_updates_via_get_section_macro,
             ignored: false,
         },
+        Test {
+            name: "removing_page_updates_section_pages_list",
+            module: "section_pages",
+            func: section_pages::removing_page_updates_section_pages_list,
+            ignored: false,
+        },
+        Test {
+            name: "removing_page_updates_via_get_section_macro",
+            module: "section_pages",
+            func: section_pages::removing_page_updates_via_get_section_macro,
+            ignored: false,
+        },
+        Test {
+            name: "removing_sibling_page_updates_page_section_pages_list",
+            module: "section_pages",
+            func: section_pages::removing_sibling_page_updates_page_section_pages_list,
+            ignored: false,
+        },
         // error_detection tests
         Test {
             name: "template_syntax_error_shows_error_page",

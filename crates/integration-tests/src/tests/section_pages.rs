@@ -58,19 +58,23 @@ fn nav_exists(html: &str, nav_id: &str) -> bool {
     find_nav_by_id(&doc, doc.root, nav_id).is_some()
 }
 
-fn extract_page_titles(html: &str, context: &str) -> Vec<String> {
+fn extract_nav_titles(html: &str, nav_id: &str, context: &str) -> Vec<String> {
     let tendril = StrTendril::from(html);
     let doc = hotmeal::parse(&tendril);
 
-    let Some(nav_id) = find_nav_by_id(&doc, doc.root, "page-list") else {
-        tracing::debug!("{}: No page-list nav found in HTML", context);
+    let Some(nav_node) = find_nav_by_id(&doc, doc.root, nav_id) else {
+        tracing::debug!("{}: No {} nav found in HTML", context, nav_id);
         return Vec::new();
     };
 
     let mut titles = Vec::new();
-    collect_link_titles(&doc, nav_id, &mut titles);
+    collect_link_titles(&doc, nav_node, &mut titles);
     tracing::debug!("{}: Found {} pages: {:?}", context, titles.len(), titles);
     titles
+}
+
+fn extract_page_titles(html: &str, context: &str) -> Vec<String> {
+    extract_nav_titles(html, "page-list", context)
 }
 
 pub fn adding_page_updates_section_pages_list() {
@@ -297,6 +301,283 @@ Testing get_section in macros.
     tracing::debug!("Final verification: macro test page should be present");
     updated_html.assert_ok();
     updated_html.assert_contains("Macro Test Page");
+}
+
+pub fn removing_page_updates_via_get_section_macro() {
+    let site = TestSite::new("sample-site");
+
+    site.write_file(
+        "templates/macros.html",
+        r#"{% macro render_section_pages(section_path) %}
+    {% set sec = get_section(path=section_path) %}
+    <ul class="section-pages">
+    {% for page in sec.pages %}
+        <li><a href="{{ page.permalink }}">{{ page.title }}</a></li>
+    {% endfor %}
+    </ul>
+{% endmacro %}
+"#,
+    );
+
+    site.write_file(
+        "templates/section.html",
+        r#"{% import "macros.html" as macros %}
+<!DOCTYPE html>
+<html>
+<head>
+  <title>{{ section.title }}</title>
+</head>
+<body>
+  <h1>{{ section.title }}</h1>
+  {{ section.content | safe }}
+  <nav id="macro-page-list">
+    {{ macros::render_section_pages(section_path=section.path) }}
+  </nav>
+</body>
+</html>
+"#,
+    );
+
+    site.wait_debounce();
+
+    let baseline = site.wait_until(
+        "baseline macro section pages to be visible",
+        Duration::from_secs(2),
+        || {
+            let html = site.get("/guide/");
+            if html.status != 200 || !html.body.contains("macro-page-list") {
+                return None;
+            }
+            if html.body.contains("Getting Started") && html.body.contains("Advanced") {
+                Some(html)
+            } else {
+                None
+            }
+        },
+    );
+    baseline.assert_contains("Getting Started");
+    baseline.assert_contains("Advanced");
+
+    site.delete_file("content/guide/advanced.md");
+    site.wait_debounce();
+
+    let _deleted_page = site.wait_until(
+        "deleted page route to return 404 (macro test)",
+        Duration::from_secs(2),
+        || {
+            let html = site.get("/guide/advanced/");
+            if html.status == 404 { Some(html) } else { None }
+        },
+    );
+
+    let updated = site.wait_until(
+        "macro get_section pages list to drop deleted page",
+        Duration::from_secs(2),
+        || {
+            let html = site.get("/guide/");
+            if html.status != 200 {
+                return None;
+            }
+            let titles = extract_nav_titles(&html.body, "macro-page-list", "Macro after deletion");
+            if titles.iter().any(|t| t == "Advanced") {
+                None
+            } else if !titles.is_empty() {
+                Some(html)
+            } else {
+                None
+            }
+        },
+    );
+
+    let titles = extract_nav_titles(
+        &updated.body,
+        "macro-page-list",
+        "Macro final after deletion",
+    );
+    assert!(
+        titles.iter().any(|t| t == "Getting Started"),
+        "Expected Getting Started in macro section list, got {:?}",
+        titles
+    );
+    assert!(
+        !titles.iter().any(|t| t == "Advanced"),
+        "Expected Advanced to be removed from macro section list, got {:?}",
+        titles
+    );
+}
+
+pub fn removing_sibling_page_updates_page_section_pages_list() {
+    let site = TestSite::new("sample-site");
+
+    site.write_file(
+        "templates/page.html",
+        r#"<!DOCTYPE html>
+<html>
+<head>
+  <title>{{ page.title }}</title>
+</head>
+<body>
+  <h1>{{ page.title }}</h1>
+  <nav id="sibling-page-list">
+    {% for p in section.pages %}
+      <a href="{{ p.permalink }}">{{ p.title }}</a>
+    {% endfor %}
+  </nav>
+  {{ page.content | safe }}
+</body>
+</html>
+"#,
+    );
+
+    site.wait_debounce();
+
+    let baseline = site.wait_until(
+        "page template with sibling list to render",
+        Duration::from_secs(2),
+        || {
+            let html = site.get("/guide/getting-started/");
+            if html.status != 200 {
+                return None;
+            }
+            let titles = extract_nav_titles(&html.body, "sibling-page-list", "Page baseline");
+            if titles.iter().any(|t| t == "Getting Started")
+                && titles.iter().any(|t| t == "Advanced")
+            {
+                Some(html)
+            } else {
+                None
+            }
+        },
+    );
+    baseline.assert_contains("Getting Started");
+
+    site.delete_file("content/guide/advanced.md");
+    site.wait_debounce();
+
+    let _deleted_page = site.wait_until(
+        "deleted sibling route to return 404",
+        Duration::from_secs(2),
+        || {
+            let html = site.get("/guide/advanced/");
+            if html.status == 404 { Some(html) } else { None }
+        },
+    );
+
+    let updated = site.wait_until(
+        "sibling list on page to drop deleted page",
+        Duration::from_secs(2),
+        || {
+            let html = site.get("/guide/getting-started/");
+            if html.status != 200 {
+                return None;
+            }
+            let titles = extract_nav_titles(&html.body, "sibling-page-list", "Page after deletion");
+            if titles.iter().any(|t| t == "Advanced") {
+                None
+            } else {
+                Some(html)
+            }
+        },
+    );
+
+    let titles = extract_nav_titles(
+        &updated.body,
+        "sibling-page-list",
+        "Page final after deletion",
+    );
+    assert!(
+        titles.iter().any(|t| t == "Getting Started"),
+        "Expected Getting Started in sibling list, got {:?}",
+        titles
+    );
+    assert!(
+        !titles.iter().any(|t| t == "Advanced"),
+        "Expected Advanced to be removed from sibling list, got {:?}",
+        titles
+    );
+}
+
+pub fn removing_page_updates_section_pages_list() {
+    let site = TestSite::new("sample-site");
+
+    site.write_file(
+        "templates/section.html",
+        r#"<!DOCTYPE html>
+<html>
+<head>
+  <title>{{ section.title }}</title>
+</head>
+<body>
+  <h1>{{ section.title }}</h1>
+  {{ section.content | safe }}
+  <nav id="page-list">
+    {% for page in section.pages %}
+      <a href="{{ page.permalink }}">{{ page.title }}</a>
+    {% endfor %}
+  </nav>
+</body>
+</html>
+"#,
+    );
+
+    site.wait_debounce();
+
+    // Ensure baseline includes both sample pages.
+    let initial_html = site.wait_until(
+        "baseline section pages to be visible",
+        Duration::from_secs(2),
+        || {
+            let html = site.get("/guide/");
+            if html.status == 200 && nav_exists(&html.body, "page-list") {
+                Some(html)
+            } else {
+                None
+            }
+        },
+    );
+    initial_html.assert_contains("Getting Started");
+    initial_html.assert_contains("Advanced");
+
+    site.delete_file("content/guide/advanced.md");
+    site.wait_debounce();
+
+    let _deleted_page = site.wait_until(
+        "deleted page route to return 404",
+        Duration::from_secs(2),
+        || {
+            let html = site.get("/guide/advanced/");
+            if html.status == 404 { Some(html) } else { None }
+        },
+    );
+
+    let updated_html = site.wait_until(
+        "deleted page to disappear from section pages list",
+        Duration::from_secs(2),
+        || {
+            let html = site.get("/guide/");
+            if html.status != 200 {
+                return None;
+            }
+            let titles = extract_page_titles(&html.body, "After deletion");
+            if titles.iter().any(|t| t == "Advanced") {
+                None
+            } else {
+                Some(html)
+            }
+        },
+    );
+
+    let titles = extract_page_titles(&updated_html.body, "Final after deletion");
+    assert!(
+        titles.iter().any(|t| t == "Getting Started"),
+        "Expected Getting Started in section.pages, got {:?}",
+        titles
+    );
+    assert!(
+        !titles.iter().any(|t| t == "Advanced"),
+        "Expected Advanced to be removed from section.pages, got {:?}",
+        titles
+    );
 }
 
 #[cfg(test)]
