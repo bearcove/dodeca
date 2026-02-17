@@ -66,7 +66,9 @@ pub fn event_summary(event: &DevtoolsEvent) -> String {
     match event {
         DevtoolsEvent::Reload => "Reload".to_string(),
         DevtoolsEvent::CssChanged { path } => format!("CssChanged({})", path),
-        DevtoolsEvent::Patches(patches) => format!("Patches(count={})", patches.len()),
+        DevtoolsEvent::Patches { route, patches } => {
+            format!("Patches(route={}, count={})", route, patches.len())
+        }
         DevtoolsEvent::Error(info) => {
             let msg_preview: String = info.message.chars().take(50).collect();
             let ellipsis = if info.message.len() > 50 { "…" } else { "" };

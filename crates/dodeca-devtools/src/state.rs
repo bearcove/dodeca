@@ -105,6 +105,7 @@ impl DevtoolsState {
 thread_local! {
     static RPC_CLIENT: RefCell<Option<DevtoolsServiceClient<ConnectionHandle>>> = const { RefCell::new(None) };
     static STATE_SIGNAL: RefCell<Option<Signal<DevtoolsState>>> = const { RefCell::new(None) };
+    static ROUTE_WATCHER_INSTALLED: RefCell<bool> = const { RefCell::new(false) };
 }
 
 /// Browser-side implementation of BrowserService.
@@ -126,6 +127,100 @@ impl BrowserService for BrowserServiceImpl {
 /// Get a clone of the RPC client from thread-local storage
 fn get_client() -> Option<DevtoolsServiceClient<ConnectionHandle>> {
     RPC_CLIENT.with(|cell| cell.borrow().clone())
+}
+
+fn normalize_route(route: &str) -> String {
+    if route == "/" {
+        "/".to_string()
+    } else {
+        let trimmed = route.trim_end_matches('/');
+        if trimmed.is_empty() {
+            "/".to_string()
+        } else {
+            trimmed.to_string()
+        }
+    }
+}
+
+fn current_route() -> String {
+    web_sys::window()
+        .and_then(|w| w.location().pathname().ok())
+        .map(|path| normalize_route(&path))
+        .unwrap_or_else(|| "/".to_string())
+}
+
+async fn subscribe_route(route: String) -> Result<(), String> {
+    let Some(client) = get_client() else {
+        return Err("devtools client not connected".to_string());
+    };
+
+    tracing::debug!("[devtools] subscribing to route: {}", route);
+    client
+        .subscribe(route.clone())
+        .await
+        .map_err(|e| format!("subscribe failed for {route}: {:?}", e))?;
+    tracing::debug!("[devtools] subscription established for {}", route);
+    Ok(())
+}
+
+fn install_route_watcher() {
+    let already_installed = ROUTE_WATCHER_INSTALLED.with(|cell| {
+        let mut installed = cell.borrow_mut();
+        if *installed {
+            true
+        } else {
+            *installed = true;
+            false
+        }
+    });
+
+    if already_installed {
+        return;
+    }
+
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+
+    let callback = wasm_bindgen::closure::Closure::wrap(Box::new(move || {
+        let route = current_route();
+        let changed = STATE_SIGNAL.with(|cell| {
+            let binding = cell.borrow();
+            let Some(state) = binding.as_ref() else {
+                return false;
+            };
+
+            let should_subscribe = state.with(|s| s.current_route != route);
+            if should_subscribe {
+                state.update(|s| {
+                    s.current_route = route.clone();
+                    s.scope_entries.clear();
+                    s.scope_children.clear();
+                });
+            }
+            should_subscribe
+        });
+
+        if changed {
+            wasm_bindgen_futures::spawn_local(async move {
+                if let Err(e) = subscribe_route(route).await {
+                    tracing::warn!("[devtools] route re-subscribe failed: {}", e);
+                }
+            });
+        }
+    }) as Box<dyn FnMut()>);
+
+    if window
+        .set_interval_with_callback_and_timeout_and_arguments_0(
+            callback.as_ref().unchecked_ref(),
+            300,
+        )
+        .is_err()
+    {
+        tracing::warn!("[devtools] failed to install route watcher interval");
+    }
+
+    callback.forget();
 }
 
 /// Connect to the devtools WebSocket endpoint
@@ -186,18 +281,13 @@ pub async fn connect_websocket(state: Signal<DevtoolsState>) -> Result<(), Strin
     tracing::info!("[devtools] connected");
 
     // Get current route and subscribe
-    let route = web_sys::window()
-        .and_then(|w| w.location().pathname().ok())
-        .unwrap_or_else(|| "/".to_string());
+    let route = current_route();
+    state.update(|s| s.current_route = route.clone());
 
-    // Subscribe to events for this route
-    // Events will be pushed to us via BrowserService::on_event()
-    tracing::debug!("[devtools] subscribing to route: {}", route);
-    client
-        .subscribe(route)
-        .await
-        .map_err(|e| format!("subscribe failed: {:?}", e))?;
-    tracing::debug!("[devtools] subscription established");
+    // Subscribe to events for this route.
+    // Events will be pushed to us via BrowserService::on_event().
+    subscribe_route(route).await?;
+    install_route_watcher();
 
     Ok(())
 }
@@ -416,7 +506,9 @@ fn event_summary(event: &DevtoolsEvent) -> String {
     match event {
         DevtoolsEvent::Reload => "Reload".to_string(),
         DevtoolsEvent::CssChanged { path } => format!("CssChanged({})", path),
-        DevtoolsEvent::Patches(patches) => format!("Patches(count={})", patches.len()),
+        DevtoolsEvent::Patches { route, patches } => {
+            format!("Patches(route={}, count={})", route, patches.len())
+        }
         DevtoolsEvent::Error(info) => format!(
             "Error(route={}, msg={})",
             info.route,
@@ -474,7 +566,17 @@ fn handle_devtools_event(event: DevtoolsEvent) {
                 hot_reload_css(&path);
             }
 
-            DevtoolsEvent::Patches(patches) => {
+            DevtoolsEvent::Patches { route, patches } => {
+                let current_route = state.with(|s| s.current_route.clone());
+                if normalize_route(&route) != normalize_route(&current_route) {
+                    tracing::debug!(
+                        "[devtools] ignoring patch for route {} while viewing {}",
+                        route,
+                        current_route
+                    );
+                    return;
+                }
+
                 match livereload_client::apply_patches_blob(&patches) {
                     Ok(count) => tracing::info!("[devtools] applied {count} DOM patches"),
                     Err(e) => {

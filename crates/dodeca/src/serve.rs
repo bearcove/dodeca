@@ -236,6 +236,19 @@ struct RegisteredBrowser {
     client: dodeca_protocol::BrowserServiceClient,
 }
 
+fn normalize_route(route: &str) -> String {
+    if route == "/" {
+        "/".to_string()
+    } else {
+        let trimmed = route.trim_end_matches('/');
+        if trimmed.is_empty() {
+            "/".to_string()
+        } else {
+            trimmed.to_string()
+        }
+    }
+}
+
 impl SiteServer {
     pub fn new(render_options: RenderOptions, stable_assets: Vec<String>) -> Self {
         let (livereload_tx, _) = broadcast::channel(16);
@@ -279,12 +292,13 @@ impl SiteServer {
 
     /// Set the route a browser is subscribed to.
     pub fn set_browser_route(&self, conn_id: u64, route: String) {
+        let normalized = normalize_route(&route);
         let mut registry = self.browsers.lock().unwrap();
         if let Some(browser) = registry.browsers.get_mut(&conn_id) {
-            tracing::debug!(conn_id, route = %route, "Browser subscribed to route");
-            browser.route = Some(route);
+            tracing::debug!(conn_id, route = %normalized, "Browser subscribed to route");
+            browser.route = Some(normalized);
         } else {
-            tracing::warn!(conn_id, route = %route, "set_browser_route: browser not found");
+            tracing::warn!(conn_id, route = %normalized, "set_browser_route: browser not found");
         }
     }
 
@@ -325,17 +339,11 @@ impl SiteServer {
                 .filter_map(|(browser_id, browser)| {
                     // For route-specific events, check if this browser is subscribed
                     let should_send = match (&event, &browser.route) {
-                        // Patches: only send to browsers viewing this route (handled by browser-side filtering)
-                        // Actually, for patches we should filter here to avoid sending unnecessary data
-                        (dodeca_protocol::DevtoolsEvent::Patches(_), Some(_browser_route)) => {
-                            // We send patches to all browsers - they'll filter by their current route
-                            // TODO: Could optimize by tracking route per-browser and filtering here
-                            true
-                        }
-                        (dodeca_protocol::DevtoolsEvent::Patches(_), None) => {
-                            // Browser hasn't subscribed yet, skip
-                            false
-                        }
+                        (
+                            dodeca_protocol::DevtoolsEvent::Patches { route, .. },
+                            Some(browser_route),
+                        ) => normalize_route(route) == normalize_route(browser_route),
+                        (dodeca_protocol::DevtoolsEvent::Patches { .. }, None) => false,
                         // Errors go to specific routes
                         (dodeca_protocol::DevtoolsEvent::Error(_), _) => true,
                         (dodeca_protocol::DevtoolsEvent::ErrorResolved { .. }, _) => true,
@@ -618,10 +626,13 @@ impl SiteServer {
                     let patch_bytes = patches_blob.len();
                     tracing::debug!("{} - patching: {} bytes", patch_route, patch_bytes);
                     let _ = self.livereload_tx.send(LiveReloadMsg::Patches {
-                        route: patch_route,
+                        route: patch_route.clone(),
                         patches: patches_blob.clone(),
                     });
-                    self.notify_browsers(dodeca_protocol::DevtoolsEvent::Patches(patches_blob));
+                    self.notify_browsers(dodeca_protocol::DevtoolsEvent::Patches {
+                        route: patch_route,
+                        patches: patches_blob,
+                    });
                 }
                 Some(hotmeal_server::LiveReloadEvent::HeadChanged { .. }) => {
                     tracing::debug!("{} - head injections changed, sending full reload", route);

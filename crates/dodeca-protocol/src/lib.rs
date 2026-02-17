@@ -79,8 +79,8 @@ pub enum DevtoolsEvent {
     /// CSS file changed - hot reload it
     CssChanged { path: String },
 
-    /// DOM patches to apply incrementally (facet-postcard blob)
-    Patches(Vec<u8>),
+    /// DOM patches to apply incrementally (facet-postcard blob), for a specific route
+    Patches { route: String, patches: Vec<u8> },
 
     /// A template error occurred
     Error(ErrorInfo),
