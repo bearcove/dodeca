@@ -17,6 +17,65 @@ pub struct SourceSpan {
     pub length: usize,
 }
 
+/// Structured rule identifier with optional version.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Facet)]
+pub struct RuleId {
+    /// Base identifier without version suffix.
+    pub base: String,
+    /// Version number (unversioned IDs are version 1).
+    pub version: u32,
+}
+
+impl std::fmt::Display for RuleId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.version == 1 {
+            f.write_str(&self.base)
+        } else {
+            write!(f, "{}+{}", self.base, self.version)
+        }
+    }
+}
+
+impl PartialEq<&str> for RuleId {
+    fn eq(&self, other: &&str) -> bool {
+        self.to_string() == *other
+    }
+}
+
+impl PartialEq<RuleId> for &str {
+    fn eq(&self, other: &RuleId) -> bool {
+        *self == other.to_string()
+    }
+}
+
+/// Parse a rule ID with an optional `+N` version suffix.
+pub fn parse_rule_id(id: &str) -> Option<RuleId> {
+    if id.is_empty() {
+        return None;
+    }
+
+    if let Some((base, version_str)) = id.rsplit_once('+') {
+        if base.is_empty() || base.contains('+') || version_str.is_empty() {
+            return None;
+        }
+        let version = version_str.parse::<u32>().ok()?;
+        if version == 0 {
+            return None;
+        }
+        Some(RuleId {
+            base: base.to_string(),
+            version,
+        })
+    } else if id.contains('+') {
+        None
+    } else {
+        Some(RuleId {
+            base: id.to_string(),
+            version: 1,
+        })
+    }
+}
+
 /// RFC 2119 keyword found in requirement text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Facet)]
 #[repr(u8)]
@@ -225,7 +284,7 @@ impl ReqMetadata {
 #[derive(Debug, Clone, PartialEq, Eq, Facet)]
 pub struct ReqDefinition {
     /// The requirement identifier (e.g., "channel.id.allocation")
-    pub id: String,
+    pub id: RuleId,
     /// The anchor ID for HTML linking (e.g., "r--channel.id.allocation")
     pub anchor_id: String,
     /// Source span of just the requirement marker (e.g., `r[` to `]`)
@@ -252,7 +311,7 @@ pub struct ReqWarning {
     /// File where the warning occurred
     pub file: PathBuf,
     /// Requirement ID this warning relates to
-    pub req_id: String,
+    pub req_id: RuleId,
     /// Line number (1-indexed)
     pub line: usize,
     /// Byte span of the requirement
@@ -287,7 +346,7 @@ pub struct ExtractedReqs {
 /// Supports formats:
 /// - `req.id` - simple requirement ID
 /// - `req.id status=stable level=must` - requirement ID with attributes
-pub fn parse_req_marker(inner: &str) -> Result<(&str, ReqMetadata)> {
+pub fn parse_req_marker(inner: &str) -> Result<(RuleId, ReqMetadata)> {
     let inner = inner.trim();
 
     // Find where the requirement ID ends (at first space or end of string)
@@ -296,11 +355,9 @@ pub fn parse_req_marker(inner: &str) -> Result<(&str, ReqMetadata)> {
         None => (inner, ""),
     };
 
-    if req_id.is_empty() {
-        return Err(Error::DuplicateReq(
-            "empty requirement identifier".to_string(),
-        ));
-    }
+    let req_id = parse_rule_id(req_id).ok_or_else(|| {
+        Error::DuplicateReq("empty or invalid requirement identifier".to_string())
+    })?;
 
     // Parse attributes if present
     let mut metadata = ReqMetadata::default();

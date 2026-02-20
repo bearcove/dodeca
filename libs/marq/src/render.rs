@@ -14,7 +14,7 @@ use crate::handler::{
 };
 use crate::headings::{Heading, slugify};
 use crate::links::resolve_link;
-use crate::reqs::{ReqDefinition, SourceSpan, parse_req_marker};
+use crate::reqs::{ReqDefinition, RuleId, SourceSpan, parse_req_marker};
 
 /// Parse context representing the current nested structure we're inside.
 /// This replaces the ad-hoc state variables with a proper stack.
@@ -301,7 +301,8 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
     let mut heading_stack: Vec<(u8, String)> = Vec::new();
 
     // Track seen req IDs for duplicate detection
-    let mut seen_req_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut seen_req_ids: std::collections::HashSet<RuleId> = std::collections::HashSet::new();
+    let mut seen_req_bases: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     // The context stack
     let mut context_stack: Vec<ParseContext<'_>> = Vec::new();
@@ -356,6 +357,7 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                                 marker_offset,
                                 range.end,
                                 &mut seen_req_ids,
+                                &mut seen_req_bases,
                             )
                         {
                             match req_result {
@@ -560,6 +562,7 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                             markdown,
                             start_offset,
                             &mut seen_req_ids,
+                            &mut seen_req_bases,
                             &events,
                         )
                     {
@@ -1160,7 +1163,8 @@ fn try_parse_paragraph_req<'a>(
     text: &str,
     markdown: &str,
     offset: usize,
-    seen_ids: &mut std::collections::HashSet<String>,
+    seen_ids: &mut std::collections::HashSet<RuleId>,
+    seen_bases: &mut std::collections::HashSet<String>,
     _paragraph_events: &[(Event<'a>, std::ops::Range<usize>)],
 ) -> Option<Result<ReqDefinition>> {
     // Must start with r[ and have a closing ]
@@ -1179,10 +1183,17 @@ fn try_parse_paragraph_req<'a>(
     };
 
     // Check for duplicates
-    if seen_ids.contains(req_id) {
+    if seen_ids.contains(&req_id) {
         return Some(Err(crate::Error::DuplicateReq(req_id.to_string())));
     }
-    seen_ids.insert(req_id.to_string());
+    if seen_bases.contains(&req_id.base) {
+        return Some(Err(crate::Error::DuplicateReq(format!(
+            "duplicate requirement base: {}",
+            req_id.base
+        ))));
+    }
+    seen_ids.insert(req_id.clone());
+    seen_bases.insert(req_id.base.clone());
 
     let line = offset_to_line(markdown, offset);
     let anchor_id = format!("r-{}", req_id);
@@ -1200,7 +1211,7 @@ fn try_parse_paragraph_req<'a>(
     // r[impl dashboard.editing.byte-range.req-span]
     // r[impl dashboard.editing.byte-range.marker-and-content]
     let req = ReqDefinition {
-        id: req_id.to_string(),
+        id: req_id,
         anchor_id,
         marker_span: SourceSpan {
             offset,
@@ -1227,7 +1238,8 @@ fn try_parse_blockquote_req(
     markdown: &str,
     offset: usize,
     end_offset: usize,
-    seen_ids: &mut std::collections::HashSet<String>,
+    seen_ids: &mut std::collections::HashSet<RuleId>,
+    seen_bases: &mut std::collections::HashSet<String>,
 ) -> Option<Result<ReqDefinition>> {
     // Must start with r[ and have a closing ]
     if !first_para_text.starts_with("r[") {
@@ -1245,10 +1257,17 @@ fn try_parse_blockquote_req(
     };
 
     // Check for duplicates
-    if seen_ids.contains(req_id) {
+    if seen_ids.contains(&req_id) {
         return Some(Err(crate::Error::DuplicateReq(req_id.to_string())));
     }
-    seen_ids.insert(req_id.to_string());
+    if seen_bases.contains(&req_id.base) {
+        return Some(Err(crate::Error::DuplicateReq(format!(
+            "duplicate requirement base: {}",
+            req_id.base
+        ))));
+    }
+    seen_ids.insert(req_id.clone());
+    seen_bases.insert(req_id.base.clone());
 
     let line = offset_to_line(markdown, offset);
     let anchor_id = format!("r-{}", req_id);
@@ -1273,7 +1292,7 @@ fn try_parse_blockquote_req(
     // r[impl dashboard.editing.byte-range.req-span]
     // r[impl dashboard.editing.byte-range.marker-and-content]
     let req = ReqDefinition {
-        id: req_id.to_string(),
+        id: req_id,
         anchor_id,
         marker_span: SourceSpan {
             offset,
