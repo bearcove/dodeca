@@ -40,7 +40,7 @@ pub use links::resolve_link;
 pub use render::{DocElement, Document, Paragraph, RenderOptions, render};
 pub use reqs::{
     ExtractedReqs, ReqDefinition, ReqLevel, ReqMetadata, ReqStatus, ReqWarning, ReqWarningKind,
-    Rfc2119Keyword, SourceSpan, detect_rfc2119_keywords,
+    Rfc2119Keyword, RuleId, SourceSpan, detect_rfc2119_keywords, parse_rule_id,
 };
 
 // Feature-gated handler exports
