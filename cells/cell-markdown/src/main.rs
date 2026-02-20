@@ -224,7 +224,7 @@ fn convert_heading(h: marq::Heading) -> Heading {
 
 fn convert_req(r: marq::ReqDefinition) -> ReqDefinition {
     ReqDefinition {
-        id: r.id,
+        id: r.id.to_string(),
         anchor_id: r.anchor_id,
     }
 }
