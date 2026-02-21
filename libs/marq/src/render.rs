@@ -345,61 +345,62 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
 
                         // Check if this is a req
                         let trimmed = first_para_text.trim();
-                        // Find the actual position of r[ in the source (after the > prefix)
-                        let marker_offset = markdown[start_offset..]
-                            .find("r[")
-                            .map(|i| start_offset + i)
-                            .unwrap_or(start_offset);
-                        if trimmed.starts_with("r[")
-                            && let Some(req_result) = try_parse_blockquote_req(
+                        if let Some((prefix, _, _)) = parse_req_leading_marker(trimmed) {
+                            // Find the actual marker position in the source (after the > prefix)
+                            let marker = format!("{}[", prefix);
+                            let marker_offset = markdown[start_offset..]
+                                .find(&marker)
+                                .map(|i| start_offset + i)
+                                .unwrap_or(start_offset);
+                            if let Some(req_result) = try_parse_blockquote_req(
                                 trimmed,
                                 markdown,
                                 marker_offset,
                                 range.end,
                                 &mut seen_req_ids,
                                 &mut seen_req_bases,
-                            )
-                        {
-                            match req_result {
-                                Ok(mut req) => {
-                                    // Render req content HTML
-                                    let content_html = render_blockquote_req_content(
-                                        &events,
-                                        options,
-                                        &default_code_handler,
-                                    )
-                                    .await?;
+                            ) {
+                                match req_result {
+                                    Ok(mut req) => {
+                                        // Render req content HTML
+                                        let content_html = render_blockquote_req_content(
+                                            &events,
+                                            options,
+                                            &default_code_handler,
+                                        )
+                                        .await?;
 
-                                    // Store content in req.html for API access
-                                    req.html = content_html.clone();
+                                        // Store content in req.html for API access
+                                        req.html = content_html.clone();
 
-                                    // Render req with start/end wrappers
-                                    let start_html = req_handler.start(&req).await?;
-                                    let end_html = req_handler.end(&req).await?;
+                                        // Render req with start/end wrappers
+                                        let start_html = req_handler.start(&req).await?;
+                                        let end_html = req_handler.end(&req).await?;
 
-                                    let req_html =
-                                        format!("{}{}{}", start_html, content_html, end_html);
+                                        let req_html =
+                                            format!("{}{}{}", start_html, content_html, end_html);
 
-                                    // Check if nested in another blockquote
-                                    if is_inside_blockquote(&context_stack) {
-                                        if let Some(ParseContext::BlockQuote {
-                                            events: parent_events,
-                                            ..
-                                        }) = context_stack.last_mut()
-                                        {
-                                            parent_events
-                                                .push((Event::Html(req_html.into()), range));
+                                        // Check if nested in another blockquote
+                                        if is_inside_blockquote(&context_stack) {
+                                            if let Some(ParseContext::BlockQuote {
+                                                events: parent_events,
+                                                ..
+                                            }) = context_stack.last_mut()
+                                            {
+                                                parent_events
+                                                    .push((Event::Html(req_html.into()), range));
+                                            }
+                                        } else {
+                                            html.push_str(&req_html);
                                         }
-                                    } else {
-                                        html.push_str(&req_html);
-                                    }
 
-                                    reqs.push(req.clone());
-                                    elements.push(DocElement::Req(req));
-                                    continue;
-                                }
-                                Err(_) => {
-                                    // Invalid req, treat as normal blockquote
+                                        reqs.push(req.clone());
+                                        elements.push(DocElement::Req(req));
+                                        continue;
+                                    }
+                                    Err(_) => {
+                                        // Invalid req, treat as normal blockquote
+                                    }
                                 }
                             }
                         }
@@ -556,7 +557,7 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                     events.push((event, range));
 
                     let trimmed = paragraph_text.trim();
-                    if trimmed.starts_with("r[")
+                    if parse_req_leading_marker(trimmed).is_some()
                         && let Some(req_result) = try_parse_paragraph_req(
                             trimmed,
                             markdown,
@@ -893,7 +894,7 @@ struct SourceInfo {
 /// Regex to match req markers
 fn req_marker_regex() -> &'static regex::Regex {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    RE.get_or_init(|| regex::Regex::new(r"^r\[[^\]]+\]\s*").unwrap())
+    RE.get_or_init(|| regex::Regex::new(r"^[a-z0-9]+\[[^\]]+\]\s*").unwrap())
 }
 
 /// Strip req marker from text if present, returns owned String
@@ -1167,14 +1168,8 @@ fn try_parse_paragraph_req<'a>(
     seen_bases: &mut std::collections::HashSet<String>,
     _paragraph_events: &[(Event<'a>, std::ops::Range<usize>)],
 ) -> Option<Result<ReqDefinition>> {
-    // Must start with r[ and have a closing ]
-    if !text.starts_with("r[") {
-        return None;
-    }
-
-    // Find the end of the req marker
-    let marker_end = text.find(']')?;
-    let marker_content = &text[2..marker_end];
+    // Must start with PREFIX[ and have a closing ]
+    let (prefix, marker_content, marker_end) = parse_req_leading_marker(text)?;
 
     // Parse the req marker
     let (req_id, metadata) = match parse_req_marker(marker_content) {
@@ -1196,7 +1191,7 @@ fn try_parse_paragraph_req<'a>(
     seen_bases.insert(req_id.base.clone());
 
     let line = offset_to_line(markdown, offset);
-    let anchor_id = format!("r-{}", req_id);
+    let anchor_id = format!("{}-{}", prefix, req_id);
 
     // @tracey:ignore-next-line
     // marker_span covers just r[req.id] - use for inlay hints and diagnostics
@@ -1241,14 +1236,8 @@ fn try_parse_blockquote_req(
     seen_ids: &mut std::collections::HashSet<RuleId>,
     seen_bases: &mut std::collections::HashSet<String>,
 ) -> Option<Result<ReqDefinition>> {
-    // Must start with r[ and have a closing ]
-    if !first_para_text.starts_with("r[") {
-        return None;
-    }
-
-    // Find the end of the req marker
-    let marker_end = first_para_text.find(']')?;
-    let marker_content = &first_para_text[2..marker_end];
+    // Must start with PREFIX[ and have a closing ]
+    let (prefix, marker_content, marker_end) = parse_req_leading_marker(first_para_text)?;
 
     // Parse the req marker
     let (req_id, metadata) = match parse_req_marker(marker_content) {
@@ -1270,7 +1259,7 @@ fn try_parse_blockquote_req(
     seen_bases.insert(req_id.base.clone());
 
     let line = offset_to_line(markdown, offset);
-    let anchor_id = format!("r-{}", req_id);
+    let anchor_id = format!("{}-{}", prefix, req_id);
 
     // @tracey:ignore-next-line
     // marker_span covers just r[req.id] - use for inlay hints and diagnostics
@@ -1309,6 +1298,29 @@ fn try_parse_blockquote_req(
     };
 
     Some(Ok(req))
+}
+
+fn parse_req_leading_marker(text: &str) -> Option<(&str, &str, usize)> {
+    let mut prefix_len = 0usize;
+    for ch in text.chars() {
+        if ch.is_ascii_lowercase() || ch.is_ascii_digit() {
+            prefix_len += ch.len_utf8();
+        } else {
+            break;
+        }
+    }
+    if prefix_len == 0 || text.as_bytes().get(prefix_len) != Some(&b'[') {
+        return None;
+    }
+
+    let marker_end = text.find(']')?;
+    if marker_end <= prefix_len + 1 {
+        return None;
+    }
+
+    let prefix = &text[..prefix_len];
+    let marker_content = &text[prefix_len + 1..marker_end];
+    Some((prefix, marker_content, marker_end))
 }
 
 #[cfg(test)]
@@ -1904,6 +1916,7 @@ Third paragraph.
     #[test]
     fn test_strip_req_marker_basic() {
         assert_eq!(strip_req_marker("r[foo] bar"), "bar");
+        assert_eq!(strip_req_marker("req[foo] bar"), "bar");
         assert_eq!(strip_req_marker("r[foo.bar] text"), "text");
         assert_eq!(strip_req_marker("r[foo]"), "");
         assert_eq!(
@@ -1936,6 +1949,26 @@ Third paragraph.
             doc.html
         );
         // Should contain the text
+        assert!(
+            doc.html.contains("This text is on the same line"),
+            "Text should be present: {}",
+            doc.html
+        );
+    }
+
+    #[tokio::test]
+    async fn test_req_marker_non_r_prefix_same_line() {
+        let md = "req[same.line] This text is on the same line.";
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        assert_eq!(doc.reqs.len(), 1);
+        assert_eq!(doc.reqs[0].id, "same.line");
+        assert_eq!(doc.reqs[0].anchor_id, "req-same.line");
+        assert!(
+            !doc.html.contains("req[same.line]"),
+            "Raw marker should be stripped: {}",
+            doc.html
+        );
         assert!(
             doc.html.contains("This text is on the same line"),
             "Text should be present: {}",
