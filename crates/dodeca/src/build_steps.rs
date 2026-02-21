@@ -33,7 +33,6 @@ pub enum BuildStepResult {
     Error(String),
 }
 
-
 /// Executor for build steps with caching.
 pub struct BuildStepExecutor {
     /// Build step definitions from config
@@ -46,10 +45,7 @@ pub struct BuildStepExecutor {
 
 impl BuildStepExecutor {
     /// Create a new executor with build step definitions.
-    pub fn new(
-        steps: Option<HashMap<String, BuildStepDef>>,
-        project_root: Utf8PathBuf,
-    ) -> Self {
+    pub fn new(steps: Option<HashMap<String, BuildStepDef>>, project_root: Utf8PathBuf) -> Self {
         let steps = steps.unwrap_or_default();
         tracing::debug!(num_steps = steps.len(), steps = ?steps.keys().collect::<Vec<_>>(), "BuildStepExecutor initialized");
         Self {
@@ -123,10 +119,8 @@ impl BuildStepExecutor {
         step_def: &BuildStepDef,
         params: &HashMap<String, String>,
     ) -> Result<CacheKey, String> {
-        let mut sorted_params: Vec<(String, String)> = params
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
+        let mut sorted_params: Vec<(String, String)> =
+            params.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
         sorted_params.sort_by(|a, b| a.0.cmp(&b.0));
 
         // Hash file-typed parameters
@@ -179,10 +173,7 @@ impl BuildStepExecutor {
         params: &HashMap<String, String>,
     ) -> BuildStepResult {
         if cmd_args.is_empty() {
-            return BuildStepResult::Error(format!(
-                "Build step '{}' has empty command",
-                step_name
-            ));
+            return BuildStepResult::Error(format!("Build step '{}' has empty command", step_name));
         }
 
         // Interpolate parameters into command arguments
@@ -212,10 +203,7 @@ impl BuildStepExecutor {
         {
             Ok(output) => output,
             Err(e) => {
-                return BuildStepResult::Error(format!(
-                    "Failed to execute '{}': {}",
-                    program, e
-                ));
+                return BuildStepResult::Error(format!("Failed to execute '{}': {}", program, e));
             }
         };
 
@@ -263,10 +251,7 @@ impl BuildStepExecutor {
         let full_path = self.project_root.join(file_path);
         match tokio::fs::read(&full_path).await {
             Ok(contents) => BuildStepResult::Success(contents),
-            Err(e) => BuildStepResult::Error(format!(
-                "Failed to read file '{}': {}",
-                full_path, e
-            )),
+            Err(e) => BuildStepResult::Error(format!("Failed to read file '{}': {}", full_path, e)),
         }
     }
 }
@@ -307,10 +292,7 @@ mod tests {
         params.insert("file".to_string(), "test.txt".to_string());
         params.insert("width".to_string(), "100".to_string());
 
-        assert_eq!(
-            interpolate_params("{file}", &params),
-            "test.txt"
-        );
+        assert_eq!(interpolate_params("{file}", &params), "test.txt");
         assert_eq!(
             interpolate_params("convert {file} -resize {width}x", &params),
             "convert test.txt -resize 100x"
