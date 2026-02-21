@@ -22,6 +22,8 @@
 //! println!("Headings: {:?}", doc.headings);
 //! ```
 
+pub mod ast;
+pub mod diff;
 mod frontmatter;
 mod handler;
 mod handlers;
@@ -42,6 +44,9 @@ pub use reqs::{
     ExtractedReqs, ReqDefinition, ReqLevel, ReqMetadata, ReqStatus, ReqWarning, ReqWarningKind,
     Rfc2119Keyword, RuleId, SourceSpan, detect_rfc2119_keywords, parse_rule_id,
 };
+
+pub use ast::{Alignment, Block, Inline, parse as parse_ast, render_to_markdown};
+pub use diff::{diff_markdown, diff_markdown_inline};
 
 // Feature-gated handler exports
 #[cfg(feature = "highlight")]
