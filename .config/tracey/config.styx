@@ -1,0 +1,16 @@
+@schema {id crate:tracey-config@1, cli tracey}
+
+specs (
+    {
+        name gingembre
+        prefix r
+        include (docs/spec/gingembre.md)
+        impls (
+            {
+                name rust
+                include (crates/gingembre/src/**/*.rs)
+                test_include (crates/gingembre/tests/**/*.rs)
+            }
+        )
+    }
+)
