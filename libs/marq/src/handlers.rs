@@ -327,7 +327,10 @@ for (const pre of document.querySelectorAll('pre.mermaid')) {
   pre.dataset.mermaidSource = pre.innerHTML;
 }
 
-mermaid.initialize({ startOnLoad: true, theme: mermaidTheme() });
+// startOnLoad relies on DOMContentLoaded which may have already fired when
+// this script is injected dynamically, so we initialize and run explicitly.
+mermaid.initialize({ startOnLoad: false, theme: mermaidTheme() });
+await mermaid.run();
 
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', reinitAllMermaid);
 
