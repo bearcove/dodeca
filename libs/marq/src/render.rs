@@ -1026,6 +1026,7 @@ async fn render_blockquote_req_content(
     let mut in_code_block = false;
     let mut code_block_lang = String::new();
     let mut code_block_content = String::new();
+    let mut blockquote_depth: usize = 0;
 
     // Flush the text buffer, stripping the req marker if we haven't yet
     let flush_text = |html: &mut String, buffer: &mut String, stripped: &mut bool| {
@@ -1046,8 +1047,19 @@ async fn render_blockquote_req_content(
 
     for (event, _range) in events {
         match event {
-            Event::Start(Tag::BlockQuote(_)) | Event::End(TagEnd::BlockQuote(_)) => {
-                // Skip blockquote wrapper
+            Event::Start(Tag::BlockQuote(_)) => {
+                if blockquote_depth > 0 {
+                    flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                    html.push_str("<blockquote>");
+                }
+                blockquote_depth += 1;
+            }
+            Event::End(TagEnd::BlockQuote(_)) => {
+                blockquote_depth -= 1;
+                if blockquote_depth > 0 {
+                    flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                    html.push_str("</blockquote>");
+                }
             }
             Event::Start(Tag::Paragraph) => {
                 html.push_str("<p>");
@@ -2340,6 +2352,82 @@ Third paragraph.
             1,
             "Two mermaid blocks should produce only one head injection, got: {}",
             doc.head_injections.len()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_req_in_blockquote_with_nested_blockquote() {
+        let md = "> r[my.rule]\n> > quoted text";
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        eprintln!("HTML: {}", doc.html);
+
+        assert_eq!(doc.reqs.len(), 1);
+        assert_eq!(doc.reqs[0].id, "my.rule");
+
+        // The outer blockquote is replaced by the req div — no outer <blockquote> wrapper
+        assert!(
+            !doc.html.starts_with("<blockquote>"),
+            "Outer blockquote should be replaced by req div: {}",
+            doc.html
+        );
+
+        // Inner blockquote should be rendered as HTML <blockquote>
+        assert!(
+            doc.html.contains("<blockquote>"),
+            "Nested blockquote should be rendered: {}",
+            doc.html
+        );
+        assert!(
+            doc.html.contains("quoted text"),
+            "Nested blockquote text should be present: {}",
+            doc.html
+        );
+
+        // raw should include the nested blockquote source
+        assert!(
+            doc.reqs[0].raw.contains("> quoted text"),
+            "req.raw should include nested blockquote source: {}",
+            doc.reqs[0].raw
+        );
+    }
+
+    #[tokio::test]
+    async fn test_req_in_blockquote_with_deeply_nested_blockquote() {
+        let md = "> r[my.rule]\n> > > deeply quoted";
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        eprintln!("HTML: {}", doc.html);
+
+        assert_eq!(doc.reqs.len(), 1);
+        assert_eq!(doc.reqs[0].id, "my.rule");
+
+        // No outer blockquote wrapper
+        assert!(
+            !doc.html.starts_with("<blockquote>"),
+            "Outer blockquote should be replaced by req div: {}",
+            doc.html
+        );
+
+        // Two levels of nested <blockquote>
+        let blockquote_count = doc.html.matches("<blockquote>").count();
+        assert_eq!(
+            blockquote_count, 2,
+            "Should have two levels of nested blockquotes, got {}: {}",
+            blockquote_count, doc.html
+        );
+
+        assert!(
+            doc.html.contains("deeply quoted"),
+            "Deeply nested text should be present: {}",
+            doc.html
+        );
+
+        // raw should include the nested blockquote source
+        assert!(
+            doc.reqs[0].raw.contains("> > deeply quoted"),
+            "req.raw should include deeply nested blockquote source: {}",
+            doc.reqs[0].raw
         );
     }
 
