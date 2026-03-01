@@ -11,10 +11,10 @@ license = "Apache-2.0 OR MIT"
 dashmap = "6"
 im = "15.1.0"
 divan = "0.1"
-facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-core = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-postcard = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-reflect = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet = { version = "0.44.0" }
+facet-core = { version = "0.44.0" }
+facet-postcard = { version = "0.44.0" }
+facet-reflect = { version = "0.44.0" }
 heck = "0.5.0"
 parking_lot = "0.12.4"
 proc-macro2 = "1.0.101"
