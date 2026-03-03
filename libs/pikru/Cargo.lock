@@ -2254,7 +2254,7 @@ checksum = "5be167a7af36ee22fe3115051bc51f6e6c7054c9348e28deb4f49bd6f705a315"
 
 [[package]]
 name = "pikru"
-version = "1.0.1"
+version = "1.2.0"
 dependencies = [
  "ariadne",
  "camino",
@@ -2272,7 +2272,7 @@ dependencies = [
 
 [[package]]
 name = "pikru-compare"
-version = "1.0.1"
+version = "1.2.0"
 dependencies = [
  "camino",
  "facet-assert",
@@ -2286,7 +2286,7 @@ dependencies = [
 
 [[package]]
 name = "pikru-mcp"
-version = "1.0.1"
+version = "1.2.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -3820,7 +3820,7 @@ checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
 
 [[package]]
 name = "xtask"
-version = "1.0.1"
+version = "1.2.0"
 dependencies = [
  "camino",
  "pikru",

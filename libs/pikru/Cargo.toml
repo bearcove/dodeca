@@ -3,7 +3,7 @@ members = ["xtask", "crates/pikru-mcp", "crates/pikru-compare"]
 
 [package]
 name = "pikru"
-version = "1.0.1"
+version = "1.2.0"
 edition = "2024"
 rust-version = "1.89"
 authors = ["Amos Wenger <amos@bearcove.eu>"]
