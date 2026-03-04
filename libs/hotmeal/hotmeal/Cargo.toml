@@ -5,6 +5,8 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
 description = "HTML toolkit with arena-based DOM, html5ever parsing, and serialization"
 keywords = ["html", "dom", "html5ever", "parsing", "facet"]
 categories = ["encoding", "parsing", "web-programming"]
@@ -20,27 +22,27 @@ facet-error = { workspace = true }
 
 # Tree diffing - GumTree/Chawathe algorithm
 cinereus = { workspace = true }
-rapidhash = "1"
+rapidhash = { workspace = true }
 smallvec = { workspace = true }
 
 # HTML parsing - full HTML5 tree construction with error recovery
 html5ever = { workspace = true }
 tendril = { workspace = true }
-compact_str = "0.9"
+compact_str = { workspace = true }
 
 # Optional tracing support
-tracing = { version = "0.1", optional = true }
+tracing = { workspace = true, optional = true }
 
 [features]
 tracing = ["dep:tracing"]
 
 [dev-dependencies]
-cinereus = { workspace = true, features = ["tracing"] }
-tracing = { version = "0.1" }
+cinereus = { path = "../cinereus" }
+tracing = { workspace = true }
 facet-testhelpers = { workspace = true }
 facet-json = { workspace = true }
 datatest-stable = { workspace = true }
-divan = "0.1"
+divan = { workspace = true }
 
 [[test]]
 name = "roundtrip"

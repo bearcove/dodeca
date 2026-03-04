@@ -4,10 +4,12 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
 description = "WASM client for hotmeal - applies DOM patches in the browser"
 keywords = ["html", "diff", "wasm", "dom", "patches"]
 categories = ["wasm", "web-programming"]
-repository = "https://github.com/bearcove/hotmeal"
 
 [package.metadata]
 
@@ -26,30 +28,29 @@ js-sys = { workspace = true }
 smallvec = { workspace = true }
 tracing = { workspace = true }
 wasm-bindgen = { workspace = true }
-wasm-bindgen-futures = "0.4"
+wasm-bindgen-futures = { workspace = true }
 wasm-tracing = { workspace = true }
 web-sys = { workspace = true, features = [
-    "Attr",
-    "Comment",
-    "console",
-    "CustomEvent",
-    "CustomEventInit",
-    "Document",
-    "DocumentFragment",
-    "Element",
-    "EventTarget",
-    "HtmlElement",
-    "HtmlTemplateElement",
-    "Location",
-    "NamedNodeMap",
-    "Node",
-    "NodeList",
-    "Text",
-    "Window",
+  "Attr",
+  "Comment",
+  "console",
+  "CustomEvent",
+  "CustomEventInit",
+  "Document",
+  "DocumentFragment",
+  "Element",
+  "EventTarget",
+  "HtmlElement",
+  "HtmlTemplateElement",
+  "Location",
+  "NamedNodeMap",
+  "Node",
+  "NodeList",
+  "Text",
+  "Window",
 ] }
 
 # RPC transport
 roam = { workspace = true }
-roam-session = { workspace = true }
 roam-websocket = { workspace = true }
-futures-channel = "0.3"
+futures-channel = { workspace = true }

@@ -2,9 +2,7 @@ use browser_proto::{
     ApplyPatchesResult, Browser, BrowserDispatcher, ComputeAndApplyResult, DomAttr, DomNode,
     OwnedPatches, Patch, PatchStep,
 };
-use roam::Context;
-use roam_session::initiate_framed;
-use roam_websocket::WsTransport;
+use roam_websocket::WsLink;
 use wasm_bindgen::prelude::*;
 
 #[derive(Clone)]
@@ -13,7 +11,6 @@ struct Handler;
 impl Browser for Handler {
     async fn apply_patches(
         &self,
-        _cx: &Context,
         old_html: String,
         patches: OwnedPatches,
     ) -> Result<ApplyPatchesResult, String> {
@@ -22,14 +19,13 @@ impl Browser for Handler {
 
     async fn compute_and_apply_patches(
         &self,
-        _cx: &Context,
         old_html: String,
         new_html: String,
     ) -> Result<ComputeAndApplyResult, String> {
         run_compute_and_apply_patches(&old_html, &new_html)
     }
 
-    async fn parse_to_dom(&self, _cx: &Context, html: String) -> DomNode {
+    async fn parse_to_dom(&self, html: String) -> DomNode {
         parse_html_to_dom(&html)
     }
 }
@@ -394,23 +390,21 @@ pub async fn connect(port: u32) -> Result<(), JsValue> {
     let url = format!("ws://127.0.0.1:{}", port);
     web_sys::console::log_1(&format!("[browser-wasm] connecting to {}", url).into());
 
-    let transport = WsTransport::connect(&url)
+    let link = WsLink::connect(&url)
         .await
         .map_err(|e| format!("connect failed: {}", e))?;
 
     web_sys::console::log_1(&"[browser-wasm] connected, starting handshake".into());
 
     let dispatcher = BrowserDispatcher::new(Handler);
-    let (_handle, _incoming, driver) = initiate_framed(transport, Default::default(), dispatcher)
+    let (_caller, _session_handle) = roam::initiator(link)
+        .establish::<roam::DriverCaller>(dispatcher)
         .await
         .map_err(|e| format!("handshake failed: {:?}", e))?;
 
-    web_sys::console::log_1(&"[browser-wasm] handshake complete, running driver".into());
+    web_sys::console::log_1(&"[browser-wasm] handshake complete, waiting for events".into());
 
-    driver
-        .run()
-        .await
-        .map_err(|e| format!("driver error: {:?}", e))?;
+    std::future::pending::<()>().await;
 
     Ok(())
 }

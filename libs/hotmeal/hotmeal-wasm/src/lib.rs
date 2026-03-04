@@ -188,8 +188,9 @@ pub fn apply_patches_postcard_on(
 mod live_reload {
     use super::*;
     use hotmeal_server::{LiveReloadBrowser, LiveReloadBrowserDispatcher, LiveReloadServiceClient};
-    use roam_session::HandshakeConfig;
-    use roam_websocket::WsTransport;
+    use roam_websocket::WsLink;
+    use std::cell::RefCell;
+    use std::rc::Rc;
 
     /// Browser-side implementation of the `LiveReloadBrowser` service.
     ///
@@ -201,7 +202,7 @@ mod live_reload {
     }
 
     impl LiveReloadBrowser for LiveReloadBrowserImpl {
-        async fn on_event(&self, _cx: &roam::Context, event: LiveReloadEvent) {
+        async fn on_event(&self, event: LiveReloadEvent) {
             if let Err(e) = handle_live_reload_event(&event, &self.mount_selector) {
                 log(&format!("[hotmeal-wasm] error handling event: {e:?}"));
             }
@@ -269,35 +270,47 @@ mod live_reload {
             }
 
             log("[hotmeal-wasm] reconnecting...");
-            roam_session::runtime::sleep(std::time::Duration::from_millis(backoff_ms as u64)).await;
+            sleep_ms(backoff_ms).await;
             backoff_ms = (backoff_ms * 2).min(max_backoff_ms);
         }
+    }
+
+    async fn sleep_ms(ms: u32) {
+        let promise = js_sys::Promise::new(&mut move |resolve, _reject| {
+            if let Some(window) = web_sys::window() {
+                let _ = window
+                    .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, ms as i32);
+            } else {
+                let _ = resolve.call0(&JsValue::NULL);
+            }
+        });
+        let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
     }
 
     async fn live_reload_session(
         ws_url: &str,
         mount_selector: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let transport = WsTransport::connect(ws_url).await?;
+        let link = WsLink::connect(ws_url).await?;
 
         let dispatcher = LiveReloadBrowserDispatcher::new(LiveReloadBrowserImpl {
             mount_selector: mount_selector.to_owned(),
         });
-        let config = HandshakeConfig::default();
-        let (handle, _incoming, driver) =
-            roam_session::accept_framed(transport, config, dispatcher).await?;
-
-        let client = LiveReloadServiceClient::new(handle);
-
-        // Spawn the driver — it processes incoming/outgoing RPC messages.
-        // When the connection closes, driver.run() returns and signals via the oneshot.
         let (done_tx, done_rx) = futures_channel::oneshot::channel::<()>();
-        wasm_bindgen_futures::spawn_local(async move {
-            if let Err(e) = driver.run().await {
-                log(&format!("[hotmeal-wasm] driver error: {e}"));
-            }
-            let _ = done_tx.send(());
-        });
+        let done_tx = Rc::new(RefCell::new(Some(done_tx)));
+        let done_tx_spawn = done_tx.clone();
+        let (client, _session_handle) = roam::acceptor(link)
+            .spawn_fn(move |fut| {
+                let done_tx_spawn = done_tx_spawn.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    fut.await;
+                    if let Some(done_tx) = done_tx_spawn.borrow_mut().take() {
+                        let _ = done_tx.send(());
+                    }
+                });
+            })
+            .establish::<LiveReloadServiceClient>(dispatcher)
+            .await?;
 
         log("[hotmeal-wasm] roam session established");
 
@@ -307,10 +320,13 @@ mod live_reload {
             .unwrap_or_else(|| "/".to_owned());
 
         log(&format!("[hotmeal-wasm] subscribing to route: {route}"));
-        client.subscribe(route).await?;
+        client
+            .subscribe(route)
+            .await
+            .map_err(|e| std::io::Error::other(format!("subscribe failed: {e:?}")))?;
         log("[hotmeal-wasm] subscribed, waiting for events");
 
-        // Wait for the driver to finish (connection closed by server or network)
+        // Wait for session to end (connection closed by server or network)
         let _ = done_rx.await;
 
         Ok(())

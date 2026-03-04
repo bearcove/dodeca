@@ -19,8 +19,8 @@ use chromiumoxide::{
     fetcher::{BrowserFetcher, BrowserFetcherOptions},
 };
 use futures_util::StreamExt;
-use roam_stream::{ConnectionHandle, HandshakeConfig, NoDispatcher};
-use roam_websocket::{WsTransport, ws_accept};
+use roam::DriverCaller;
+use roam_websocket::WsLink;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -334,7 +334,7 @@ async fn run_browser_worker(mut rx: mpsc::UnboundedReceiver<BrowserRequest>) {
     page.goto(&bundle_url).await.unwrap();
     log_lifecycle!("[thrall] Page navigation started, waiting for WASM to connect...");
 
-    let (conn_tx, conn_rx) = watch::channel::<Option<ConnectionHandle>>(None);
+    let (conn_tx, conn_rx) = watch::channel::<Option<DriverCaller>>(None);
     let listener_handle = tokio::spawn(accept_connections(listener, conn_tx));
 
     while let Some(req) = rx.recv().await {
@@ -517,10 +517,7 @@ fn find_browser_bundle() -> Option<std::path::PathBuf> {
     None
 }
 
-async fn accept_connections(
-    listener: TcpListener,
-    conn_tx: watch::Sender<Option<ConnectionHandle>>,
-) {
+async fn accept_connections(listener: TcpListener, conn_tx: watch::Sender<Option<DriverCaller>>) {
     loop {
         log_lifecycle!(
             "[thrall] Waiting for browser to connect on {:?}...",
@@ -537,16 +534,11 @@ async fn accept_connections(
                         log_lifecycle!(
                             "[thrall] WebSocket upgrade complete, starting roam handshake..."
                         );
-                        let transport = WsTransport::new(ws_stream);
-                        match ws_accept(transport, HandshakeConfig::default(), NoDispatcher).await {
-                            Ok((handle, _incoming, driver)) => {
+                        let link = WsLink::new(ws_stream);
+                        match roam::acceptor(link).establish::<DriverCaller>(()).await {
+                            Ok((caller, _session_handle)) => {
                                 log_lifecycle!("[thrall] Roam handshake complete");
-                                tokio::spawn(async move {
-                                    if let Err(e) = driver.run().await {
-                                        log_lifecycle!("[thrall] Driver error: {:?}", e);
-                                    }
-                                });
-                                let _ = conn_tx.send(Some(handle));
+                                let _ = conn_tx.send(Some(caller));
                                 log_lifecycle!("[thrall] Ready to process requests");
                             }
                             Err(e) => log_lifecycle!("[thrall] Roam handshake failed: {:?}", e),

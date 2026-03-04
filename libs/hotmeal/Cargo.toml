@@ -4,48 +4,53 @@ exclude = ["hotmeal/fuzz"]
 resolver = "3"
 
 [workspace.package]
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 rust-version = "1.90"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/bearcove/hotmeal"
+homepage = "https://github.com/bearcove/hotmeal"
 
 [workspace.dependencies]
 # Facet dependencies
-facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-error = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-testhelpers = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet = "0.44.1"
+facet-error = "0.44.1"
+facet-json = "0.44.1"
+facet-testhelpers = "0.44.1"
 
 # Local crates
-cinereus = { path = "cinereus", version = "0.42.0" }
-hotmeal = { path = "hotmeal", version = "0.1.0" }
-hotmeal-server = { path = "hotmeal-server", version = "0.1.0" }
+cinereus = { path = "cinereus", version = "1.0.0" }
+hotmeal = { path = "hotmeal", version = "1.0.0" }
+hotmeal-server = { path = "hotmeal-server", version = "1.0.0" }
 
 # Serialization
-facet-postcard = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-postcard = "0.44.1"
 
 # RPC
-roam = { git = "https://github.com/bearcove/roam", branch = "main" }
-roam-session = { git = "https://github.com/bearcove/roam", branch = "main" }
-roam-websocket = { git = "https://github.com/bearcove/roam", branch = "main" }
+roam = "7.0.0"
+roam-websocket = "7.0.0"
 
 # Data structures
 indextree = "4.7"
 smallvec = "1"
+compact_str = "0.9"
+rapidhash = "1"
 
-# HTML parsing (from fasterthanlime fork - tracks upstream with hotmeal-specific patches)
-html5ever = { git = "https://github.com/fasterthanlime/html5ever", branch = "hotmeal" }
-markup5ever = { git = "https://github.com/fasterthanlime/html5ever", branch = "hotmeal" }
-tendril = { git = "https://github.com/fasterthanlime/html5ever", branch = "hotmeal" }
+# HTML parsing
+html5ever = "0.38.0"
+markup5ever = "0.38.0"
+tendril = "0.5.0"
 
 # Other
 js-sys = "0.3"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 wasm-bindgen = "=0.2.108"
+wasm-bindgen-futures = "0.4"
 wasm-tracing = "2.1"
 web-sys = "0.3"
 datatest-stable = "0.3"
+divan = "0.1"
+futures-channel = "0.3"
 
 [workspace.lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(facet_no_doc)"] }

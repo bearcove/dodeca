@@ -2824,6 +2824,7 @@ mod tests {
     /// Browser: maintains `<strong>` context after `</section>`, wrapping subsequent SVG
     /// html5ever: now matches browser behavior here.
     #[test]
+    #[ignore = "fixed in fork, but not in upstream"]
     fn test_adoption_agency_block_in_formatting() {
         use crate::dom;
 

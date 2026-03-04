@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 description = "Server-side live-reload infrastructure for hotmeal - transport-agnostic HTML diffing and patch delivery"
 keywords = ["html", "live-reload", "diff", "patches", "hotmeal"]
 categories = ["web-programming"]
