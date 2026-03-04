@@ -14,7 +14,7 @@ use crate::handler::{
 };
 use crate::headings::{Heading, slugify};
 use crate::links::resolve_link;
-use crate::reqs::{ReqDefinition, RuleId, SourceSpan, parse_req_marker};
+use crate::reqs::{InlineCodeSpan, ReqDefinition, RuleId, SourceSpan, parse_req_marker};
 
 /// Parse context representing the current nested structure we're inside.
 /// This replaces the ad-hoc state variables with a proper stack.
@@ -245,6 +245,10 @@ pub struct Document {
     /// HTML snippets to inject into the page's `<head>` (or body end).
     /// Already deduplicated by key during rendering.
     pub head_injections: Vec<String>,
+
+    /// All inline code spans (backtick-delimited) found in the document.
+    /// Spans include byte offsets covering the backtick delimiters.
+    pub inline_code_spans: Vec<InlineCodeSpan>,
 }
 
 /// Convert a byte offset to a 1-indexed line number.
@@ -288,6 +292,7 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
     let mut reqs: Vec<ReqDefinition> = Vec::new();
     let mut elements: Vec<DocElement> = Vec::new();
     let mut code_samples: Vec<CodeSample> = Vec::new();
+    let mut inline_code_spans: Vec<InlineCodeSpan> = Vec::new();
     let mut head_injection_map: BTreeMap<String, String> = BTreeMap::new();
 
     // Output HTML - built directly as we process
@@ -319,6 +324,19 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
         |stack: &[ParseContext<'_>]| stack_contains(stack, |c| c.is_blockquote());
 
     for (event, range) in parser {
+        // Collect all inline code spans centrally. pulldown_cmark only emits
+        // Event::Code for genuine backtick spans, never for fenced code block
+        // content, so this naturally excludes code blocks (even blockquoted ones).
+        if let Event::Code(code) = &event {
+            inline_code_spans.push(InlineCodeSpan {
+                content: code.to_string(),
+                span: SourceSpan {
+                    offset: range.start,
+                    length: range.len(),
+                },
+            });
+        }
+
         // If inside a blockquote, route events there
         if is_inside_blockquote(&context_stack) {
             match &event {
@@ -791,6 +809,7 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
         code_samples,
         elements,
         head_injections: head_injection_map.into_values().collect(),
+        inline_code_spans,
     })
 }
 
@@ -2454,5 +2473,44 @@ Third paragraph.
             "Mermaid code should be HTML-escaped: {}",
             doc.html
         );
+    }
+
+    #[tokio::test]
+    async fn test_inline_code_spans_collected() {
+        let md = "See `r[auth.login]` and `r[data.format]` for details.";
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        assert_eq!(doc.inline_code_spans.len(), 2);
+        assert_eq!(doc.inline_code_spans[0].content, "r[auth.login]");
+        assert_eq!(doc.inline_code_spans[1].content, "r[data.format]");
+        // Span should cover the backtick delimiters
+        assert!(doc.inline_code_spans[0].span.length > "r[auth.login]".len());
+    }
+
+    #[tokio::test]
+    async fn test_inline_code_spans_skip_fenced_code_blocks() {
+        let md = "```rust\n// r[auth.login]\n```\n\nSee `r[real.ref]` here.";
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        assert_eq!(doc.inline_code_spans.len(), 1);
+        assert_eq!(doc.inline_code_spans[0].content, "r[real.ref]");
+    }
+
+    #[tokio::test]
+    async fn test_inline_code_spans_skip_blockquoted_fenced_code_blocks() {
+        let md = "> ```rust\n> // r[auth.login]\n> ```\n\nSee `r[real.ref]` here.";
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        assert_eq!(doc.inline_code_spans.len(), 1);
+        assert_eq!(doc.inline_code_spans[0].content, "r[real.ref]");
+    }
+
+    #[tokio::test]
+    async fn test_inline_code_spans_inside_blockquote_prose() {
+        let md = "> See `r[auth.login]` for details.";
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        assert_eq!(doc.inline_code_spans.len(), 1);
+        assert_eq!(doc.inline_code_spans[0].content, "r[auth.login]");
     }
 }

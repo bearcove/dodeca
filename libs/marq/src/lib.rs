@@ -41,8 +41,8 @@ pub use headings::{Heading, slugify};
 pub use links::resolve_link;
 pub use render::{DocElement, Document, Paragraph, RenderOptions, render};
 pub use reqs::{
-    ExtractedReqs, ReqDefinition, ReqLevel, ReqMetadata, ReqStatus, ReqWarning, ReqWarningKind,
-    Rfc2119Keyword, RuleId, SourceSpan, detect_rfc2119_keywords, parse_rule_id,
+    ExtractedReqs, InlineCodeSpan, ReqDefinition, ReqLevel, ReqMetadata, ReqStatus, ReqWarning,
+    ReqWarningKind, Rfc2119Keyword, RuleId, SourceSpan, detect_rfc2119_keywords, parse_rule_id,
 };
 
 pub use ast::{Alignment, Block, Inline, parse as parse_ast, render_to_markdown};

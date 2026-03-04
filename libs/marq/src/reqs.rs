@@ -17,6 +17,15 @@ pub struct SourceSpan {
     pub length: usize,
 }
 
+/// An inline code span (backtick-delimited) found in the markdown source.
+#[derive(Debug, Clone, PartialEq, Eq, Facet)]
+pub struct InlineCodeSpan {
+    /// The text content inside the backticks
+    pub content: String,
+    /// Source span covering the entire code span including backtick delimiters
+    pub span: SourceSpan,
+}
+
 /// Structured rule identifier with optional version.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Facet)]
 pub struct RuleId {
