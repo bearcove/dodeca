@@ -742,7 +742,7 @@ dependencies = [
 
 [[package]]
 name = "picante"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "dashmap",
  "divan",
@@ -763,7 +763,7 @@ dependencies = [
 
 [[package]]
 name = "picante-macros"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "heck",
  "proc-macro2",

@@ -3,7 +3,7 @@ members = ["crates/*"]
 resolver = "3"
 
 [workspace.package]
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 rust-version = "1.91"
 license = "Apache-2.0 OR MIT"
@@ -30,7 +30,7 @@ tracing = { version = "0.1.41", default-features = false, features = ["std"] }
 tracing-subscriber = "0.3.20"
 trybuild = "1.0"
 unsynn = "0.3.0"
-picante-macros = { version = "0.1.0", path = "crates/picante-macros" }
+picante-macros = { version = "1.0.0", path = "crates/picante-macros" }
 
 # [patch."https://github.com/facet-rs/facet"]
 # facet = { path = "../facet/facet" }
