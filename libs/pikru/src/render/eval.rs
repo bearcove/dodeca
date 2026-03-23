@@ -47,7 +47,7 @@ fn get_nth_vertex(obj: &RenderedObject, nth: &Nth) -> PointIn {
 
         let index = match nth {
             Nth::First(_) | Nth::Ordinal(1, _, _) => 0,
-            Nth::Last(_) | Nth::Previous => len - 1,
+            Nth::Last(_) | Nth::Previous(_) => len - 1,
             Nth::Ordinal(n, _, _) => {
                 // Pikchr uses 1-based indexing
                 let idx = (*n as usize).saturating_sub(1);
@@ -69,7 +69,7 @@ fn get_nth_vertex(obj: &RenderedObject, nth: &Nth) -> PointIn {
         // Fallback for non-line objects
         match nth {
             Nth::First(_) | Nth::Ordinal(1, _, _) => obj.start(),
-            Nth::Last(_) | Nth::Previous => obj.end(),
+            Nth::Last(_) | Nth::Previous(_) => obj.end(),
             Nth::Ordinal(_, _, _) => obj.center(),
         }
     }
@@ -318,19 +318,43 @@ pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, PikruError> 
             let dist = Inches::inches((offset.dx.raw().powi(2) + offset.dy.raw().powi(2)).sqrt());
             Ok(Value::Len(dist))
         }
-        Expr::ObjectProp(obj, prop) => {
+        Expr::ObjectProp(obj, prop_ref) => {
             let r = resolve_object(ctx, obj).ok_or_else(|| {
                 PikruError::Generic("Unknown object in property lookup".to_string())
             })?;
-            let val = match prop {
-                NumProperty::Width => r.width(),
-                NumProperty::Height => r.height(),
-                NumProperty::Radius | NumProperty::Diameter => {
-                    r.width().min(r.height()) / 2.0 // typed min and div
+            match prop_ref {
+                PropertyRef::Num(prop) => {
+                    let val = match prop {
+                        NumProperty::Width => r.width(),
+                        NumProperty::Height => r.height(),
+                        NumProperty::Radius | NumProperty::Diameter => {
+                            r.width().min(r.height()) / 2.0
+                        }
+                        NumProperty::Thickness => r.style().stroke_width,
+                    };
+                    Ok(Value::Len(val))
                 }
-                NumProperty::Thickness => r.style().stroke_width,
-            };
-            Ok(Value::Len(val))
+                PropertyRef::Dash(prop) => {
+                    let val = match prop {
+                        DashProperty::Dashed => {
+                            r.style().dashed.unwrap_or(Inches::ZERO)
+                        }
+                        DashProperty::Dotted => {
+                            r.style().dotted.unwrap_or(Inches::ZERO)
+                        }
+                    };
+                    Ok(Value::Len(val))
+                }
+                PropertyRef::Color(prop) => {
+                    let color_str = match prop {
+                        ColorProperty::Color => &r.style().stroke,
+                        ColorProperty::Fill => &r.style().fill,
+                    };
+                    let color = color_str.parse::<crate::types::Color>().unwrap();
+                    let rgb = color.to_u32();
+                    Ok(Value::Scalar(rgb as f64))
+                }
+            }
         }
         Expr::ObjectCoord(obj, coord) => {
             let r = resolve_object(ctx, obj)
@@ -650,42 +674,97 @@ pub fn resolve_object<'a>(ctx: &'a RenderContext, obj: &Object) -> Option<&'a Re
                 resolve_path_in_object(base_obj, &name.path)
             }
         }
-        Object::Nth(nth) => match nth {
-            Nth::Last(class) => {
-                let oc = class.as_ref().and_then(nth_class_to_class_name);
-                ctx.get_last_object(oc)
+        Object::Nth(nth) => resolve_nth(ctx, nth),
+        Object::NthOf(nth, container) => {
+            // Scoped ordinal: "1st box of A" - look up nth within container's children
+            let container_obj = resolve_object(ctx, container)?;
+            let children = container_obj.children()?;
+            resolve_nth_in_children(children, nth)
+        }
+    }
+}
+
+/// Resolve an nth reference against the current context
+fn resolve_nth<'a>(ctx: &'a RenderContext, nth: &Nth) -> Option<&'a RenderedObject> {
+    match nth {
+        Nth::Last(class) => {
+            let oc = class.as_ref().and_then(nth_class_to_class_name);
+            ctx.get_last_object(oc)
+        }
+        Nth::First(class) => {
+            let oc = class.as_ref().and_then(nth_class_to_class_name);
+            let obj = ctx.get_nth_object(1, oc);
+            if let Some(_o) = obj {
+                crate::log::debug!(
+                    name = ?_o.name,
+                    class = ?_o.class(),
+                    start_x = _o.start().x.0,
+                    start_y = _o.start().y.0,
+                    "resolve_object Nth::First"
+                );
             }
-            Nth::First(class) => {
-                let oc = class.as_ref().and_then(nth_class_to_class_name);
-                let obj = ctx.get_nth_object(1, oc);
-                if let Some(_o) = obj {
-                    crate::log::debug!(
-                        name = ?_o.name,
-                        class = ?_o.class(),
-                        start_x = _o.start().x.0,
-                        start_y = _o.start().y.0,
-                        "resolve_object Nth::First"
-                    );
-                }
-                obj
-            }
-            Nth::Ordinal(n, is_last, class) => {
-                let oc = class.as_ref().and_then(nth_class_to_class_name);
-                if *is_last {
-                    // "3rd last box" - count from end
+            obj
+        }
+        Nth::Ordinal(n, modifier, class) => {
+            let oc = class.as_ref().and_then(nth_class_to_class_name);
+            match modifier {
+                NthModifier::Last | NthModifier::Previous => {
+                    // "3rd last box" / "3rd previous box" - count from end
                     ctx.get_nth_last_object(*n as usize, oc)
-                } else {
+                }
+                NthModifier::None => {
                     // "3rd box" - count from start
                     ctx.get_nth_object(*n as usize, oc)
                 }
             }
-            Nth::Previous => {
-                // "previous" refers to the most recently completed object
-                // Since the current object hasn't been added to the list yet,
-                // "previous" is the last object in the list
+        }
+        Nth::Previous(class) => {
+            // "previous" or "previous box" - most recently completed object
+            let oc = class.as_ref().and_then(nth_class_to_class_name);
+            if oc.is_some() {
+                // "previous box" = "last box" (per pikchr spec, previous ≡ last)
+                ctx.get_last_object(oc)
+            } else {
                 ctx.object_list.last()
             }
-        },
+        }
+    }
+}
+
+/// Resolve an nth reference within a container's children
+fn resolve_nth_in_children<'a>(children: &'a [RenderedObject], nth: &Nth) -> Option<&'a RenderedObject> {
+    match nth {
+        Nth::First(class) | Nth::Last(class) | Nth::Previous(class) => {
+            let oc = class.as_ref().and_then(nth_class_to_class_name);
+            let matching: Vec<&RenderedObject> = if let Some(cn) = oc {
+                children.iter().filter(|c| c.class() == cn).collect()
+            } else {
+                children.iter().collect()
+            };
+            match nth {
+                Nth::First(_) => matching.first().copied(),
+                _ => matching.last().copied(), // last and previous are equivalent
+            }
+        }
+        Nth::Ordinal(n, modifier, class) => {
+            let oc = class.as_ref().and_then(nth_class_to_class_name);
+            let matching: Vec<&RenderedObject> = if let Some(cn) = oc {
+                children.iter().filter(|c| c.class() == cn).collect()
+            } else {
+                children.iter().collect()
+            };
+            match modifier {
+                NthModifier::Last | NthModifier::Previous => {
+                    // Count from end
+                    let idx = matching.len().checked_sub(*n as usize)?;
+                    matching.get(idx).copied()
+                }
+                NthModifier::None => {
+                    // Count from start (1-based)
+                    matching.get((*n as usize).checked_sub(1)?).copied()
+                }
+            }
+        }
     }
 }
 

@@ -629,6 +629,36 @@ impl Color {
             }
         }
     }
+
+    /// Convert color to a packed 24-bit RGB integer (0xRRGGBB).
+    /// Returns u32::MAX for "none"/"off", 0 for unknown colors.
+    pub fn to_u32(&self) -> u32 {
+        let rgb_str = self.to_rgb_string();
+        if rgb_str == "none" {
+            return u32::MAX; // C pikchr uses -1 for "none"
+        }
+        // Parse "rgb(r,g,b)" format
+        if let Some(inner) = rgb_str
+            .strip_prefix("rgb(")
+            .and_then(|s| s.strip_suffix(')'))
+        {
+            let parts: Vec<&str> = inner.split(',').collect();
+            if parts.len() == 3 {
+                let r = parts[0].trim().parse::<u32>().unwrap_or(0);
+                let g = parts[1].trim().parse::<u32>().unwrap_or(0);
+                let b = parts[2].trim().parse::<u32>().unwrap_or(0);
+                return (r << 16) | (g << 8) | b;
+            }
+        }
+        // Try hex format like "0xRRGGBB" or "#RRGGBB"
+        if let Some(hex) = rgb_str
+            .strip_prefix("0x")
+            .or_else(|| rgb_str.strip_prefix('#'))
+        {
+            return u32::from_str_radix(hex, 16).unwrap_or(0);
+        }
+        0
+    }
 }
 
 impl std::str::FromStr for Color {

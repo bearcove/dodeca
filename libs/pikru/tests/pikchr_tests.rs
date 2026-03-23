@@ -1,5 +1,5 @@
 use camino::Utf8Path;
-use pikru_compare::{CompareResult, compare_outputs, run_c_pikchr, write_debug_svgs};
+use pikru_compare::{compare_outputs, run_c_pikchr, write_debug_svgs, CompareResult};
 use std::sync::Once;
 
 static INIT_TRACING: Once = Once::new();
@@ -16,8 +16,14 @@ fn init_tracing() {
     });
 }
 
-/// Path to the C pikchr binary (built from vendor/pikchr-c)
-const C_PIKCHR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/vendor/pikchr-c/pikchr");
+/// Path to the C pikchr binary.
+/// Set PIKCHR_C_BIN to override (e.g., for system-installed pikchr).
+/// Falls back to vendor/pikchr-c/pikchr if not set.
+const C_PIKCHR_DEFAULT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/vendor/pikchr-c/pikchr");
+
+fn c_pikchr_path() -> String {
+    std::env::var("PIKCHR_C_BIN").unwrap_or_else(|_| C_PIKCHR_DEFAULT.to_string())
+}
 
 /// Debug SVG output directory
 const DEBUG_SVG_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/debug-svg");
@@ -28,7 +34,8 @@ fn test_pikchr_file(path: &Utf8Path) -> datatest_stable::Result<()> {
     let source = std::fs::read_to_string(path)?;
 
     // Get expected output from C implementation
-    let c_pikchr_path = Utf8Path::new(C_PIKCHR);
+    let c_bin = c_pikchr_path();
+    let c_pikchr_path = Utf8Path::new(&c_bin);
     let c_output = run_c_pikchr(c_pikchr_path, &source);
 
     // Get output from our Rust implementation

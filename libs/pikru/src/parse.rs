@@ -3,8 +3,8 @@
 use crate::ast::*;
 use crate::errors::PikruError;
 use crate::{PikchrParser, Rule};
-use pest::Parser;
 use pest::iterators::Pair;
+use pest::Parser;
 
 /// Parse pikchr source into AST
 pub fn parse(source: &str) -> Result<Program, PikruError> {
@@ -522,21 +522,39 @@ fn parse_attribute(pair: Pair<Rule>) -> Result<Attribute, PikruError> {
             match s {
                 "go" => {
                     inner.next(); // skip "go"
-                    // After "go", check what follows
+                                  // After "go", check what follows
                     if let Some(next) = inner.peek() {
                         if next.as_rule() == Rule::direction {
                             parse_direction_attribute(&mut inner, &pair_str)
                         } else if next.as_rule() == Rule::optrelexpr {
-                            // go optrelexpr heading expr
+                            // go optrelexpr heading expr  OR  go optrelexpr EDGEPT
                             let opt = inner.next().unwrap();
                             let relexpr = opt
                                 .into_inner()
                                 .next()
                                 .map(|p| parse_relexpr(p))
                                 .transpose()?;
-                            inner.next(); // skip "heading"
-                            let heading_expr = parse_expr(inner.next().unwrap())?;
-                            Ok(Attribute::Heading(relexpr, heading_expr))
+                            if let Some(next2) = inner.peek() {
+                                if next2.as_rule() == Rule::EDGEPT {
+                                    // go optrelexpr EDGEPT (compass direction path)
+                                    let ep = parse_edgepoint(inner.next().unwrap())?;
+                                    Ok(Attribute::CompassMove(relexpr, ep))
+                                } else {
+                                    // go optrelexpr heading expr
+                                    inner.next(); // skip "heading"
+                                    let heading_expr = parse_expr(inner.next().unwrap())?;
+                                    Ok(Attribute::Heading(relexpr, heading_expr))
+                                }
+                            } else if let Some(re) = relexpr {
+                                // Just "go relexpr" with no heading/compass
+                                Ok(Attribute::BareExpr(re))
+                            } else {
+                                Err(PikruError::Generic("Nothing after 'go'".to_string()))
+                            }
+                        } else if next.as_rule() == Rule::EDGEPT {
+                            // go EDGEPT (compass direction, no distance)
+                            let ep = parse_edgepoint(inner.next().unwrap())?;
+                            Ok(Attribute::CompassMove(None, ep))
                         } else {
                             Err(PikruError::Generic(format!(
                                 "Unexpected after 'go': {:?}",
@@ -575,7 +593,7 @@ fn parse_attribute(pair: Pair<Rule>) -> Result<Attribute, PikruError> {
                 }
                 "same" => {
                     inner.next(); // skip "same"
-                    // Skip "as" if present
+                                  // Skip "as" if present
                     if inner.peek().map(|p| p.as_str() == "as").unwrap_or(false) {
                         inner.next();
                     }
@@ -1059,10 +1077,22 @@ fn parse_primary(pair: Pair<Rule>) -> Result<Expr, PikruError> {
                         Ok(Expr::ObjectCoord(obj, coord))
                     }
                     Rule::dot_prop => {
-                        // object.width, object.height, etc.
+                        // object.width, object.height, object.color, object.dashed, etc.
                         let prop_pair = next.into_inner().next().unwrap();
-                        let prop = parse_numproperty(prop_pair)?;
-                        Ok(Expr::ObjectProp(obj, prop))
+                        let prop_ref = match prop_pair.as_rule() {
+                            Rule::numproperty => PropertyRef::Num(parse_numproperty(prop_pair)?),
+                            Rule::dashproperty => PropertyRef::Dash(parse_dashproperty(prop_pair)?),
+                            Rule::colorproperty => {
+                                PropertyRef::Color(parse_colorproperty(prop_pair)?)
+                            }
+                            _ => {
+                                return Err(PikruError::Generic(format!(
+                                    "Invalid numproperty: {}",
+                                    prop_pair.as_str()
+                                )))
+                            }
+                        };
+                        Ok(Expr::ObjectProp(obj, prop_ref))
                     }
                     _ => Err(PikruError::Generic(format!(
                         "Unexpected after object in primary: {:?}",
@@ -1112,7 +1142,7 @@ fn parse_nth_from_str(s: &str) -> Result<Nth, PikruError> {
         .trim_end_matches(|c: char| !c.is_ascii_digit())
         .parse()
         .map_err(|_| PikruError::Generic(format!("Invalid ordinal: {}", s)))?;
-    Ok(Nth::Ordinal(num, false, None))
+    Ok(Nth::Ordinal(num, NthModifier::None, None))
 }
 
 fn parse_func_call(pair: Pair<Rule>) -> Result<Expr, PikruError> {
@@ -1370,6 +1400,14 @@ fn parse_object(pair: Pair<Rule>) -> Result<Object, PikruError> {
     match inner.as_rule() {
         Rule::objectname => Ok(Object::Named(parse_objectname(inner)?)),
         Rule::nth => Ok(Object::Nth(parse_nth(inner)?)),
+        Rule::nth_scoped => {
+            // nth_scoped = { nth ~ ("of" | "in") ~ object }
+            let mut scoped_inner = inner.into_inner();
+            let nth = parse_nth(scoped_inner.next().unwrap())?;
+            // Skip "of" or "in" keyword (not captured as child)
+            let obj = parse_object(scoped_inner.next().unwrap())?;
+            Ok(Object::NthOf(nth, Box::new(obj)))
+        }
         _ => Err(PikruError::Generic(format!(
             "Invalid object: {:?}",
             inner.as_rule()
@@ -1429,7 +1467,9 @@ fn parse_nth(pair: Pair<Rule>) -> Result<Nth, PikruError> {
             // No children - check the string content
             let s = pair_str.trim();
             return if s == "previous" {
-                Ok(Nth::Previous)
+                Ok(Nth::Previous(None))
+            } else if s.starts_with("previous") && s.contains("[]") {
+                Ok(Nth::Previous(Some(NthClass::Sublist)))
             } else if s == "first" {
                 Ok(Nth::First(None))
             } else if s == "last" {
@@ -1448,7 +1488,13 @@ fn parse_nth(pair: Pair<Rule>) -> Result<Nth, PikruError> {
                     .trim_end_matches(|c: char| !c.is_ascii_digit())
                     .parse()
                     .unwrap_or(1);
-                Ok(Nth::Ordinal(num, false, None))
+                // Check for "last" or "previous" modifier
+                let modifier = if s.contains(" previous ") {
+                    NthModifier::Previous
+                } else {
+                    NthModifier::None
+                };
+                Ok(Nth::Ordinal(num, modifier, None))
             } else {
                 Err(PikruError::Generic(format!(
                     "Invalid nth with no children: {}",
@@ -1466,19 +1512,24 @@ fn parse_nth(pair: Pair<Rule>) -> Result<Nth, PikruError> {
                 .trim_end_matches(|c: char| !c.is_ascii_digit())
                 .parse()
                 .unwrap_or(1);
-            // Check for "last" keyword - it's consumed as a literal in pest grammar,
-            // not as a child node, so we need to check the original pair string
-            let is_last = pair_str.contains(" last ");
+            // Check for "last" or "previous" keyword modifier
+            let modifier = if pair_str.contains(" previous ") {
+                NthModifier::Previous
+            } else if pair_str.contains(" last ") {
+                NthModifier::Last
+            } else {
+                NthModifier::None
+            };
             let class = inner.next().map(|p| parse_nth_class(p)).transpose()?;
-            crate::log::debug!(num, is_last, ?class, pair_str, "parse_nth Ordinal");
-            Ok(Nth::Ordinal(num, is_last, class))
+            crate::log::debug!(num, ?modifier, ?class, pair_str, "parse_nth Ordinal");
+            Ok(Nth::Ordinal(num, modifier, class))
         }
         Rule::CLASSNAME => {
-            // This is "first CLASSNAME" or "last CLASSNAME" where first/last was the keyword
-            // But actually the keyword wouldn't be captured... let me check
+            // "first CLASSNAME", "last CLASSNAME", or "previous CLASSNAME"
             let class = Some(NthClass::ClassName(parse_classname(first)?));
-            // Check if this came from "first" or "last" by looking at the original string
-            if pair_str.starts_with("first") {
+            if pair_str.starts_with("previous") {
+                Ok(Nth::Previous(class))
+            } else if pair_str.starts_with("first") {
                 Ok(Nth::First(class))
             } else {
                 Ok(Nth::Last(class))
@@ -1495,7 +1546,10 @@ fn parse_nth(pair: Pair<Rule>) -> Result<Nth, PikruError> {
                     let class = inner.next().map(|p| parse_nth_class(p)).transpose()?;
                     Ok(Nth::Last(class))
                 }
-                "previous" => Ok(Nth::Previous),
+                "previous" => {
+                    let class = inner.next().map(|p| parse_nth_class(p)).transpose()?;
+                    Ok(Nth::Previous(class))
+                }
                 _ => Err(PikruError::Generic(format!(
                     "Invalid nth: {} (rule: {:?})",
                     s,

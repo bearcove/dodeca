@@ -1231,6 +1231,35 @@ fn render_object_stmt(
                 same_path_waypoints = None;
                 even_clause = Some((*dir, pos.clone()));
             }
+            Attribute::CompassMove(dist, edgept) => {
+                has_direction_move = true;
+                same_path_waypoints = None;
+                let distance = if let Some(relexpr) = dist {
+                    if let Ok(d) = eval_len(ctx, &relexpr.expr) {
+                        if relexpr.is_percent {
+                            width * (d.raw() / 100.0)
+                        } else {
+                            d
+                        }
+                    } else {
+                        width
+                    }
+                } else {
+                    width
+                };
+                // Convert compass EdgePoint to heading angle, then to offset
+                // Uses same convention as Heading: 0° = north, clockwise
+                let angle = edgept.to_angle();
+                let angle_rad = angle.raw().to_radians();
+                let dx = distance.raw() * angle_rad.sin();
+                let dy = distance.raw() * angle_rad.cos();
+                let offset = OffsetIn::new(Inches::inches(dx), Inches::inches(dy));
+                if in_then_segment {
+                    current_segment_offset += offset;
+                } else {
+                    direction_offset += offset;
+                }
+            }
             Attribute::BareExpr(relexpr) => {
                 // A bare expression is typically a distance applied in ctx.direction
                 if let Ok(d) = eval_len(ctx, &relexpr.expr) {

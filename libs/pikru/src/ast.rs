@@ -290,6 +290,8 @@ pub enum Attribute {
     DirectionUntilEven(Option<bool>, Direction, Position),
     /// Heading: go 1.5 heading 45
     Heading(Option<RelExpr>, Expr),
+    /// Compass direction move: go 0.5in ne, go sw
+    CompassMove(Option<RelExpr>, EdgePoint),
     /// Close the path
     Close,
     /// Chop endpoint
@@ -349,6 +351,15 @@ pub enum DashProperty {
 pub enum ColorProperty {
     Fill,
     Color,
+}
+
+/// A property reference for dot-property reads (object.property)
+/// Wraps all three property types so expressions can read any of them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PropertyRef {
+    Num(NumProperty),
+    Dash(DashProperty),
+    Color(ColorProperty),
 }
 
 /// Boolean property values
@@ -418,7 +429,7 @@ pub enum Expr {
     BuiltinVar(BuiltinVar),
     FuncCall(FuncCall),
     DistCall(Box<Position>, Box<Position>),
-    ObjectProp(Object, NumProperty),
+    ObjectProp(Object, PropertyRef),
     ObjectCoord(Object, Coord),
     ObjectEdgeCoord(Object, EdgePoint, Coord),
     VertexCoord(Nth, Object, Coord),
@@ -542,6 +553,8 @@ pub enum Object {
     Named(ObjectName),
     /// Nth object: 1st box, last circle
     Nth(Nth),
+    /// Scoped nth object: 1st box of A, last circle in Container
+    NthOf(Nth, Box<Object>),
 }
 
 /// Named object
@@ -558,17 +571,25 @@ pub enum ObjectNameBase {
     PlaceName(String),
 }
 
+/// Modifier for ordinal references (2nd last box, 2nd previous box)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NthModifier {
+    None,
+    Last,
+    Previous,
+}
+
 /// Nth reference
 #[derive(Debug, Clone)]
 pub enum Nth {
-    /// Ordinal: 1st, 2nd, 3rd, etc.
-    Ordinal(u32, bool, Option<NthClass>), // number, is_last, classname
+    /// Ordinal: 1st, 2nd, 3rd, etc. with optional last/previous modifier
+    Ordinal(u32, NthModifier, Option<NthClass>),
     /// First
     First(Option<NthClass>),
     /// Last
     Last(Option<NthClass>),
-    /// Previous
-    Previous,
+    /// Previous (with optional class filter)
+    Previous(Option<NthClass>),
 }
 
 /// Class for nth reference

@@ -81,6 +81,7 @@ attribute = {
   | "go"? ~ direction ~ "even" ~ "with"? ~ position
   | "go"? ~ direction ~ optrelexpr
   | "go"? ~ optrelexpr ~ "heading" ~ expr
+  | "go"? ~ optrelexpr ~ EDGEPT
   | "close"
   | "chop"
   | "from" ~ position
@@ -195,7 +196,10 @@ place = {
 }
 
 // === Objects & References ===
-object = { objectname | nth }
+object = { objectname | nth_scoped | nth }
+
+// Scoped nth: "1st box of A", "last circle in Container"
+nth_scoped = { nth ~ ("of" | "in") ~ object }
 
 objectname = {
     "this" ~ dot_name*
@@ -205,10 +209,14 @@ objectname = {
 nth = {
     NTH ~ "last"? ~ CLASSNAME
   | NTH ~ "last"? ~ "[" ~ "]"
+  | NTH ~ "previous" ~ CLASSNAME
+  | NTH ~ "previous" ~ "[" ~ "]"
   | "first" ~ "[" ~ "]"
   | "first" ~ CLASSNAME?
   | "last" ~ "[" ~ "]"
   | "last" ~ CLASSNAME?
+  | "previous" ~ "[" ~ "]"
+  | "previous" ~ CLASSNAME
   | "previous"
 }
 
