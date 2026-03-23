@@ -1,0 +1,20 @@
+# Grammar: position -> fraction "of the way between" position "and" position
+# Tests the long-form fraction positioning
+# Short forms "between" and "way between" ARE tested
+# but "of the way between" is NOT tested
+
+A: box "Start"
+move 2in
+B: box "End"
+
+# Long form: "of the way between ... and ..."
+dot at 0.25 of the way between A and B
+dot at 0.5 of the way between A and B
+dot at 0.75 of the way between A and B
+
+# With anchors
+dot color red at 0.5 of the way between A.ne and B.nw
+dot color blue at 0.5 of the way between A.se and B.sw
+
+# Verify equivalence with short form
+assert( 0.5 of the way between A and B == 0.5 between A and B )

@@ -1,0 +1,18 @@
+# Grammar: attribute -> invisible
+# Tests the long-form "invisible" keyword
+# Only the short form "invis" is tested in existing tests
+
+box "visible"
+move
+box invisible "invisible box"
+move
+box "also visible"
+
+# Line with invisible
+line invisible from 1st box.e to 3rd box.w
+
+# Arrow invisible
+arrow invisible from 1st box.s down 0.5in
+
+# Circle invisible
+circle invisible at 0.5in below 2nd box

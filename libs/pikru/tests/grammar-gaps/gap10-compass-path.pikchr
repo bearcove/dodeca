@@ -1,0 +1,30 @@
+# Grammar: path-attribute -> (then|go) line-length? compass-direction
+# Tests compass-direction as a direct path form
+# Compass directions as edgenames and which-way-from ARE tested
+# but as bare path directions (go ne, then sw, etc.) they are NOT tested
+
+box "Start"
+
+# Single compass direction paths
+line from last box.ne go 0.5in ne
+line from last box.se go 0.5in se
+line from last box.sw go 0.5in sw
+line from last box.nw go 0.5in nw
+
+# Multi-segment with compass directions
+line from last box.e go 0.5in e then 0.3in ne then 0.3in e ->
+
+# "then" form
+line from last box.n go 0.5in n then 0.3in nw ->
+
+# All 12 compass directions as paths
+move to 3in right of 1st box
+box "All dirs"
+line from last.n  go 0.3in n
+line from last box.ne go 0.3in ne
+line from last box.e  go 0.3in east
+line from last box.se go 0.3in se
+line from last box.s  go 0.3in south
+line from last box.sw go 0.3in sw
+line from last box.w  go 0.3in west
+line from last box.nw go 0.3in nw

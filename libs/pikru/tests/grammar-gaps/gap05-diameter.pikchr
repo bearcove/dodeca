@@ -1,0 +1,20 @@
+# Grammar: numeric-property -> diameter
+# Tests "diameter" as a settable numeric property
+# "ht", "height", "wid", "width", "rad", "radius", "thickness" are all tested
+# but "diameter" is never used as a setting attribute
+
+# Circle with explicit diameter
+circle "d=1in" diameter 1in
+move
+circle "d=0.5in" diameter 0.5in
+move
+circle "d=2cm" diameter 2cm
+
+# Diameter with percentage
+move
+circle "d=150%" diameter 150%
+
+# Read diameter back as dot-property
+move
+circle "check"
+assert( last circle.diameter == 2*last circle.radius )
