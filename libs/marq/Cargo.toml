@@ -163,7 +163,7 @@ regex.workspace = true
 arborium = { workspace = true, optional = true }
 aasvg = { workspace = true, optional = true }
 pikru = { workspace = true, optional = true }
-tree-sitter-vixen = { git = "https://github.com/bearcove/tree-sitter-vixen", rev = "9fe14bea91399543282035090086fec8a868fb6c", optional = true }
+tree-sitter-vixen = { version = "0.1.0", optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "macros"] }
