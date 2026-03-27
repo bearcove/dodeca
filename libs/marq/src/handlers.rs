@@ -11,16 +11,188 @@
 
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 
 use crate::Result;
 use crate::handler::{CodeBlockHandler, CodeBlockOutput};
+
+#[cfg(feature = "highlight")]
+use arborium::advanced::{CompiledGrammar, GrammarConfig, ParseContext, spans_to_html};
+
+#[cfg(feature = "highlight")]
+fn normalize_arborium_language(language: &str) -> &str {
+    match language {
+        "jinja" => "jinja2",
+        "vx" => "vixen",
+        _ => language,
+    }
+}
+
+#[cfg(feature = "highlight")]
+struct ArboriumEngine {
+    store: Arc<arborium::GrammarStore>,
+    ctx: Option<ParseContext>,
+    config: arborium::Config,
+    third_party_grammars: std::collections::HashMap<String, Arc<CompiledGrammar>>,
+}
+
+#[cfg(feature = "highlight")]
+impl ArboriumEngine {
+    fn new() -> Self {
+        Self::with_config(arborium::Config::default())
+    }
+
+    fn with_config(config: arborium::Config) -> Self {
+        Self {
+            store: Arc::new(arborium::GrammarStore::new()),
+            ctx: None,
+            config,
+            third_party_grammars: std::collections::HashMap::new(),
+        }
+    }
+
+    fn add_third_party_language(&mut self, languages: &[&str], grammar: Arc<CompiledGrammar>) {
+        for language in languages {
+            self.third_party_grammars.insert(
+                normalize_arborium_language(language).to_string(),
+                grammar.clone(),
+            );
+        }
+    }
+
+    fn add_tree_sitter_language(
+        &mut self,
+        languages: &[&str],
+        config: GrammarConfig<'static>,
+    ) -> std::result::Result<(), arborium::advanced::GrammarError> {
+        let grammar = Arc::new(CompiledGrammar::new(config)?);
+        self.add_third_party_language(languages, grammar);
+        Ok(())
+    }
+
+    fn highlight(
+        &mut self,
+        language: &str,
+        code: &str,
+    ) -> std::result::Result<String, arborium::Error> {
+        let spans = self.highlight_spans(language, code)?;
+        Ok(spans_to_html(code, spans, &self.config.html_format))
+    }
+
+    fn highlight_spans(
+        &mut self,
+        language: &str,
+        source: &str,
+    ) -> std::result::Result<Vec<arborium::advanced::Span>, arborium::Error> {
+        let language = normalize_arborium_language(language);
+        let grammar =
+            self.grammar(language)
+                .ok_or_else(|| arborium::Error::UnsupportedLanguage {
+                    language: language.to_string(),
+                })?;
+
+        self.ensure_context(&grammar)?;
+        let ctx = self.ctx.as_mut().unwrap();
+        ctx.set_language(grammar.language())
+            .map_err(|_| arborium::Error::ParseError {
+                language: language.to_string(),
+                message: "Failed to set parser language".to_string(),
+            })?;
+
+        let result = grammar.parse(ctx, source);
+        let mut all_spans = result.spans;
+
+        if self.config.max_injection_depth > 0 {
+            self.process_injections(
+                source,
+                result.injections,
+                0,
+                self.config.max_injection_depth,
+                &mut all_spans,
+            )?;
+        }
+
+        Ok(all_spans)
+    }
+
+    fn grammar(&self, language: &str) -> Option<Arc<CompiledGrammar>> {
+        self.third_party_grammars
+            .get(language)
+            .cloned()
+            .or_else(|| self.store.get(language))
+    }
+
+    fn ensure_context(
+        &mut self,
+        grammar: &CompiledGrammar,
+    ) -> std::result::Result<(), arborium::Error> {
+        if self.ctx.is_none() {
+            self.ctx = Some(ParseContext::for_grammar(grammar).map_err(|e| {
+                arborium::Error::ParseError {
+                    language: String::new(),
+                    message: e.to_string(),
+                }
+            })?);
+        }
+        Ok(())
+    }
+
+    fn process_injections(
+        &mut self,
+        source: &str,
+        injections: Vec<arborium::advanced::Injection>,
+        base_offset: u32,
+        remaining_depth: u32,
+        all_spans: &mut Vec<arborium::advanced::Span>,
+    ) -> std::result::Result<(), arborium::Error> {
+        if remaining_depth == 0 {
+            return Ok(());
+        }
+
+        for injection in injections {
+            let start = injection.start as usize;
+            let end = injection.end as usize;
+
+            if start >= source.len() || end > source.len() || start >= end {
+                continue;
+            }
+
+            let injected_source = &source[start..end];
+            let Some(grammar) = self.grammar(&injection.language) else {
+                continue;
+            };
+
+            let ctx = self.ctx.as_mut().unwrap();
+            if ctx.set_language(grammar.language()).is_err() {
+                continue;
+            }
+
+            let result = grammar.parse(ctx, injected_source);
+            all_spans.extend(result.spans.into_iter().map(|mut span| {
+                span.start += base_offset + injection.start;
+                span.end += base_offset + injection.start;
+                span
+            }));
+
+            self.process_injections(
+                injected_source,
+                result.injections,
+                base_offset + injection.start,
+                remaining_depth - 1,
+                all_spans,
+            )?;
+        }
+
+        Ok(())
+    }
+}
 
 /// Syntax highlighting handler using arborium.
 ///
 /// Requires the `highlight` feature.
 #[cfg(feature = "highlight")]
 pub struct ArboriumHandler {
-    highlighter: std::sync::Mutex<arborium::Highlighter>,
+    highlighter: std::sync::Mutex<ArboriumEngine>,
     /// Whether to show a language header above code blocks
     show_language_header: bool,
 }
@@ -30,7 +202,7 @@ impl ArboriumHandler {
     /// Create a new ArboriumHandler with default config.
     pub fn new() -> Self {
         Self {
-            highlighter: std::sync::Mutex::new(arborium::Highlighter::new()),
+            highlighter: std::sync::Mutex::new(ArboriumEngine::new()),
             show_language_header: true,
         }
     }
@@ -38,7 +210,7 @@ impl ArboriumHandler {
     /// Create a new ArboriumHandler with custom config.
     pub fn with_config(config: arborium::Config) -> Self {
         Self {
-            highlighter: std::sync::Mutex::new(arborium::Highlighter::with_config(config)),
+            highlighter: std::sync::Mutex::new(ArboriumEngine::with_config(config)),
             show_language_header: true,
         }
     }
@@ -50,6 +222,49 @@ impl ArboriumHandler {
     pub fn with_language_header(mut self, show: bool) -> Self {
         self.show_language_header = show;
         self
+    }
+
+    /// Register a compiled third-party grammar under one or more language names.
+    pub fn with_third_party_language(
+        self,
+        languages: &[&str],
+        grammar: Arc<CompiledGrammar>,
+    ) -> Self {
+        let mut highlighter = self.highlighter.into_inner().unwrap();
+        highlighter.add_third_party_language(languages, grammar);
+        Self {
+            highlighter: std::sync::Mutex::new(highlighter),
+            show_language_header: self.show_language_header,
+        }
+    }
+
+    /// Compile and register a third-party tree-sitter grammar.
+    pub fn with_tree_sitter_language(
+        self,
+        languages: &[&str],
+        config: GrammarConfig<'static>,
+    ) -> std::result::Result<Self, arborium::advanced::GrammarError> {
+        let mut highlighter = self.highlighter.into_inner().unwrap();
+        highlighter.add_tree_sitter_language(languages, config)?;
+        Ok(Self {
+            highlighter: std::sync::Mutex::new(highlighter),
+            show_language_header: self.show_language_header,
+        })
+    }
+
+    #[cfg(feature = "lang-vixen")]
+    pub fn with_vixen_language(
+        self,
+    ) -> std::result::Result<Self, arborium::advanced::GrammarError> {
+        self.with_tree_sitter_language(
+            &["vixen", "vx"],
+            GrammarConfig {
+                language: tree_sitter_vixen::language().into(),
+                highlights_query: tree_sitter_vixen::HIGHLIGHTS_QUERY,
+                injections_query: tree_sitter_vixen::INJECTIONS_QUERY,
+                locals_query: tree_sitter_vixen::LOCALS_QUERY,
+            },
+        )
     }
 }
 
@@ -79,17 +294,11 @@ impl CodeBlockHandler for ArboriumHandler {
                 .into());
             }
 
-            // Map common language aliases to arborium language names
-            let arborium_lang = match language {
-                "jinja" => "jinja2",
-                _ => language,
-            };
-
             let escaped_lang = html_escape(language);
 
             // Try to highlight with arborium
             let mut hl = self.highlighter.lock().unwrap();
-            let highlighted_code = match hl.highlight(arborium_lang, code) {
+            let highlighted_code = match hl.highlight(language, code) {
                 Ok(html) => {
                     // Trim trailing newline from arborium output
                     // See: https://github.com/bearcove/arborium/issues/128
@@ -397,7 +606,7 @@ pub struct CompareSection {
 /// Each section has its language as a header and syntax-highlighted code.
 #[cfg(feature = "highlight")]
 pub struct CompareHandler {
-    highlighter: std::sync::Mutex<arborium::Highlighter>,
+    highlighter: std::sync::Mutex<ArboriumEngine>,
 }
 
 #[cfg(feature = "highlight")]
@@ -405,15 +614,56 @@ impl CompareHandler {
     /// Create a new CompareHandler with default config.
     pub fn new() -> Self {
         Self {
-            highlighter: std::sync::Mutex::new(arborium::Highlighter::new()),
+            highlighter: std::sync::Mutex::new(ArboriumEngine::new()),
         }
     }
 
     /// Create a new CompareHandler with custom config.
     pub fn with_config(config: arborium::Config) -> Self {
         Self {
-            highlighter: std::sync::Mutex::new(arborium::Highlighter::with_config(config)),
+            highlighter: std::sync::Mutex::new(ArboriumEngine::with_config(config)),
         }
+    }
+
+    /// Register a compiled third-party grammar under one or more language names.
+    pub fn with_third_party_language(
+        self,
+        languages: &[&str],
+        grammar: Arc<CompiledGrammar>,
+    ) -> Self {
+        let mut highlighter = self.highlighter.into_inner().unwrap();
+        highlighter.add_third_party_language(languages, grammar);
+        Self {
+            highlighter: std::sync::Mutex::new(highlighter),
+        }
+    }
+
+    /// Compile and register a third-party tree-sitter grammar.
+    pub fn with_tree_sitter_language(
+        self,
+        languages: &[&str],
+        config: GrammarConfig<'static>,
+    ) -> std::result::Result<Self, arborium::advanced::GrammarError> {
+        let mut highlighter = self.highlighter.into_inner().unwrap();
+        highlighter.add_tree_sitter_language(languages, config)?;
+        Ok(Self {
+            highlighter: std::sync::Mutex::new(highlighter),
+        })
+    }
+
+    #[cfg(feature = "lang-vixen")]
+    pub fn with_vixen_language(
+        self,
+    ) -> std::result::Result<Self, arborium::advanced::GrammarError> {
+        self.with_tree_sitter_language(
+            &["vixen", "vx"],
+            GrammarConfig {
+                language: tree_sitter_vixen::language().into(),
+                highlights_query: tree_sitter_vixen::HIGHLIGHTS_QUERY,
+                injections_query: tree_sitter_vixen::INJECTIONS_QUERY,
+                locals_query: tree_sitter_vixen::LOCALS_QUERY,
+            },
+        )
     }
 
     /// Parse the compare block content into sections.
@@ -465,14 +715,8 @@ impl CompareHandler {
             return html_escape(code);
         }
 
-        // Map common language aliases
-        let arborium_lang = match language {
-            "jinja" => "jinja2",
-            _ => language,
-        };
-
         let mut hl = self.highlighter.lock().unwrap();
-        match hl.highlight(arborium_lang, code) {
+        match hl.highlight(language, code) {
             Ok(html) => html,
             Err(_) => html_escape(code),
         }
@@ -536,6 +780,58 @@ impl CodeBlockHandler for CompareHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "highlight")]
+    mod arborium_handler_tests {
+        use super::*;
+
+        #[test]
+        fn test_normalize_arborium_language_aliases() {
+            assert_eq!(normalize_arborium_language("jinja"), "jinja2");
+            assert_eq!(normalize_arborium_language("vx"), "vixen");
+            assert_eq!(normalize_arborium_language("rust"), "rust");
+        }
+
+        #[cfg(feature = "lang-vixen")]
+        #[tokio::test]
+        async fn test_render_vixen_code_block_with_third_party_grammar() {
+            let handler = ArboriumHandler::new().with_vixen_language().unwrap();
+            let output = handler
+                .render(
+                    "vixen",
+                    r#"fn build(ws: Path) -> Tree (
+  let src_tree = Tree(ws / @zoo/lua-src);
+  src_tree
+)"#,
+                )
+                .await
+                .unwrap();
+
+            assert!(
+                output.html.contains(r#"data-lang="vixen""#),
+                "{}",
+                output.html
+            );
+            assert!(
+                output.html.contains(r#"class="language-vixen""#),
+                "{}",
+                output.html
+            );
+            assert!(output.html.contains("<a-"), "{}", output.html);
+            assert!(output.html.contains("build"), "{}", output.html);
+            assert!(output.html.contains("lua-src"), "{}", output.html);
+        }
+
+        #[cfg(feature = "lang-vixen")]
+        #[tokio::test]
+        async fn test_render_vx_alias_with_vixen_grammar() {
+            let handler = ArboriumHandler::new().with_vixen_language().unwrap();
+            let output = handler.render("vx", "fn build() -> Tree ()").await.unwrap();
+
+            assert!(output.html.contains(r#"data-lang="vx""#), "{}", output.html);
+            assert!(output.html.contains("<a-"), "{}", output.html);
+        }
+    }
 
     #[cfg(feature = "highlight")]
     mod compare_handler_tests {

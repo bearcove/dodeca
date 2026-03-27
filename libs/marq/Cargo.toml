@@ -81,6 +81,11 @@ default-langs = [
   "lang-vim",
 ]
 
+# Third-party languages that are not part of the Arborium bundle.
+# These stay opt-in so marq's default feature set only includes permissively
+# licensed grammars from Arborium itself.
+lang-vixen = ["dep:tree-sitter-vixen"]
+
 # Individual language features (forwarded to arborium)
 lang-asm = ["arborium?/lang-asm"]
 lang-bash = ["arborium?/lang-bash"]
@@ -158,6 +163,7 @@ regex.workspace = true
 arborium = { workspace = true, optional = true }
 aasvg = { workspace = true, optional = true }
 pikru = { workspace = true, optional = true }
+tree-sitter-vixen = { git = "https://github.com/bearcove/tree-sitter-vixen", rev = "9fe14bea91399543282035090086fec8a868fb6c", optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "macros"] }
