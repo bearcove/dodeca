@@ -43,12 +43,14 @@ impl ArboriumEngine {
     }
 
     fn with_config(config: arborium::Config) -> Self {
-        Self {
+        let mut engine = Self {
             store: Arc::new(arborium::GrammarStore::new()),
             ctx: None,
             config,
             third_party_grammars: std::collections::HashMap::new(),
-        }
+        };
+        engine.register_feature_languages();
+        engine
     }
 
     fn add_third_party_language(&mut self, languages: &[&str], grammar: Arc<CompiledGrammar>) {
@@ -68,6 +70,25 @@ impl ArboriumEngine {
         let grammar = Arc::new(CompiledGrammar::new(config)?);
         self.add_third_party_language(languages, grammar);
         Ok(())
+    }
+
+    fn register_feature_languages(&mut self) {
+        #[cfg(feature = "lang-vixen")]
+        self.register_vixen_language();
+    }
+
+    #[cfg(feature = "lang-vixen")]
+    fn register_vixen_language(&mut self) {
+        self.add_tree_sitter_language(
+            &["vixen", "vx"],
+            GrammarConfig {
+                language: tree_sitter_vixen::language().into(),
+                highlights_query: tree_sitter_vixen::HIGHLIGHTS_QUERY,
+                injections_query: tree_sitter_vixen::INJECTIONS_QUERY,
+                locals_query: tree_sitter_vixen::LOCALS_QUERY,
+            },
+        )
+        .expect("tree-sitter-vixen grammar should compile");
     }
 
     fn highlight(
@@ -256,15 +277,7 @@ impl ArboriumHandler {
     pub fn with_vixen_language(
         self,
     ) -> std::result::Result<Self, arborium::advanced::GrammarError> {
-        self.with_tree_sitter_language(
-            &["vixen", "vx"],
-            GrammarConfig {
-                language: tree_sitter_vixen::language().into(),
-                highlights_query: tree_sitter_vixen::HIGHLIGHTS_QUERY,
-                injections_query: tree_sitter_vixen::INJECTIONS_QUERY,
-                locals_query: tree_sitter_vixen::LOCALS_QUERY,
-            },
-        )
+        Ok(self)
     }
 }
 
@@ -655,15 +668,7 @@ impl CompareHandler {
     pub fn with_vixen_language(
         self,
     ) -> std::result::Result<Self, arborium::advanced::GrammarError> {
-        self.with_tree_sitter_language(
-            &["vixen", "vx"],
-            GrammarConfig {
-                language: tree_sitter_vixen::language().into(),
-                highlights_query: tree_sitter_vixen::HIGHLIGHTS_QUERY,
-                injections_query: tree_sitter_vixen::INJECTIONS_QUERY,
-                locals_query: tree_sitter_vixen::LOCALS_QUERY,
-            },
-        )
+        Ok(self)
     }
 
     /// Parse the compare block content into sections.
@@ -794,8 +799,8 @@ mod tests {
 
         #[cfg(feature = "lang-vixen")]
         #[tokio::test]
-        async fn test_render_vixen_code_block_with_third_party_grammar() {
-            let handler = ArboriumHandler::new().with_vixen_language().unwrap();
+        async fn test_render_vixen_code_block_with_feature_enabled() {
+            let handler = ArboriumHandler::new();
             let output = handler
                 .render(
                     "vixen",
@@ -824,8 +829,8 @@ mod tests {
 
         #[cfg(feature = "lang-vixen")]
         #[tokio::test]
-        async fn test_render_vx_alias_with_vixen_grammar() {
-            let handler = ArboriumHandler::new().with_vixen_language().unwrap();
+        async fn test_render_vx_alias_with_feature_enabled() {
+            let handler = ArboriumHandler::new();
             let output = handler.render("vx", "fn build() -> Tree ()").await.unwrap();
 
             assert!(output.html.contains(r#"data-lang="vx""#), "{}", output.html);
