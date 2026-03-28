@@ -1,6 +1,7 @@
 //! SVG parsing from XML.
 
 use quick_xml::Reader;
+use quick_xml::Decoder;
 use quick_xml::events::{BytesStart, Event};
 
 use crate::ast::*;
@@ -39,7 +40,7 @@ pub fn parse_svg(svg: &str) -> Result<Document, SvagError> {
                 break;
             }
             Event::Empty(start) => {
-                root = Some(parse_empty_element(&start)?);
+                root = Some(parse_empty_element(&start, reader.decoder())?);
                 break;
             }
             Event::Comment(_) | Event::Text(_) | Event::PI(_) => {
@@ -60,7 +61,7 @@ pub fn parse_svg(svg: &str) -> Result<Document, SvagError> {
 }
 
 fn parse_element(reader: &mut Reader<&[u8]>, start: &BytesStart) -> Result<Element, SvagError> {
-    let mut element = parse_element_start(start)?;
+    let mut element = parse_element_start(start, reader.decoder())?;
 
     loop {
         match reader.read_event()? {
@@ -72,7 +73,7 @@ fn parse_element(reader: &mut Reader<&[u8]>, start: &BytesStart) -> Result<Eleme
             Event::Empty(start) => {
                 element
                     .children
-                    .push(Node::Element(parse_empty_element(&start)?));
+                    .push(Node::Element(parse_empty_element(&start, reader.decoder())?));
             }
             Event::End(_) => {
                 break;
@@ -114,11 +115,11 @@ fn parse_element(reader: &mut Reader<&[u8]>, start: &BytesStart) -> Result<Eleme
     Ok(element)
 }
 
-fn parse_empty_element(start: &BytesStart) -> Result<Element, SvagError> {
-    parse_element_start(start)
+fn parse_empty_element(start: &BytesStart, decoder: Decoder) -> Result<Element, SvagError> {
+    parse_element_start(start, decoder)
 }
 
-fn parse_element_start(start: &BytesStart) -> Result<Element, SvagError> {
+fn parse_element_start(start: &BytesStart, decoder: Decoder) -> Result<Element, SvagError> {
     let name_bytes = start.name();
     let name = std::str::from_utf8(name_bytes.as_ref())?;
 
@@ -131,7 +132,7 @@ fn parse_element_start(start: &BytesStart) -> Result<Element, SvagError> {
     for attr in start.attributes() {
         let attr = attr.map_err(|e| SvagError::InvalidSvg(format!("Invalid attribute: {}", e)))?;
         let key = std::str::from_utf8(attr.key.as_ref())?;
-        let value = attr.unescape_value()?;
+        let value = attr.decode_and_unescape_value(decoder)?;
         element.attributes.push(Attribute {
             name: QName::parse(key),
             value: value.into_owned(),
