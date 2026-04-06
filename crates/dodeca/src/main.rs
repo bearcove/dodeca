@@ -195,6 +195,10 @@ struct InitArgs {
     /// Template to use (skips interactive selection)
     #[facet(args::named, args::short = 't', default)]
     template: Option<String>,
+
+    /// Skip initialising Git in the new directory
+    #[facet(args::named, rename = "skip-git-init", default)]
+    skip_git_init: bool,
 }
 
 /// Term command arguments
@@ -512,7 +516,7 @@ async fn async_main(command: Command) -> Result<()> {
             // Initialize tracing early so errors are visible
             logging::init_standard_tracing();
 
-            init::run_init(args.name, args.template).await
+            init::run_init(args.name, args.template, !args.skip_git_init).await
         }
         Command::Term(args) => run_term(args).await,
     }

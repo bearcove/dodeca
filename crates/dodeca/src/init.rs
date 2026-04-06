@@ -33,7 +33,11 @@ pub fn available_templates() -> Vec<Template> {
 }
 
 /// Run the init command
-pub async fn run_init(name: String, template_name: Option<String>) -> Result<()> {
+pub async fn run_init(
+    name: String,
+    template_name: Option<String>,
+    initialise_git: bool,
+) -> Result<()> {
     let target_dir = Utf8PathBuf::from(&name);
 
     // Check if directory already exists
@@ -102,8 +106,10 @@ pub async fn run_init(name: String, template_name: Option<String>) -> Result<()>
     let strip_prefix = Utf8Path::new(template.name);
     copy_template_dir(template_dir, &target_dir, &site_name, strip_prefix)?;
 
-    // Git init if not already in a repo
-    maybe_git_init(&target_dir);
+    if initialise_git {
+        // Git init if not already in a repo
+        maybe_git_init(&target_dir);
+    }
 
     // Success message
     println!("\n{} To get started:\n", "Done!".green().bold());
