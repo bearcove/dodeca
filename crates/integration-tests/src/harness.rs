@@ -1077,7 +1077,9 @@ impl Response {
     pub fn img_src(&self, pattern: &str) -> Option<String> {
         let tendril = StrTendril::from(self.body.as_str());
         let doc = hotmeal::parse(&tendril);
-        find_attr_in_node(&doc, doc.root, "img", "src", &|value| matches_glob(pattern, value))
+        find_attr_in_node(&doc, doc.root, "img", "src", &|value| {
+            matches_glob(pattern, value)
+        })
     }
 
     /// Find a <link> tag's href attribute matching a glob pattern
@@ -1085,7 +1087,9 @@ impl Response {
     pub fn css_link(&self, pattern: &str) -> Option<String> {
         let tendril = StrTendril::from(self.body.as_str());
         let doc = hotmeal::parse(&tendril);
-        find_attr_in_node(&doc, doc.root, "link", "href", &|value| matches_glob(pattern, value))
+        find_attr_in_node(&doc, doc.root, "link", "href", &|value| {
+            matches_glob(pattern, value)
+        })
     }
 
     /// Extract a value using a regex with one capture group
@@ -1489,6 +1493,9 @@ mod unit_tests {
         assert!(matches_glob("*style*css", "/css/style.123.css"));
         assert!(matches_glob("*/style.*.css", "/css/style.123.css"));
         assert!(matches_glob("*/style.*.css", "/assets/css/style.123.css"));
-        assert!(!matches_glob("*/style.*.css", "/assets/css/style.123.css.map"));
+        assert!(!matches_glob(
+            "*/style.*.css",
+            "/assets/css/style.123.css.map"
+        ));
     }
 }

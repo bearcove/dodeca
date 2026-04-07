@@ -44,3 +44,33 @@ pub fn image_files_processed() {
         svg.assert_ok();
     }
 }
+
+#[cfg(unix)]
+pub fn symlinked_static_files_are_served() {
+    use std::os::unix::fs as unix_fs;
+
+    let site = TestSite::new("sample-site");
+    let fixture_dir = site.fixture_dir();
+
+    let valid_font = fixture_dir.join("static/fonts/test.woff2");
+    let source_file = fixture_dir.join("vendor/iosevka.woff2");
+    std::fs::create_dir_all(source_file.parent().expect("source parent")).expect("create vendor");
+    std::fs::copy(&valid_font, &source_file).expect("copy source font");
+
+    let link_path = fixture_dir.join("static/fonts/iosevka.woff2");
+    std::fs::create_dir_all(link_path.parent().expect("link parent")).expect("create static/fonts");
+    if link_path.exists() {
+        std::fs::remove_file(&link_path).expect("remove existing link");
+    }
+    unix_fs::symlink(&source_file, &link_path).expect("create font symlink");
+
+    site.wait_debounce();
+    std::thread::sleep(Duration::from_secs(1));
+
+    let resp = site.get("/fonts/iosevka.woff2");
+    assert_eq!(
+        resp.status, 200,
+        "Symlinked static files should be served (status {})",
+        resp.status
+    );
+}

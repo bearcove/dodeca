@@ -259,8 +259,22 @@ pub async fn compile_sass<DB: Db>(db: &DB) -> PicanteResult<Option<CompiledCss>>
 
     tracing::info!(num_files = sass_map.len(), "Compiling SASS");
 
+    // Allow `@use` / `@import` from node_modules when available.
+    let mut load_paths = Vec::new();
+    if let Some(cfg) = crate::config::global_config() {
+        let content_parent = cfg.content_dir.parent().unwrap_or(&cfg.content_dir);
+        load_paths.push(content_parent.join("node_modules").to_string());
+
+        if let Some(vite_dir) = cfg.paths().vite {
+            let vite_node_modules = vite_dir.join("node_modules").to_string();
+            if !load_paths.contains(&vite_node_modules) {
+                load_paths.push(vite_node_modules);
+            }
+        }
+    }
+
     // Compile via cell
-    match crate::cells::compile_sass_cell(&sass_map).await {
+    match crate::cells::compile_sass_cell(&sass_map, &load_paths).await {
         Ok(cell_sass_proto::SassResult::Success { css }) => {
             tracing::info!(output_bytes = css.len(), "SASS compilation complete");
             Ok(Some(CompiledCss(css)))
@@ -894,12 +908,24 @@ pub async fn vite_css_for_entries<DB: Db>(db: &DB) -> PicanteResult<HashMap<Stri
         }
 
         let source_path = format!("/{src}");
+        let built_path = format!("/{}", entry.file);
+        let cache_busted_built_path = if let Some(static_file) = static_file_map.get(&entry.file) {
+            let output = static_file_output(db, *static_file).await?;
+            Some(format!("/{}", output.cache_busted_path))
+        } else {
+            None
+        };
+
         tracing::debug!(
             source = %source_path,
             css_count = css_urls.len(),
             "Vite entry CSS dependencies"
         );
-        result.insert(source_path, css_urls);
+        result.insert(source_path, css_urls.clone());
+        result.insert(built_path, css_urls.clone());
+        if let Some(cache_busted) = cache_busted_built_path {
+            result.insert(cache_busted, css_urls);
+        }
     }
 
     Ok(result)

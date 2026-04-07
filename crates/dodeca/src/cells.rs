@@ -1347,12 +1347,16 @@ pub async fn encode_jxl_cell(
 }
 
 // SASS/CSS cell wrappers
-pub async fn compile_sass_cell(input: &HashMap<String, String>) -> Result<SassResult, eyre::Error> {
+pub async fn compile_sass_cell(
+    input: &HashMap<String, String>,
+    load_paths: &[String],
+) -> Result<SassResult, eyre::Error> {
     let client = sass_cell()
         .await
         .ok_or_else(|| eyre::eyre!("SASS cell not available"))?;
     let sass_input = SassInput {
         files: input.clone(),
+        load_paths: load_paths.to_vec(),
     };
     client
         .compile_sass(sass_input)
