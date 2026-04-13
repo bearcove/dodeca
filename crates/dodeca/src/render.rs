@@ -15,7 +15,7 @@ use std::sync::Arc;
 pub use crate::error_pages::RENDER_ERROR_MARKER;
 
 /// Get base_url from global config, defaulting to "/" for local development
-fn get_base_url() -> String {
+pub fn get_base_url() -> String {
     crate::config::global_config()
         .map(|c| c.base_url.clone())
         .unwrap_or_else(|| "/".to_string())
@@ -686,11 +686,6 @@ fn heading_to_value(h: &Heading, children: Vec<Value>) -> Value {
     map.into()
 }
 
-/// Convert headings to a hierarchical TOC Value (Zola-style nested structure)
-pub fn headings_to_toc(headings: &[Heading]) -> Value {
-    build_toc_tree(headings)
-}
-
 /// Convert headings to hierarchical Value list for template context
 fn headings_to_value(headings: &[Heading]) -> Value {
     build_toc_tree(headings)
@@ -974,16 +969,6 @@ pub fn path_to_route(path: &str) -> Route {
         Route::new(p)
     } else {
         Route::new(format!("/{p}"))
-    }
-}
-
-/// Convert a route like "/learn/" back to a path like "learn/_index.md"
-pub fn route_to_path(route: &str) -> String {
-    let r = route.trim_matches('/');
-    if r.is_empty() {
-        "_index.md".to_string()
-    } else {
-        format!("{r}/_index.md")
     }
 }
 
