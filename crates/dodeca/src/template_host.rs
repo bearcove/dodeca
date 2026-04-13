@@ -17,13 +17,13 @@ use cell_gingembre_proto::{
     CallFunctionResult, ContextId, KeysAtResult, LoadTemplateResult, ResolveDataResult,
     TemplateHost,
 };
-use facet_value::{DestructuredRef, VArray, VObject, VString, Value};
+use facet_value::{DestructuredRef, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::db::{Database, SiteTree};
 use crate::queries::{DataValuePath, data_keys_at_path, resolve_data_value};
-use crate::render::{headings_to_toc, path_to_route, route_to_path};
+use crate::render::{get_base_url, path_to_route, section_to_value};
 
 /// Convert a Value to a string representation (for template function args)
 fn value_to_string(value: &Value) -> String {
@@ -335,61 +335,8 @@ impl TemplateHost for TemplateHostImpl {
                 let route = path_to_route(&path);
 
                 let result = if let Some(section) = context.site_tree.sections.get(&route) {
-                    let mut section_map = VObject::new();
-                    section_map.insert(VString::from("title"), Value::from(section.title.as_str()));
-                    section_map.insert(
-                        VString::from("permalink"),
-                        Value::from(section.route.as_str()),
-                    );
-                    section_map.insert(VString::from("path"), Value::from(path.as_str()));
-                    section_map.insert(
-                        VString::from("content"),
-                        Value::from(section.body_html.as_str()),
-                    );
-                    section_map.insert(VString::from("toc"), headings_to_toc(&section.headings));
-                    section_map.insert(VString::from("extra"), section.extra.clone());
-
-                    let section_pages: Vec<Value> = context
-                        .site_tree
-                        .pages
-                        .values()
-                        .filter(|p| p.section_route == section.route)
-                        .map(|p| {
-                            let mut page_map = VObject::new();
-                            page_map.insert(VString::from("title"), Value::from(p.title.as_str()));
-                            page_map
-                                .insert(VString::from("permalink"), Value::from(p.route.as_str()));
-                            page_map.insert(
-                                VString::from("path"),
-                                Value::from(route_to_path(p.route.as_str()).as_str()),
-                            );
-                            page_map.insert(VString::from("weight"), Value::from(p.weight as i64));
-                            page_map.insert(VString::from("toc"), headings_to_toc(&p.headings));
-                            page_map.into()
-                        })
-                        .collect();
-                    section_map.insert(VString::from("pages"), VArray::from_iter(section_pages));
-
-                    let subsections: Vec<Value> = context
-                        .site_tree
-                        .sections
-                        .values()
-                        .filter(|s| {
-                            s.route != section.route
-                                && s.route.as_str().starts_with(section.route.as_str())
-                                && s.route.as_str()[section.route.as_str().len()..]
-                                    .trim_matches('/')
-                                    .chars()
-                                    .filter(|c| *c == '/')
-                                    .count()
-                                    == 0
-                        })
-                        .map(|s| Value::from(route_to_path(s.route.as_str()).as_str()))
-                        .collect();
-                    section_map
-                        .insert(VString::from("subsections"), VArray::from_iter(subsections));
-
-                    section_map.into()
+                    let base_url = get_base_url();
+                    section_to_value(section, &context.site_tree, &base_url)
                 } else {
                     Value::NULL
                 };
