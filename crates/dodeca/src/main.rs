@@ -7,6 +7,7 @@ mod boot_state;
 mod build_steps;
 mod cache_bust;
 mod cas;
+mod cell_loader;
 mod cell_server;
 mod cells;
 mod config;

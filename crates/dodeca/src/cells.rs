@@ -195,6 +195,41 @@ impl HostServiceImpl {
     }
 }
 
+/// Logical cell names that have a `libddc_cell_<name>` cdylib.
+/// Keep in sync with `cell_loader::host_cell_endpoints!` and `CELL_DEFS`.
+pub const CELL_NAMES: &[&str] = &[
+    "image",
+    "webp",
+    "jxl",
+    "markdown",
+    "html",
+    "minify",
+    "css",
+    "sass",
+    "js",
+    "svgo",
+    "fonts",
+    "linkcheck",
+    "html-diff",
+    "dialoguer",
+    "code-execution",
+    "http",
+    "gingembre",
+    "data",
+    "vite",
+    "term",
+    "tui",
+];
+
+/// Build the unified host service the cell loader serves back to every cell.
+pub fn make_host_service() -> HostServiceImpl {
+    HostServiceImpl::new(
+        HostCellLifecycle::new(cell_ready_registry().clone()),
+        crate::template_host::TemplateHostImpl::new(),
+        crate::host::Host::get().site_server().cloned(),
+    )
+}
+
 impl HostService for HostServiceImpl {
     // Cell Lifecycle
     async fn ready(&self, _cx: &roam::Context, msg: ReadyMsg) -> ReadyAck {
