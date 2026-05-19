@@ -4,12 +4,12 @@
 //! and the xtask visual comparison tool.
 //!
 //! Primary comparison is visual (render with resvg, compare with SSIM).
-//! Falls back to structural comparison (facet-assert) for detailed diff output
+//! Falls back to structural comparison (rediff) for detailed diff output
 //! when visual comparison fails.
 
 use camino::Utf8Path;
-use facet_assert::{SameOptions, SameReport, check_same_with_report};
 use facet_svg::Svg;
+use rediff::{SameOptions, SameReport, check_same_with_report};
 use std::fs;
 use std::process::Command;
 

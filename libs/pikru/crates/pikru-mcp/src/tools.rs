@@ -223,7 +223,8 @@ impl PikruServer {
             other_tests: other,
         };
 
-        let json = facet_json::to_string(&result);
+        let json = facet_json::to_string(&result)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![Content::text(json)]))
     }
 
@@ -355,7 +356,8 @@ impl PikruServer {
             diff_preview,
         };
 
-        let json = facet_json::to_string(&result);
+        let json = facet_json::to_string(&result)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
         // Build response with text and images
         let mut content: Vec<Content> = vec![Content::text(json)];
