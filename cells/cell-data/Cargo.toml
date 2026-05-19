@@ -10,6 +10,7 @@ edition = "2024"
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [lib]
+name = "ddc_cell_data"
 crate-type = ["cdylib"]
 path = "src/main.rs"
 

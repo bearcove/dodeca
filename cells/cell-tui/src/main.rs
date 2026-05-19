@@ -5,8 +5,6 @@
 
 use std::collections::VecDeque;
 use std::io::stdout;
-use std::sync::Arc;
-use std::sync::OnceLock;
 use std::time::Duration;
 
 use color_eyre::Result;
@@ -26,7 +24,7 @@ use tokio::sync::mpsc;
 
 use dodeca_cell_runtime::HostHandle;
 
-use cell_host_proto::{HostServiceClient, ServerCommand};
+use cell_host_proto::ServerCommand;
 use cell_tui_proto::{
     BindMode, BuildProgress, EventKind, LogEvent, ServerStatus, TaskStatus, TuiDisplay,
     TuiDisplayDispatcher,
@@ -605,8 +603,7 @@ async fn run_tui_loop(
     mut events_rx: mpsc::UnboundedReceiver<LogEvent>,
     mut status_rx: mpsc::UnboundedReceiver<ServerStatus>,
 ) {
-    if let Err(e) =
-        run_tui_loop_inner(host, &mut progress_rx, &mut events_rx, &mut status_rx).await
+    if let Err(e) = run_tui_loop_inner(host, &mut progress_rx, &mut events_rx, &mut status_rx).await
     {
         eprintln!("TUI error: {e}");
     }

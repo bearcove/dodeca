@@ -14,6 +14,7 @@ publish = false
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [lib]
+name = "ddc_cell_gingembre"
 crate-type = ["cdylib"]
 path = "src/main.rs"
 

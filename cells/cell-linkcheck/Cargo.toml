@@ -15,6 +15,7 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [lib]
+name = "ddc_cell_linkcheck"
 crate-type = ["cdylib"]
 path = "src/main.rs"
 

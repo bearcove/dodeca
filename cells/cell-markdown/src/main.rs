@@ -11,7 +11,6 @@ use marq::{
 };
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, OnceLock};
 
 /// Escape HTML special characters
 fn html_escape(s: &str) -> String {
@@ -90,10 +89,7 @@ impl MarkdownProcessorImpl {
 }
 
 impl MarkdownProcessor for MarkdownProcessorImpl {
-    async fn parse_frontmatter(
-        &self,
-        content: String,
-    ) -> FrontmatterResult {
+    async fn parse_frontmatter(&self, content: String) -> FrontmatterResult {
         match marq::parse_frontmatter(&content) {
             Ok((fm, body)) => FrontmatterResult::Success {
                 frontmatter: convert_frontmatter(fm),
@@ -105,11 +101,7 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
         }
     }
 
-    async fn render_markdown(
-        &self,
-        source_path: String,
-        markdown: String,
-    ) -> MarkdownResult {
+    async fn render_markdown(&self, source_path: String, markdown: String) -> MarkdownResult {
         // Configure marq with real handlers (no placeholders!)
         let opts = RenderOptions::new()
             .with_handler(&["aa", "aasvg"], AasvgHandler::new())
@@ -138,11 +130,7 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
         }
     }
 
-    async fn highlight_code(
-        &self,
-        lang: String,
-        code: String,
-    ) -> HighlightResult {
+    async fn highlight_code(&self, lang: String, code: String) -> HighlightResult {
         use marq::CodeBlockHandler;
 
         let handler = ArboriumHandler::new();
@@ -161,11 +149,7 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
         }
     }
 
-    async fn parse_and_render(
-        &self,
-        source_path: String,
-        content: String,
-    ) -> ParseResult {
+    async fn parse_and_render(&self, source_path: String, content: String) -> ParseResult {
         // Parse frontmatter
         let (fm, body) = match marq::parse_frontmatter(&content) {
             Ok(result) => result,
@@ -177,10 +161,7 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
         };
 
         // Render markdown body
-        match self
-            .render_markdown(source_path, body.to_string())
-            .await
-        {
+        match self.render_markdown(source_path, body.to_string()).await {
             MarkdownResult::Success {
                 html,
                 headings,
