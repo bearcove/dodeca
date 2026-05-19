@@ -115,12 +115,7 @@ impl Default for TemplateHostImpl {
 }
 
 impl TemplateHost for TemplateHostImpl {
-    async fn load_template(
-        &self,
-        _cx: &roam::Context,
-        context_id: ContextId,
-        name: String,
-    ) -> LoadTemplateResult {
+    async fn load_template(&self, context_id: ContextId, name: String) -> LoadTemplateResult {
         let host = crate::host::Host::get();
         let Some(context) = host.get_render_context(context_id) else {
             tracing::warn!(
@@ -169,12 +164,7 @@ impl TemplateHost for TemplateHostImpl {
         }
     }
 
-    async fn resolve_data(
-        &self,
-        _cx: &roam::Context,
-        context_id: ContextId,
-        path: Vec<String>,
-    ) -> ResolveDataResult {
+    async fn resolve_data(&self, context_id: ContextId, path: Vec<String>) -> ResolveDataResult {
         let Some(context) = crate::host::Host::get().get_render_context(context_id) else {
             tracing::warn!(
                 context_id = context_id.0,
@@ -228,12 +218,7 @@ impl TemplateHost for TemplateHostImpl {
         }
     }
 
-    async fn keys_at(
-        &self,
-        _cx: &roam::Context,
-        context_id: ContextId,
-        path: Vec<String>,
-    ) -> KeysAtResult {
+    async fn keys_at(&self, context_id: ContextId, path: Vec<String>) -> KeysAtResult {
         let Some(context) = crate::host::Host::get().get_render_context(context_id) else {
             tracing::warn!(
                 context_id = context_id.0,
@@ -282,7 +267,6 @@ impl TemplateHost for TemplateHostImpl {
 
     async fn call_function(
         &self,
-        _cx: &roam::Context,
         context_id: ContextId,
         name: String,
         args: Vec<Value>,

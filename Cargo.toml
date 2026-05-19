@@ -155,6 +155,7 @@ web-sys = { version = "0.3", features = [
   "console",
 ] }
 libc = "0.2"
+libloading = "0.8"
 rapidhash = "4"
 strid = "8.0"
 # strid = { path = "../strid/crates/strid" }

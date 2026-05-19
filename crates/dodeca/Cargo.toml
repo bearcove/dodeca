@@ -74,6 +74,7 @@ owo-colors.workspace = true
 picante.workspace = true
 vox.workspace = true
 vox-ffi.workspace = true
+libloading.workspace = true
 vox-fdpass.workspace = true
 vox-stream.workspace = true
 rapidhash.workspace = true

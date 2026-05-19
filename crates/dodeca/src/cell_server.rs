@@ -89,14 +89,19 @@ impl DevtoolsService for HostDevtoolsService {
     ///
     /// The browser was already registered when its virtual connection was accepted.
     /// This method associates the subscription with the browser using `cx.conn_id`.
-    async fn subscribe(&self, cx: &roam::Context, route: String) {
+    async fn subscribe(&self, route: String) {
+        // ARCHITECTURAL: roam supplied `cx.conn_id()` to associate this
+        // subscription with the calling browser's virtual connection. vox
+        // `#[vox::service]` impl methods take no context, and vox (rev 1fb9a18)
+        // exposes no per-call connection identity. This needs a hand rebuild
+        // (e.g. carry the conn id in the proto, or a vox session mechanism).
         let conn_id = cx.conn_id().raw();
         tracing::info!(conn_id, route = %route, "devtools: client subscribing to route");
         self.server.set_browser_route(conn_id, route);
     }
 
     /// Get scope entries for the current route.
-    async fn get_scope(&self, _cx: &roam::Context, path: Option<Vec<String>>) -> Vec<ScopeEntry> {
+    async fn get_scope(&self, path: Option<Vec<String>>) -> Vec<ScopeEntry> {
         // Use "/" as default route - the client should call subscribe() first
         // to establish which route they're viewing
         let path = path.unwrap_or_default();
@@ -104,12 +109,7 @@ impl DevtoolsService for HostDevtoolsService {
     }
 
     /// Evaluate an expression in a snapshot's context.
-    async fn eval(
-        &self,
-        _cx: &roam::Context,
-        snapshot_id: String,
-        expression: String,
-    ) -> EvalResult {
+    async fn eval(&self, snapshot_id: String, expression: String) -> EvalResult {
         match self
             .server
             .eval_expression_for_route(&snapshot_id, &expression)
@@ -121,7 +121,7 @@ impl DevtoolsService for HostDevtoolsService {
     }
 
     /// Dismiss an error notification.
-    async fn dismiss_error(&self, _cx: &roam::Context, route: String) {
+    async fn dismiss_error(&self, route: String) {
         tracing::debug!(route = %route, "Client dismissed error via RPC");
         // The existing implementation just logs this - errors are resolved
         // when the template successfully re-renders
