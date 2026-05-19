@@ -21,7 +21,7 @@ Enable CSS variables for automatic light/dark theming:
 ```rust
 use pikru::{pikchr_with_options, RenderOptions};
 
-let options = RenderOptions { css_variables: true };
+let options = RenderOptions { css_variables: true, ..Default::default() };
 let svg = pikchr_with_options(r#"box "Hello""#, &options).unwrap();
 assert!(svg.contains("light-dark("));
 ```

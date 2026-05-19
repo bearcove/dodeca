@@ -39,7 +39,7 @@ pub fn pikchr(source: &str) -> Result<String, String> {
 /// ```
 /// use pikru::{pikchr_with_options, RenderOptions};
 ///
-/// let options = RenderOptions { css_variables: true };
+/// let options = RenderOptions { css_variables: true, ..Default::default() };
 /// let svg = pikchr_with_options(r#"box "Hello""#, &options).unwrap();
 /// assert!(svg.contains("light-dark("));
 /// ```
@@ -665,14 +665,14 @@ mod tests {
 
     #[test]
     fn render_explicit_size() {
-        use crate::render::{render_with_options, RenderOptions};
+        use crate::render::{RenderOptions, render_with_options};
 
         let input = r#"box "Hello""#;
         let program = crate::parse::parse(input).expect("parse failed");
 
         // Render without explicit_size - should not have width/height attributes
-        let svg_default = render_with_options(&program, &RenderOptions::default())
-            .expect("render failed");
+        let svg_default =
+            render_with_options(&program, &RenderOptions::default()).expect("render failed");
         assert!(
             !svg_default.contains("width="),
             "Default render should not have width attribute"
