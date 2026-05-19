@@ -161,7 +161,7 @@ pub trait TemplateRenderer {
         &self,
         context_id: ContextId,
         expression: String,
-        context: Value,
+        context_vars: Value,
     ) -> EvalResult;
 }
 

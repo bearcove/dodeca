@@ -166,7 +166,7 @@ open = "5"
 hakoniwa = "1.2"
 
 [workspace.package]
-rust-version = "1.91"
+rust-version = "1.92"
 
 # Force all transitive facet dependencies to use local version for development
 # No [patch.crates-io] for facet: everything is on crates.io facet 0.46.x now.
