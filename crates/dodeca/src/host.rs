@@ -9,76 +9,15 @@
 //! Access via `Host::get()`. Get typed cell clients via `Host::client::<C>()`.
 //! For async spawning on demand, use `Host::client_async::<C>()`.
 
-use std::path::PathBuf;
-use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
 
 use cell_gingembre_proto::ContextId;
 use cell_host_proto::{CommandResult, ServerCommand};
 use dashmap::DashMap;
-use roam::session::{ConnectionHandle, RoutedDispatcher};
-use roam_tracing::{HostTracingDispatcher, HostTracingState, TaggedRecord};
-use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
-use tokio::process::Command;
 use tokio::sync::{Mutex, Notify, mpsc};
-use tracing::{debug, error, info, warn};
 
 use crate::template_host::RenderContext;
-
-// ============================================================================
-// MaybeDevtoolsDispatcher - Either includes DevtoolsService or not
-// ============================================================================
-
-type BaseDispatcher = RoutedDispatcher<
-    cell_host_proto::HostServiceDispatcher<crate::cells::HostServiceImpl>,
-    HostTracingDispatcher<roam_tracing::HostTracingService>,
->;
-
-type DevtoolsDispatcher =
-    dodeca_protocol::DevtoolsServiceDispatcher<crate::cell_server::HostDevtoolsService>;
-
-/// Enum dispatcher that includes DevtoolsService when site_server is available.
-pub enum MaybeDevtoolsDispatcher {
-    WithDevtools(RoutedDispatcher<DevtoolsDispatcher, BaseDispatcher>),
-    WithoutDevtools(BaseDispatcher),
-}
-
-impl roam::session::ServiceDispatcher for MaybeDevtoolsDispatcher {
-    fn method_ids(&self) -> Vec<u64> {
-        match self {
-            MaybeDevtoolsDispatcher::WithDevtools(d) => d.method_ids(),
-            MaybeDevtoolsDispatcher::WithoutDevtools(d) => d.method_ids(),
-        }
-    }
-
-    fn dispatch(
-        &self,
-        cx: roam::session::Context,
-        payload: Vec<u8>,
-        registry: &mut roam::session::ChannelRegistry,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>> {
-        match self {
-            MaybeDevtoolsDispatcher::WithDevtools(d) => d.dispatch(cx.clone(), payload, registry),
-            MaybeDevtoolsDispatcher::WithoutDevtools(d) => d.dispatch(cx, payload, registry),
-        }
-    }
-}
-
-// ============================================================================
-// Pending Cell (Lazy Spawning)
-// ============================================================================
-
-/// A cell that has been registered but not yet spawned.
-///
-/// Stores metadata needed to spawn the cell on first access.
-pub struct PendingCell {
-    /// Path to the cell binary
-    pub binary_path: PathBuf,
-    /// Whether the cell inherits stdio (e.g., TUI)
-    pub inherit_stdio: bool,
-}
 
 // ============================================================================
 // Host Singleton
@@ -110,19 +49,6 @@ pub struct Host {
     /// Receiver end - taken by main.rs via `take_command_rx()`.
     command_rx: Mutex<Option<mpsc::UnboundedReceiver<ServerCommand>>>,
 
-    // -------------------------------------------------------------------------
-    // Cell Connection Handles
-    // -------------------------------------------------------------------------
-    /// Connection handles for cells, keyed by logical name (e.g., "sass", "gingembre").
-    cell_handles: DashMap<String, ConnectionHandle>,
-
-    // -------------------------------------------------------------------------
-    // Pending Cells (Lazy Spawning)
-    // -------------------------------------------------------------------------
-    /// Cells that have been registered but not yet spawned.
-    /// Keyed by logical name (e.g., "sass", "gingembre").
-    /// The PendingCell holds the SpawnTicket which is consumed on spawn.
-    pending_cells: std::sync::Mutex<std::collections::HashMap<String, PendingCell>>,
     /// Whether quiet mode is enabled (suppress cell output when TUI is active).
     quiet_mode: std::sync::atomic::AtomicBool,
 
@@ -139,19 +65,6 @@ pub struct Host {
     /// Vite dev server port (if Vite is running).
     /// Set via `provide_vite_port()` after ViteServer starts.
     vite_port: std::sync::OnceLock<Option<u16>>,
-
-    // -------------------------------------------------------------------------
-    // Driver Handle (for lazy spawning)
-    // -------------------------------------------------------------------------
-    /// MultiPeerHostDriver handle for dynamically creating peers.
-    /// Set during cell initialization via `set_driver_handle()`.
-    driver_handle: std::sync::OnceLock<roam_shm::driver::MultiPeerHostDriverHandle>,
-
-    // -------------------------------------------------------------------------
-    // Cell Tracing
-    // -------------------------------------------------------------------------
-    /// Shared state for receiving tracing records from cells.
-    tracing_state: Arc<HostTracingState>,
 
     // -------------------------------------------------------------------------
     // Build Steps
@@ -173,13 +86,9 @@ impl Host {
                 next_context_id: AtomicU64::new(1),
                 command_tx,
                 command_rx: Mutex::new(Some(command_rx)),
-                cell_handles: DashMap::new(),
-                pending_cells: std::sync::Mutex::new(std::collections::HashMap::new()),
                 quiet_mode: std::sync::atomic::AtomicBool::new(false),
                 site_server: std::sync::OnceLock::new(),
                 vite_port: std::sync::OnceLock::new(),
-                driver_handle: std::sync::OnceLock::new(),
-                tracing_state: HostTracingState::new(8192),
                 build_step_executor: std::sync::OnceLock::new(),
             })
         })
@@ -249,29 +158,6 @@ impl Host {
     }
 
     // =========================================================================
-    // Cell Handle Management
-    // =========================================================================
-
-    /// Register a cell's connection handle.
-    ///
-    /// Called by `cells::init_cells_inner()` after spawning cells.
-    /// Uses logical cell name (e.g., "sass", "gingembre").
-    pub fn register_cell_handle(&self, cell_name: String, handle: ConnectionHandle) {
-        self.cell_handles.insert(cell_name, handle);
-    }
-
-    /// Get a cell's connection handle by logical name (e.g., "sass", "gingembre").
-    fn get_cell_handle(&self, cell_name: &str) -> Option<ConnectionHandle> {
-        self.cell_handles.get(cell_name).map(|r| r.clone())
-    }
-
-    /// Get all registered cell names.
-    #[allow(dead_code)] // Utility method for future use
-    pub fn cell_names(&self) -> Vec<String> {
-        self.cell_handles.iter().map(|r| r.key().clone()).collect()
-    }
-
-    // =========================================================================
     // Quiet Mode
     // =========================================================================
 
@@ -312,34 +198,6 @@ impl Host {
         self.vite_port.get().copied().flatten()
     }
 
-    /// Set the driver handle for dynamic peer creation (lazy spawning).
-    /// This must be called during cell initialization.
-    pub fn set_driver_handle(&self, handle: roam_shm::driver::MultiPeerHostDriverHandle) {
-        let _ = self.driver_handle.set(handle);
-    }
-
-    /// Get the driver handle for creating peers dynamically.
-    pub fn driver_handle(&self) -> Option<&roam_shm::driver::MultiPeerHostDriverHandle> {
-        self.driver_handle.get()
-    }
-
-    // =========================================================================
-    // Cell Tracing
-    // =========================================================================
-
-    /// Get the tracing state for creating per-cell tracing services.
-    pub fn tracing_state(&self) -> &Arc<HostTracingState> {
-        &self.tracing_state
-    }
-
-    /// Take the tracing record receiver.
-    ///
-    /// Call this once during initialization to get the stream of tracing
-    /// records from all cells. Returns `None` if already taken.
-    pub fn take_tracing_receiver(&self) -> Option<tokio::sync::mpsc::Receiver<TaggedRecord>> {
-        self.tracing_state.take_receiver()
-    }
-
     // =========================================================================
     // Build Steps
     // =========================================================================
@@ -354,72 +212,6 @@ impl Host {
         self.build_step_executor.get()
     }
 
-    // =========================================================================
-    // Lazy Spawning
-    // =========================================================================
-
-    /// Register a pending cell (not yet spawned).
-    ///
-    /// The cell will be spawned on first access via `client_async::<C>()`.
-    pub fn register_pending_cell(&self, cell_name: String, pending: PendingCell) {
-        if let Ok(mut cells) = self.pending_cells.lock() {
-            cells.insert(cell_name, pending);
-        }
-    }
-
-    /// Take a pending cell (removes it from pending, for spawning).
-    fn take_pending_cell(&self, cell_name: &str) -> Option<PendingCell> {
-        if let Ok(mut cells) = self.pending_cells.lock() {
-            return cells.remove(cell_name);
-        }
-        None
-    }
-
-    /// Spawn a pending cell and wait for it to be ready.
-    ///
-    /// This is called internally by `client_async()` when a cell needs to be spawned.
-    /// Returns Some(handle) on success, None if cell couldn't be spawned.
-    pub async fn spawn_pending_cell(&self, cell_name: &str) -> Option<ConnectionHandle> {
-        debug!(cell = cell_name, "spawn_pending_cell: taking pending cell");
-
-        // Take the pending cell atomically (prevents race conditions)
-        let pending = match self.take_pending_cell(cell_name) {
-            Some(p) => {
-                debug!(
-                    cell = cell_name,
-                    binary = %p.binary_path.display(),
-                    "spawn_pending_cell: got pending cell"
-                );
-                p
-            }
-            None => {
-                debug!(
-                    cell = cell_name,
-                    "spawn_pending_cell: no pending cell, already spawned by another caller"
-                );
-                // Already spawned by another caller - just wait for ready
-                wait_for_cell_ready(cell_name).await;
-                return self.get_cell_handle(cell_name);
-            }
-        };
-
-        // Spawn the cell process
-        debug!(
-            cell = cell_name,
-            "spawn_pending_cell: calling spawn_cell_process"
-        );
-        spawn_cell_process(cell_name, pending, self.is_quiet_mode()).await;
-
-        // Wait for the cell to be ready
-        debug!(
-            cell = cell_name,
-            "spawn_pending_cell: waiting for cell ready"
-        );
-        wait_for_cell_ready(cell_name).await;
-
-        debug!(cell = cell_name, "spawn_pending_cell: done");
-        self.get_cell_handle(cell_name)
-    }
 }
 
 // ============================================================================
@@ -431,26 +223,19 @@ impl Host {
 /// Implement this for each cell client type to enable `Host::client::<C>()`.
 pub trait CellClient: Sized {
     /// The cell's logical name (e.g., "sass", "markdown", "gingembre").
-    /// Binary name is derived at spawn time: `ddc-cell-{name}`.
+    /// The cdylib is `libddc_cell_{name}.{dylib,so,dll}`.
     const CELL_NAME: &'static str;
-
-    /// Create a client from a connection handle.
-    fn from_handle(handle: roam::session::ConnectionHandle) -> Self;
 }
 
 // ============================================================================
 // Client Implementations
 // ============================================================================
 
-// Macro to implement CellClient for roam-generated clients
+// Macro to map each vox-generated cell client type to its logical cell name.
 macro_rules! impl_cell_client {
     ($client:ty, $name:literal) => {
         impl CellClient for $client {
             const CELL_NAME: &'static str = $name;
-
-            fn from_handle(handle: roam::session::ConnectionHandle) -> Self {
-                Self::new(handle)
-            }
         }
     };
 }
@@ -486,412 +271,21 @@ impl_cell_client!(cell_vite_proto::ViteManagerClient, "vite");
 // ============================================================================
 
 impl Host {
-    /// Get a connection handle for a cell by name, spawning if needed.
-    ///
-    /// This is the non-generic implementation that does all the work.
-    /// By keeping this separate from the generic `client_async<C>`, we avoid
-    /// monomorphizing the entire async state machine for each cell client type.
-    async fn get_or_spawn_cell_handle(&self, cell_name: &'static str) -> Option<ConnectionHandle> {
-        // Ensure cell registry is initialized (idempotent, registers for lazy spawning, doesn't spawn)
-        if let Err(e) = crate::cells::ensure_cell_registry_initialized().await {
-            tracing::error!(cell = cell_name, error = %e, "Cell registry initialization failed");
-            return None;
-        }
-
-        // Fast path: cell is already ready (spawned and reported ready)
-        if crate::cells::cell_ready_registry().is_ready(cell_name) {
-            let handle = self.get_cell_handle(cell_name)?;
-            debug!(
-                cell = cell_name,
-                "get_or_spawn_cell_handle: already ready (fast path)"
-            );
-            return Some(handle);
-        }
-
-        debug!(
-            cell = cell_name,
-            "get_or_spawn_cell_handle: not ready, spawning"
-        );
-
-        // Slow path: spawn the cell (creates and registers handle)
-        self.spawn_pending_cell(cell_name).await?;
-
-        // Get the handle that was just registered during spawn
-        let handle = self.get_cell_handle(cell_name)?;
-        debug!(
-            cell = cell_name,
-            "get_or_spawn_cell_handle: spawn complete, returning handle"
-        );
-        Some(handle)
-    }
-
-    /// Get a typed cell client, spawning if needed (async).
-    ///
-    /// This will spawn the cell process if it's pending and wait for it to be ready.
-    /// The heavy lifting is done by `get_or_spawn_cell_handle`, which is non-generic.
-    #[inline(always)]
-    pub async fn client_async<C: CellClient>(&self) -> Option<C> {
-        let handle = self.get_or_spawn_cell_handle(C::CELL_NAME).await?;
-        Some(C::from_handle(handle))
-    }
-}
-
-// ============================================================================
-// Lazy Spawning Helpers
-// ============================================================================
-
-/// Spawn a cell process from a PendingCell using dynamic peer creation.
-///
-/// This function:
-/// 1. Creates a peer dynamically (gets fresh SpawnTicket with valid FDs)
-/// 2. Spawns the process with the ticket
-/// 3. Registers the peer with the driver
-async fn spawn_cell_process(cell_name: &str, pending: PendingCell, quiet_mode: bool) {
-    let PendingCell {
-        binary_path,
-        inherit_stdio,
-    } = pending;
-
-    // Get driver handle for dynamic peer creation
-    let driver_handle = match Host::get().driver_handle() {
-        Some(h) => h,
-        None => {
-            error!(
-                cell = cell_name,
-                "No driver handle available for lazy spawning"
-            );
-            return;
-        }
-    };
-
-    // Create peer dynamically - this gives us a fresh SpawnTicket with valid FDs
-    let binary_name = format!("ddc-cell-{}", cell_name);
-    let cell_name_for_death = cell_name.to_string();
-    let ticket = match driver_handle
-        .create_peer(roam_shm::spawn::AddPeerOptions {
-            peer_name: Some(binary_name.clone()),
-            on_death: Some(Arc::new(move |peer_id| {
-                eprintln!(
-                    "FATAL: {} cell died unexpectedly (peer_id={:?})",
-                    cell_name_for_death, peer_id
-                );
-                std::process::exit(1);
-            })),
-            diagnostic_state: None, // Created later in add_peer_with_diagnostics
-        })
-        .await
-    {
-        Ok(t) => t,
-        Err(e) => {
-            error!(cell = cell_name, error = ?e, "Failed to create peer dynamically");
-            return;
-        }
-    };
-
-    let peer_id = ticket.peer_id;
-    let args = ticket.to_args();
-
-    debug!(
-        cell = cell_name,
-        ?peer_id,
-        binary = %binary_path.display(),
-        ?args,
-        inherit_stdio,
-        quiet_mode,
-        "spawn_cell_process: building command"
-    );
-
-    // Build the command
-    let mut cmd = Command::new(&binary_path);
-    for arg in &args {
-        cmd.arg(arg);
-    }
-
-    // Configure stdio
-    if inherit_stdio {
-        debug!(cell = cell_name, "spawn_cell_process: inheriting stdio");
-        cmd.stdin(Stdio::inherit())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit());
-    } else if quiet_mode {
-        debug!(
-            cell = cell_name,
-            "spawn_cell_process: quiet mode (null stdio)"
-        );
-        cmd.stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .env("DODECA_QUIET", "1");
-    } else {
-        debug!(cell = cell_name, "spawn_cell_process: piped stdio");
-        cmd.stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-    }
-
-    // Register the peer with the driver BEFORE spawning the child.
-    // On Windows, this starts the named pipe accept() task so the child can connect.
-    // On Unix, accept() is a no-op since socketpairs are already connected.
-    debug!(
-        cell = cell_name,
-        ?peer_id,
-        "spawn_cell_process: registering peer with driver (before spawn)"
-    );
-
-    // Create the host service dispatcher (handles ready(), template calls, etc.)
-    let host_service = crate::cells::HostServiceImpl::new(
-        crate::cells::HostCellLifecycle::new(crate::cells::cell_ready_registry().clone()),
-        crate::template_host::TemplateHostImpl::new(),
-        Host::get().site_server().cloned(),
-    );
-    let host_service_dispatcher = cell_host_proto::HostServiceDispatcher::new(host_service);
-
-    // Create the tracing service dispatcher (handles emit_tracing(), get_tracing_config())
-    let tracing_service = Host::get()
-        .tracing_state()
-        .service_for_peer(peer_id.get() as u64, Some(cell_name.to_string()));
-    let tracing_dispatcher = HostTracingDispatcher::new(tracing_service);
-
-    // Compose dispatchers: Tracing -> HostService -> DevtoolsService (if available)
-    // We always route to the DevtoolsService if site_server is available
-    let base_dispatcher = RoutedDispatcher::new(host_service_dispatcher, tracing_dispatcher);
-
-    // Create the devtools service dispatcher (handles browser devtools RPC calls)
-    // Only active if site_server is available (i.e., serve command, not build)
-    let dispatcher = match Host::get().site_server() {
-        Some(server) => {
-            let devtools_service = crate::cell_server::HostDevtoolsService::new(server.clone());
-            let devtools_dispatcher =
-                dodeca_protocol::DevtoolsServiceDispatcher::new(devtools_service);
-            MaybeDevtoolsDispatcher::WithDevtools(RoutedDispatcher::new(
-                devtools_dispatcher,
-                base_dispatcher,
-            ))
-        }
-        None => MaybeDevtoolsDispatcher::WithoutDevtools(base_dispatcher),
-    };
-
-    // Create diagnostic state for host's view of this connection (for SIGUSR1 dumps)
-    let diagnostic_state = std::sync::Arc::new(roam_session::diagnostic::DiagnosticState::new(
-        format!("host→{}", cell_name),
-    ));
-    roam_session::diagnostic::register_diagnostic_state(&diagnostic_state);
-
-    match driver_handle
-        .add_peer_with_diagnostics(peer_id, dispatcher, Some(diagnostic_state))
-        .await
-    {
-        Ok((handle, incoming_connections)) => {
-            debug!(
-                cell = cell_name,
-                ?peer_id,
-                "spawn_cell_process: peer registered, storing handle"
-            );
-            Host::get().register_cell_handle(cell_name.to_string(), handle);
-
-            // For the HTTP cell, spawn a task to accept incoming virtual connections from browsers
-            if cell_name == "http" {
-                if let Some(site_server) = Host::get().site_server() {
-                    let server = site_server.clone();
-                    crate::spawn::spawn(async move {
-                        crate::cell_server::accept_browser_connections(
-                            incoming_connections,
-                            server,
-                        )
-                        .await;
-                    });
-                }
-            }
-        }
-        Err(e) => {
-            error!(cell = cell_name, ?peer_id, error = ?e, "Failed to register peer with driver");
-            return;
-        }
-    }
-
-    // Spawn the process (after driver is ready to accept doorbell connection)
-    debug!(
-        cell = cell_name,
-        "spawn_cell_process: spawning child process"
-    );
-    let mut child = match ur_taking_me_with_you::spawn_dying_with_parent_async(cmd) {
-        Ok(c) => {
-            debug!(cell = cell_name, pid = ?c.id(), "spawn_cell_process: child spawned successfully");
-            // Register child PID for SIGUSR1 forwarding
-            if let Some(pid) = c.id() {
-                dodeca_debug::register_child_pid(pid);
-            }
-            c
-        }
-        Err(e) => {
-            warn!(cell = cell_name, error = ?e, "spawn_cell_process: failed to spawn");
-            return;
-        }
-    };
-
-    // Capture stdio if not inheriting and not quiet
-    if !inherit_stdio && !quiet_mode {
-        capture_cell_stdio(cell_name, &mut child);
-    }
-
-    debug!(
-        cell = cell_name,
-        ?peer_id,
-        binary = %binary_path.display(),
-        "spawn_cell_process: dropping ticket to close doorbell"
-    );
-
-    // Drop ticket to close our end of the doorbell
-    drop(ticket);
-
-    debug!(
-        cell = cell_name,
-        "spawn_cell_process: spawning child monitor task"
-    );
-
-    // Spawn child management task
-    let cell_label = cell_name.to_string();
-    let registry = crate::cells::cell_ready_registry().clone();
-    crate::spawn::spawn(async move {
-        debug!(cell = %cell_label, "child monitor: waiting for exit");
-        match child.wait().await {
-            Ok(status) if !status.success() => {
-                let msg = format!("cell exited with status: {}", status);
-                error!(cell = %cell_label, %status, "Cell process crashed");
-                registry.mark_failed(&cell_label, msg);
-            }
+    /// Get a typed cell client, `dlopen`'ing the cell cdylib and establishing
+    /// the vox-ffi link on first use, then opening a virtual connection for the
+    /// cell's service.
+    pub async fn client_async<C: CellClient + vox::FromVoxSession>(&self) -> Option<C> {
+        let session = crate::cell_loader::cell_session(C::CELL_NAME).await?;
+        match session
+            .open::<C>(crate::cell_loader::connection_settings())
+            .await
+        {
+            Ok(c) => Some(c),
             Err(e) => {
-                let msg = format!("cell wait error: {}", e);
-                error!(cell = %cell_label, error = ?e, "Cell process wait failed");
-                registry.mark_failed(&cell_label, msg);
-            }
-            Ok(_) => {
-                info!(cell = %cell_label, "child monitor: cell exited normally");
+                tracing::error!(cell = C::CELL_NAME, error = %e, "open cell service vconn failed");
+                None
             }
         }
-    });
-
-    debug!(cell = cell_name, "spawn_cell_process: done");
-}
-
-/// Capture cell stdout/stderr and log it.
-fn capture_cell_stdio(label: &str, child: &mut tokio::process::Child) {
-    if let Some(stdout) = child.stdout.take() {
-        spawn_stdio_pump(label.to_string(), "stdout", stdout);
-    }
-    if let Some(stderr) = child.stderr.take() {
-        spawn_stdio_pump(label.to_string(), "stderr", stderr);
     }
 }
 
-/// Pump a stdio stream to the logger.
-///
-/// Uses dynamic tracing targets so messages appear as if from the cell itself.
-fn spawn_stdio_pump<R>(label: String, _stream: &'static str, reader: R)
-where
-    R: AsyncRead + Unpin + Send + 'static,
-{
-    crate::spawn::spawn(async move {
-        let target = format!("cell-{label}");
-        let mut reader = BufReader::new(reader);
-        let mut line = String::new();
-        loop {
-            line.clear();
-            match reader.read_line(&mut line).await {
-                Ok(0) => {
-                    roam_tracing::dispatch_message(
-                        roam_tracing::Level::Debug,
-                        &target,
-                        "stdio EOF",
-                    );
-                    break;
-                }
-                Ok(_) => {
-                    let trimmed = line.trim_end_matches(&['\r', '\n'][..]);
-                    if !trimmed.is_empty() {
-                        roam_tracing::dispatch_message(roam_tracing::Level::Info, &target, trimmed);
-                    }
-                }
-                Err(e) => {
-                    let msg = format!("stdio read failed: {e:?}");
-                    roam_tracing::dispatch_message(roam_tracing::Level::Warn, &target, &msg);
-                    break;
-                }
-            }
-        }
-    });
-}
-
-/// Wait for a cell to be ready.
-///
-/// This checks the cell ready registry from cells.rs.
-async fn wait_for_cell_ready(cell_name: &str) {
-    debug!(cell = cell_name, "wait_for_cell_ready: starting");
-
-    // Wait for the cell to report ready via CellLifecycle::ready()
-    // Default timeout is 10 seconds to handle cold starts on slower machines/CI
-    // Can be overridden with DODECA_CELL_TIMEOUT_SECS env var
-    let timeout_secs: u64 = std::env::var("DODECA_CELL_TIMEOUT_SECS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(10);
-    let timeout = Duration::from_secs(timeout_secs);
-    let start = std::time::Instant::now();
-
-    let mut check_count = 0u32;
-    loop {
-        check_count += 1;
-
-        // Check if cell reported ready via the registry
-        if crate::cells::cell_ready_registry().is_ready(cell_name) {
-            debug!(
-                cell = cell_name,
-                elapsed_ms = start.elapsed().as_millis(),
-                check_count,
-                "wait_for_cell_ready: cell is ready"
-            );
-            break;
-        }
-
-        // Check if cell has been marked as failed (child process crashed)
-        if let Some(reason) = crate::cells::cell_ready_registry().failure_reason(cell_name) {
-            error!(
-                cell = cell_name,
-                elapsed_ms = start.elapsed().as_millis(),
-                %reason,
-                "Cell process failed during startup"
-            );
-            // Give stdio pump tasks time to flush cell's stderr (e.g., panic messages)
-            tokio::time::sleep(Duration::from_millis(200)).await;
-            std::process::exit(1);
-        }
-
-        if start.elapsed() >= timeout {
-            error!(
-                cell = cell_name,
-                elapsed_ms = start.elapsed().as_millis(),
-                timeout_secs,
-                check_count,
-                "Cell failed to start within timeout. \
-                 The cell process was spawned but never reported ready. \
-                 Check cell logs above for crash or startup errors."
-            );
-            // Give stdio pump tasks time to flush cell's stderr (e.g., panic messages)
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            std::process::exit(1);
-        }
-
-        // Log every 100 checks (roughly every second)
-        if check_count.is_multiple_of(100) {
-            debug!(
-                cell = cell_name,
-                elapsed_ms = start.elapsed().as_millis(),
-                check_count,
-                "wait_for_cell_ready: still waiting..."
-            );
-        }
-
-        // Small delay between checks
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-}

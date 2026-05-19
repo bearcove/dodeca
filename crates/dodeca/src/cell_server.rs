@@ -12,14 +12,11 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Instant;
 
 use eyre::Result;
-use roam::tunnel_pair;
-use roam_shm::driver::IncomingConnections;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::watch;
 
 use cell_http_proto::TcpTunnelClient;
-use dodeca_protocol::BrowserServiceClient;
 
 use crate::boot_state::BootStateManager;
 use crate::host::Host;
@@ -90,12 +87,12 @@ impl DevtoolsService for HostDevtoolsService {
     /// The browser was already registered when its virtual connection was accepted.
     /// This method associates the subscription with the browser using `cx.conn_id`.
     async fn subscribe(&self, route: String) {
-        // ARCHITECTURAL: roam supplied `cx.conn_id()` to associate this
-        // subscription with the calling browser's virtual connection. vox
-        // `#[vox::service]` impl methods take no context, and vox (rev 1fb9a18)
-        // exposes no per-call connection identity. This needs a hand rebuild
-        // (e.g. carry the conn id in the proto, or a vox session mechanism).
-        let conn_id = cx.conn_id().raw();
+        // TODO(devtools-identity): roam used `cx.conn_id()` to key the browser.
+        // The vox-native fix is a per-vconn HostDevtoolsService built in the
+        // cell_loader acceptor via `handle_with_client::<BrowserServiceClient>`
+        // with a host-allocated browser id. Deferred (Amos: circle back once
+        // the build is green) — stubbed so the host compiles.
+        let conn_id = 0u64;
         tracing::info!(conn_id, route = %route, "devtools: client subscribing to route");
         self.server.set_browser_route(conn_id, route);
     }
@@ -418,65 +415,62 @@ async fn handle_browser_connection(
         "Revision ready (per-connection)"
     );
 
-    // Create a tunnel pair - local stays here, remote goes to cell
-    let (local, remote) = tunnel_pair();
-    let channel_id = local.tx.channel_id();
+    // A tunnel is just a pair of vox channels. The cell reads browser bytes
+    // from `inbound` and writes responses to `outbound`; the host keeps the
+    // opposite halves and pumps them against the browser TCP socket.
+    let (inbound_tx, inbound_rx) = vox::channel::<Vec<u8>>();
+    let (outbound_tx, mut outbound_rx) = vox::channel::<Vec<u8>>();
 
-    // Open a tunnel to the cell by passing the remote end
     let open_started = Instant::now();
     tunnel_client
-        .open(remote)
+        .open(inbound_rx, outbound_tx)
         .await
         .map_err(|e| eyre::eyre!("Failed to open tunnel: {:?}", e))?;
 
     tracing::trace!(
         conn_id,
-        channel_id,
         open_elapsed_ms = open_started.elapsed().as_millis(),
         "Tunnel opened for browser connection"
     );
 
-    // Bridge browser <-> tunnel
-    // Create a duplex to bridge the tunnel
-    let (client, server_stream) = tokio::io::duplex(64 * 1024);
-    let (_read_handle, _write_handle) =
-        roam::tunnel_stream(client, local, roam::DEFAULT_TUNNEL_CHUNK_SIZE);
-
-    tracing::trace!(
-        conn_id,
-        channel_id,
-        "Starting browser <-> tunnel bridge task"
-    );
-
-    // Use the server side of the duplex for the browser connection
-    let mut tunnel_stream = server_stream;
     crate::spawn::spawn(async move {
         let bridge_started = Instant::now();
-        tracing::trace!(conn_id, channel_id, "browser <-> tunnel bridge: start");
-        match tokio::io::copy_bidirectional(&mut browser_stream, &mut tunnel_stream).await {
-            Ok((to_tunnel, to_browser)) => {
-                tracing::trace!(
-                    conn_id,
-                    channel_id,
-                    to_tunnel,
-                    to_browser,
-                    elapsed_ms = bridge_started.elapsed().as_millis(),
-                    "browser <-> tunnel finished"
-                );
+        tracing::trace!(conn_id, "browser <-> tunnel bridge: start");
+        let (mut br, mut bw) = tokio::io::split(browser_stream);
+
+        // browser -> cell
+        let up = async move {
+            let mut buf = vec![0u8; 64 * 1024];
+            loop {
+                match br.read(&mut buf).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        if inbound_tx.send(buf[..n].to_vec()).await.is_err() {
+                            break;
+                        }
+                    }
+                }
             }
-            Err(e) => {
-                tracing::warn!(
-                    conn_id,
-                    channel_id,
-                    error = %e,
-                    elapsed_ms = bridge_started.elapsed().as_millis(),
-                    "browser <-> tunnel error"
-                );
+        };
+
+        // cell -> browser
+        let down = async move {
+            while let Ok(Some(chunk)) = outbound_rx.recv().await {
+                // Vec<u8> isn't `Reborrow`, so move the owned bytes out via map.
+                let mut bytes: Option<Vec<u8>> = None;
+                let _ = chunk.map(|v| {
+                    bytes = Some(v);
+                });
+                let Some(bytes) = bytes else { break };
+                if bw.write_all(&bytes).await.is_err() {
+                    break;
+                }
             }
-        }
+        };
+
+        tokio::join!(up, down);
         tracing::trace!(
             conn_id,
-            channel_id,
             elapsed_ms = bridge_started.elapsed().as_millis(),
             "browser <-> tunnel bridge: done"
         );
@@ -484,52 +478,13 @@ async fn handle_browser_connection(
 
     tracing::trace!(
         conn_id,
-        channel_id,
         elapsed_ms = started_at.elapsed().as_millis(),
         "handle_browser_connection: end"
     );
     Ok(())
 }
 
-// ============================================================================
-// Browser Virtual Connection Handling
-// ============================================================================
-
-/// Accept incoming virtual connections from browsers through cell-http.
-///
-/// Each browser that connects via WebSocket to /_/ws opens a virtual connection
-/// through cell-http to the host. This function accepts those connections and
-/// registers them with the SiteServer for receiving devtools events.
-pub async fn accept_browser_connections(
-    mut incoming: IncomingConnections,
-    server: Arc<SiteServer>,
-) {
-    tracing::info!("Starting browser virtual connection acceptor");
-
-    while let Some(conn) = incoming.recv().await {
-        tracing::debug!("Received incoming virtual connection from browser");
-
-        // Accept the connection
-        // Host doesn't serve methods on this connection, only calls back to browser
-        let handle = match conn.accept(roam::wire::Metadata::default(), None).await {
-            Ok(h) => h,
-            Err(e) => {
-                tracing::warn!(error = ?e, "Failed to accept browser virtual connection");
-                continue;
-            }
-        };
-
-        // Get the conn_id for this virtual connection - this is the key we'll use
-        // to look up the browser when it calls subscribe()
-        let conn_id = handle.conn_id().raw();
-        tracing::info!(conn_id, "Accepted browser virtual connection");
-
-        // Create a BrowserServiceClient to call the browser
-        let browser_client = BrowserServiceClient::new(handle);
-
-        // Register this browser with the server using conn_id as the key
-        server.register_browser(conn_id, browser_client);
-    }
-
-    tracing::info!("Browser virtual connection acceptor finished");
-}
+// Browser virtual connections are now accepted by the vox `HostAcceptor` in
+// `cell_loader` (routed by `vox-service` name over the in-process cell-http
+// link). The old roam `IncomingConnections` acceptor + `BrowserServiceClient`
+// registration is rebuilt there together with the devtools-identity TODO.

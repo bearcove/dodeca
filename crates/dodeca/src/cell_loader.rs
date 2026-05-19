@@ -27,6 +27,15 @@ use crate::host::Host;
 /// Exported symbol every cell cdylib provides (see `dodeca_cell_runtime::declare_cell!`).
 const CELL_VTABLE_SYMBOL: &[u8] = b"dodeca_cell_vtable_v1";
 
+/// Settings for every virtual connection opened over a host<->cell FFI link.
+pub fn connection_settings() -> vox::ConnectionSettings {
+    vox::ConnectionSettings {
+        parity: vox::Parity::Odd,
+        max_concurrent_requests: 64,
+        initial_channel_credit: 16,
+    }
+}
+
 type CellVtableFn = unsafe extern "C" fn() -> *const vox_link_vtable;
 
 // One vox-ffi endpoint per cell link (Endpoint is a one-shot process-lifetime

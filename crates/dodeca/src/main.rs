@@ -298,19 +298,8 @@ fn main() -> Result<()> {
     // (no-op on non-Unix platforms)
     dodeca_debug::install_sigusr1_handler("ddc");
 
-    // Register diagnostic callback to dump all RPC connection states
-    dodeca_debug::register_diagnostic(|| {
-        let diagnostics = roam_session::diagnostic::dump_all_diagnostics();
-        eprint!("{}", diagnostics);
-    });
-
-    // Register diagnostic callback to dump all auditable channel states
-    dodeca_debug::register_diagnostic(|| {
-        let channels = roam_shm::dump_all_channels();
-        if !channels.is_empty() {
-            eprint!("{}", channels);
-        }
-    });
+    // (vox cells run in-process; there is no shared-memory channel/connection
+    // registry to dump on SIGUSR1 — `dodeca_debug` still dumps host stacks.)
 
     // When spawned by test harness with DODECA_DIE_WITH_PARENT=1, install death-watch
     // so we exit when the test process dies. This prevents orphan accumulation.
@@ -338,23 +327,6 @@ fn main() -> Result<()> {
 }
 
 async fn async_main(command: Command) -> Result<()> {
-    // Spawn background task to print SHM diagnostics periodically when SHM_DEBUG is set
-    if std::env::var("SHM_DEBUG").is_ok() {
-        crate::spawn::spawn(async {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
-            loop {
-                interval.tick().await;
-                let diagnostics = roam_session::diagnostic::dump_all_diagnostics();
-                let channels = roam_shm::dump_all_channels();
-                if diagnostics.is_empty() && channels.is_empty() {
-                    eprintln!("[SHM_DEBUG] (idle)");
-                } else {
-                    eprint!("{}{}", diagnostics, channels);
-                }
-            }
-        });
-    }
-
     match command {
         Command::Build(args) => {
             // Initialize tracing early so config errors are visible
@@ -2104,7 +2076,7 @@ async fn serve_plain(
                     .map_err(|e| eyre!("Failed to connect to fd-socket {}: {}", channel_path, e))?;
 
                 tracing::info!("Receiving TCP listener FD from test harness");
-                let fd = roam_fdpass::recv_fd(&unix_stream)
+                let fd = vox_fdpass::recv_fd(&unix_stream)
                     .await
                     .map_err(|e| eyre!("Failed to receive FD: {}", e))?;
 
@@ -2140,14 +2112,14 @@ async fn serve_plain(
                     "Connecting to named pipe for socket passing: {}",
                     channel_path
                 );
-                let mut pipe_stream = roam_local::connect(channel_path)
+                let mut pipe_stream = vox_stream::connect(channel_path)
                     .await
                     .map_err(|e| eyre!("Failed to connect to fd-socket {}: {}", channel_path, e))?;
 
                 eprintln!("[ddc] Connected, receiving TCP listener...");
                 std::io::stderr().flush().ok();
                 tracing::info!("Receiving TCP listener from test harness");
-                let std_listener = roam_fdpass::recv_tcp_listener(&mut pipe_stream)
+                let std_listener = vox_fdpass::recv_tcp_listener(&mut pipe_stream)
                     .await
                     .map_err(|e| {
                         eprintln!("[ddc] Failed to receive TCP listener: {}", e);
@@ -3292,7 +3264,7 @@ async fn serve_static(
     }
 
     impl ContentService for StaticContentService {
-        async fn find_content(&self, _cx: &roam::Context, path: String) -> ServeContent {
+        async fn find_content(&self, path: String) -> ServeContent {
             // Normalize path - remove leading slash
             let path = path.trim_start_matches('/');
 
@@ -3354,7 +3326,6 @@ async fn serve_static(
 
         async fn get_scope(
             &self,
-            _cx: &roam::Context,
             _route: String,
             _path: Vec<String>,
         ) -> Vec<cell_http_proto::ScopeEntry> {
@@ -3363,7 +3334,6 @@ async fn serve_static(
 
         async fn eval_expression(
             &self,
-            _cx: &roam::Context,
             _route: String,
             _expression: String,
         ) -> cell_http_proto::EvalResult {
