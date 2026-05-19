@@ -269,7 +269,7 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
 name = "cinereus"
-version = "1.1.0"
+version = "2.0.0"
 dependencies = [
  "facet",
  "facet-testhelpers",
@@ -1252,7 +1252,7 @@ checksum = "fc0fef456e4baa96da950455cd02c081ca953b141298e41db3fc7e36b1da849c"
 
 [[package]]
 name = "hotmeal"
-version = "1.1.0"
+version = "2.0.0"
 dependencies = [
  "cinereus",
  "compact_str",
@@ -1271,7 +1271,7 @@ dependencies = [
 
 [[package]]
 name = "hotmeal-server"
-version = "1.1.0"
+version = "2.0.0"
 dependencies = [
  "facet",
  "facet-json",
@@ -1283,7 +1283,7 @@ dependencies = [
 
 [[package]]
 name = "hotmeal-wasm"
-version = "1.1.0"
+version = "2.0.0"
 dependencies = [
  "facet-json",
  "facet-postcard",
