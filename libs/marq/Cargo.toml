@@ -171,11 +171,11 @@ facet-postcard.workspace = true
 
 [workspace.dependencies]
 # Serialization - Facet ecosystem (git)
-facet = { version = "0.44" }
-facet-postcard = { version = "0.44" }
-facet-toml = { version = "0.44" }
-facet-value = { version = "0.44" }
-facet-yaml = { version = "0.44" }
+facet = { version = "0.46" }
+facet-postcard = { version = "0.46" }
+facet-toml = { version = "0.46" }
+facet-value = { version = "0.46" }
+facet-yaml = { version = "0.46" }
 
 # Markdown
 pulldown-cmark = "0.13"
