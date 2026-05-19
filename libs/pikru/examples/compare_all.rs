@@ -49,7 +49,7 @@ fn main() {
     println!();
 
     // Show some examples
-    results.sort_by(|a, b| b.1.cmp(&a.1));
+    results.sort_by_key(|b| std::cmp::Reverse(b.1));
     println!("Top 10 by element count:");
     for (name, count) in results.iter().take(10) {
         println!("  {}: {} elements", name, count);

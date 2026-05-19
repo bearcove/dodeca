@@ -1520,14 +1520,10 @@ fn render_object_stmt(
 
                     // Calculate text bounding box height using vertical slots
                     let y_base = match class_name {
-                        Some(ClassName::Cylinder) => {
-                            // corner_radius was initialized to cylrad before attributes
-                            // C code only applies yBase if rad > 0
-                            if style.corner_radius.raw() > 0.0 {
-                                -0.75 * style.corner_radius.raw()
-                            } else {
-                                0.0
-                            }
+                        // corner_radius was initialized to cylrad before attributes
+                        // C code only applies yBase if rad > 0
+                        Some(ClassName::Cylinder) if style.corner_radius.raw() > 0.0 => {
+                            -0.75 * style.corner_radius.raw()
                         }
                         _ => 0.0,
                     };
@@ -1856,40 +1852,32 @@ fn render_object_stmt(
 
             // Apply shape-specific fit adjustments
             match class_name {
-                Some(ClassName::Circle) => {
-                    // cref: circleFit (pikchr.c:3940)
-                    // Circle uses max(w, h) or hypot if both positive
-                    if needs_autofit_width || needs_autofit_height {
-                        let mut mx = fit_w.max(fit_h);
-                        if fit_w > 0.0 && fit_h > 0.0 && (fit_w * fit_w + fit_h * fit_h) > mx * mx {
-                            mx = fit_w.hypot(fit_h);
-                        }
-                        width = Inches(mx);
-                        height = Inches(mx);
+                // cref: circleFit (pikchr.c:3940)
+                // Circle uses max(w, h) or hypot if both positive
+                Some(ClassName::Circle) if needs_autofit_width || needs_autofit_height => {
+                    let mut mx = fit_w.max(fit_h);
+                    if fit_w > 0.0 && fit_h > 0.0 && (fit_w * fit_w + fit_h * fit_h) > mx * mx {
+                        mx = fit_w.hypot(fit_h);
                     }
+                    width = Inches(mx);
+                    height = Inches(mx);
                 }
-                Some(ClassName::Cylinder) => {
-                    // cref: cylinderFit (pikchr.c:3976)
-                    // if( h>0 ) pObj->h = h + 0.25*pObj->rad + pObj->sw;
-                    // Only add extra height for cylinder cap when autofitting height
-                    if needs_autofit_height {
-                        height = height + style.corner_radius * 0.25 + style.stroke_width;
-                    }
+                // cref: cylinderFit (pikchr.c:3976)
+                // if( h>0 ) pObj->h = h + 0.25*pObj->rad + pObj->sw;
+                // Only add extra height for cylinder cap when autofitting height
+                Some(ClassName::Cylinder) if needs_autofit_height => {
+                    height = height + style.corner_radius * 0.25 + style.stroke_width;
                 }
-                Some(ClassName::Oval) => {
-                    // cref: ovalFit (pikchr.c:4320-4326)
-                    // After setting w/h, ensure width >= height (pill shape constraint)
-                    // if( pObj->w < pObj->h ) pObj->w = pObj->h;
-                    if width < height {
-                        width = height;
-                    }
+                // cref: ovalFit (pikchr.c:4320-4326)
+                // After setting w/h, ensure width >= height (pill shape constraint)
+                // if( pObj->w < pObj->h ) pObj->w = pObj->h;
+                Some(ClassName::Oval) if width < height => {
+                    width = height;
                 }
-                Some(ClassName::File) => {
-                    // cref: fileFit (pikchr.c:4147)
-                    // File height needs to account for the fold corner
-                    if needs_autofit_height {
-                        height += style.corner_radius * 2.0;
-                    }
+                // cref: fileFit (pikchr.c:4147)
+                // File height needs to account for the fold corner
+                Some(ClassName::File) if needs_autofit_height => {
+                    height += style.corner_radius * 2.0;
                 }
                 Some(ClassName::Diamond) => {
                     // Diamond uses bAltAutoFit logic
