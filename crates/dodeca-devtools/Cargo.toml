@@ -20,10 +20,10 @@ crate-type = ["cdylib", "rlib"]
 dodeca-protocol = { path = "../dodeca-protocol" }
 livereload-client = { path = "../livereload-client" }
 
-# RPC transport
-roam.workspace = true
-roam-session.workspace = true
-roam-websocket.workspace = true
+# RPC transport (wasm: websocket only, no ffi)
+vox = { git = "https://github.com/bearcove/vox", branch = "main", default-features = false, features = [
+    "transport-websocket",
+] }
 
 # UI framework
 sycamore = "0.9"

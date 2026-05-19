@@ -24,10 +24,8 @@ facet-postcard.workspace = true
 futures-util.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
-roam.workspace = true
-roam-session.workspace = true
-roam-stream = { git = "https://github.com/bearcove/roam", branch = "main" }
-roam-wire = { git = "https://github.com/bearcove/roam", branch = "main" }
+vox.workspace = true
+vox-stream.workspace = true
 tokio.workspace = true
 tokio-tungstenite.workspace = true
 tracing.workspace = true

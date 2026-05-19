@@ -10,11 +10,7 @@ use cell_code_execution_proto::*;
 pub struct CodeExecutorImpl;
 
 impl CodeExecutor for CodeExecutorImpl {
-    async fn extract_code_samples(
-        &self,
-        _cx: &dodeca_cell_runtime::Context,
-        input: ExtractSamplesInput,
-    ) -> CodeExecutionResult {
+    async fn extract_code_samples(&self, input: ExtractSamplesInput) -> CodeExecutionResult {
         let options = Options::ENABLE_TABLES
             | Options::ENABLE_FOOTNOTES
             | Options::ENABLE_STRIKETHROUGH
@@ -77,11 +73,7 @@ impl CodeExecutor for CodeExecutorImpl {
         }
     }
 
-    async fn execute_code_samples(
-        &self,
-        _cx: &dodeca_cell_runtime::Context,
-        input: ExecuteSamplesInput,
-    ) -> CodeExecutionResult {
+    async fn execute_code_samples(&self, input: ExecuteSamplesInput) -> CodeExecutionResult {
         let mut results = Vec::new();
 
         if !input.config.enabled {

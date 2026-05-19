@@ -12,4 +12,4 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 facet.workspace = true
 facet-default.workspace = true
 facet-yaml.workspace = true
-roam.workspace = true
+vox.workspace = true

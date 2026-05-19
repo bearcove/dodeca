@@ -65,7 +65,7 @@ pub enum LinkCheckResult {
 ///
 /// The host calls these methods to check external URLs.
 #[allow(async_fn_in_trait)]
-#[roam::service]
+#[vox::service]
 pub trait LinkChecker {
     /// Check external URLs for validity
     async fn check_links(&self, input: LinkCheckInput) -> LinkCheckResult;

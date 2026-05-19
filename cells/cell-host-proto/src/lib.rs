@@ -63,7 +63,7 @@ pub enum ProcessJsResult {
 ///
 /// Note: Host → TUI updates use TuiDisplay service (defined in cell-tui-proto).
 #[allow(async_fn_in_trait)]
-#[roam::service]
+#[vox::service]
 pub trait HostService {
     // =========================================================================
     // Cell Lifecycle

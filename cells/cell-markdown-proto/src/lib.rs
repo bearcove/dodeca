@@ -165,7 +165,7 @@ pub enum ParseResult {
 ///
 /// The host calls these methods to process markdown content.
 #[allow(async_fn_in_trait)]
-#[roam::service]
+#[vox::service]
 pub trait MarkdownProcessor {
     /// Parse frontmatter from content.
     ///

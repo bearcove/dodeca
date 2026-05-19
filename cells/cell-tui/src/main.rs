@@ -569,15 +569,15 @@ struct TuiDisplayImpl {
 }
 
 impl TuiDisplay for TuiDisplayImpl {
-    async fn update_progress(&self, _cx: &dodeca_cell_runtime::Context, progress: BuildProgress) {
+    async fn update_progress(&self, progress: BuildProgress) {
         let _ = self.progress_tx.send(progress);
     }
 
-    async fn push_event(&self, _cx: &dodeca_cell_runtime::Context, event: LogEvent) {
+    async fn push_event(&self, event: LogEvent) {
         let _ = self.event_tx.send(event);
     }
 
-    async fn update_status(&self, _cx: &dodeca_cell_runtime::Context, status: ServerStatus) {
+    async fn update_status(&self, status: ServerStatus) {
         let _ = self.status_tx.send(status);
     }
 }

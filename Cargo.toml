@@ -65,14 +65,14 @@ hotmeal = { git = "https://github.com/bearcove/hotmeal", branch = "main" }
 hotmeal-server = { git = "https://github.com/bearcove/hotmeal", branch = "main", features = ["tracing"] }
 hotmeal-wasm = { git = "https://github.com/bearcove/hotmeal", branch = "main" }
 
-facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-default = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-format = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-postcard = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-toml = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet = "0.46"
+facet-default = "0.46"
+facet-format = "0.47"
+facet-json = "0.46"
+facet-postcard = "0.46"
+facet-toml = "0.46"
+facet-value = "0.46"
+facet-yaml = "0.46"
 
 facet-styx = { git = "https://github.com/bearcove/styx", branch = "main" }
 styx-embed = { git = "https://github.com/bearcove/styx", branch = "main" }
@@ -80,21 +80,21 @@ styx-embed = { git = "https://github.com/bearcove/styx", branch = "main" }
 figue = { git = "https://github.com/bearcove/figue", branch = "main" }
 
 # RPC framework
-roam = { git = "https://github.com/bearcove/roam", branch = "main" }
-roam-shm = { git = "https://github.com/bearcove/roam", branch = "main", features = ["tracing"] }
-roam-tracing = { git = "https://github.com/bearcove/roam", branch = "main" }
-roam-fdpass = { git = "https://github.com/bearcove/roam", branch = "main" }
-roam-local = { git = "https://github.com/bearcove/roam", branch = "main" }
-roam-session = { git = "https://github.com/bearcove/roam", branch = "main", features = ["tracing"] }
-roam-websocket = { git = "https://github.com/bearcove/roam", branch = "main" }
+vox = { git = "https://github.com/bearcove/vox", branch = "main", features = [
+  "transport-all",
+  "transport-ffi",
+] }
+vox-ffi = { git = "https://github.com/bearcove/vox", branch = "main" }
+vox-fdpass = { git = "https://github.com/bearcove/vox", branch = "main" }
+vox-stream = { git = "https://github.com/bearcove/vox", branch = "main" }
 
 # Process lifecycle
-ur-taking-me-with-you = { git = "https://github.com/bearcove/roam", branch = "main", features = [
+ur-taking-me-with-you = { git = "https://github.com/bearcove/vox", branch = "main", features = [
   "tokio",
 ] }
 
 # Incremental computation
-picante = { git = "https://github.com/bearcove/picante", branch = "main" }
+picante = "2"
 
 # File system
 fs-err = "3"
@@ -116,7 +116,7 @@ lightningcss = { version = "1.0.0-alpha.68", features = ["visitor"] }
 grass = { version = "0.13", features = ["macro"] }
 
 # JavaScript processing
-oxc = { version = "0.105", features = ["full"] }
+oxc = { version = "0.109", features = ["full"] }
 
 # Image processing
 base64 = "0.22"
@@ -169,25 +169,7 @@ hakoniwa = "1.2"
 rust-version = "1.91"
 
 # Force all transitive facet dependencies to use local version for development
-[patch.crates-io]
-facet-svg = { git = "https://github.com/facet-rs/facet-xml", branch = "main" }
-facet-xml = { git = "https://github.com/facet-rs/facet-xml", branch = "main" }
-facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-core = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-format = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-macro-parse = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-macro-types = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-macros = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-macros-impl = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-postcard = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-pretty = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-reflect = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-solver = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-toml = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
-pikru = { git = "https://github.com/bearcove/pikru", branch = "main" }
+# No [patch.crates-io] for facet: everything is on crates.io facet 0.46.x now.
 
 # Uncomment to use local facet for development
 # [patch.crates-io]

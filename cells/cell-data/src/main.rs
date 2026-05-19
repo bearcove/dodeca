@@ -11,12 +11,7 @@ use facet_format::{DeserializeError, FormatDeserializer, FormatParser};
 pub struct DataLoaderImpl;
 
 impl DataLoader for DataLoaderImpl {
-    async fn load_data(
-        &self,
-        _cx: &dodeca_cell_runtime::Context,
-        content: String,
-        format: DataFormat,
-    ) -> LoadDataResult {
+    async fn load_data(&self, content: String, format: DataFormat) -> LoadDataResult {
         match parse_data(&content, format) {
             Ok(value) => LoadDataResult::Success { value },
             Err(e) => LoadDataResult::Error { message: e },

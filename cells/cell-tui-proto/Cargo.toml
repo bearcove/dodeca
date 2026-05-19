@@ -14,7 +14,7 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [dependencies]
 # RPC framework
-roam.workspace = true
+vox.workspace = true
 
 # Serialization
 facet.workspace = true

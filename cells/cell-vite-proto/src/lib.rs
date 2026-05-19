@@ -26,7 +26,7 @@ pub enum RunBuildResult {
 
 /// Vite management service
 #[allow(async_fn_in_trait)]
-#[roam::service]
+#[vox::service]
 pub trait ViteManager {
     /// Start a Vite dev server in the given project directory.
     /// Returns the port the server is listening on.

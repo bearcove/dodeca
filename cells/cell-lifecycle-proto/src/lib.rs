@@ -32,7 +32,7 @@ pub struct ReadyAck {
 ///
 /// Cells call these methods to signal readiness states.
 #[allow(async_fn_in_trait)]
-#[roam::service]
+#[vox::service]
 pub trait CellLifecycle {
     /// Cell calls this after starting its demux loop to signal it's ready for RPC requests
     ///

@@ -131,7 +131,7 @@ pub struct ContextId(pub u64);
 ///
 /// The template renderer receives render requests and produces HTML output,
 /// calling back to the host as needed for templates, data, and functions.
-#[roam::service]
+#[vox::service]
 pub trait TemplateRenderer {
     /// Render a template by name.
     ///
@@ -169,7 +169,7 @@ pub trait TemplateRenderer {
 ///
 /// Provides template loading, data resolution, and function calls with picante tracking.
 /// Each call creates dependencies that allow incremental rebuilds.
-#[roam::service]
+#[vox::service]
 pub trait TemplateHost {
     /// Load a template by name.
     ///

@@ -19,11 +19,7 @@ use dodeca_protocol::facet_postcard;
 pub struct HtmlDifferImpl;
 
 impl HtmlDiffer for HtmlDifferImpl {
-    async fn diff_html(
-        &self,
-        _cx: &dodeca_cell_runtime::Context,
-        input: DiffInput,
-    ) -> Result<DiffOutcome, DiffError> {
+    async fn diff_html(&self, input: DiffInput) -> Result<DiffOutcome, DiffError> {
         tracing::debug!(
             old_len = input.old_html.len(),
             new_len = input.new_html.len(),

@@ -298,7 +298,6 @@ impl TemplateRendererImpl {
 impl TemplateRenderer for TemplateRendererImpl {
     async fn render(
         &self,
-        _cx: &dodeca_cell_runtime::Context,
         context_id: ContextId,
         template_name: String,
         initial_context: Value,
@@ -325,7 +324,6 @@ impl TemplateRenderer for TemplateRendererImpl {
 
     async fn eval_expression(
         &self,
-        _cx: &dodeca_cell_runtime::Context,
         context_id: ContextId,
         expression: String,
         context: Value,

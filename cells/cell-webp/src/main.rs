@@ -10,7 +10,7 @@ use dodeca_cell_runtime::run_cell;
 pub struct WebPProcessorImpl;
 
 impl WebPProcessor for WebPProcessorImpl {
-    async fn decode_webp(&self, _cx: &dodeca_cell_runtime::Context, data: Vec<u8>) -> WebPResult {
+    async fn decode_webp(&self, data: Vec<u8>) -> WebPResult {
         let decoder = webp::Decoder::new(&data);
         let image = match decoder.decode() {
             Some(img) => img,
@@ -29,11 +29,7 @@ impl WebPProcessor for WebPProcessorImpl {
         }
     }
 
-    async fn encode_webp(
-        &self,
-        _cx: &dodeca_cell_runtime::Context,
-        input: WebPEncodeInput,
-    ) -> WebPResult {
+    async fn encode_webp(&self, input: WebPEncodeInput) -> WebPResult {
         if input.pixels.len() != (input.width * input.height * 4) as usize {
             return WebPResult::Error {
                 message: format!(

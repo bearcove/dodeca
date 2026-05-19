@@ -29,7 +29,7 @@ pub enum FontResult {
 ///
 /// The host calls these methods to process fonts.
 #[allow(async_fn_in_trait)]
-#[roam::service]
+#[vox::service]
 pub trait FontProcessor {
     /// Decompress a WOFF2/WOFF font to TTF
     async fn decompress_font(&self, data: Vec<u8>) -> FontResult;

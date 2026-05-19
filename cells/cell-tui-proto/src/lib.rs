@@ -306,7 +306,7 @@ pub enum CommandResult {
 /// The host calls these methods to update the TUI display.
 /// For commands from TUI → host, use HostService::send_command().
 #[allow(async_fn_in_trait)]
-#[roam::service]
+#[vox::service]
 pub trait TuiDisplay {
     /// Host pushes a progress update.
     async fn update_progress(&self, progress: BuildProgress);

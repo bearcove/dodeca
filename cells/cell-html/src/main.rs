@@ -43,11 +43,7 @@ impl HtmlProcessorImpl {
 }
 
 impl HtmlProcessor for HtmlProcessorImpl {
-    async fn process(
-        &self,
-        _cx: &dodeca_cell_runtime::Context,
-        input: HtmlProcessInput,
-    ) -> HtmlProcessResult {
+    async fn process(&self, input: HtmlProcessInput) -> HtmlProcessResult {
         let mut had_dead_links = false;
         let mut had_code_buttons = false;
 
@@ -154,12 +150,7 @@ impl HtmlProcessor for HtmlProcessorImpl {
 
     // === Legacy methods ===
 
-    async fn rewrite_urls(
-        &self,
-        _cx: &dodeca_cell_runtime::Context,
-        html: String,
-        path_map: HashMap<String, String>,
-    ) -> HtmlResult {
+    async fn rewrite_urls(&self, html: String, path_map: HashMap<String, String>) -> HtmlResult {
         let tendril = StrTendril::from(html.as_str());
         let mut doc = hotmeal::parse(&tendril);
         rewrite_urls_in_doc(&mut doc, &path_map);
@@ -168,12 +159,7 @@ impl HtmlProcessor for HtmlProcessorImpl {
         }
     }
 
-    async fn mark_dead_links(
-        &self,
-        _cx: &dodeca_cell_runtime::Context,
-        html: String,
-        known_routes: HashSet<String>,
-    ) -> HtmlResult {
+    async fn mark_dead_links(&self, html: String, known_routes: HashSet<String>) -> HtmlResult {
         let tendril = StrTendril::from(html.as_str());
         let mut doc = hotmeal::parse(&tendril);
         let had_dead = mark_dead_links_in_doc(&mut doc, &known_routes);
@@ -185,7 +171,6 @@ impl HtmlProcessor for HtmlProcessorImpl {
 
     async fn inject_code_buttons(
         &self,
-        _cx: &dodeca_cell_runtime::Context,
         html: String,
         code_metadata: HashMap<String, CodeExecutionMetadata>,
     ) -> HtmlResult {
@@ -198,11 +183,7 @@ impl HtmlProcessor for HtmlProcessorImpl {
         }
     }
 
-    async fn extract_links(
-        &self,
-        _cx: &dodeca_cell_runtime::Context,
-        html: String,
-    ) -> cell_html_proto::ExtractedLinks {
+    async fn extract_links(&self, html: String) -> cell_html_proto::ExtractedLinks {
         let tendril = StrTendril::from(html.as_str());
         let doc = hotmeal::parse(&tendril);
         cell_html_proto::ExtractedLinks {
