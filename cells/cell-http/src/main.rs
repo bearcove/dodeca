@@ -19,9 +19,8 @@
 //! - Uses SHM transport for zero-copy content transfer
 
 use std::sync::Arc;
-use std::sync::OnceLock;
 
-use dodeca_cell_runtime::{ConnectionHandle, run_cell};
+use dodeca_cell_runtime::HostHandle;
 
 use cell_host_proto::HostServiceClient;
 use cell_http_proto::TcpTunnelDispatcher;
@@ -30,51 +29,34 @@ mod devtools;
 mod tunnel;
 mod vite;
 
-/// Trait for router context - allows lazy initialization
+/// Router context: yields a `HostServiceClient` for calling back to the host.
 pub trait RouterContext: Send + Sync + 'static {
-    fn host_client(&self) -> HostServiceClient;
-    fn handle(&self) -> &ConnectionHandle;
+    /// The cell's host handle (clone-cheap); `.client().await` opens the
+    /// `HostService` virtual connection on first use.
+    fn host(&self) -> HostHandle;
 }
 
-/// Lazy context that wraps `OnceLock<ConnectionHandle>`
-struct LazyRouterContext {
-    handle_cell: Arc<OnceLock<ConnectionHandle>>,
+struct CellRouterContext {
+    host: HostHandle,
 }
 
-impl LazyRouterContext {
-    fn get_handle(&self) -> &ConnectionHandle {
-        self.handle_cell.get().expect("handle not initialized")
+impl RouterContext for CellRouterContext {
+    fn host(&self) -> HostHandle {
+        self.host.clone()
     }
 }
 
-impl RouterContext for LazyRouterContext {
-    fn host_client(&self) -> HostServiceClient {
-        HostServiceClient::new(self.get_handle().clone())
-    }
-    fn handle(&self) -> &ConnectionHandle {
-        self.get_handle()
-    }
+/// Convenience: get a connected `HostServiceClient`.
+pub async fn host_client(ctx: &Arc<dyn RouterContext>) -> HostServiceClient {
+    ctx.host().client().await
 }
 
-fn main() {
-    let result = run_cell!("http", |handle| {
-        let ctx: Arc<dyn RouterContext> = Arc::new(LazyRouterContext {
-            handle_cell: handle,
-        });
-
-        // Build axum router with lazy context
-        let app = build_router(ctx.clone());
-
-        // Create the tunnel implementation with lazy context
-        let tunnel_impl = tunnel::TcpTunnelImpl::new(ctx, app);
-        TcpTunnelDispatcher::new(tunnel_impl)
-    });
-
-    if let Err(e) = result {
-        eprintln!("[cell-http] error: {e}");
-        std::process::exit(1);
-    }
-}
+dodeca_cell_runtime::declare_cell!("http", |host| {
+    let ctx: Arc<dyn RouterContext> = Arc::new(CellRouterContext { host });
+    let app = build_router(ctx.clone());
+    let tunnel_impl = tunnel::TcpTunnelImpl::new(ctx, app);
+    TcpTunnelDispatcher::new(tunnel_impl)
+});
 
 /// Build the axum router for the internal HTTP server
 fn build_router(ctx: Arc<dyn RouterContext>) -> axum::Router {
@@ -107,7 +89,7 @@ fn build_router(ctx: Arc<dyn RouterContext>) -> axum::Router {
             return vite::vite_proxy_handler(State(ctx), request).await;
         }
 
-        let client = ctx.host_client();
+        let client = crate::host_client(&ctx).await;
 
         // Call host to get content
         let content = match client.find_content(path.clone()).await {
