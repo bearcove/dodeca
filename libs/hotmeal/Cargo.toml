@@ -27,8 +27,9 @@ hotmeal-server = { path = "hotmeal-server", version = "1.1.0" }
 facet-postcard = "0.46"
 
 # RPC
-roam = "7.0.0"
-roam-websocket = "7.0.0"
+vox = { version = "0.5.1", default-features = false, features = ["runtime"] }
+vox-core = "0.5.1"
+vox-websocket = "0.5.1"
 
 # Data structures
 indextree = "4.7"

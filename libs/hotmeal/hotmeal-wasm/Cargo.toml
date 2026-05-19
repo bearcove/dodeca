@@ -23,7 +23,7 @@ crate-type = ["cdylib", "rlib"]
 hotmeal = { workspace = true }
 facet-json = { workspace = true }
 facet-postcard = { workspace = true }
-hotmeal-server = { workspace = true, features = ["roam"] }
+hotmeal-server = { workspace = true, features = ["vox"] }
 js-sys = { workspace = true }
 smallvec = { workspace = true }
 tracing = { workspace = true }
@@ -51,6 +51,6 @@ web-sys = { workspace = true, features = [
 ] }
 
 # RPC transport
-roam = { workspace = true }
-roam-websocket = { workspace = true }
+vox-core = { workspace = true }
+vox-websocket = { workspace = true }
 futures-channel = { workspace = true }

@@ -19,11 +19,11 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 hotmeal = { workspace = true }
 facet = { workspace = true }
 facet-postcard = { workspace = true }
-roam = { workspace = true, optional = true }
+vox = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
 
 [features]
-roam = ["dep:roam"]
+vox = ["dep:vox"]
 tracing = ["dep:tracing", "hotmeal/tracing"]
 
 [dev-dependencies]

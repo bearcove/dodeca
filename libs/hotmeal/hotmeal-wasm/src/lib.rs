@@ -181,16 +181,17 @@ pub fn apply_patches_postcard_on(
 }
 
 // ============================================================================
-// Live-reload roam RPC client (wasm32 only)
+// Live-reload vox RPC client (wasm32 only)
 // ============================================================================
 
 #[cfg(target_arch = "wasm32")]
 mod live_reload {
     use super::*;
     use hotmeal_server::{LiveReloadBrowser, LiveReloadBrowserDispatcher, LiveReloadServiceClient};
-    use roam_websocket::WsLink;
     use std::cell::RefCell;
     use std::rc::Rc;
+    use vox_core::acceptor_on;
+    use vox_websocket::WsLink;
 
     /// Browser-side implementation of the `LiveReloadBrowser` service.
     ///
@@ -235,7 +236,7 @@ mod live_reload {
         Ok(())
     }
 
-    /// Start a live-reload connection via roam RPC over WebSocket.
+    /// Start a live-reload connection via vox RPC over WebSocket.
     ///
     /// Connects to the server at `ws_url`, subscribes to events for the current
     /// browser route, and applies patches to the element matched by `mount_selector`.
@@ -299,7 +300,7 @@ mod live_reload {
         let (done_tx, done_rx) = futures_channel::oneshot::channel::<()>();
         let done_tx = Rc::new(RefCell::new(Some(done_tx)));
         let done_tx_spawn = done_tx.clone();
-        let (client, _session_handle) = roam::acceptor(link)
+        let client = acceptor_on(link)
             .spawn_fn(move |fut| {
                 let done_tx_spawn = done_tx_spawn.clone();
                 wasm_bindgen_futures::spawn_local(async move {
@@ -309,10 +310,11 @@ mod live_reload {
                     }
                 });
             })
-            .establish::<LiveReloadServiceClient>(dispatcher)
+            .on_connection(dispatcher)
+            .establish::<LiveReloadServiceClient>()
             .await?;
 
-        log("[hotmeal-wasm] roam session established");
+        log("[hotmeal-wasm] vox session established");
 
         // Subscribe for the current browser route
         let route = web_sys::window()
