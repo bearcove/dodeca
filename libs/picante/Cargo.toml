@@ -16,10 +16,10 @@ readme = "README.md"
 dashmap = "6"
 im = "15.1.0"
 divan = "0.1"
-facet = { version = "0.44.1" }
-facet-core = { version = "0.44.1" }
-facet-postcard = { version = "0.44.1" }
-facet-reflect = { version = "0.44.1" }
+facet = { version = "0.46" }
+facet-core = { version = "0.46" }
+facet-postcard = { version = "0.46" }
+facet-reflect = { version = "0.46" }
 heck = "0.5.0"
 parking_lot = "0.12.4"
 proc-macro2 = "1.0.101"
