@@ -744,3 +744,52 @@ pub fn setup_tracing() {
         }
     }
 }
+
+/// Native diff+apply roundtrip check shared by the `apply` fuzz target and the
+/// `regressions` integration test, so reproducers are replayed through the
+/// exact same production path the fuzzer exercises.
+///
+/// Panics on any failure (matching libFuzzer's crash convention).
+pub fn apply_roundtrip(data: &[u8]) {
+    let Some((full_a, full_b)) = prepare_html_inputs(data) else {
+        return;
+    };
+
+    let a_tendril = hotmeal::StrTendril::from(full_a.clone());
+    let b_tendril = hotmeal::StrTendril::from(full_b.clone());
+
+    let patches = match hotmeal::diff_html(&a_tendril, &b_tendril) {
+        Ok(p) => p,
+        Err(err) => panic!("hotmeal failed to diff: {err}"),
+    };
+
+    // Capture the full trace
+    let mut patched = hotmeal::parse(&a_tendril);
+    let doc_b = hotmeal::parse(&b_tendril);
+    let Some(trace) = PatchTrace::capture(&mut patched, &patches) else {
+        return; // Skip documents without a body
+    };
+
+    // Check for failures
+    if !trace.all_succeeded() {
+        eprintln!("Patch application failed!\n");
+        eprintln!("Input A: {:?}", full_a);
+        eprintln!("Input B: {:?}", full_b);
+        eprintln!("\n{}", trace);
+        panic!("apply_patches must always succeed");
+    }
+
+    // Compare body contents
+    let patched_body = patched.to_body_html();
+    let expected_body = doc_b.to_body_html();
+
+    if patched_body != expected_body {
+        eprintln!("Roundtrip mismatch!\n");
+        eprintln!("Input A: {:?}", full_a);
+        eprintln!("Input B: {:?}", full_b);
+        eprintln!("\nExpected body: {:?}", expected_body);
+        eprintln!("Got body: {:?}", patched_body);
+        eprintln!("\nFull trace:\n{}", trace);
+        panic!("Patched body content should match target body content");
+    }
+}

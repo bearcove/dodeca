@@ -6,6 +6,6 @@ edition = "2024"
 
 [dependencies]
 roam = "7.0.0"
-facet = "0.44.1"
-facet-testhelpers = "0.44.1"
+facet = "0.46"
+facet-testhelpers = "0.46"
 hotmeal = { path = "../.." }
