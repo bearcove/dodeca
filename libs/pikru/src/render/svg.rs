@@ -334,17 +334,27 @@ pub fn generate_svg(
         children: Vec::new(),
     };
 
-    // C pikchr: when scale != 1.0, display width = viewBox width * scale
-    // cref: pik_render (pikchr.c:4626-4633) - C rounds viewbox to int first, then scales and rounds again
-    // This matches the two-step rounding: wSVG = pik_round(rScale*w), then wSVG = pik_round(wSVG*pikScale)
-    let is_scaled = !(0.99..=1.01).contains(&scale);
-    if is_scaled {
-        let viewbox_width_int = viewbox_width as i32;
-        let viewbox_height_int = viewbox_height as i32;
-        let display_width = ((viewbox_width_int as f64) * scale) as i32;
-        let display_height = ((viewbox_height_int as f64) * scale) as i32;
-        svg.width = Some(display_width.to_string());
-        svg.height = Some(display_height.to_string());
+    'set_width_height: {
+        // C pikchr: when scale != 1.0, display width = viewBox width * scale
+        // cref: pik_render (pikchr.c:4626-4633) - C rounds viewbox to int first, then scales and rounds again
+        // This matches the two-step rounding: wSVG = pik_round(rScale*w), then wSVG = pik_round(wSVG*pikScale)
+        let is_scaled = !(0.99..=1.01).contains(&scale);
+        let (width, height) = if is_scaled {
+            let viewbox_width_int = viewbox_width as i32;
+            let viewbox_height_int = viewbox_height as i32;
+            let display_width = ((viewbox_width_int as f64) * scale) as i32;
+            let display_height = ((viewbox_height_int as f64) * scale) as i32;
+            (display_width, display_height)
+        } else if options.explicit_size {
+            // Use ceiling to avoid clipping: flooring could result in a pixel area slightly
+            // smaller than the content, which could clip edges (especially thin strokes or
+            // elements that touch the boundaries).
+            (viewbox_width.ceil() as i32, viewbox_height.ceil() as i32)
+        } else {
+            break 'set_width_height;
+        };
+        svg.width = Some(width.to_string());
+        svg.height = Some(height.to_string());
     }
 
     // Arrowheads are now rendered inline as polygon elements (matching C pikchr)

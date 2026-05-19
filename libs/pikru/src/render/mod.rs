@@ -37,6 +37,11 @@ pub struct RenderOptions {
     /// Emit CSS variables for colors instead of direct color values.
     /// When enabled, generates a `<style>` block with all colors defined using `light-dark()`.
     pub css_variables: bool,
+    /// Add explicit `width` and `height` attributes to the SVG element.
+    /// When enabled, always adds `width` and `height` attributes to the SVG.
+    /// This prevents inline SVGs from scaling up to fill their container.
+    /// The dimensions are computed using ceiling to avoid clipping.
+    pub explicit_size: bool,
 }
 
 // TODO: Move these to appropriate submodules

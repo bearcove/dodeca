@@ -664,6 +664,38 @@ mod tests {
     }
 
     #[test]
+    fn render_explicit_size() {
+        use crate::render::{render_with_options, RenderOptions};
+
+        let input = r#"box "Hello""#;
+        let program = crate::parse::parse(input).expect("parse failed");
+
+        // Render without explicit_size - should not have width/height attributes
+        let svg_default = render_with_options(&program, &RenderOptions::default())
+            .expect("render failed");
+        assert!(
+            !svg_default.contains("width="),
+            "Default render should not have width attribute"
+        );
+
+        // Render with explicit_size - should have width/height attributes
+        let options = RenderOptions {
+            explicit_size: true,
+            ..Default::default()
+        };
+        let svg_explicit = render_with_options(&program, &options).expect("render failed");
+        assert!(
+            svg_explicit.contains("width=\""),
+            "explicit_size should add width attribute: {}",
+            svg_explicit
+        );
+        assert!(
+            svg_explicit.contains("height=\""),
+            "explicit_size should add height attribute"
+        );
+    }
+
+    #[test]
     fn render_all_pikchr_files() {
         // Files that are intentionally testing error handling
         let error_test_files = ["test60.pikchr", "test61.pikchr", "test62.pikchr"];
