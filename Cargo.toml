@@ -285,8 +285,3 @@ inherits = "release"
 opt-level = 1
 debug = true
 strip = false
-
-# TEMP (uncommitted): local marq with pikru-1.2.x compat (commit 2b7e199);
-# crates.io marq 2.2.1 fails E0063 vs pikru 1.2.1. Drop once marq republished.
-[patch.crates-io]
-marq = { path = "../marq" }
