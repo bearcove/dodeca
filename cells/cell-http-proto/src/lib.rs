@@ -6,12 +6,13 @@
 //!
 //! # Tunnel Architecture
 //!
-//! Tunnels use vox's `Tunnel` type - a pair of `Tx<Vec<u8>>` and `Rx<Vec<u8>>`
-//! channels for bidirectional byte streaming. The caller creates a tunnel pair
-//! with `vox::tunnel_pair()`, passes one half via RPC, and uses the other locally.
+//! A tunnel is just a pair of vox channels for bidirectional byte streaming:
+//! the host passes the cell an `Rx<Vec<u8>>` (browser→cell bytes) and a
+//! `Tx<Vec<u8>>` (cell→browser bytes). The host keeps the opposite halves and
+//! pumps them against the browser TCP socket.
 
 use facet::Facet;
-use vox::Tunnel;
+use vox::{Rx, Tx};
 
 // Re-export types from dodeca-protocol that are used in the RPC interface
 pub use dodeca_protocol::{EvalResult, ScopeEntry, ScopeValue};
@@ -23,18 +24,19 @@ pub use dodeca_protocol::{EvalResult, ScopeEntry, ScopeValue};
 ///
 /// Workflow:
 /// 1. Host accepts TCP connection from browser
-/// 2. Host creates `tunnel_pair()` → `(local, remote)`
-/// 3. Host calls `TcpTunnelClient::open(remote)` via RPC
-/// 4. Cell pumps `remote` ↔ internal HTTP server
-/// 5. Host pumps `local` ↔ browser TCP socket
+/// 2. Host creates two `vox::channel::<Vec<u8>>()` pairs (one per direction)
+/// 3. Host calls `TcpTunnelClient::open(inbound_rx, outbound_tx)` via RPC,
+///    keeping `inbound_tx` (browser→cell) and `outbound_rx` (cell→browser)
+/// 4. Cell pumps `inbound`/`outbound` ↔ its internal HTTP server
+/// 5. Host pumps its halves ↔ the browser TCP socket
 #[allow(async_fn_in_trait)]
 #[vox::service]
 pub trait TcpTunnel {
     /// Open a new bidirectional TCP tunnel.
     ///
-    /// The host passes a tunnel for data transfer. The cell serves HTTP
-    /// on its end and pumps data through the tunnel.
-    async fn open(&self, tunnel: Tunnel);
+    /// `inbound` carries browser→cell bytes; `outbound` carries cell→browser
+    /// bytes. The cell serves HTTP on its end and pumps data through them.
+    async fn open(&self, inbound: Rx<Vec<u8>>, outbound: Tx<Vec<u8>>);
 }
 
 /// Content returned by the host for a given path
