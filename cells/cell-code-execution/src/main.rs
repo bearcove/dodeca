@@ -2,15 +2,11 @@
 //!
 //! This cell handles extracting and executing code samples from markdown.
 
-use dodeca_cell_runtime::run_cell;
-
 use cell_code_execution_proto::{CodeExecutionResult, CodeExecutor, CodeExecutorDispatcher};
 
 // Include implementation code directly
 include!("impl.rs");
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("code_execution", |_handle| {
-        CodeExecutorDispatcher::new(CodeExecutorImpl)
-    })
-}
+dodeca_cell_runtime::declare_cell!("code_execution", |_host| {
+    CodeExecutorDispatcher::new(CodeExecutorImpl)
+});

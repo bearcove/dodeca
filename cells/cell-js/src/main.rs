@@ -4,7 +4,6 @@
 
 use std::collections::HashMap;
 
-use dodeca_cell_runtime::run_cell;
 use oxc::allocator::Allocator;
 use oxc::ast::ast::{StringLiteral, TemplateLiteral};
 use oxc::ast_visit::Visit;
@@ -121,6 +120,4 @@ impl<'a> Visit<'_> for StringCollector<'a> {
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("js", |_handle| JsProcessorDispatcher::new(JsProcessorImpl))
-}
+dodeca_cell_runtime::declare_cell!("js", |_host| JsProcessorDispatcher::new(JsProcessorImpl));

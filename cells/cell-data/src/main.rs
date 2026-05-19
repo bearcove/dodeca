@@ -3,7 +3,6 @@
 //! This cell handles loading and parsing data files (JSON, TOML, YAML).
 
 use cell_data_proto::{DataFormat, DataLoader, DataLoaderDispatcher, LoadDataResult, Value};
-use dodeca_cell_runtime::run_cell;
 use facet_format::{DeserializeError, FormatDeserializer, FormatParser};
 
 /// Data loader implementation
@@ -46,6 +45,4 @@ fn deserialize_value(parser: &mut dyn FormatParser<'_>) -> Result<Value, Deseria
     de.deserialize()
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("data", |_handle| DataLoaderDispatcher::new(DataLoaderImpl))
-}
+dodeca_cell_runtime::declare_cell!("data", |_host| DataLoaderDispatcher::new(DataLoaderImpl));

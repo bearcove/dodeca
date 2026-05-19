@@ -5,8 +5,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use dodeca_cell_runtime::run_cell;
-
 use cell_sass_proto::{SassCompiler, SassCompilerDispatcher, SassInput, SassResult};
 
 /// SASS compiler implementation
@@ -78,8 +76,6 @@ impl grass::Fs for InMemorySassFs {
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("sass", |_handle| SassCompilerDispatcher::new(
-        SassCompilerImpl
-    ))
-}
+dodeca_cell_runtime::declare_cell!("sass", |_host| SassCompilerDispatcher::new(
+    SassCompilerImpl
+));

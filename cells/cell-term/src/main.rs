@@ -3,7 +3,6 @@
 //! This cell handles terminal session recording with ANSI color support.
 
 use cell_term_proto::{RecordConfig, TermRecorder, TermRecorderDispatcher, TermResult};
-use dodeca_cell_runtime::run_cell;
 
 mod parser;
 mod recorder;
@@ -33,8 +32,6 @@ impl TermRecorder for TermRecorderImpl {
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("term", |_handle| TermRecorderDispatcher::new(
-        TermRecorderImpl
-    ))
-}
+dodeca_cell_runtime::declare_cell!("term", |_host| TermRecorderDispatcher::new(
+    TermRecorderImpl
+));

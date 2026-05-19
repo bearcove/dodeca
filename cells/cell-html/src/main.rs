@@ -19,7 +19,7 @@ use cell_html_proto::{
     CodeExecutionMetadata, HtmlProcessInput, HtmlProcessResult, HtmlProcessor,
     HtmlProcessorDispatcher, HtmlResult, Injection, ResponsiveImageInfo,
 };
-use dodeca_cell_runtime::{ConnectionHandle, run_cell};
+use dodeca_cell_runtime::ConnectionHandle;
 
 /// HTML processor implementation
 #[derive(Clone)]
@@ -1456,9 +1456,7 @@ fn apply_injection(doc: &mut Document, injection: &Injection) {
 // Cell Setup
 // ============================================================================
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("html", |handle| {
-        let processor = HtmlProcessorImpl::new(handle);
-        HtmlProcessorDispatcher::new(processor)
-    })
-}
+dodeca_cell_runtime::declare_cell!("html", |host| {
+    let processor = HtmlProcessorImpl::new(host);
+    HtmlProcessorDispatcher::new(processor)
+});

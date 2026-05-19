@@ -3,7 +3,6 @@
 //! This cell handles WebP encoding and decoding.
 
 use cell_webp_proto::{WebPEncodeInput, WebPProcessor, WebPProcessorDispatcher, WebPResult};
-use dodeca_cell_runtime::run_cell;
 
 /// WebP processor implementation
 #[derive(Clone)]
@@ -51,8 +50,6 @@ impl WebPProcessor for WebPProcessorImpl {
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("webp", |_handle| WebPProcessorDispatcher::new(
-        WebPProcessorImpl
-    ))
-}
+dodeca_cell_runtime::declare_cell!("webp", |_host| WebPProcessorDispatcher::new(
+    WebPProcessorImpl
+));

@@ -8,8 +8,8 @@ edition = "2024"
 [package.metadata."docs.rs"]
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
-[[bin]]
-name = "ddc-cell-css"
+[lib]
+crate-type = ["cdylib"]
 path = "src/main.rs"
 
 [dependencies]

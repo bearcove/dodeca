@@ -3,7 +3,6 @@
 //! This cell handles CSS URL rewriting and minification via lightningcss.
 
 use cell_css_proto::{CssProcessor, CssProcessorDispatcher};
-use dodeca_cell_runtime::run_cell;
 use lightningcss::stylesheet::{ParserOptions, PrinterOptions, StyleSheet};
 use lightningcss::visitor::Visit;
 
@@ -75,8 +74,4 @@ impl<'i, 'a> lightningcss::visitor::Visitor<'i> for UrlRewriter<'a> {
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("css", |_handle| CssProcessorDispatcher::new(
-        CssProcessorImpl
-    ))
-}
+dodeca_cell_runtime::declare_cell!("css", |_host| CssProcessorDispatcher::new(CssProcessorImpl));

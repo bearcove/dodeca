@@ -4,7 +4,7 @@
 //! Mermaid diagrams are rendered via callback to the host, which delegates to the mermaid cell.
 
 use cell_markdown_proto::*;
-use dodeca_cell_runtime::{ConnectionHandle, run_cell};
+use dodeca_cell_runtime::ConnectionHandle;
 use marq::{
     AasvgHandler, ArboriumHandler, CompareHandler, InlineCodeHandler, LinkResolver, MermaidHandler,
     PikruHandler, RenderOptions, TermHandler, render,
@@ -229,9 +229,7 @@ fn convert_req(r: marq::ReqDefinition) -> ReqDefinition {
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("markdown", |handle| {
-        let processor = MarkdownProcessorImpl::new(handle);
-        MarkdownProcessorDispatcher::new(processor)
-    })
-}
+dodeca_cell_runtime::declare_cell!("markdown", |host| {
+    let processor = MarkdownProcessorImpl::new(host);
+    MarkdownProcessorDispatcher::new(processor)
+});

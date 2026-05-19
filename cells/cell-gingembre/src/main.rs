@@ -12,7 +12,7 @@ use cell_host_proto::{
     CallFunctionResult, HostServiceClient, KeysAtResult, LoadTemplateResult, ResolveDataResult,
 };
 use dashmap::DashMap;
-use dodeca_cell_runtime::{ConnectionHandle, run_cell};
+use dodeca_cell_runtime::ConnectionHandle;
 use facet_value::DestructuredRef;
 use futures::future::BoxFuture;
 use gingembre::{
@@ -345,9 +345,7 @@ impl TemplateRenderer for TemplateRendererImpl {
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("gingembre", |handle| {
-        let renderer = TemplateRendererImpl::new(handle);
-        TemplateRendererDispatcher::new(renderer)
-    })
-}
+dodeca_cell_runtime::declare_cell!("gingembre", |host| {
+    let renderer = TemplateRendererImpl::new(host);
+    TemplateRendererDispatcher::new(renderer)
+});

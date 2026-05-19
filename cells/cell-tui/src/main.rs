@@ -24,7 +24,7 @@ use ratatui::{
 };
 use tokio::sync::mpsc;
 
-use dodeca_cell_runtime::{ConnectionHandle, run_cell};
+use dodeca_cell_runtime::ConnectionHandle;
 
 use cell_host_proto::{HostServiceClient, ServerCommand};
 use cell_tui_proto::{
@@ -582,31 +582,22 @@ impl TuiDisplay for TuiDisplayImpl {
     }
 }
 
-fn main() {
-    color_eyre::install().ok();
+dodeca_cell_runtime::declare_cell!("tui", |host| {
+    // Channels for receiving updates from host (via TuiDisplay RPC)
+    let (progress_tx, progress_rx) = mpsc::unbounded_channel();
+    let (event_tx, event_rx) = mpsc::unbounded_channel();
+    let (status_tx, status_rx) = mpsc::unbounded_channel();
 
-    let result = run_cell!("tui", |handle| {
-        // Channels for receiving updates from host (via TuiDisplay RPC)
-        let (progress_tx, progress_rx) = mpsc::unbounded_channel();
-        let (event_tx, event_rx) = mpsc::unbounded_channel();
-        let (status_tx, status_rx) = mpsc::unbounded_channel();
+    // Spawn TUI loop in background
+    tokio::spawn(run_tui_loop(host, progress_rx, event_rx, status_rx));
 
-        // Spawn TUI loop in background
-        tokio::spawn(run_tui_loop(handle, progress_rx, event_rx, status_rx));
-
-        // Return dispatcher
-        TuiDisplayDispatcher::new(TuiDisplayImpl {
-            progress_tx,
-            event_tx,
-            status_tx,
-        })
-    });
-
-    if let Err(e) = result {
-        eprintln!("[cell-tui] error: {e}");
-        std::process::exit(1);
-    }
-}
+    // Return dispatcher
+    TuiDisplayDispatcher::new(TuiDisplayImpl {
+        progress_tx,
+        event_tx,
+        status_tx,
+    })
+});
 
 async fn run_tui_loop(
     handle: Arc<OnceLock<ConnectionHandle>>,

@@ -5,7 +5,6 @@
 
 use std::collections::HashSet;
 
-use dodeca_cell_runtime::run_cell;
 use tokio::task::spawn_blocking;
 
 use cell_fonts_proto::{FontProcessor, FontProcessorDispatcher, FontResult, SubsetFontInput};
@@ -59,8 +58,6 @@ impl FontProcessor for FontProcessorImpl {
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("fonts", |_handle| FontProcessorDispatcher::new(
-        FontProcessorImpl
-    ))
-}
+dodeca_cell_runtime::declare_cell!("fonts", |_host| FontProcessorDispatcher::new(
+    FontProcessorImpl
+));

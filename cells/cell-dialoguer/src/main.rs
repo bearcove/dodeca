@@ -4,7 +4,6 @@
 
 use cell_dialoguer_proto::{ConfirmResult, Dialoguer, DialoguerDispatcher, SelectResult};
 use dialoguer::{Confirm, Select, theme::ColorfulTheme};
-use dodeca_cell_runtime::run_cell;
 
 /// Dialoguer service implementation
 #[derive(Clone)]
@@ -47,8 +46,4 @@ impl Dialoguer for DialoguerImpl {
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("dialoguer", |_handle| DialoguerDispatcher::new(
-        DialoguerImpl
-    ))
-}
+dodeca_cell_runtime::declare_cell!("dialoguer", |_host| DialoguerDispatcher::new(DialoguerImpl));

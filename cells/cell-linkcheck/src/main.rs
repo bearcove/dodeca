@@ -5,7 +5,6 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use dodeca_cell_runtime::run_cell;
 use url::Url;
 
 use cell_linkcheck_proto::{
@@ -195,8 +194,6 @@ impl LinkChecker for LinkCheckerImpl {
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("linkcheck", |_handle| {
-        LinkCheckerDispatcher::new(LinkCheckerImpl::new())
-    })
-}
+dodeca_cell_runtime::declare_cell!("linkcheck", |_host| {
+    LinkCheckerDispatcher::new(LinkCheckerImpl::new())
+});

@@ -3,7 +3,6 @@
 //! This cell handles SVG optimization.
 
 use cell_svgo_proto::{SvgoOptimizer, SvgoOptimizerDispatcher, SvgoResult};
-use dodeca_cell_runtime::run_cell;
 
 /// SVGO optimizer implementation
 #[derive(Clone)]
@@ -20,8 +19,6 @@ impl SvgoOptimizer for SvgoOptimizerImpl {
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("svgo", |_handle| SvgoOptimizerDispatcher::new(
-        SvgoOptimizerImpl
-    ))
-}
+dodeca_cell_runtime::declare_cell!("svgo", |_host| SvgoOptimizerDispatcher::new(
+    SvgoOptimizerImpl
+));

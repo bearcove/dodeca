@@ -9,7 +9,6 @@ use cell_image_proto::{
     DecodedImage, ImageProcessor, ImageProcessorDispatcher, ImageResult, ResizeInput,
     ThumbhashInput,
 };
-use dodeca_cell_runtime::run_cell;
 
 /// Image processor implementation
 #[derive(Clone)]
@@ -170,8 +169,6 @@ fn pixels_to_dynamic_image(
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("image", |_handle| ImageProcessorDispatcher::new(
-        ImageProcessorImpl
-    ))
-}
+dodeca_cell_runtime::declare_cell!("image", |_host| ImageProcessorDispatcher::new(
+    ImageProcessorImpl
+));

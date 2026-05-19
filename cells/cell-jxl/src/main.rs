@@ -2,7 +2,6 @@
 //!
 //! This cell handles JPEG XL encoding and decoding.
 
-use dodeca_cell_runtime::run_cell;
 use jpegxl_rs::encode::EncoderFrame;
 
 use cell_jxl_proto::{JXLEncodeInput, JXLProcessor, JXLProcessorDispatcher, JXLResult};
@@ -88,8 +87,4 @@ impl JXLProcessor for JXLProcessorImpl {
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("jxl", |_handle| JXLProcessorDispatcher::new(
-        JXLProcessorImpl
-    ))
-}
+dodeca_cell_runtime::declare_cell!("jxl", |_host| JXLProcessorDispatcher::new(JXLProcessorImpl));

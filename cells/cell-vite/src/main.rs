@@ -3,7 +3,6 @@
 //! Manages Vite dev server and production builds.
 
 use cell_vite_proto::{RunBuildResult, StartDevServerResult, ViteManager, ViteManagerDispatcher};
-use dodeca_cell_runtime::run_cell;
 use eyre::WrapErr;
 use std::path::Path;
 use std::process::Stdio;
@@ -223,8 +222,4 @@ fn strip_ansi_escapes(s: &str) -> String {
     result
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("vite", |_handle| ViteManagerDispatcher::new(
-        ViteManagerImpl
-    ))
-}
+dodeca_cell_runtime::declare_cell!("vite", |_host| ViteManagerDispatcher::new(ViteManagerImpl));

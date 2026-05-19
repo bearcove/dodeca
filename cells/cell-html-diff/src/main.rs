@@ -3,7 +3,6 @@
 //! This cell handles HTML DOM diffing for live reload using hotmeal
 //! for parsing and diffing.
 
-use dodeca_cell_runtime::run_cell;
 use hotmeal::StrTendril;
 
 use cell_html_diff_proto::{DiffError, DiffInput, DiffOutcome, HtmlDiffer, HtmlDifferDispatcher};
@@ -47,8 +46,6 @@ impl HtmlDiffer for HtmlDifferImpl {
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("html_diff", |_handle| HtmlDifferDispatcher::new(
-        HtmlDifferImpl
-    ))
-}
+dodeca_cell_runtime::declare_cell!("html_diff", |_host| HtmlDifferDispatcher::new(
+    HtmlDifferImpl
+));
