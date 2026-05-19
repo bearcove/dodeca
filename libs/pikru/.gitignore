@@ -12,3 +12,4 @@ test*_c.svg
 test*_rust.svg
 comparison.html
 .tracey/
+*.swp
