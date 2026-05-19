@@ -72,7 +72,7 @@ notify.workspace = true
 open.workspace = true
 owo-colors.workspace = true
 picante.workspace = true
-vox.workspace = true
+vox = { workspace = true, features = ["transport-all", "transport-ffi"] }
 vox-ffi.workspace = true
 libloading.workspace = true
 vox-fdpass.workspace = true
