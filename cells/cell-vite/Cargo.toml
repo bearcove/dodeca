@@ -1,4 +1,5 @@
 [package]
+autobins = false
 name = "cell-vite"
 version = "0.6.1"
 edition = "2024"

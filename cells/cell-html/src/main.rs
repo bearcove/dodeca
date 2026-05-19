@@ -19,26 +19,22 @@ use cell_html_proto::{
     CodeExecutionMetadata, HtmlProcessInput, HtmlProcessResult, HtmlProcessor,
     HtmlProcessorDispatcher, HtmlResult, Injection, ResponsiveImageInfo,
 };
-use dodeca_cell_runtime::ConnectionHandle;
+use dodeca_cell_runtime::HostHandle;
 
 /// HTML processor implementation
 #[derive(Clone)]
 pub struct HtmlProcessorImpl {
-    handle_cell: std::sync::Arc<std::sync::OnceLock<ConnectionHandle>>,
+    host: HostHandle,
 }
 
 impl HtmlProcessorImpl {
-    fn new(handle_cell: std::sync::Arc<std::sync::OnceLock<ConnectionHandle>>) -> Self {
-        Self { handle_cell }
-    }
-
-    fn handle(&self) -> &ConnectionHandle {
-        self.handle_cell.get().expect("handle not initialized yet")
+    fn new(host: HostHandle) -> Self {
+        Self { host }
     }
 
     /// Get a client for calling back to the host
-    fn host_client(&self) -> HostServiceClient {
-        HostServiceClient::new(self.handle().clone())
+    async fn host_client(&self) -> HostServiceClient {
+        self.host.client().await
     }
 }
 
@@ -103,7 +99,7 @@ impl HtmlProcessor for HtmlProcessorImpl {
 
         // Phase 2: Async processing (inline CSS/JS URL rewriting and minification)
         let html = {
-            let host = self.host_client();
+            let host = self.host_client().await;
             let mut current_html = html;
 
             // Process inline CSS for URL rewriting (if path_map provided)

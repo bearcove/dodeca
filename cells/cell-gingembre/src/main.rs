@@ -12,7 +12,7 @@ use cell_host_proto::{
     CallFunctionResult, HostServiceClient, KeysAtResult, LoadTemplateResult, ResolveDataResult,
 };
 use dashmap::DashMap;
-use dodeca_cell_runtime::ConnectionHandle;
+use dodeca_cell_runtime::HostHandle;
 use facet_value::DestructuredRef;
 use futures::future::BoxFuture;
 use gingembre::{
@@ -136,12 +136,12 @@ impl DataResolver for RpcDataResolver {
 
 /// Creates a function that calls back to the host via RPC.
 fn make_rpc_function(
-    handle: ConnectionHandle,
+    client: HostServiceClient,
     context_id: ContextId,
     name: String,
 ) -> gingembre::GlobalFn {
     Box::new(move |args: &[Value], kwargs: &[(String, Value)]| {
-        let client = HostServiceClient::new(handle.clone());
+        let client = client.clone();
         let name = name.clone();
         let args = args.to_vec();
         let kwargs = kwargs.to_vec();
@@ -223,25 +223,22 @@ fn to_protocol_template_error(err: &TemplateError, path_map: &PathMap) -> Templa
 /// Template renderer implementation
 #[derive(Clone)]
 pub struct TemplateRendererImpl {
-    handle_cell: std::sync::Arc<std::sync::OnceLock<ConnectionHandle>>,
+    host: HostHandle,
 }
 
 impl TemplateRendererImpl {
-    pub fn new(handle_cell: std::sync::Arc<std::sync::OnceLock<ConnectionHandle>>) -> Self {
-        Self { handle_cell }
+    pub fn new(host: HostHandle) -> Self {
+        Self { host }
     }
 
-    fn handle(&self) -> &ConnectionHandle {
-        self.handle_cell.get().expect("handle not initialized yet")
-    }
-
-    fn host_client(&self) -> HostServiceClient {
-        HostServiceClient::new(self.handle().clone())
+    async fn host_client(&self) -> HostServiceClient {
+        self.host.client().await
     }
 
     /// Build a render context from initial variables
     fn build_context(
         &self,
+        client: HostServiceClient,
         initial_context: &Value,
         resolver: Arc<dyn DataResolver>,
         context_id: ContextId,
@@ -268,7 +265,7 @@ impl TemplateRendererImpl {
             "registering RPC-backed functions"
         );
         for name in function_names {
-            let func = make_rpc_function(self.handle().clone(), context_id, name.to_string());
+            let func = make_rpc_function(client.clone(), context_id, name.to_string());
             ctx.register_fn(name, func);
         }
 
@@ -306,11 +303,12 @@ impl TemplateRenderer for TemplateRendererImpl {
         let path_map: PathMap = Arc::new(DashMap::new());
 
         // Create RPC-backed loader and resolver
-        let loader = RpcTemplateLoader::new(self.host_client(), context_id, path_map.clone());
-        let resolver = Arc::new(RpcDataResolver::new(self.host_client(), context_id));
+        let client = self.host_client().await;
+        let loader = RpcTemplateLoader::new(client.clone(), context_id, path_map.clone());
+        let resolver = Arc::new(RpcDataResolver::new(client.clone(), context_id));
 
         // Build the render context
-        let ctx = self.build_context(&initial_context, resolver, context_id);
+        let ctx = self.build_context(client, &initial_context, resolver, context_id);
 
         // Create engine and render
         let mut engine = Engine::new(loader);
@@ -329,10 +327,11 @@ impl TemplateRenderer for TemplateRendererImpl {
         context: Value,
     ) -> EvalResult {
         // Create RPC-backed resolver (no loader needed for expression eval)
-        let resolver = Arc::new(RpcDataResolver::new(self.host_client(), context_id));
+        let client = self.host_client().await;
+        let resolver = Arc::new(RpcDataResolver::new(client.clone(), context_id));
 
         // Build the context
-        let ctx = self.build_context(&context, resolver, context_id);
+        let ctx = self.build_context(client, &context, resolver, context_id);
 
         // Evaluate the expression
         match gingembre::eval_expression(&expression, &ctx).await {

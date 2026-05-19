@@ -21,7 +21,8 @@ dodeca-protocol = { path = "../dodeca-protocol" }
 livereload-client = { path = "../livereload-client" }
 
 # RPC transport (wasm: websocket only, no ffi)
-vox = { git = "https://github.com/bearcove/vox", branch = "main", default-features = false, features = [
+vox = { version = "0.6", default-features = false, features = [
+    "runtime",
     "transport-websocket",
 ] }
 

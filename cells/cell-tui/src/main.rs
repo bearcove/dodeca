@@ -24,7 +24,7 @@ use ratatui::{
 };
 use tokio::sync::mpsc;
 
-use dodeca_cell_runtime::ConnectionHandle;
+use dodeca_cell_runtime::HostHandle;
 
 use cell_host_proto::{HostServiceClient, ServerCommand};
 use cell_tui_proto::{
@@ -600,34 +600,27 @@ dodeca_cell_runtime::declare_cell!("tui", |host| {
 });
 
 async fn run_tui_loop(
-    handle: Arc<OnceLock<ConnectionHandle>>,
+    host: HostHandle,
     mut progress_rx: mpsc::UnboundedReceiver<BuildProgress>,
     mut events_rx: mpsc::UnboundedReceiver<LogEvent>,
     mut status_rx: mpsc::UnboundedReceiver<ServerStatus>,
 ) {
     if let Err(e) =
-        run_tui_loop_inner(handle, &mut progress_rx, &mut events_rx, &mut status_rx).await
+        run_tui_loop_inner(host, &mut progress_rx, &mut events_rx, &mut status_rx).await
     {
         eprintln!("TUI error: {e}");
     }
 }
 
 async fn run_tui_loop_inner(
-    handle: Arc<OnceLock<ConnectionHandle>>,
+    host: HostHandle,
     progress_rx: &mut mpsc::UnboundedReceiver<BuildProgress>,
     events_rx: &mut mpsc::UnboundedReceiver<LogEvent>,
     status_rx: &mut mpsc::UnboundedReceiver<ServerStatus>,
 ) -> Result<()> {
-    // Wait for handle to be ready
-    let handle = loop {
-        if let Some(h) = handle.get() {
-            break h.clone();
-        }
-        tokio::time::sleep(Duration::from_millis(1)).await;
-    };
-
-    // Create host client (for sending commands back)
-    let client = HostServiceClient::new(handle);
+    // Create host client (for sending commands back); HostHandle::client
+    // resolves once the cell session is established.
+    let client = host.client().await;
 
     // Channel for sending commands
     let (command_tx, mut command_rx) = mpsc::unbounded_channel::<ServerCommand>();

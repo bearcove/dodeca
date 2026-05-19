@@ -448,7 +448,7 @@ impl TestSite {
 
         #[cfg(windows)]
         let mut pipe_listener = rt.block_on(async {
-            roam_local::LocalListener::bind(&control_channel_path).expect("bind named pipe")
+            vox_stream::LocalListener::bind(&control_channel_path).expect("bind named pipe")
         });
 
         let mut child = ur_taking_me_with_you::spawn_dying_with_parent(cmd)
@@ -514,7 +514,7 @@ impl TestSite {
                     .expect("Failed to accept Unix connection");
 
                 // Send the TCP listener FD to the server
-                roam_fdpass::send_fd(&unix_stream, listener_fd)
+                vox_fdpass::send_fd(&unix_stream, listener_fd)
                     .await
                     .expect("send FD");
                 info!("sent TCP listener FD to ddc");
@@ -572,7 +572,7 @@ impl TestSite {
                     .expect("Failed to accept named pipe connection");
 
                 // Send the TCP listener to the server using WSADuplicateSocket
-                roam_fdpass::send_tcp_listener(&mut pipe_stream, &std_listener, child_id)
+                vox_fdpass::send_tcp_listener(&mut pipe_stream, &std_listener, child_id)
                     .await
                     .expect("send TCP listener");
                 info!("sent TCP listener to ddc");

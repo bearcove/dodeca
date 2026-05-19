@@ -4,7 +4,7 @@
 //! Mermaid diagrams are rendered via callback to the host, which delegates to the mermaid cell.
 
 use cell_markdown_proto::*;
-use dodeca_cell_runtime::ConnectionHandle;
+use dodeca_cell_runtime::HostHandle;
 use marq::{
     AasvgHandler, ArboriumHandler, CompareHandler, InlineCodeHandler, LinkResolver, MermaidHandler,
     PikruHandler, RenderOptions, TermHandler, render,
@@ -80,20 +80,18 @@ impl LinkResolver for PassthroughLinkResolver {
 }
 
 #[derive(Clone)]
-pub struct MarkdownProcessorImpl {
-    _handle: Arc<OnceLock<ConnectionHandle>>,
-}
+pub struct MarkdownProcessorImpl;
 
 impl MarkdownProcessorImpl {
-    fn new(handle: Arc<OnceLock<ConnectionHandle>>) -> Self {
-        Self { _handle: handle }
+    fn new(_host: HostHandle) -> Self {
+        // The markdown cell does not call back into the host.
+        Self
     }
 }
 
 impl MarkdownProcessor for MarkdownProcessorImpl {
     async fn parse_frontmatter(
         &self,
-        _cx: &dodeca_cell_runtime::Context,
         content: String,
     ) -> FrontmatterResult {
         match marq::parse_frontmatter(&content) {
@@ -109,7 +107,6 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
 
     async fn render_markdown(
         &self,
-        _cx: &dodeca_cell_runtime::Context,
         source_path: String,
         markdown: String,
     ) -> MarkdownResult {
@@ -143,7 +140,6 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
 
     async fn highlight_code(
         &self,
-        _cx: &dodeca_cell_runtime::Context,
         lang: String,
         code: String,
     ) -> HighlightResult {
@@ -167,7 +163,6 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
 
     async fn parse_and_render(
         &self,
-        cx: &dodeca_cell_runtime::Context,
         source_path: String,
         content: String,
     ) -> ParseResult {
@@ -183,7 +178,7 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
 
         // Render markdown body
         match self
-            .render_markdown(cx, source_path, body.to_string())
+            .render_markdown(source_path, body.to_string())
             .await
         {
             MarkdownResult::Success {
