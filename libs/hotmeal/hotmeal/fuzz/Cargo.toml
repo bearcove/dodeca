@@ -19,10 +19,7 @@ libfuzzer-sys = "0.4"
 arbitrary = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["full", "sync", "rt-multi-thread"] }
 chromiumoxide = { version = "0.7", features = ["tokio-runtime"], default-features = false }
-tokio-tungstenite = "0.26"
 futures-util = "0.3"
-roam = "7.0.0"
-roam-websocket = "7.0.0"
 browser-proto = { path = "browser-proto" }
 thrall = { path = "thrall" }
 libc = "0.2"

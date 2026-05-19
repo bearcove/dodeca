@@ -3,7 +3,7 @@
 use std::fmt;
 
 use facet::Facet;
-use roam::service;
+use vox::service;
 
 // Re-export Patch from hotmeal for use in protocol
 pub use hotmeal::Patch;
@@ -64,7 +64,7 @@ impl fmt::Display for DomNode {
     }
 }
 
-/// Wrapper for owned patches that can be sent over roam.
+/// Wrapper for owned patches that can be sent over vox.
 #[derive(Debug, Clone, Facet)]
 pub struct OwnedPatches(pub Vec<Patch<'static>>);
 

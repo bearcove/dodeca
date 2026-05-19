@@ -2,7 +2,8 @@ use browser_proto::{
     ApplyPatchesResult, Browser, BrowserDispatcher, ComputeAndApplyResult, DomAttr, DomNode,
     OwnedPatches, Patch, PatchStep,
 };
-use roam_websocket::WsLink;
+use vox_core::{TransportMode, initiator_on};
+use vox_websocket::WsLink;
 use wasm_bindgen::prelude::*;
 
 #[derive(Clone)]
@@ -397,8 +398,9 @@ pub async fn connect(port: u32) -> Result<(), JsValue> {
     web_sys::console::log_1(&"[browser-wasm] connected, starting handshake".into());
 
     let dispatcher = BrowserDispatcher::new(Handler);
-    let (_caller, _session_handle) = roam::initiator(link)
-        .establish::<roam::DriverCaller>(dispatcher)
+    let _client = initiator_on(link, TransportMode::Bare)
+        .on_connection(dispatcher)
+        .establish::<vox_core::NoopClient>()
         .await
         .map_err(|e| format!("handshake failed: {:?}", e))?;
 

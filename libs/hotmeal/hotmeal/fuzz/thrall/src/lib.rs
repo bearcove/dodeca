@@ -19,12 +19,11 @@ use chromiumoxide::{
     fetcher::{BrowserFetcher, BrowserFetcherOptions},
 };
 use futures_util::StreamExt;
-use roam::DriverCaller;
-use roam_websocket::WsLink;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_tungstenite::accept_async;
+use vox_websocket::WsLink;
 
 static CHANNEL: OnceLock<mpsc::UnboundedSender<BrowserRequest>> = OnceLock::new();
 static CONFIG: OnceLock<ThrallConfig> = OnceLock::new();
@@ -334,19 +333,17 @@ async fn run_browser_worker(mut rx: mpsc::UnboundedReceiver<BrowserRequest>) {
     page.goto(&bundle_url).await.unwrap();
     log_lifecycle!("[thrall] Page navigation started, waiting for WASM to connect...");
 
-    let (conn_tx, conn_rx) = watch::channel::<Option<DriverCaller>>(None);
+    let (conn_tx, conn_rx) = watch::channel::<Option<BrowserClient>>(None);
     let listener_handle = tokio::spawn(accept_connections(listener, conn_tx));
 
     while let Some(req) = rx.recv().await {
-        let handle = loop {
+        let client = loop {
             let current = conn_rx.borrow().clone();
-            if let Some(h) = current {
-                break h;
+            if let Some(c) = current {
+                break c;
             }
             tokio::time::sleep(std::time::Duration::from_millis(10)).await
         };
-
-        let client = BrowserClient::new(handle);
 
         match req {
             BrowserRequest::ApplyPatches {
@@ -517,7 +514,7 @@ fn find_browser_bundle() -> Option<std::path::PathBuf> {
     None
 }
 
-async fn accept_connections(listener: TcpListener, conn_tx: watch::Sender<Option<DriverCaller>>) {
+async fn accept_connections(listener: TcpListener, conn_tx: watch::Sender<Option<BrowserClient>>) {
     loop {
         log_lifecycle!(
             "[thrall] Waiting for browser to connect on {:?}...",
@@ -532,16 +529,16 @@ async fn accept_connections(listener: TcpListener, conn_tx: watch::Sender<Option
                 match accept_async(stream).await {
                     Ok(ws_stream) => {
                         log_lifecycle!(
-                            "[thrall] WebSocket upgrade complete, starting roam handshake..."
+                            "[thrall] WebSocket upgrade complete, starting vox handshake..."
                         );
                         let link = WsLink::new(ws_stream);
-                        match roam::acceptor(link).establish::<DriverCaller>(()).await {
-                            Ok((caller, _session_handle)) => {
-                                log_lifecycle!("[thrall] Roam handshake complete");
-                                let _ = conn_tx.send(Some(caller));
+                        match vox::acceptor_on(link).establish::<BrowserClient>().await {
+                            Ok(client) => {
+                                log_lifecycle!("[thrall] Vox handshake complete");
+                                let _ = conn_tx.send(Some(client));
                                 log_lifecycle!("[thrall] Ready to process requests");
                             }
-                            Err(e) => log_lifecycle!("[thrall] Roam handshake failed: {:?}", e),
+                            Err(e) => log_lifecycle!("[thrall] Vox handshake failed: {:?}", e),
                         }
                     }
                     Err(e) => log_lifecycle!("[thrall] WebSocket upgrade failed: {:?}", e),

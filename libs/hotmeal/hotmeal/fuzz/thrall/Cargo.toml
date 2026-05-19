@@ -6,16 +6,15 @@ edition = "2024"
 description = "Control browsers from Rust tests"
 
 [dependencies]
-facet-format = { version = "0.46", features = ["tracing"] }
 tokio = { version = "1", features = ["full", "sync", "rt-multi-thread"] }
 chromiumoxide = { version = "0.7", features = [
   "tokio-runtime",
   "_fetcher-rusttls-tokio",
 ], default-features = false }
-tokio-tungstenite = "0.26"
+tokio-tungstenite = "0.29"
 futures-util = "0.3"
-roam = "7.0.0"
-roam-websocket = "7.0.0"
+vox = "0.5.1"
+vox-websocket = "0.5.1"
 browser-proto = { path = "../browser-proto" }
 libc = "0.2"
 dirs-next = "2"
