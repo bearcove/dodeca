@@ -5,7 +5,7 @@ publish = false
 edition = "2024"
 
 [dependencies]
-vox = { version = "0.5.1", default-features = false, features = ["runtime"] }
+vox = { version = "0.6.0", default-features = false, features = ["runtime"] }
 facet = "0.46"
 facet-testhelpers = "0.46"
 hotmeal = { path = "../.." }
