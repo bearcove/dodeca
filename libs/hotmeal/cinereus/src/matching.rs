@@ -292,7 +292,7 @@ fn match_subtrees<TA, TB>(
     let a_children: Vec<_> = tree_a.children(a_id).collect();
     let b_children: Vec<_> = tree_b.children(b_id).collect();
 
-    for (a_child, b_child) in a_children.into_iter().zip(b_children.into_iter()) {
+    for (a_child, b_child) in a_children.into_iter().zip(b_children) {
         match_subtrees(tree_a, tree_b, a_child, b_child, matching);
     }
 }

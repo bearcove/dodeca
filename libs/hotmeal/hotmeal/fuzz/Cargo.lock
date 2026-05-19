@@ -364,7 +364,7 @@ dependencies = [
 
 [[package]]
 name = "cinereus"
-version = "1.1.0"
+version = "2.0.0"
 dependencies = [
  "indextree",
  "rapidhash",
@@ -1381,7 +1381,7 @@ dependencies = [
 
 [[package]]
 name = "hotmeal"
-version = "1.1.0"
+version = "2.0.0"
 dependencies = [
  "cinereus",
  "compact_str",
@@ -1418,7 +1418,7 @@ dependencies = [
 
 [[package]]
 name = "hotmeal-server"
-version = "1.1.0"
+version = "2.0.0"
 dependencies = [
  "facet",
  "facet-postcard",
@@ -1428,7 +1428,7 @@ dependencies = [
 
 [[package]]
 name = "hotmeal-wasm"
-version = "1.1.0"
+version = "2.0.0"
 dependencies = [
  "facet-json",
  "facet-postcard",
