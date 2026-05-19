@@ -61,11 +61,9 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
 
 # Serialization - Facet ecosystem (git)
 # Do NOT change those to path dependencies, use the patch blocks below.
-hotmeal = { git = "https://github.com/bearcove/hotmeal", branch = "main" }
-hotmeal-server = { git = "https://github.com/bearcove/hotmeal", branch = "main", features = [
-  "tracing",
-] }
-hotmeal-wasm = { git = "https://github.com/bearcove/hotmeal", branch = "main" }
+hotmeal = "2"
+hotmeal-server = { version = "2", features = ["tracing"] }
+hotmeal-wasm = "2"
 
 facet = "0.46"
 facet-default = "0.46"
@@ -82,18 +80,13 @@ styx-embed = { git = "https://github.com/bearcove/styx", branch = "main" }
 figue = { git = "https://github.com/bearcove/figue", branch = "main" }
 
 # RPC framework
-vox = { git = "https://github.com/bearcove/vox", branch = "main", features = [
-  "transport-all",
-  "transport-ffi",
-] }
-vox-ffi = { git = "https://github.com/bearcove/vox", branch = "main" }
-vox-fdpass = { git = "https://github.com/bearcove/vox", branch = "main" }
-vox-stream = { git = "https://github.com/bearcove/vox", branch = "main" }
+vox = { version = "0.6", features = ["transport-all", "transport-ffi"] }
+vox-ffi = "0.6"
+vox-fdpass = "0.6"
+vox-stream = "0.6"
 
 # Process lifecycle
-ur-taking-me-with-you = { git = "https://github.com/bearcove/vox", branch = "main", features = [
-  "tokio",
-] }
+ur-taking-me-with-you = { version = "8", features = ["tokio"] }
 
 # Incremental computation
 picante = "2"
@@ -159,9 +152,7 @@ web-sys = { version = "0.3", features = [
 libc = "0.2"
 libloading = "0.8"
 rapidhash = "4"
-# TEMP: local strid (facet 0.46 bump, commit c395609) until published at
-# 0.46 — crates.io strid 9.0.0 is still facet 0.44.
-strid = { path = "../strid/crates/strid" }
+strid = "10"
 
 # Misc utilities
 open = "5"
@@ -201,18 +192,6 @@ rust-version = "1.92"
 # [patch."https://github.com/bearcove/figue"]
 # figue = { path = "../figue/crates/figue" }
 
-# TEMP: local hotmeal (facet 0.46 bump, commit ce5afeb) until pushed to
-# bearcove/hotmeal main — then this patch block goes away (no-patch goal).
-[patch."https://github.com/bearcove/hotmeal"]
-cinereus = { path = "../hotmeal/cinereus" }
-hotmeal = { path = "../hotmeal/hotmeal" }
-hotmeal-server = { path = "../hotmeal/hotmeal-server" }
-hotmeal-wasm = { path = "../hotmeal/hotmeal-wasm" }
-
-# TEMP: local marq (facet 0.46 bump, commit 54004e7) until pushed to
-# bearcove/marq main — then this patch goes away (no-patch goal).
-[patch."https://github.com/bearcove/marq"]
-marq = { path = "../marq" }
 
 # [patch."https://github.com/facet-rs/facet-xml"]
 # facet-dom = { path = "../facet-xml/facet-dom" }
