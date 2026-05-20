@@ -84,10 +84,10 @@ figue = { git = "https://github.com/bearcove/figue", branch = "main" }
 # macro + runtime). Transports are opt-in per-crate (host adds ffi/all;
 # devtools adds websocket) so they don't feature-unify onto the wasm build
 # (transport-tcp/local → vox-stream → tokio net → mio, unsupported on wasm).
-vox = { version = "0.6", default-features = false, features = ["runtime"] }
-vox-ffi = "0.6"
-vox-fdpass = "0.6"
-vox-stream = "0.6"
+vox = { version = "0.7", default-features = false, features = ["runtime"] }
+vox-ffi = "0.7"
+vox-fdpass = "0.7"
+vox-stream = "0.7"
 
 # Process lifecycle
 ur-taking-me-with-you = { version = "8", features = ["tokio"] }
@@ -290,23 +290,3 @@ opt-level = 1
 debug = true
 strip = false
 
-# TEMP (uncommitted, local validation): patch vox to local /Users/amos/vox
-# to repro the JIT-encode panic with the new diagnostic info. Drop once
-# vox 0.6.2 (commit b6b79e57 + JIT diagnostics) is published.
-[patch.crates-io]
-vox = { path = "../vox/rust/vox" }
-vox-core = { path = "../vox/rust/vox-core" }
-vox-ffi = { path = "../vox/rust/vox-ffi" }
-vox-fdpass = { path = "../vox/rust/vox-fdpass" }
-vox-stream = { path = "../vox/rust/vox-stream" }
-vox-websocket = { path = "../vox/rust/vox-websocket" }
-vox-jit = { path = "../vox/rust/vox-jit" }
-vox-jit-abi = { path = "../vox/rust/vox-jit-abi" }
-vox-jit-cal = { path = "../vox/rust/vox-jit-cal" }
-vox-macros-core = { path = "../vox/rust/vox-macros-core" }
-vox-macros-parse = { path = "../vox/rust/vox-macros-parse" }
-vox-service-macros = { path = "../vox/rust/vox-macros" }
-vox-schema = { path = "../vox/rust/vox-schema" }
-vox-postcard = { path = "../vox/rust/vox-postcard" }
-vox-types = { path = "../vox/rust/vox-types" }
-ur-taking-me-with-you = { path = "../vox/rust/ur-taking-me-with-you" }
