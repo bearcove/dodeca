@@ -129,6 +129,9 @@ jobs:
         working-directory: hotmeal/fuzz/browser-wasm
         run: wasm-pack build --target web --out-dir ../browser-bundle/dist
 
+      - name: Copy browser-bundle index.html into dist
+        run: cp hotmeal/fuzz/browser-bundle/index.html hotmeal/fuzz/browser-bundle/dist/index.html
+
       - name: Install cargo-nextest
         uses: taiki-e/install-action@v2
         with:

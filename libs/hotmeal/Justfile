@@ -7,6 +7,7 @@ default:
 # Build the browser-wasm bundle (required for browser fuzzing/testing)
 build-wasm:
     cd hotmeal/fuzz/browser-wasm && wasm-pack build --target web --out-dir ../browser-bundle/dist
+    cp hotmeal/fuzz/browser-bundle/index.html hotmeal/fuzz/browser-bundle/dist/index.html
 
 # Run browser-based tests via thrall (launches Chrome)
 test-browser: build-wasm
