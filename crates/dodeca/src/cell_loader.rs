@@ -175,7 +175,7 @@ pub async fn cell_session(cell_name: &str) -> Option<SessionHandle> {
             return None;
         }
     };
-    let cell_vtable = match unsafe { vox_link_vtable::validate_ptr(unsafe { vtable_fn() }) } {
+    let cell_vtable = match unsafe { vox_link_vtable::validate_ptr(vtable_fn()) } {
         Ok(v) => v,
         Err(e) => {
             error!(cell = cell_name, error = %e, "invalid cell vtable");
