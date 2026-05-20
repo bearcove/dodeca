@@ -4,7 +4,7 @@ exclude = ["hotmeal/fuzz"]
 resolver = "3"
 
 [workspace.package]
-version = "2.0.0"
+version = "2.0.1"
 edition = "2024"
 rust-version = "1.90"
 license = "MIT OR Apache-2.0"
@@ -20,8 +20,8 @@ facet-testhelpers = "0.46"
 
 # Local crates
 cinereus = { path = "cinereus", version = "2.0.1" }
-hotmeal = { path = "hotmeal", version = "2.0.0" }
-hotmeal-server = { path = "hotmeal-server", version = "2.0.0" }
+hotmeal = { path = "hotmeal", version = "2.0.1" }
+hotmeal-server = { path = "hotmeal-server", version = "2.0.1" }
 
 # Serialization
 facet-postcard = "0.46"
