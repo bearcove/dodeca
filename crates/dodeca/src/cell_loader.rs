@@ -109,6 +109,7 @@ impl vox::ConnectionAcceptor for HostAcceptor {
                 match Host::get().site_server() {
                     Some(server) => {
                         let browser_id = crate::cell_server::next_devtools_browser_id();
+                        tracing::debug!(browser_id, "devtools host service connection accepted");
                         let svc = crate::cell_server::HostDevtoolsService::new(
                             server.clone(),
                             browser_id,

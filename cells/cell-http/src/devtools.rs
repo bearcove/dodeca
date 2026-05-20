@@ -23,14 +23,20 @@ pub async fn ws_handler(
 ) -> impl IntoResponse {
     let host = ctx.host();
     ws.on_upgrade(|socket: WebSocket| async move {
+        tracing::debug!("devtools websocket upgraded");
         let link = AxumWsLink::new(socket);
         let result = vox::acceptor_on(link)
             .on_connection(DevtoolsProxyAcceptor { host })
             .establish::<vox::NoopClient>()
             .await;
 
-        if let Err(error) = result {
-            tracing::warn!(?error, "devtools websocket vox session failed");
+        match result {
+            Ok(root) => {
+                root.caller.closed().await;
+            }
+            Err(error) => {
+                tracing::warn!(?error, "devtools websocket vox session failed");
+            }
         }
     })
 }
@@ -48,10 +54,12 @@ impl vox::ConnectionAcceptor for DevtoolsProxyAcceptor {
     ) -> Result<(), vox::Metadata<'static>> {
         match request.service() {
             s if s == vox::NoopClient::SERVICE_NAME => {
+                tracing::debug!("devtools browser root connection accepted");
                 connection.handle_with(());
                 Ok(())
             }
             s if s == dodeca_protocol::DevtoolsServiceClient::SERVICE_NAME => {
+                tracing::debug!("devtools browser service connection accepted; opening host proxy");
                 let host = self.host.clone();
                 let incoming = connection.into_handle();
                 tokio::spawn(async move {
@@ -61,6 +69,7 @@ impl vox::ConnectionAcceptor for DevtoolsProxyAcceptor {
                             dodeca_protocol::DevtoolsServiceClient::SERVICE_NAME,
                         )])
                         .await;
+                    tracing::debug!("devtools host service connection opened; starting proxy");
                     if let Err(error) = vox::proxy_connections(incoming, upstream).await {
                         tracing::debug!(?error, "devtools websocket proxy ended");
                     }

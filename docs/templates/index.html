@@ -8,7 +8,7 @@
     <div class="hero-content">
         <h1 class="hero-title">dodeca</h1>
         <p class="hero-tagline">A query-infused static site generator</p>
-        <p class="hero-sub">Aims to cache correctly. Extremely over-engineered. Mostly drop-in.</p>
+        <p class="hero-sub">Aims to correctly. Extremely over-engineered. Mostly drop-in.</p>
         <div class="hero-actions">
             <a href="/getting-started/installation/" class="btn btn-primary">Get Started</a>
             <a href="https://github.com/bearcove/dodeca" class="btn btn-secondary">View on GitHub</a>
@@ -24,15 +24,19 @@
             <p>Markdown, TOML frontmatter, directory-based sections. If you've used Zola, you'll feel right at home.</p>
         </div>
         <div class="feature-visual">
-            <img src="/images/familiar-editor.png" alt="Markdown file with TOML frontmatter in an editor" class="feature-image">
+            <img src="/images/familiar-editor.png" alt="Markdown file with TOML frontmatter in an editor"
+                class="feature-image">
         </div>
     </div>
 
     <div class="feature-row">
         <div class="feature-text">
             <h3>Incremental &amp; live</h3>
-            <p><a href="https://github.com/bearcove/picante">Picante</a> tracks every dependency in the rendering pipeline, so only affected files get rebuilt.</p>
-            <p>The same engine powers both production builds and dev mode — where changes appear instantly via DOM patches from <a href="https://github.com/bearcove/hotmeal">hotmeal</a>, preserving scroll position and form state.</p>
+            <p><a href="https://github.com/bearcove/picante">Picante</a> tracks every dependency in the rendering
+                pipeline, so only affected files get rebuilt.</p>
+            <p>The same engine powers both production builds and dev mode — where changes appear instantly via DOM
+                patches from <a href="https://github.com/bearcove/hotmeal">hotmeal</a>, preserving scroll position and
+                form state.</p>
         </div>
         <div class="feature-visual">
             <video autoplay loop muted playsinline class="feature-video">
@@ -47,54 +51,55 @@
             <p>Cache-busted URLs, subsetted fonts, optimized images. What you see in dev is exactly what you deploy.</p>
         </div>
         <div class="feature-visual">
-{% call highlight(lang="html") %}
-<link rel="stylesheet"
-  href="/_/a3f7c2e1b904d6.css">
-<script type="module"
-  src="/_/8b1d4f6e3a09c5.js"></script>
-<img src="/_/e7a2c8f1d305b9.webp"
-  width="1200" height="630">
-<link rel="preload" as="font"
-  href="/_/4d8b1f2a6e73c0.woff2">
-{% endcall %}
+            {% call highlight(lang="html") %}
+            <link rel="stylesheet" href="/_/a3f7c2e1b904d6.css">
+            <script type="module" src="/_/8b1d4f6e3a09c5.js"></script>
+            <img src="/_/e7a2c8f1d305b9.webp" width="1200" height="630">
+            <link rel="preload" as="font" href="/_/4d8b1f2a6e73c0.woff2">
+            {% endcall %}
         </div>
     </div>
 
     <div class="feature-row">
         <div class="feature-text">
             <h3>Vite integration</h3>
-            <p>First-class support for modern frontend tooling. Use Vite for JavaScript, TypeScript, and CSS — dodeca handles the rest.</p>
+            <p>First-class support for modern frontend tooling. Use Vite for JavaScript, TypeScript, and CSS — dodeca
+                handles the rest.</p>
         </div>
         <div class="feature-visual">
-            <img src="/images/vite-showcase.png" alt="Vite integration with interactive quiz component" class="feature-image">
+            <img src="/images/vite-showcase.png" alt="Vite integration with interactive quiz component"
+                class="feature-image">
         </div>
     </div>
 
     <div class="feature-row">
         <div class="feature-text">
             <h3>Syntax highlighting</h3>
-            <p>Built-in syntax highlighting via <a href="https://github.com/bearcove/arborium">arborium</a>, powered by tree-sitter grammars. Accurate, fast, and beautiful.</p>
+            <p>Built-in syntax highlighting via <a href="https://github.com/bearcove/arborium">arborium</a>, powered by
+                tree-sitter grammars. Accurate, fast, and beautiful.</p>
         </div>
         <div class="feature-visual">
-{% call highlight(lang="rust") %}
-#[derive(Facet)]
-pub struct Page {
-    pub title: String,
-    pub date: DateTime,
-    pub tags: Vec<String>,
-    pub content: String,
-}
-{% endcall %}
+            {% call highlight(lang="rust") %}
+            #[derive(Facet)]
+            pub struct Page {
+            pub title: String,
+            pub date: DateTime,
+            pub tags: Vec<String>,
+                pub content: String,
+                }
+                {% endcall %}
         </div>
     </div>
 
     <div class="feature-row">
         <div class="feature-text">
             <h3>Mermaid diagrams</h3>
-            <p>Write diagrams in markdown, render them in the browser. Flowcharts, sequence diagrams, state machines — all from code blocks.</p>
+            <p>Write diagrams in markdown, render them in the browser. Flowcharts, sequence diagrams, state machines —
+                all from code blocks.</p>
         </div>
         <div class="feature-visual">
-            <img src="/images/mermaid-showcase.png" alt="Mermaid diagram rendered from a code block" class="feature-image">
+            <img src="/images/mermaid-showcase.png" alt="Mermaid diagram rendered from a code block"
+                class="feature-image">
         </div>
     </div>
 
@@ -111,10 +116,12 @@ pub struct Page {
     <div class="feature-row">
         <div class="feature-text">
             <h3>Pikchr diagrams</h3>
-            <p>Embedded <a href="https://pikchr.org">Pikchr</a> support for technical diagrams. A modern take on PIC, right in your markdown.</p>
+            <p>Embedded <a href="https://pikchr.org">Pikchr</a> support for technical diagrams. A modern take on PIC,
+                right in your markdown.</p>
         </div>
         <div class="feature-visual">
-            <img src="/images/pikchr-showcase.png" alt="Pikchr diagram rendered server-side to SVG" class="feature-image">
+            <img src="/images/pikchr-showcase.png" alt="Pikchr diagram rendered server-side to SVG"
+                class="feature-image">
         </div>
     </div>
 
@@ -122,7 +129,13 @@ pub struct Page {
 
 <section class="ecosystem">
     <div class="ecosystem-inner">
-        <p>Built on <a href="https://github.com/bearcove/picante">picante</a> · <a href="https://github.com/facet-rs/facet">facet</a> · <a href="https://github.com/bearcove/roam">roam</a> · <a href="https://github.com/bearcove/styx">styx</a> · <a href="https://github.com/bearcove/figue">figue</a> · <a href="https://github.com/bearcove/hotmeal">hotmeal</a> · <a href="https://github.com/bearcove/fontcull">fontcull</a> and more from <a href="https://github.com/bearcove">bearcove</a></p>
+        <p>Built on <a href="https://github.com/bearcove/picante">picante</a> · <a
+                href="https://github.com/facet-rs/facet">facet</a> · <a href="https://github.com/bearcove/roam">roam</a>
+            · <a href="https://github.com/bearcove/styx">styx</a> · <a
+                href="https://github.com/bearcove/figue">figue</a> · <a
+                href="https://github.com/bearcove/hotmeal">hotmeal</a> · <a
+                href="https://github.com/bearcove/fontcull">fontcull</a> and more from <a
+                href="https://github.com/bearcove">bearcove</a></p>
     </div>
 </section>
 
