@@ -35,7 +35,7 @@ pub use vox_ffi;
 
 use std::sync::Arc;
 use std::sync::OnceLock;
-use vox::{ConnectionSettings, Parity, SessionHandle};
+use vox::{ConnectionHandle, ConnectionSettings, Metadata, Parity, SessionHandle};
 
 /// Connection settings used for every virtual connection opened over a
 /// host<->cell FFI link. Mirrors the vox FFI reference settings.
@@ -84,6 +84,18 @@ impl HostHandle {
             .expect("open HostService virtual connection");
         let _ = self.client.set(client.clone());
         client
+    }
+
+    /// Open a raw virtual connection back to the host.
+    pub async fn open_connection(&self, metadata: Metadata<'static>) -> ConnectionHandle {
+        let session = self
+            .session
+            .get()
+            .expect("HostHandle used before the cell session was established");
+        session
+            .open_connection(connection_settings(), metadata)
+            .await
+            .expect("open host virtual connection")
     }
 }
 
@@ -166,9 +178,7 @@ fn install_cell_panic_recorder() {
                 tracing::error!(cell = %cell_name, %death, "cell thread panicked");
                 // First-writer-wins so the root cause survives any cascading
                 // panics on other workers of the same cell.
-                cell_deaths()
-                    .entry(cell_name)
-                    .or_insert(death);
+                cell_deaths().entry(cell_name).or_insert(death);
             }
             prev(info);
         }));

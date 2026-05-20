@@ -1633,6 +1633,7 @@ dependencies = [
  "cell-host-proto",
  "cell-http-proto",
  "dodeca-cell-runtime",
+ "dodeca-protocol",
  "eyre",
  "facet-postcard",
  "futures-util",
@@ -2858,7 +2859,8 @@ dependencies = [
  "sycamore",
  "tracing",
  "tracing-wasm",
- "vox 0.6.1",
+ "vox 0.7.0",
+ "vox-websocket 0.7.0",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -8782,7 +8784,6 @@ dependencies = [
  "vox-postcard 0.6.1",
  "vox-service-macros 0.6.1",
  "vox-types 0.6.1",
- "vox-websocket 0.6.1",
 ]
 
 [[package]]

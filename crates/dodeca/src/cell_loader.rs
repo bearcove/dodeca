@@ -108,9 +108,23 @@ impl vox::ConnectionAcceptor for HostAcceptor {
             s if s == dodeca_protocol::DevtoolsServiceClient::SERVICE_NAME => {
                 match Host::get().site_server() {
                     Some(server) => {
-                        let svc = crate::cell_server::HostDevtoolsService::new(server.clone());
-                        connection
-                            .handle_with(dodeca_protocol::DevtoolsServiceDispatcher::new(svc));
+                        let browser_id = crate::cell_server::next_devtools_browser_id();
+                        let svc = crate::cell_server::HostDevtoolsService::new(
+                            server.clone(),
+                            browser_id,
+                        );
+                        let browser: dodeca_protocol::BrowserServiceClient = connection
+                            .handle_with_client(dodeca_protocol::DevtoolsServiceDispatcher::new(
+                                svc,
+                            ));
+                        server.register_browser(browser_id, browser.clone());
+                        crate::spawn::spawn({
+                            let server = server.clone();
+                            async move {
+                                browser.caller.closed().await;
+                                server.unregister_browser(browser_id);
+                            }
+                        });
                         Ok(())
                     }
                     None => Err(vec![vox::MetadataEntry::str(

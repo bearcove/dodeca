@@ -8,6 +8,7 @@
 //! The http cell is loaded through the hub like all other cells.
 
 use std::sync::Arc;
+use std::sync::RwLock;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Instant;
 
@@ -37,24 +38,30 @@ pub fn find_cell_path() -> Result<std::path::PathBuf> {
 // to each cell's CellTracing service. See cells.rs for the host-side setup.
 
 // ============================================================================
-// HostDevtoolsService - roam RPC implementation of DevtoolsService
+// HostDevtoolsService - vox RPC implementation of DevtoolsService
 // ============================================================================
 
 use dodeca_protocol::{DevtoolsEvent, DevtoolsService, EvalResult, ScopeEntry};
 
-/// Host-side implementation of DevtoolsService for direct roam RPC.
+/// Host-side implementation of DevtoolsService for direct vox RPC.
 ///
 /// This implements the `DevtoolsService` trait from `dodeca-protocol`,
-/// allowing browser devtools to call methods directly via roam RPC
-/// over WebSocket (proxied through cell-http via ForwardingDispatcher).
+/// allowing browser devtools to call methods over the WebSocket-backed
+/// vox connection proxied through cell-http.
 #[derive(Clone)]
 pub struct HostDevtoolsService {
     server: Arc<SiteServer>,
+    browser_id: u64,
+    route: Arc<RwLock<String>>,
 }
 
 impl HostDevtoolsService {
-    pub fn new(server: Arc<SiteServer>) -> Self {
-        Self { server }
+    pub fn new(server: Arc<SiteServer>, browser_id: u64) -> Self {
+        Self {
+            server,
+            browser_id,
+            route: Arc::new(RwLock::new("/".to_string())),
+        }
     }
 }
 
@@ -78,6 +85,10 @@ pub fn event_summary(event: &DevtoolsEvent) -> String {
     }
 }
 
+pub fn next_devtools_browser_id() -> u64 {
+    NEXT_CONN_ID.fetch_add(1, Ordering::Relaxed)
+}
+
 impl DevtoolsService for HostDevtoolsService {
     /// Subscribe to devtools events for a route.
     ///
@@ -85,24 +96,24 @@ impl DevtoolsService for HostDevtoolsService {
     /// via BrowserService::on_event() on the browser's virtual connection.
     ///
     /// The browser was already registered when its virtual connection was accepted.
-    /// This method associates the subscription with the browser using `cx.conn_id`.
+    /// This method associates the subscription with the host-allocated browser id.
     async fn subscribe(&self, route: String) {
-        // TODO(devtools-identity): roam used `cx.conn_id()` to key the browser.
-        // The vox-native fix is a per-vconn HostDevtoolsService built in the
-        // cell_loader acceptor via `handle_with_client::<BrowserServiceClient>`
-        // with a host-allocated browser id. Deferred (Amos: circle back once
-        // the build is green) — stubbed so the host compiles.
-        let conn_id = 0u64;
-        tracing::info!(conn_id, route = %route, "devtools: client subscribing to route");
-        self.server.set_browser_route(conn_id, route);
+        tracing::info!(browser_id = self.browser_id, route = %route, "devtools: client subscribing to route");
+        if let Ok(mut current) = self.route.write() {
+            *current = route.clone();
+        }
+        self.server.set_browser_route(self.browser_id, route);
     }
 
     /// Get scope entries for the current route.
     async fn get_scope(&self, path: Option<Vec<String>>) -> Vec<ScopeEntry> {
-        // Use "/" as default route - the client should call subscribe() first
-        // to establish which route they're viewing
+        let route = self
+            .route
+            .read()
+            .map(|route| route.clone())
+            .unwrap_or_else(|_| "/".to_string());
         let path = path.unwrap_or_default();
-        self.server.get_scope_for_route("/", &path).await
+        self.server.get_scope_for_route(&route, &path).await
     }
 
     /// Evaluate an expression in a snapshot's context.
