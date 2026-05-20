@@ -35,6 +35,7 @@ pub use vox_ffi;
 
 use std::sync::Arc;
 use std::sync::OnceLock;
+use tokio::sync::watch;
 use vox::{ConnectionHandle, ConnectionSettings, Metadata, Parity, SessionHandle};
 
 /// Connection settings used for every virtual connection opened over a
@@ -52,21 +53,42 @@ pub fn connection_settings() -> ConnectionSettings {
 /// The session is filled in by the generated bootstrap once the acceptor is
 /// established. `client()` opens (and caches) a single `HostService` virtual
 /// connection.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct HostHandle {
     session: Arc<OnceLock<SessionHandle>>,
+    session_tx: Arc<watch::Sender<Option<SessionHandle>>>,
     client: Arc<OnceLock<HostServiceClient>>,
 }
 
 impl HostHandle {
     pub fn new() -> Self {
-        Self::default()
+        let (session_tx, _) = watch::channel(None);
+        Self {
+            session: Arc::new(OnceLock::new()),
+            session_tx: Arc::new(session_tx),
+            client: Arc::new(OnceLock::new()),
+        }
     }
 
     /// Called by the generated bootstrap once the session is up.
     #[doc(hidden)]
     pub fn __set_session(&self, session: SessionHandle) {
-        let _ = self.session.set(session);
+        if self.session.set(session.clone()).is_ok() {
+            let _ = self.session_tx.send(Some(session));
+        }
+    }
+
+    async fn session(&self) -> SessionHandle {
+        let mut session_rx = self.session_tx.subscribe();
+        loop {
+            if let Some(session) = self.session.get() {
+                return session.clone();
+            }
+            session_rx
+                .changed()
+                .await
+                .expect("HostHandle session sender dropped");
+        }
     }
 
     /// Get a `HostServiceClient`, opening the virtual connection on first use.
@@ -74,10 +96,7 @@ impl HostHandle {
         if let Some(c) = self.client.get() {
             return c.clone();
         }
-        let session = self
-            .session
-            .get()
-            .expect("HostHandle used before the cell session was established");
+        let session = self.session().await;
         let client: HostServiceClient = session
             .open(connection_settings())
             .await
@@ -88,10 +107,7 @@ impl HostHandle {
 
     /// Open a raw virtual connection back to the host.
     pub async fn open_connection(&self, metadata: Metadata<'static>) -> ConnectionHandle {
-        let session = self
-            .session
-            .get()
-            .expect("HostHandle used before the cell session was established");
+        let session = self.session().await;
         session
             .open_connection(connection_settings(), metadata)
             .await
