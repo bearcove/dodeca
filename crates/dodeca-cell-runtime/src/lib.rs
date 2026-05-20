@@ -87,6 +87,94 @@ impl HostHandle {
     }
 }
 
+/// Recorded death info for a cell whose runtime thread (or one of its tokio
+/// workers) panicked. Read by the host's `cell_loader` when it sees the
+/// matching session close.
+#[derive(Clone, Debug)]
+pub struct CellDeath {
+    pub thread_name: String,
+    pub location: String,
+    pub message: String,
+}
+
+impl std::fmt::Display for CellDeath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "thread '{}' panicked at {}: {}",
+            self.thread_name, self.location, self.message
+        )
+    }
+}
+
+static CELL_DEATHS: std::sync::OnceLock<dashmap::DashMap<String, CellDeath>> =
+    std::sync::OnceLock::new();
+
+fn cell_deaths() -> &'static dashmap::DashMap<String, CellDeath> {
+    CELL_DEATHS.get_or_init(dashmap::DashMap::new)
+}
+
+/// Take the recorded death reason for a cell, if any.
+pub fn take_cell_death(cell_name: &str) -> Option<CellDeath> {
+    cell_deaths().remove(cell_name).map(|(_, v)| v)
+}
+
+/// Peek at the recorded death reason for a cell, if any.
+pub fn cell_death(cell_name: &str) -> Option<CellDeath> {
+    cell_deaths().get(cell_name).map(|r| r.value().clone())
+}
+
+/// Install (once) a process-wide panic hook that records cell-thread panics
+/// in `CELL_DEATHS`. We name the cell's std thread `cell-<name>` and the
+/// tokio workers `cell-<name>-rt-…`; both share the `cell-<name>` prefix.
+/// Recording is non-fatal: the hook does NOT abort. The panic still unwinds
+/// the cell's runtime, the runtime drops, the vox-ffi link drops, and the
+/// host's session sees a clean close — at which point the host can pair the
+/// closure with the recorded reason via [`take_cell_death`].
+fn install_cell_panic_recorder() {
+    static INSTALLED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    INSTALLED.get_or_init(|| {
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let thread_name = std::thread::current()
+                .name()
+                .unwrap_or("<unnamed>")
+                .to_string();
+            if let Some(rest) = thread_name.strip_prefix("cell-") {
+                // `cell-<name>` (the supervisor thread) or
+                // `cell-<name>-rt-worker-…` (a tokio worker).
+                let cell_name = rest
+                    .split_once("-rt")
+                    .map(|(n, _)| n)
+                    .unwrap_or(rest)
+                    .to_string();
+                let location = info
+                    .location()
+                    .map(|l| format!("{}:{}", l.file(), l.line()))
+                    .unwrap_or_else(|| "<unknown location>".into());
+                let message = info
+                    .payload()
+                    .downcast_ref::<String>()
+                    .cloned()
+                    .or_else(|| info.payload().downcast_ref::<&str>().map(|s| s.to_string()))
+                    .unwrap_or_else(|| "<non-string panic payload>".into());
+                let death = CellDeath {
+                    thread_name: thread_name.clone(),
+                    location,
+                    message,
+                };
+                tracing::error!(cell = %cell_name, %death, "cell thread panicked");
+                // First-writer-wins so the root cause survives any cascading
+                // panics on other workers of the same cell.
+                cell_deaths()
+                    .entry(cell_name)
+                    .or_insert(death);
+            }
+            prev(info);
+        }));
+    });
+}
+
 /// Internal: spawn the cell runtime thread once the host has attached.
 ///
 /// Mirrors `vox/rust/subject-rust/src/ffi.rs`: a dedicated thread owns a
@@ -108,11 +196,20 @@ pub fn __bootstrap<D, F>(
         tracing::error!(cell = cell_name, "cell attach: null host peer");
         return;
     }
+    // We own the cell thread — capture its panics. Cell-thread panics get
+    // recorded (cell name from thread name) and then unwind normally; the
+    // tokio runtime drops, the vox-ffi link drops with it, and the host's
+    // session-close watch fires. Host RPC awaits resolve cleanly and can
+    // pair the closure with the recorded reason via
+    // `dodeca_cell_runtime::take_cell_death(cell_name)`.
+    install_cell_panic_recorder();
+
     let peer = peer as usize;
     std::thread::Builder::new()
         .name(format!("cell-{cell_name}"))
         .spawn(move || {
             let runtime = match tokio::runtime::Builder::new_multi_thread()
+                .thread_name(format!("cell-{cell_name}-rt"))
                 .enable_all()
                 .build()
             {
@@ -122,6 +219,12 @@ pub fn __bootstrap<D, F>(
                     return;
                 }
             };
+            // Wrap block_on so a panic that escapes the runtime (panic from a
+            // .block_on'd future itself, as opposed to a spawned task tokio
+            // already catches) doesn't poison the thread — the runtime still
+            // drops, the vox-ffi link drops, the host's session closes. The
+            // recording happens in the panic hook regardless.
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             runtime.block_on(async move {
                 let peer = peer as *const vox_ffi::vox_link_vtable;
                 let peer = match unsafe { vox_ffi::vox_link_vtable::validate_ptr(peer) } {
@@ -161,6 +264,10 @@ pub fn __bootstrap<D, F>(
                     let _ = session.shutdown();
                 }
             });
+            }));
+            // Drop runtime here regardless of panic outcome — releases the
+            // FFI link cleanly so the host's session sees close.
+            drop(runtime);
         })
         .expect("spawn cell runtime thread");
 }
