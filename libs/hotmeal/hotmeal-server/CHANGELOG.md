@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.3](https://github.com/bearcove/hotmeal/compare/hotmeal-server-v2.0.1...hotmeal-server-v2.0.3) - 2026-05-20
+
+### Other
+
+- release v2.0.2 ([#36](https://github.com/bearcove/hotmeal/pull/36))
+
 ## [2.0.2](https://github.com/bearcove/hotmeal/compare/hotmeal-server-v2.0.1...hotmeal-server-v2.0.2) - 2026-05-20
 
 ### Other
