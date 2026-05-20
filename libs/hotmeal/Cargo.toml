@@ -19,7 +19,7 @@ facet-json = "0.46"
 facet-testhelpers = "0.46"
 
 # Local crates
-cinereus = { path = "cinereus", version = "2.0.0" }
+cinereus = { path = "cinereus", version = "2.0.1" }
 hotmeal = { path = "hotmeal", version = "2.0.0" }
 hotmeal-server = { path = "hotmeal-server", version = "2.0.0" }
 
