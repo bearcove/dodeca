@@ -364,7 +364,7 @@ dependencies = [
 
 [[package]]
 name = "cinereus"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "indextree",
  "rapidhash",
@@ -1381,7 +1381,7 @@ dependencies = [
 
 [[package]]
 name = "hotmeal"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "cinereus",
  "compact_str",
@@ -1418,7 +1418,7 @@ dependencies = [
 
 [[package]]
 name = "hotmeal-server"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "facet",
  "facet-postcard",
@@ -1428,7 +1428,7 @@ dependencies = [
 
 [[package]]
 name = "hotmeal-wasm"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "facet-json",
  "facet-postcard",
@@ -3541,9 +3541,9 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vox"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff68c9990b8c99617f6efff8001596e93e97b5a6f5667255d05e9a860711c15b"
+checksum = "f5ee607bcaa482d0f070ce4dfeeb713c198b8ca6d7a58121f057aaafbedec4c3"
 dependencies = [
  "facet",
  "facet-pretty",
@@ -3561,9 +3561,9 @@ dependencies = [
 
 [[package]]
 name = "vox-core"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74d188b0beadd850d9b8d95324c7b42ce6522b961c368fadf79362adcbe7260e"
+checksum = "f8d7a1b9a8df769b547eaa592509d2b853d8f583bf12c5b43652e0598368d93e"
 dependencies = [
  "facet",
  "facet-cbor",
@@ -3585,9 +3585,9 @@ dependencies = [
 
 [[package]]
 name = "vox-fdpass"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e904dcaa78651c7fd3ca53362f4691db0ce004cda939d8947088768ece4cff59"
+checksum = "bb292feb86d14f85cade455964438f8d77892ba37194ffc1a3bbdb67ff68fe1f"
 dependencies = [
  "libc",
  "passfd",
@@ -3597,9 +3597,9 @@ dependencies = [
 
 [[package]]
 name = "vox-jit"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b717ca651c0494ad4d6fbe5bdb069c252ee5ae730ec99e763d36c046bf1dfd6f"
+checksum = "5780b2c81c0eaf2c83301918b63394e6cff05f4d0b41e305e1100c6aba8d8e00"
 dependencies = [
  "arc-swap",
  "cranelift-codegen",
@@ -3611,6 +3611,7 @@ dependencies = [
  "facet-core",
  "libc",
  "museair",
+ "tracing",
  "vox-jit-abi",
  "vox-jit-cal",
  "vox-postcard",
@@ -3619,9 +3620,9 @@ dependencies = [
 
 [[package]]
 name = "vox-jit-abi"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b8781eb9c6938aaaf1a396cb320b662e7f93ba46b744463c9f3a938916e1d22"
+checksum = "89e2c5338b4ba4ba3b0cd0edd790e450542aa15b6aba9212b2bce9d9711b4930"
 dependencies = [
  "arc-swap",
  "facet-core",
@@ -3631,9 +3632,9 @@ dependencies = [
 
 [[package]]
 name = "vox-jit-cal"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4656df3c0770f2fa65b46f3a79820b223ee19ffd7f431be3ed782a7a1137228"
+checksum = "21261bca4f9672db92869e2ec299cc93d87702aeeecaf7f9eb3f12f11e0f2729"
 dependencies = [
  "facet",
  "facet-core",
@@ -3641,9 +3642,9 @@ dependencies = [
 
 [[package]]
 name = "vox-macros-core"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5476edc727a58d8e95ca69027b02b0203cd8243da02c5dbffd60fe55331b155c"
+checksum = "db367d9a37fae53af1400877ac1db216cfad51922f684a56a18f72636a044a78"
 dependencies = [
  "facet-cargo-toml",
  "heck 0.5.0",
@@ -3654,9 +3655,9 @@ dependencies = [
 
 [[package]]
 name = "vox-macros-parse"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf45a6e926f418eec1929dd01025d0fe2d518d3a29d5a7b1d8845dafbd730d60"
+checksum = "1fbfe28e569b61fcab87443b95c623e8b64550bf1e67fa2397e386558fc89285"
 dependencies = [
  "proc-macro2",
  "unsynn",
@@ -3664,13 +3665,14 @@ dependencies = [
 
 [[package]]
 name = "vox-postcard"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf793ee7ab6acf76e398628612d6b0741a970bcc283601cc14d7616284382264"
+checksum = "453181ba94fc8a7abedba7deea7c440cdc71cb89a9b212c9d891eaeef00fb0ee"
 dependencies = [
  "facet",
  "facet-core",
  "facet-reflect",
+ "facet-value",
  "vox-jit-abi",
  "vox-jit-cal",
  "vox-schema",
@@ -3678,9 +3680,9 @@ dependencies = [
 
 [[package]]
 name = "vox-schema"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22f23a06cf28583278eccef44eb99aa5cad7aa563f4a874932c8b5d35f82a669"
+checksum = "b8e7291990338e2e0a94d78b60e3b4f4e8af64e6f3864c980a42878a7453754e"
 dependencies = [
  "blake3",
  "facet",
@@ -3691,9 +3693,9 @@ dependencies = [
 
 [[package]]
 name = "vox-service-macros"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d54ae0d1389e314672a2147345224d047b361335ab0d342c9e452e4fcb6101f9"
+checksum = "256eb00ebdbd0abf92cbf464dad4ee66dcfbdd3dacad090144fddc1c8ea99573"
 dependencies = [
  "proc-macro2",
  "vox-macros-core",
@@ -3701,9 +3703,9 @@ dependencies = [
 
 [[package]]
 name = "vox-stream"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10dbf6691a61087f4e5ce34ea5e1ea5ecc3b45bf5cddf2decfbf4f93e1924286"
+checksum = "fd10c488bbfd94700beb132536a1d6cc173780d7d81a6ca3a478471fd2f80c91"
 dependencies = [
  "libc",
  "moire",
@@ -3715,9 +3717,9 @@ dependencies = [
 
 [[package]]
 name = "vox-types"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eccf06a16a1a258abc9f26f2bd923045f3c21fd958496405ed8ceed80f8d84ed"
+checksum = "53aaa972dfcf282e41d2536f7685a15819af23b26db1872215b75e85fbe61953"
 dependencies = [
  "bitflags 2.11.1",
  "blake3",
@@ -3742,9 +3744,9 @@ dependencies = [
 
 [[package]]
 name = "vox-websocket"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "931057f8a7b28c0abf294e17a33c91d8e2c80332bcd0168f0ca0ae5332f9d53d"
+checksum = "4ec3d188cc68be718d8044fed5c2fa0beb223f1b3b022473f2b0af8f6cfc6447"
 dependencies = [
  "futures-channel",
  "futures-util",

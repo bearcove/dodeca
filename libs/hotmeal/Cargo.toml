@@ -28,8 +28,8 @@ facet-postcard = "0.46"
 
 # RPC
 vox = { version = "0.7", default-features = false, features = ["runtime"] }
-vox-core = "0.6.0"
-vox-websocket = "0.6.0"
+vox-core = "0.7"
+vox-websocket = "0.7"
 
 # Data structures
 indextree = "4.7"

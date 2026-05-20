@@ -14,7 +14,7 @@ chromiumoxide = { version = "0.7", features = [
 tokio-tungstenite = "0.29"
 futures-util = "0.3"
 vox = "0.7"
-vox-websocket = "0.6.0"
+vox-websocket = "0.7"
 browser-proto = { path = "../browser-proto" }
 libc = "0.2"
 dirs-next = "2"

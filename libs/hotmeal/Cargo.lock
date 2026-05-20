@@ -1293,7 +1293,7 @@ dependencies = [
  "js-sys",
  "smallvec 1.15.1",
  "tracing",
- "vox-core 0.6.0",
+ "vox-core",
  "vox-websocket",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -2542,35 +2542,11 @@ dependencies = [
  "moire",
  "tokio",
  "tracing",
- "vox-core 0.7.0",
- "vox-jit 0.7.0",
- "vox-postcard 0.7.0",
+ "vox-core",
+ "vox-jit",
+ "vox-postcard",
  "vox-service-macros",
- "vox-types 0.7.0",
-]
-
-[[package]]
-name = "vox-core"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74d188b0beadd850d9b8d95324c7b42ce6522b961c368fadf79362adcbe7260e"
-dependencies = [
- "facet",
- "facet-cbor",
- "facet-core",
- "facet-error",
- "facet-reflect",
- "futures-util",
- "getrandom 0.4.2",
- "moire",
- "smallvec 1.15.1",
- "tokio",
- "tracing",
- "vox-jit 0.6.0",
- "vox-postcard 0.6.0",
- "vox-types 0.6.0",
- "wasm-bindgen-futures",
- "zerocopy",
+ "vox-types",
 ]
 
 [[package]]
@@ -2590,33 +2566,11 @@ dependencies = [
  "smallvec 1.15.1",
  "tokio",
  "tracing",
- "vox-jit 0.7.0",
- "vox-postcard 0.7.0",
- "vox-types 0.7.0",
+ "vox-jit",
+ "vox-postcard",
+ "vox-types",
  "wasm-bindgen-futures",
  "zerocopy",
-]
-
-[[package]]
-name = "vox-jit"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b717ca651c0494ad4d6fbe5bdb069c252ee5ae730ec99e763d36c046bf1dfd6f"
-dependencies = [
- "arc-swap",
- "cranelift-codegen",
- "cranelift-frontend",
- "cranelift-jit",
- "cranelift-module",
- "cranelift-native",
- "facet",
- "facet-core",
- "libc",
- "museair",
- "vox-jit-abi 0.6.0",
- "vox-jit-cal 0.6.0",
- "vox-postcard 0.6.0",
- "vox-schema 0.6.0",
 ]
 
 [[package]]
@@ -2636,22 +2590,10 @@ dependencies = [
  "libc",
  "museair",
  "tracing",
- "vox-jit-abi 0.7.0",
- "vox-jit-cal 0.7.0",
- "vox-postcard 0.7.0",
- "vox-schema 0.7.0",
-]
-
-[[package]]
-name = "vox-jit-abi"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b8781eb9c6938aaaf1a396cb320b662e7f93ba46b744463c9f3a938916e1d22"
-dependencies = [
- "arc-swap",
- "facet-core",
- "museair",
- "vox-jit-cal 0.6.0",
+ "vox-jit-abi",
+ "vox-jit-cal",
+ "vox-postcard",
+ "vox-schema",
 ]
 
 [[package]]
@@ -2663,17 +2605,7 @@ dependencies = [
  "arc-swap",
  "facet-core",
  "museair",
- "vox-jit-cal 0.7.0",
-]
-
-[[package]]
-name = "vox-jit-cal"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4656df3c0770f2fa65b46f3a79820b223ee19ffd7f431be3ed782a7a1137228"
-dependencies = [
- "facet",
- "facet-core",
+ "vox-jit-cal",
 ]
 
 [[package]]
@@ -2711,20 +2643,6 @@ dependencies = [
 
 [[package]]
 name = "vox-postcard"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf793ee7ab6acf76e398628612d6b0741a970bcc283601cc14d7616284382264"
-dependencies = [
- "facet",
- "facet-core",
- "facet-reflect",
- "vox-jit-abi 0.6.0",
- "vox-jit-cal 0.6.0",
- "vox-schema 0.6.0",
-]
-
-[[package]]
-name = "vox-postcard"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "453181ba94fc8a7abedba7deea7c440cdc71cb89a9b212c9d891eaeef00fb0ee"
@@ -2733,22 +2651,9 @@ dependencies = [
  "facet-core",
  "facet-reflect",
  "facet-value",
- "vox-jit-abi 0.7.0",
- "vox-jit-cal 0.7.0",
- "vox-schema 0.7.0",
-]
-
-[[package]]
-name = "vox-schema"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22f23a06cf28583278eccef44eb99aa5cad7aa563f4a874932c8b5d35f82a669"
-dependencies = [
- "blake3",
- "facet",
- "facet-cbor",
- "facet-core",
- "indexmap",
+ "vox-jit-abi",
+ "vox-jit-cal",
+ "vox-schema",
 ]
 
 [[package]]
@@ -2776,33 +2681,6 @@ dependencies = [
 
 [[package]]
 name = "vox-types"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eccf06a16a1a258abc9f26f2bd923045f3c21fd958496405ed8ceed80f8d84ed"
-dependencies = [
- "bitflags 2.11.1",
- "blake3",
- "bytes",
- "facet",
- "facet-cbor",
- "facet-core",
- "facet-path",
- "facet-reflect",
- "futures-channel",
- "heck",
- "indexmap",
- "moire",
- "smallvec 1.15.1",
- "structstruck",
- "tokio",
- "vox-jit 0.6.0",
- "vox-postcard 0.6.0",
- "vox-schema 0.6.0",
- "wasmtimer",
-]
-
-[[package]]
-name = "vox-types"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "53aaa972dfcf282e41d2536f7685a15819af23b26db1872215b75e85fbe61953"
@@ -2822,17 +2700,17 @@ dependencies = [
  "smallvec 1.15.1",
  "structstruck",
  "tokio",
- "vox-jit 0.7.0",
- "vox-postcard 0.7.0",
- "vox-schema 0.7.0",
+ "vox-jit",
+ "vox-postcard",
+ "vox-schema",
  "wasmtimer",
 ]
 
 [[package]]
 name = "vox-websocket"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "931057f8a7b28c0abf294e17a33c91d8e2c80332bcd0168f0ca0ae5332f9d53d"
+checksum = "4ec3d188cc68be718d8044fed5c2fa0beb223f1b3b022473f2b0af8f6cfc6447"
 dependencies = [
  "futures-channel",
  "futures-util",
@@ -2840,8 +2718,8 @@ dependencies = [
  "js-sys",
  "tokio",
  "tokio-tungstenite",
- "vox-core 0.6.0",
- "vox-types 0.6.0",
+ "vox-core",
+ "vox-types",
  "wasm-bindgen",
  "web-sys",
 ]
