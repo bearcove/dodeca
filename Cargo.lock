@@ -1789,6 +1789,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "cell-search"
+version = "0.6.1"
+dependencies = [
+ "cell-search-proto",
+ "dodeca-cell-runtime",
+ "dodeca-search-format",
+ "hotmeal",
+ "tracing",
+]
+
+[[package]]
+name = "cell-search-proto"
+version = "0.6.1"
+dependencies = [
+ "facet",
+ "vox 0.7.0",
+]
+
+[[package]]
 name = "cell-svgo"
 version = "0.6.1"
 dependencies = [
