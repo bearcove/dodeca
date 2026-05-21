@@ -16,6 +16,7 @@ use dodeca_search_format as fmt;
 
 /// Tags whose subtrees carry no page content worth indexing (site chrome,
 /// scripts, styling). Their descendants are skipped entirely.
+// s[impl index.skip-chrome]
 const SKIP_TAGS: &[&str] = &[
     "script", "style", "nav", "header", "footer", "aside", "template", "noscript",
 ];
@@ -87,6 +88,7 @@ fn walk(doc: &Document, node: NodeId, out: &mut Walk) {
             }
             // A heading with an `id` becomes a deep-link anchor positioned at
             // the word that follows it.
+            // s[impl index.anchors]
             if is_heading(tag) {
                 let id = elem
                     .attrs
@@ -152,6 +154,7 @@ fn find_descendant(doc: &Document, node: NodeId, tag: &str) -> Option<NodeId> {
 
 /// The element whose text the page is "about": `<title>`, else the first
 /// `<h1>`. Returns `None` when neither yields non-empty text.
+// s[impl index.title]
 fn extract_title(doc: &Document) -> Option<String> {
     if let Some(head) = doc.head()
         && let Some(title) = find_descendant(doc, head, "title")
@@ -173,6 +176,7 @@ fn extract_title(doc: &Document) -> Option<String> {
 }
 
 /// The subtree to index: the first `<main>` if present, else the whole body.
+// s[impl index.content-root]
 fn content_root(doc: &Document) -> Option<NodeId> {
     let body = doc.body()?;
     Some(find_descendant(doc, body, "main").unwrap_or(body))
@@ -209,6 +213,7 @@ fn build(pages: Vec<SearchPage>) -> Result<Vec<SearchFile>, String> {
     for (i, page) in pages.iter().enumerate() {
         let doc_id = i as fmt::DocId;
         let ex = extract(page);
+        // s[impl index.doc-length]
         let len = ex.words.len() as u32;
         total_len += u64::from(len);
 
@@ -260,6 +265,8 @@ fn build(pages: Vec<SearchPage>) -> Result<Vec<SearchFile>, String> {
             .push(fmt::TermPostings { term, postings });
     }
 
+    // The fixed `/search/` paths the served index lives at.
+    // s[impl serve.index-paths]
     let mut files: Vec<SearchFile> = Vec::new();
     let mut shard_refs: Vec<fmt::ShardRef> = Vec::new();
     for (prefix, terms) in shards {
@@ -285,6 +292,7 @@ fn build(pages: Vec<SearchPage>) -> Result<Vec<SearchFile>, String> {
         });
     }
 
+    // s[impl version.stamp]
     let meta = fmt::SearchMeta {
         version: fmt::FORMAT_VERSION,
         avg_doc_len,

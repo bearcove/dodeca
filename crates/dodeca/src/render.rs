@@ -117,14 +117,6 @@ document.addEventListener('click', async (e) => {
 });
 </script>"##;
 
-/// Search widget assets: stylesheet + the ES module that drives the WASM
-/// query core. Both are emitted under `/search/` by `crate::search`. Injected
-/// into every page so the `#search` slot in the theme becomes functional.
-const SEARCH_ASSETS: &str = concat!(
-    r#"<link rel="stylesheet" href="/search/search.css">"#,
-    r#"<script type="module" src="/search/search.js"></script>"#,
-);
-
 /// CSS and JS for build info icon on code blocks
 const BUILD_INFO_STYLES: &str = r##"<style>
 .code-block .build-info-btn {
@@ -473,8 +465,9 @@ pub async fn inject_livereload_with_build_info(
     let syntax_css = generate_syntax_highlight_css(&config.light_theme_css, &config.dark_theme_css);
     let term_css = format!("<style>\n{}</style>", cell_term_proto::generate_css());
     let head_injection_html = head_injections.join("");
+    let search_assets = crate::search::SEARCH_ASSETS;
     let scripts_to_inject = format!(
-        "{syntax_css}{term_css}{COPY_BUTTON_STYLES}{COPY_BUTTON_SCRIPT}{SEARCH_ASSETS}{build_info_assets}{head_injection_html}"
+        "{syntax_css}{term_css}{COPY_BUTTON_STYLES}{COPY_BUTTON_SCRIPT}{search_assets}{build_info_assets}{head_injection_html}"
     );
     result = hotmeal_server::inject_into_head(&result, &scripts_to_inject);
 

@@ -36,6 +36,7 @@ const WASM_BG: &[u8] = include_bytes!("../../dodeca-search-wasm/pkg/dodeca_searc
 
 /// Version-static search runtime files: `(output path without leading slash,
 /// bytes)`. Served at fixed `/search/` URLs — `search.js` hard-codes them.
+// s[impl serve.runtime]
 pub const RUNTIME_ASSETS: &[(&str, &[u8])] = &[
     ("search/search.js", SEARCH_JS.as_bytes()),
     ("search/search.css", SEARCH_CSS.as_bytes()),
@@ -53,6 +54,15 @@ pub fn runtime_output_files() -> Vec<OutputFile> {
         })
         .collect()
 }
+
+/// The `<head>` markup that activates the search widget on every page: the
+/// stylesheet and the ES module driving the WASM query core. Both resolve to
+/// [`RUNTIME_ASSETS`] entries. `render.rs` injects this into every page.
+// s[impl serve.inject]
+pub const SEARCH_ASSETS: &str = concat!(
+    r#"<link rel="stylesheet" href="/search/search.css">"#,
+    r#"<script type="module" src="/search/search.js"></script>"#,
+);
 
 // ============================================================================
 // Index files — content-derived, built by cell-search.
@@ -75,6 +85,10 @@ fn route_to_url(route: &Route) -> String {
 /// with `build_site` and only re-runs when page content changes. A missing or
 /// failing `cell-search` cdylib degrades gracefully to an empty index — the
 /// build still succeeds, search just has nothing to answer with.
+//
+// `build_site` calls this to emit the index to disk; `serve`'s `find_content`
+// calls it to serve the index live — the single shared path behind both modes.
+// s[impl serve.both-modes]
 #[picante::tracked]
 pub async fn search_index_files<DB: Db>(db: &DB) -> PicanteResult<Vec<OutputFile>> {
     let tree = match build_tree(db).await? {

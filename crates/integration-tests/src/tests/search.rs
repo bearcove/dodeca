@@ -52,19 +52,39 @@ fn run_query(site: &TestSite, query: &str) -> Vec<fmt::SearchResult> {
 
 /// The index is built, served, and answers single-term, AND, and no-match
 /// queries correctly.
+// s[verify serve.index-paths]
+// s[verify serve.both-modes]
+// s[verify format.manifest]
+// s[verify index.title]
+// s[verify index.anchors]
+// s[verify query.and]
+// s[verify query.bm25]
+// s[verify query.shard-selection]
+// s[verify render.mark]
+// s[verify render.deeplink]
+// s[verify version.stamp]
 pub fn search_index_answers_queries() {
     let site = TestSite::with_files(
         "sample-site",
         &[("content/search-fixture.md", FIXTURE_PAGE)],
     );
 
-    // The manifest is well-formed and includes the fixture page.
+    // The manifest is well-formed and indexes the fixture page with its title.
     let meta: fmt::SearchMeta = fmt::decode(&site.get_bytes("/search/meta")).expect("decode meta");
     assert_eq!(meta.version, fmt::FORMAT_VERSION, "format version");
-    assert!(
-        meta.docs.iter().any(|d| d.url == "/search-fixture/"),
-        "fixture page should be indexed; indexed urls: {:?}",
-        meta.docs.iter().map(|d| &d.url).collect::<Vec<_>>()
+    let fixture_doc = meta
+        .docs
+        .iter()
+        .find(|d| d.url == "/search-fixture/")
+        .unwrap_or_else(|| {
+            panic!(
+                "fixture page should be indexed; indexed urls: {:?}",
+                meta.docs.iter().map(|d| &d.url).collect::<Vec<_>>()
+            )
+        });
+    assert_eq!(
+        fixture_doc.title, "Search Fixture Page",
+        "title is taken from the page heading"
     );
 
     // A distinctive single term resolves to exactly the fixture page, with the
@@ -82,6 +102,16 @@ pub fn search_index_answers_queries() {
         hits[0].excerpt
     );
 
+    // A term that occurs only under the "Telemetry section" heading deep-links
+    // into that section.
+    let deep = run_query(&site, "observability");
+    assert_eq!(deep.len(), 1, "one page mentions 'observability'");
+    assert!(
+        deep[0].url.contains("/search-fixture/#"),
+        "result should deep-link to the heading anchor: {}",
+        deep[0].url
+    );
+
     // AND semantics: every query word must occur in the same document.
     let both = run_query(&site, "platypus telemetry");
     assert_eq!(both.len(), 1, "the fixture page contains both words");
@@ -95,6 +125,8 @@ pub fn search_index_answers_queries() {
 
 /// The search runtime assets (WASM core, loader, UI, stylesheet) are served at
 /// their fixed paths, and every page links the widget into its head.
+// s[verify serve.runtime]
+// s[verify serve.inject]
 pub fn search_runtime_assets_served() {
     let site = TestSite::new("sample-site");
 

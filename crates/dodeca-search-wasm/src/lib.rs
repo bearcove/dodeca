@@ -50,6 +50,7 @@ thread_local! {
 pub async fn load_index(meta_url: String) -> Result<(), JsValue> {
     let bytes = fetch_bytes(&meta_url).await.map_err(js_err)?;
     let meta: SearchMeta = decode(&bytes).map_err(js_err)?;
+    // s[impl version.reject]
     if meta.version != FORMAT_VERSION {
         return Err(js_err(format!(
             "search index format {} unsupported (reader expects {FORMAT_VERSION})",

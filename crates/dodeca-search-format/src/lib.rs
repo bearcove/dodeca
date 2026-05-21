@@ -28,6 +28,7 @@ use unicode_segmentation::UnicodeSegmentation;
 pub const FORMAT_VERSION: u32 = 1;
 
 /// Stable manifest. Path: `/search/index/meta`.
+// s[impl format.manifest]
 #[derive(Debug, Clone, Facet)]
 pub struct SearchMeta {
     pub version: u32,
@@ -63,6 +64,7 @@ pub struct ShardRef {
 }
 
 /// Postings for every term sharing one prefix. Path: `/search/index/<hash>`.
+// s[impl format.terms-sorted]
 #[derive(Debug, Clone, Facet)]
 pub struct Shard {
     /// Sorted by [`TermPostings::term`] so the reader can binary-search and
@@ -78,6 +80,7 @@ pub struct TermPostings {
     pub postings: Vec<Posting>,
 }
 
+// s[impl format.postings]
 #[derive(Debug, Clone, Facet)]
 pub struct Posting {
     pub doc: DocId,
@@ -87,6 +90,7 @@ pub struct Posting {
 }
 
 /// Per-document display data. Path: `/search/fragment/<hash>`.
+// s[impl format.fragment]
 #[derive(Debug, Clone, Facet)]
 pub struct Fragment {
     pub url: String,
@@ -109,6 +113,7 @@ pub struct Anchor {
 
 /// Serialize any format struct. Compact, not self-describing — fine because
 /// the same dodeca build produces and consumes it.
+// s[impl format.encoding]
 pub fn encode<T: Facet<'static>>(value: &T) -> Result<Vec<u8>, String> {
     facet_postcard::to_vec(value).map_err(|e| e.to_string())
 }
@@ -136,6 +141,11 @@ fn stemmer() -> rust_stemmers::Stemmer {
 /// Tokenize text into ordered tokens. Word boundaries follow UAX#29; tokens
 /// are lowercased before stemming. Identical logic must run at index time and
 /// query time, which is why it lives here.
+// s[impl analyze.tokenize]
+// s[impl analyze.lowercase]
+// s[impl analyze.stem]
+// s[impl analyze.display-form]
+// s[impl analyze.consistent]
 pub fn analyze(text: &str) -> Vec<Token> {
     let stemmer = stemmer();
     text.unicode_words()
@@ -157,6 +167,7 @@ pub fn analyze_stems(text: &str) -> Vec<String> {
 
 /// The shard a stemmed term belongs to: its lowercased first ASCII
 /// alphanumeric character, or the empty catch-all bucket.
+// s[impl format.shard-prefix]
 pub fn shard_prefix(stem: &str) -> String {
     match stem.chars().next() {
         Some(c) if c.is_ascii_alphanumeric() => c.to_ascii_lowercase().to_string(),
@@ -205,6 +216,7 @@ struct QuerySlot {
 }
 
 /// Distinct shard prefixes a query needs, so the loader knows what to fetch.
+// s[impl query.shard-selection]
 pub fn shards_for_query(query: &str) -> Vec<String> {
     let mut prefixes: Vec<String> = query_slots(query)
         .iter()
@@ -216,6 +228,7 @@ pub fn shards_for_query(query: &str) -> Vec<String> {
 }
 
 /// Look up every term in `shard` matching `slot`, returning their postings.
+// s[impl query.prefix]
 fn slot_postings<'a>(slot: &QuerySlot, shard: &'a Shard) -> Vec<&'a TermPostings> {
     if slot.prefix_match {
         // shard.terms is sorted: take the contiguous run of terms with the prefix.
@@ -242,6 +255,8 @@ fn slot_postings<'a>(slot: &QuerySlot, shard: &'a Shard) -> Vec<&'a TermPostings
 /// Semantics: AND across query words (a document must match every slot),
 /// scored by summed BM25 (best term per slot). Returns hits sorted by
 /// descending score, capped at `limit`.
+// s[impl query.and]
+// s[impl query.bm25]
 pub fn rank<'a>(
     meta: &SearchMeta,
     query: &str,
@@ -337,6 +352,9 @@ const EXCERPT_WORDS: usize = 30;
 /// Build the displayable result for `hit` from its [`Fragment`]. Picks the
 /// densest window of matched words, wraps matches in `<mark>`, and deep-links
 /// to the nearest preceding heading when there is one.
+// s[impl render.excerpt]
+// s[impl render.mark]
+// s[impl render.deeplink]
 pub fn render(hit: &Hit, fragment: &Fragment) -> SearchResult {
     let words = &fragment.words;
     let matched: std::collections::HashSet<u32> = hit.match_positions.iter().copied().collect();
@@ -419,116 +437,4 @@ fn escape_html(s: &str) -> String {
         }
     }
     out
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn analyze_lowercases_and_stems() {
-        let toks = analyze("Running RUNS runner");
-        let stems: Vec<&str> = toks.iter().map(|t| t.stem.as_str()).collect();
-        // English Snowball collapses these to the same root.
-        assert_eq!(stems, vec!["run", "run", "runner"]);
-        assert_eq!(toks[0].display, "Running");
-    }
-
-    #[test]
-    fn shard_prefix_buckets() {
-        assert_eq!(shard_prefix("run"), "r");
-        assert_eq!(shard_prefix("3d"), "3");
-        assert_eq!(shard_prefix("中文"), "");
-    }
-
-    fn tp(term: &str, postings: &[(u32, &[u32])]) -> TermPostings {
-        TermPostings {
-            term: term.into(),
-            postings: postings
-                .iter()
-                .map(|(d, ps)| Posting {
-                    doc: *d,
-                    positions: ps.to_vec(),
-                })
-                .collect(),
-        }
-    }
-
-    #[test]
-    fn rank_is_and_and_orders_by_bm25() {
-        let meta = SearchMeta {
-            version: FORMAT_VERSION,
-            avg_doc_len: 10.0,
-            docs: vec![
-                DocMeta {
-                    url: "/a/".into(),
-                    title: "A".into(),
-                    len: 10,
-                    fragment: "a".into(),
-                },
-                DocMeta {
-                    url: "/b/".into(),
-                    title: "B".into(),
-                    len: 10,
-                    fragment: "b".into(),
-                },
-            ],
-            shards: vec![],
-        };
-        // "cell" in both docs (twice in doc 0), "search" only in doc 0.
-        let s_c = Shard {
-            terms: vec![tp("cell", &[(0, &[1, 5]), (1, &[2])])],
-        };
-        let s_s = Shard {
-            terms: vec![tp("search", &[(0, &[2])])],
-        };
-        let shard_for = |p: &str| match p {
-            "c" => Some(&s_c),
-            "s" => Some(&s_s),
-            _ => None,
-        };
-
-        // Single term: both match, doc 0 ranks first (higher tf).
-        let hits = rank(&meta, "cell", &shard_for, 10);
-        assert_eq!(hits.iter().map(|h| h.doc).collect::<Vec<_>>(), vec![0, 1]);
-
-        // AND: only doc 0 has both "cell" and "search".
-        let hits = rank(&meta, "cell search", &shard_for, 10);
-        assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].doc, 0);
-    }
-
-    #[test]
-    fn render_marks_matches_and_truncates() {
-        let frag = Fragment {
-            url: "/p/".into(),
-            title: "Page".into(),
-            words: (0..50).map(|i| format!("w{i}")).collect(),
-            anchors: vec![Anchor {
-                id: "sec".into(),
-                text: "Section".into(),
-                position: 5,
-            }],
-        };
-        let hit = Hit {
-            doc: 0,
-            score: 1.0,
-            match_positions: vec![10],
-        };
-        let r = render(&hit, &frag);
-        assert!(r.excerpt.contains("<mark>w10</mark>"));
-        assert!(r.excerpt.contains('…'));
-        assert_eq!(r.url, "/p/#sec");
-    }
-
-    #[test]
-    fn postcard_roundtrips() {
-        let shard = Shard {
-            terms: vec![tp("cell", &[(0, &[1, 2])])],
-        };
-        let bytes = encode(&shard).unwrap();
-        let back: Shard = decode(&bytes).unwrap();
-        assert_eq!(back.terms[0].term, "cell");
-        assert_eq!(back.terms[0].postings[0].positions, vec![1, 2]);
-    }
 }

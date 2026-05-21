@@ -3,13 +3,31 @@
 specs (
     {
         name gingembre
-        prefix r
         include (docs/spec/gingembre.md)
         impls (
             {
                 name rust
                 include (crates/gingembre/src/**/*.rs)
                 test_include (crates/gingembre/tests/**/*.rs)
+            }
+        )
+    }
+    {
+        name search
+        include (docs/spec/search.md)
+        impls (
+            {
+                name rust
+                include (
+                    crates/dodeca-search-format/src/**/*.rs
+                    crates/dodeca-search-wasm/src/**/*.rs
+                    cells/cell-search/src/**/*.rs
+                    crates/dodeca/src/search.rs
+                )
+                test_include (
+                    crates/dodeca-search-format/tests/**/*.rs
+                    crates/integration-tests/src/tests/search.rs
+                )
             }
         )
     }
