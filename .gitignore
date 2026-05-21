@@ -25,3 +25,5 @@ browser-tests/test-results/
 crates/dodeca-devtools/pkg/
 crates/dodeca-search-wasm/pkg/
 examples/vite-starter/node_modules
+
+.playwright-mcp/
