@@ -211,7 +211,6 @@ impl Host {
     pub fn build_step_executor(&self) -> Option<&Arc<crate::build_steps::BuildStepExecutor>> {
         self.build_step_executor.get()
     }
-
 }
 
 // ============================================================================
@@ -253,6 +252,7 @@ impl_cell_client!(cell_js_proto::JsProcessorClient, "js");
 impl_cell_client!(cell_svgo_proto::SvgoOptimizerClient, "svgo");
 impl_cell_client!(cell_fonts_proto::FontProcessorClient, "fonts");
 impl_cell_client!(cell_linkcheck_proto::LinkCheckerClient, "linkcheck");
+impl_cell_client!(cell_search_proto::SearchIndexerClient, "search");
 impl_cell_client!(cell_html_diff_proto::HtmlDifferClient, "html-diff");
 impl_cell_client!(cell_dialoguer_proto::DialoguerClient, "dialoguer");
 impl_cell_client!(
@@ -288,4 +288,3 @@ impl Host {
         }
     }
 }
-

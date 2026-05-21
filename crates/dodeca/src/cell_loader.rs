@@ -72,6 +72,7 @@ host_cell_endpoints! {
     ep_svgo           => "svgo",           vox_ffi_host_svgo_v1;
     ep_fonts          => "fonts",          vox_ffi_host_fonts_v1;
     ep_linkcheck      => "linkcheck",      vox_ffi_host_linkcheck_v1;
+    ep_search         => "search",         vox_ffi_host_search_v1;
     ep_html_diff      => "html-diff",      vox_ffi_host_html_diff_v1;
     ep_dialoguer      => "dialoguer",      vox_ffi_host_dialoguer_v1;
     ep_code_execution => "code-execution", vox_ffi_host_code_execution_v1;

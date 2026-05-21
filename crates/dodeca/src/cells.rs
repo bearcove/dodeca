@@ -34,6 +34,7 @@ use cell_linkcheck_proto::{LinkCheckInput, LinkCheckResult, LinkCheckerClient, L
 use cell_markdown_proto::MarkdownProcessorClient;
 use cell_minify_proto::{MinifierClient, MinifyResult};
 use cell_sass_proto::{SassCompilerClient, SassInput, SassResult};
+use cell_search_proto::SearchIndexerClient;
 use cell_svgo_proto::{SvgoOptimizerClient, SvgoResult};
 use cell_term_proto::{RecordConfig, TermRecorderClient, TermResult};
 use cell_tui_proto::TuiDisplayClient;
@@ -208,6 +209,7 @@ pub const CELL_NAMES: &[&str] = &[
     "svgo",
     "fonts",
     "linkcheck",
+    "search",
     "html-diff",
     "dialoguer",
     "code-execution",
@@ -248,29 +250,17 @@ impl HostService for HostServiceImpl {
     }
 
     // Template Host
-    async fn load_template(
-        &self,
-        context_id: ContextId,
-        name: String,
-    ) -> LoadTemplateResult {
+    async fn load_template(&self, context_id: ContextId, name: String) -> LoadTemplateResult {
         use cell_gingembre_proto::TemplateHost;
         self.template_host.load_template(context_id, name).await
     }
 
-    async fn resolve_data(
-        &self,
-        context_id: ContextId,
-        path: Vec<String>,
-    ) -> ResolveDataResult {
+    async fn resolve_data(&self, context_id: ContextId, path: Vec<String>) -> ResolveDataResult {
         use cell_gingembre_proto::TemplateHost;
         self.template_host.resolve_data(context_id, path).await
     }
 
-    async fn keys_at(
-        &self,
-        context_id: ContextId,
-        path: Vec<String>,
-    ) -> KeysAtResult {
+    async fn keys_at(&self, context_id: ContextId, path: Vec<String>) -> KeysAtResult {
         use cell_gingembre_proto::TemplateHost;
         self.template_host.keys_at(context_id, path).await
     }
@@ -302,11 +292,7 @@ impl HostService for HostServiceImpl {
         }
     }
 
-    async fn get_scope(
-        &self,
-        route: String,
-        path: Vec<String>,
-    ) -> Vec<ScopeEntry> {
+    async fn get_scope(&self, route: String, path: Vec<String>) -> Vec<ScopeEntry> {
         if let Some(server) = &self.site_server {
             use cell_http_proto::ContentService;
             let content_service = crate::content_service::HostContentService::new(server.clone());
@@ -346,10 +332,7 @@ impl HostService for HostServiceImpl {
     }
 
     // HTML Host callbacks
-    async fn minify_css(
-        &self,
-        css: String,
-    ) -> cell_host_proto::MinifyCssResult {
+    async fn minify_css(&self, css: String) -> cell_host_proto::MinifyCssResult {
         // Delegate to CSS cell for minification (empty path_map = minify only)
         match css_cell().await {
             Some(client) => match client.rewrite_and_minify(css, HashMap::new()).await {
@@ -533,6 +516,7 @@ const CELL_DEFS: &[CellDef] = &[
     CellDef::new("svgo"),
     CellDef::new("fonts"),
     CellDef::new("linkcheck"),
+    CellDef::new("search"),
     CellDef::new("html-diff"),
     CellDef::new("dialoguer").inherit_stdio(),
     CellDef::new("code-execution"),
@@ -688,6 +672,7 @@ cell_client_accessor!(vite_cell, "vite", ViteManagerClient);
 // Other cells
 cell_client_accessor!(font_cell, "fonts", FontProcessorClient);
 cell_client_accessor!(linkcheck_cell, "linkcheck", LinkCheckerClient);
+cell_client_accessor!(search_cell, "search", SearchIndexerClient);
 cell_client_accessor!(html_diff_cell, "html_diff", HtmlDifferClient);
 cell_client_accessor!(dialoguer_cell, "dialoguer", DialoguerClient);
 cell_client_accessor!(code_execution_cell, "code_execution", CodeExecutorClient);

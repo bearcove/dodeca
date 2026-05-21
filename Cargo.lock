@@ -2796,6 +2796,7 @@ dependencies = [
  "cell-markdown-proto",
  "cell-minify-proto",
  "cell-sass-proto",
+ "cell-search-proto",
  "cell-svgo-proto",
  "cell-term-proto",
  "cell-tui-proto",
