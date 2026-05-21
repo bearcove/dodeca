@@ -62,6 +62,7 @@ fn run_query(site: &TestSite, query: &str) -> Vec<fmt::SearchResult> {
 // s[verify query.shard-selection]
 // s[verify render.mark]
 // s[verify render.deeplink]
+// s[verify render.text-fragment]
 // s[verify version.stamp]
 pub fn search_index_answers_queries() {
     let site = TestSite::with_files(
@@ -109,6 +110,11 @@ pub fn search_index_answers_queries() {
     assert!(
         deep[0].url.contains("/search-fixture/#"),
         "result should deep-link to the heading anchor: {}",
+        deep[0].url
+    );
+    assert!(
+        deep[0].url.contains(":~:text="),
+        "result should carry a text-fragment directive: {}",
         deep[0].url
     );
 

@@ -136,6 +136,14 @@ The indexer receives the rendered HTML of every page.
 > A result's link MUST point to the nearest heading anchor at or before the
 > first matched word, so the user lands in the relevant section.
 
+> s[render.text-fragment]
+> A result's link MUST also carry a [text-fragment][] directive
+> (`:~:text=start[,end]`) spanning the matched words, so a browser that
+> supports it scrolls to and highlights the match itself. The heading anchor
+> remains the fallback for browsers that do not.
+>
+> [text-fragment]: https://developer.mozilla.org/en-US/docs/Web/URI/Fragment/Text_fragments
+
 ---
 
 # Serving

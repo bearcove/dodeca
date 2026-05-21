@@ -349,12 +349,17 @@ pub struct SearchResult {
 
 const EXCERPT_WORDS: usize = 30;
 
+/// Number of trailing context words the text-fragment directive may span.
+const TEXT_FRAGMENT_MAX_SPAN: usize = 10;
+
 /// Build the displayable result for `hit` from its [`Fragment`]. Picks the
-/// densest window of matched words, wraps matches in `<mark>`, and deep-links
-/// to the nearest preceding heading when there is one.
+/// densest window of matched words, wraps matches in `<mark>`, deep-links to
+/// the nearest preceding heading, and appends a text-fragment directive so a
+/// supporting browser scrolls straight to the match.
 // s[impl render.excerpt]
 // s[impl render.mark]
 // s[impl render.deeplink]
+// s[impl render.text-fragment]
 pub fn render(hit: &Hit, fragment: &Fragment) -> SearchResult {
     let words = &fragment.words;
     let matched: std::collections::HashSet<u32> = hit.match_positions.iter().copied().collect();
@@ -412,10 +417,36 @@ pub fn render(hit: &Hit, fragment: &Fragment) -> SearchResult {
         .iter()
         .filter(|a| (a.position as usize) <= anchor_pos)
         .max_by_key(|a| a.position);
-    let url = match anchor {
+    let mut url = match anchor {
         Some(a) if !a.id.is_empty() => format!("{}#{}", fragment.url, a.id),
         _ => fragment.url.clone(),
     };
+
+    // Append a text-fragment directive (`:~:text=start[,end]`) spanning the
+    // matched words in the excerpt window. `start` and `end` are single words,
+    // which keeps the directive robust to punctuation; a browser that can't
+    // find them — or doesn't support text fragments at all — falls back to the
+    // heading anchor already in `url`.
+    let window_matches: Vec<usize> = (best_start..end)
+        .filter(|i| matched.contains(&(*i as u32)))
+        .collect();
+    if let Some(&first) = window_matches.first() {
+        let last = window_matches
+            .last()
+            .copied()
+            .unwrap_or(first)
+            .min(first + TEXT_FRAGMENT_MAX_SPAN);
+        let mut directive = format!("text={}", percent_encode(&words[first]));
+        if last > first {
+            directive.push(',');
+            directive.push_str(&percent_encode(&words[last]));
+        }
+        if !url.contains('#') {
+            url.push('#');
+        }
+        url.push_str(":~:");
+        url.push_str(&directive);
+    }
 
     SearchResult {
         url,
@@ -423,6 +454,22 @@ pub fn render(hit: &Hit, fragment: &Fragment) -> SearchResult {
         excerpt,
         score: hit.score,
     }
+}
+
+/// Percent-encode a single word for use inside a `:~:text=` directive. Only
+/// `A-Za-z0-9_.~` pass through; every other byte (including the directive
+/// delimiters `-` and `,`, and all non-ASCII) is `%`-escaped.
+fn percent_encode(word: &str) -> String {
+    let mut out = String::with_capacity(word.len());
+    for byte in word.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'_' | b'.' | b'~' => {
+                out.push(byte as char);
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
 }
 
 fn escape_html(s: &str) -> String {

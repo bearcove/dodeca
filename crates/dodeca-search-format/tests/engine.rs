@@ -101,6 +101,7 @@ fn shards_for_query_dedups_prefixes() {
 // s[verify render.excerpt]
 // s[verify render.mark]
 // s[verify render.deeplink]
+// s[verify render.text-fragment]
 #[test]
 fn render_marks_matches_and_truncates() {
     let frag = Fragment {
@@ -121,7 +122,29 @@ fn render_marks_matches_and_truncates() {
     let r = render(&hit, &frag);
     assert!(r.excerpt.contains("<mark>w10</mark>"));
     assert!(r.excerpt.contains('…'));
-    assert_eq!(r.url, "/p/#sec");
+    // Heading anchor plus a single-word text-fragment directive at the match.
+    assert_eq!(r.url, "/p/#sec:~:text=w10");
+}
+
+// s[verify render.text-fragment]
+#[test]
+fn render_text_fragment_spans_matches_and_escapes() {
+    let frag = Fragment {
+        url: "/p/".into(),
+        title: "Page".into(),
+        // A space-bearing word forces percent-encoding of the directive.
+        words: vec!["alpha".into(), "mid".into(), "om ga".into()],
+        anchors: vec![],
+    };
+    let hit = Hit {
+        doc: 0,
+        score: 1.0,
+        match_positions: vec![0, 2],
+    };
+    let r = render(&hit, &frag);
+    // No heading anchor, so the directive opens its own fragment; `start,end`
+    // spans the first and last matched words, with the space %-encoded.
+    assert_eq!(r.url, "/p/#:~:text=alpha,om%20ga");
 }
 
 // s[verify format.encoding]
