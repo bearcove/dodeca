@@ -131,6 +131,10 @@ fontcull = { version = "2.0", default-features = false }
 pulldown-cmark = "0.13"
 arborium-theme = "2"
 
+# Search (from-scratch, pagefind-inspired full-text search)
+rust-stemmers = "1.2"
+unicode-segmentation = "1.13"
+
 # SVG optimization (git)
 svag = { git = "https://github.com/bearcove/svag" }
 getrandom = { version = "0.3", features = ["wasm_js"] }

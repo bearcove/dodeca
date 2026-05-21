@@ -1,0 +1,19 @@
+[package]
+name = "dodeca-search-format"
+version = "0.6.1"
+edition = "2024"
+rust-version = "1.91"
+description = "Shared on-disk format + query engine for dodeca's from-scratch full-text search"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+[dependencies]
+facet.workspace = true
+facet-postcard.workspace = true
+rust-stemmers.workspace = true
+unicode-segmentation.workspace = true

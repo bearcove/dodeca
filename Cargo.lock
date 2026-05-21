@@ -2885,6 +2885,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "dodeca-search-format"
+version = "0.6.1"
+dependencies = [
+ "facet",
+ "facet-postcard",
+ "rust-stemmers",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "downcast-rs"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7103,6 +7113,16 @@ dependencies = [
  "hashbrown 0.14.5",
  "rustc-hash 1.1.0",
  "text-size",
+]
+
+[[package]]
+name = "rust-stemmers"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e46a2036019fdb888131db7a4c847a1063a7493f971ed94ea82c67eada63ca54"
+dependencies = [
+ "serde",
+ "serde_derive",
 ]
 
 [[package]]
