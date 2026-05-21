@@ -377,7 +377,13 @@ fn install_dev() -> bool {
     }
     eprintln!("  Installed ddc");
 
-    // Copy all ddc-cell-* binaries
+    // Copy all cell cdylibs (libddc_cell_<name>.{dylib,so,dll}).
+    //
+    // Cells used to be standalone `ddc-cell-*` binaries; they are now cdylibs
+    // that `ddc` dlopen's from its own directory (see cell_loader::cell_library_path).
+    let dll_prefix = format!("{}ddc_cell_", std::env::consts::DLL_PREFIX);
+    let dll_suffix = std::env::consts::DLL_SUFFIX;
+    let mut installed_cells = 0;
     if let Ok(entries) = fs::read_dir(&release_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
@@ -387,8 +393,7 @@ fn install_dev() -> bool {
 
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
-            // Copy cell binaries (ddc-cell-*)
-            if name.starts_with("ddc-cell-") && !name.contains('.') {
+            if name.starts_with(&dll_prefix) && name.ends_with(dll_suffix) {
                 let dst = cargo_bin.join(name);
                 let _ = fs::remove_file(&dst);
                 if let Err(e) = fs::copy(&path, &dst) {
@@ -396,10 +401,37 @@ fn install_dev() -> bool {
                     return false;
                 }
                 eprintln!("  Installed {name}");
+                installed_cells += 1;
             }
         }
     }
 
+    if installed_cells == 0 {
+        eprintln!(
+            "{}: no cell cdylibs ({dll_prefix}*{dll_suffix}) found in {} — ddc would not be able to load cells",
+            "error".red().bold(),
+            release_dir.display(),
+        );
+        return false;
+    }
+
+    // Remove stale standalone cell binaries from the pre-cdylib era so the
+    // freshly installed `ddc` doesn't sit next to dead `ddc-cell-*` executables.
+    if let Ok(entries) = fs::read_dir(&cargo_bin) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if name.starts_with("ddc-cell-")
+                && !name.contains('.')
+                && path.is_file()
+                && fs::remove_file(&path).is_ok()
+            {
+                eprintln!("  Removed stale {name}");
+            }
+        }
+    }
+
+    eprintln!("Installed {installed_cells} cell cdylibs");
     eprintln!("Installation complete!");
     true
 }
