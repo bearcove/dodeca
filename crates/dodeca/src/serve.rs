@@ -1050,23 +1050,21 @@ impl SiteServer {
             }
         }
 
-        // 4. Search index + runtime assets, served at fixed `/search/` paths.
-        // These live at stable (non-cache-busted) URLs and are regenerated on
-        // every build, so they must NOT be served `immutable` — `StaticNoCache`
-        // keeps `ddc serve` showing a fresh index after each content edit.
+        // 4. Search assets, served under `/search/`.
         if let Some(rel) = path.strip_prefix('/')
             && rel.starts_with("search/")
         {
-            // Version-static runtime assets (wasm core, loader, UI, CSS).
-            for (asset_path, bytes) in crate::search::RUNTIME_ASSETS {
-                if *asset_path == rel {
-                    return Some(ServeContent::StaticNoCache(
-                        bytes.to_vec(),
-                        mime_from_extension(path),
-                    ));
-                }
+            // Runtime assets (wasm core, loader, UI, CSS) live under a
+            // content-versioned directory — safe to cache immutably.
+            if let Some(bytes) = crate::search::runtime_asset(rel) {
+                return Some(ServeContent::Static(
+                    bytes.to_vec(),
+                    mime_from_extension(path),
+                ));
             }
-            // Content-derived index files (manifest, shards, fragments).
+            // Index files (manifest, shards, fragments) live at stable paths
+            // and are regenerated every build, so they MUST NOT be cached
+            // `immutable` — `StaticNoCache` keeps `ddc serve` fresh after edits.
             if let Ok(files) = crate::search::search_index_files(&snapshot).await {
                 for file in files {
                     if let crate::db::OutputFile::Static { path: p, content } = file

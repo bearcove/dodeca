@@ -465,7 +465,7 @@ pub async fn inject_livereload_with_build_info(
     let syntax_css = generate_syntax_highlight_css(&config.light_theme_css, &config.dark_theme_css);
     let term_css = format!("<style>\n{}</style>", cell_term_proto::generate_css());
     let head_injection_html = head_injections.join("");
-    let search_assets = crate::search::SEARCH_ASSETS;
+    let search_assets = crate::search::search_head_injection();
     let scripts_to_inject = format!(
         "{syntax_css}{term_css}{COPY_BUTTON_STYLES}{COPY_BUTTON_SCRIPT}{search_assets}{build_info_assets}{head_injection_html}"
     );

@@ -5,10 +5,12 @@
 // decoding it, BM25 ranking, excerpt rendering. This file owns only the input
 // box, the results dropdown, debouncing and keyboard handling.
 //
-// It is served at /search/search.js next to the wasm module and is injected
-// into every page as `<script type="module" src="/search/search.js">`.
+// It is served from a content-versioned directory (/search/asset/<v>/) next to
+// the wasm module, and injected into every page as a `<script type="module">`.
+// The wasm import is relative so it resolves within that same versioned
+// directory automatically.
 
-import initWasm, { load_index, search as runQuery } from "/search/dodeca_search_wasm.js";
+import initWasm, { load_index, search as runQuery } from "./dodeca_search_wasm.js";
 
 // Container the docs template provides: `<div id="search">`.
 const MOUNT_ID = "search";

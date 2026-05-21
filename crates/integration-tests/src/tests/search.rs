@@ -129,26 +129,34 @@ pub fn search_index_answers_queries() {
     );
 }
 
-/// The search runtime assets (WASM core, loader, UI, stylesheet) are served at
-/// their fixed paths, and every page links the widget into its head.
+/// Every page injects the widget, and the runtime assets (WASM core, loader,
+/// UI, stylesheet) are served from their content-versioned directory.
 // s[verify serve.runtime]
 // s[verify serve.inject]
 pub fn search_runtime_assets_served() {
     let site = TestSite::new("sample-site");
 
-    for path in [
-        "/search/search.js",
-        "/search/search.css",
-        "/search/dodeca_search_wasm.js",
-        "/search/dodeca_search_wasm_bg.wasm",
-    ] {
-        assert!(
-            !site.get_bytes(path).is_empty(),
-            "{path} should be served and non-empty"
-        );
-    }
-
+    // Every page injects the widget at a content-versioned asset URL.
     let html = site.get("/");
     html.assert_ok();
-    html.assert_contains("/search/search.js");
+    let js_url = html
+        .extract(r#"src="(/search/asset/[^"]+/search\.js)""#)
+        .expect("page should inject a versioned search.js");
+    let dir = js_url
+        .strip_suffix("/search.js")
+        .expect("the injected url ends in /search.js");
+
+    // All four runtime assets are served, non-empty, under that directory.
+    for name in [
+        "search.js",
+        "search.css",
+        "dodeca_search_wasm.js",
+        "dodeca_search_wasm_bg.wasm",
+    ] {
+        let bytes = site.get_bytes(&format!("{dir}/{name}"));
+        assert!(
+            !bytes.is_empty(),
+            "{dir}/{name} should be served and non-empty"
+        );
+    }
 }

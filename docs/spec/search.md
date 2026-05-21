@@ -155,7 +155,9 @@ The indexer receives the rendered HTML of every page.
 
 > s[serve.runtime]
 > The search runtime assets — the WASM query core, its loader, the UI script
-> and the stylesheet — MUST be served under `/search/`.
+> and the stylesheet — MUST be served from a content-versioned directory under
+> `/search/`, so they can be cached immutably and a new `ddc` serves them at
+> fresh URLs.
 
 > s[serve.inject]
 > Every rendered page MUST have the search stylesheet and UI script injected
