@@ -10,6 +10,7 @@ name = "integration-tests"
 path = "src/main.rs"
 
 [dependencies]
+dodeca-search-format = { path = "../dodeca-search-format" }
 facet-json.workspace = true
 facet-value.workspace = true
 hotmeal.workspace = true

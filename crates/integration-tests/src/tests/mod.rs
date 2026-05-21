@@ -15,6 +15,7 @@ pub mod livereload;
 pub mod mermaid;
 pub mod picante_cache;
 pub mod sass;
+pub mod search;
 pub mod section_pages;
 pub mod static_assets;
 pub mod templates;

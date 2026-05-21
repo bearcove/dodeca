@@ -708,6 +708,24 @@ impl TestSite {
         }
     }
 
+    /// GET a path and return the raw response body bytes. Panics on a non-200
+    /// status or transport error. Use this for binary assets — the search
+    /// index files are postcard, which a lossy `String` would corrupt.
+    pub fn get_bytes(&self, path: &str) -> Vec<u8> {
+        let url = format!("http://127.0.0.1:{}{}", self.port, path);
+        debug!("→ GET (bytes) {}", path);
+        match ureq::get(&url).call() {
+            Ok(resp) => {
+                let status = resp.status().as_u16();
+                assert_eq!(status, 200, "GET {path}: expected 200, got {status}");
+                resp.into_body()
+                    .read_to_vec()
+                    .unwrap_or_else(|e| panic!("GET {path}: read body: {e}"))
+            }
+            Err(e) => panic!("GET {path} failed: {e:?}"),
+        }
+    }
+
     /// Raw TCP probe for instrumentation. Measures connect, write, and read phases
     /// separately to diagnose where failures occur.
     ///
@@ -1077,7 +1095,9 @@ impl Response {
     pub fn img_src(&self, pattern: &str) -> Option<String> {
         let tendril = StrTendril::from(self.body.as_str());
         let doc = hotmeal::parse(&tendril);
-        find_attr_in_node(&doc, doc.root, "img", "src", &|value| matches_glob(pattern, value))
+        find_attr_in_node(&doc, doc.root, "img", "src", &|value| {
+            matches_glob(pattern, value)
+        })
     }
 
     /// Find a <link> tag's href attribute matching a glob pattern
@@ -1085,7 +1105,9 @@ impl Response {
     pub fn css_link(&self, pattern: &str) -> Option<String> {
         let tendril = StrTendril::from(self.body.as_str());
         let doc = hotmeal::parse(&tendril);
-        find_attr_in_node(&doc, doc.root, "link", "href", &|value| matches_glob(pattern, value))
+        find_attr_in_node(&doc, doc.root, "link", "href", &|value| {
+            matches_glob(pattern, value)
+        })
     }
 
     /// Extract a value using a regex with one capture group
@@ -1489,6 +1511,9 @@ mod unit_tests {
         assert!(matches_glob("*style*css", "/css/style.123.css"));
         assert!(matches_glob("*/style.*.css", "/css/style.123.css"));
         assert!(matches_glob("*/style.*.css", "/assets/css/style.123.css"));
-        assert!(!matches_glob("*/style.*.css", "/assets/css/style.123.css.map"));
+        assert!(!matches_glob(
+            "*/style.*.css",
+            "/assets/css/style.123.css.map"
+        ));
     }
 }

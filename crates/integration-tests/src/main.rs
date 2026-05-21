@@ -812,5 +812,18 @@ fn collect_tests() -> Vec<Test> {
             func: build_steps::build_step_missing_param_error,
             ignored: false,
         },
+        // search tests
+        Test {
+            name: "search_index_answers_queries",
+            module: "search",
+            func: search::search_index_answers_queries,
+            ignored: false,
+        },
+        Test {
+            name: "search_runtime_assets_served",
+            module: "search",
+            func: search::search_runtime_assets_served,
+            ignored: false,
+        },
     ]
 }
