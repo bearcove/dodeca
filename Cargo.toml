@@ -84,10 +84,10 @@ figue = { git = "https://github.com/bearcove/figue", branch = "main" }
 # macro + runtime). Transports are opt-in per-crate (host adds ffi/all;
 # devtools adds websocket) so they don't feature-unify onto the wasm build
 # (transport-tcp/local → vox-stream → tokio net → mio, unsupported on wasm).
-vox = { version = "0.7", default-features = false, features = ["runtime"] }
-vox-ffi = "0.7"
-vox-fdpass = "0.7"
-vox-stream = "0.7"
+vox = { version = "0.8.1", default-features = false, features = ["runtime"] }
+vox-ffi = "0.8.1"
+vox-fdpass = "0.8.1"
+vox-stream = "0.8.1"
 
 # Process lifecycle
 ur-taking-me-with-you = { version = "8", features = ["tokio"] }
@@ -293,4 +293,3 @@ inherits = "release"
 opt-level = 1
 debug = true
 strip = false
-
