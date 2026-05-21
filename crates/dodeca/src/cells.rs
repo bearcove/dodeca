@@ -34,7 +34,7 @@ use cell_linkcheck_proto::{LinkCheckInput, LinkCheckResult, LinkCheckerClient, L
 use cell_markdown_proto::MarkdownProcessorClient;
 use cell_minify_proto::{MinifierClient, MinifyResult};
 use cell_sass_proto::{SassCompilerClient, SassInput, SassResult};
-use cell_search_proto::SearchIndexerClient;
+use cell_search_proto::{SearchFile, SearchIndexResult, SearchIndexerClient, SearchPage};
 use cell_svgo_proto::{SvgoOptimizerClient, SvgoResult};
 use cell_term_proto::{RecordConfig, TermRecorderClient, TermResult};
 use cell_tui_proto::TuiDisplayClient;
@@ -732,6 +732,22 @@ pub async fn subset_font(input: SubsetFontInput) -> Result<FontResult, eyre::Err
         .subset_font(input)
         .await
         .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
+}
+
+/// Build the full-text search index from rendered pages via the search cell.
+pub async fn build_search_index_cell(
+    pages: Vec<SearchPage>,
+) -> Result<Vec<SearchFile>, eyre::Error> {
+    let client = search_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Search cell not available"))?;
+    match client.build_index(pages).await {
+        Ok(SearchIndexResult::Success { files }) => Ok(files),
+        Ok(SearchIndexResult::Error { message }) => {
+            Err(eyre::eyre!("search indexing failed: {message}"))
+        }
+        Err(e) => Err(eyre::eyre!("search RPC error: {e:?}")),
+    }
 }
 
 pub async fn execute_code_samples(

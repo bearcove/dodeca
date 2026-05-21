@@ -1299,6 +1299,10 @@ pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<Result<SiteOutput, Sit
     // --- Phase 4: Execute code samples for validation ---
     let code_execution_results = execute_all_code_samples(db).await?;
 
+    // --- Phase 5: Full-text search — runtime assets + content index ---
+    files.extend(crate::search::runtime_output_files());
+    files.extend(crate::search::search_index_files(db).await?);
+
     Ok(Ok(SiteOutput {
         files,
         code_execution_results,

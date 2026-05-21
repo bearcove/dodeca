@@ -1,6 +1,6 @@
 //! Build script for dodeca
 //!
-//! - Compiles WASM clients (livereload + devtools)
+//! - Compiles WASM clients (devtools + search query core)
 //! - Generates Styx schema from DodecaConfig
 
 use std::process::Command;
@@ -8,6 +8,9 @@ use std::process::Command;
 fn main() {
     // Build devtools WASM (replaces livereload-client)
     build_wasm_crate("dodeca-devtools");
+
+    // Build the full-text search query core WASM.
+    build_wasm_crate("dodeca-search-wasm");
 
     // Generate Styx schema from config types
     facet_styx::GenerateSchema::<dodeca_config::DodecaConfig>::new()

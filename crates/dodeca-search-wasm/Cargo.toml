@@ -1,0 +1,27 @@
+[package]
+name = "dodeca-search-wasm"
+version = "0.6.1"
+edition = "2024"
+rust-version = "1.91"
+description = "Browser-side query runtime for dodeca's from-scratch full-text search"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+dodeca-search-format = { path = "../dodeca-search-format" }
+facet-json.workspace = true
+js-sys = "0.3"
+wasm-bindgen.workspace = true
+wasm-bindgen-futures = "0.4"
+
+[dependencies.web-sys]
+workspace = true
+features = ["Response"]

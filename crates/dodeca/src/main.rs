@@ -24,6 +24,7 @@ mod logging;
 mod queries;
 mod render;
 mod revision;
+mod search;
 mod serve;
 mod spawn;
 mod svg;

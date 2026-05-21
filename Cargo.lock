@@ -2915,6 +2915,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "dodeca-search-wasm"
+version = "0.6.1"
+dependencies = [
+ "dodeca-search-format",
+ "facet-json",
+ "js-sys",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
 name = "downcast-rs"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

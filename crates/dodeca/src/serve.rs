@@ -1050,6 +1050,31 @@ impl SiteServer {
             }
         }
 
+        // 4. Search index + runtime assets, served at fixed `/search/` paths.
+        if let Some(rel) = path.strip_prefix('/')
+            && rel.starts_with("search/")
+        {
+            // Version-static runtime assets (wasm core, loader, UI, CSS).
+            for (asset_path, bytes) in crate::search::RUNTIME_ASSETS {
+                if *asset_path == rel {
+                    return Some(ServeContent::Static(
+                        bytes.to_vec(),
+                        mime_from_extension(path),
+                    ));
+                }
+            }
+            // Content-derived index files (manifest, shards, fragments).
+            if let Ok(files) = crate::search::search_index_files(&snapshot).await {
+                for file in files {
+                    if let crate::db::OutputFile::Static { path: p, content } = file
+                        && p.as_str() == rel
+                    {
+                        return Some(ServeContent::Static(content, mime_from_extension(path)));
+                    }
+                }
+            }
+        }
+
         None
     }
 

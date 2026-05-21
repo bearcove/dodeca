@@ -233,7 +233,26 @@ fn build_all(release: bool) -> bool {
 }
 
 fn build_wasm() -> bool {
-    eprintln!("Building dodeca-devtools WASM...");
+    // Each WASM crate: (cargo package name, compiled .wasm stem, pkg out dir).
+    let crates = [
+        (
+            "dodeca-devtools",
+            "dodeca_devtools",
+            "crates/dodeca-devtools/pkg",
+        ),
+        (
+            "dodeca-search-wasm",
+            "dodeca_search_wasm",
+            "crates/dodeca-search-wasm/pkg",
+        ),
+    ];
+    crates
+        .iter()
+        .all(|&(package, wasm_stem, out_dir)| build_one_wasm(package, wasm_stem, out_dir))
+}
+
+fn build_one_wasm(package: &str, wasm_stem: &str, out_dir: &str) -> bool {
+    eprintln!("Building {package} WASM...");
 
     // wasm-pack doesn't respect CARGO_TARGET_DIR by default, so we pass it explicitly
     // This ensures it uses the workspace target/ directory that we cache
@@ -244,7 +263,7 @@ fn build_wasm() -> bool {
             "--target",
             "wasm32-unknown-unknown",
             "--package",
-            "dodeca-devtools",
+            package,
             "--verbose",
         ])
         .env_remove("RUST_LOG")
@@ -253,21 +272,21 @@ fn build_wasm() -> bool {
     match status {
         Ok(s) if s.success() => {
             // Now run wasm-bindgen to generate the JS bindings
-            eprintln!("Running wasm-bindgen...");
+            eprintln!("Running wasm-bindgen for {package}...");
             let bindgen_status = Command::new("wasm-bindgen")
                 .args([
                     "--target",
                     "web",
                     "--out-dir",
-                    "crates/dodeca-devtools/pkg",
-                    "target/wasm32-unknown-unknown/release/dodeca_devtools.wasm",
+                    out_dir,
+                    &format!("target/wasm32-unknown-unknown/release/{wasm_stem}.wasm"),
                 ])
                 .env_remove("RUST_LOG")
                 .status();
 
             match bindgen_status {
                 Ok(s) if s.success() => {
-                    eprintln!("WASM build complete");
+                    eprintln!("{package} WASM build complete");
                     true
                 }
                 Ok(s) => {
