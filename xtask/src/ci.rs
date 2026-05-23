@@ -1181,10 +1181,11 @@ pub fn build_ci_workflow(platform: CiPlatform, repo_root: &Utf8Path) -> Workflow
         rust_cache_with_targets(platform, false, linux_target)
     };
 
-    // Build WASM first - it's a dependency for ddc builds and clippy
-    // (devtools are embedded at compile time via include_bytes!)
+    // Build WASM first - it's a dependency for ddc builds and clippy.
+    // dodeca embeds both bundles at compile time via include_bytes!.
     let wasm_job_id = "build-wasm".to_string();
-    let wasm_artifact = "dodeca-devtools-wasm".to_string();
+    let devtools_wasm_artifact = "dodeca-devtools-wasm".to_string();
+    let search_wasm_artifact = "dodeca-search-wasm".to_string();
     jobs.insert(
         wasm_job_id.clone(),
         Job::with_runner(ci_linux.runner.to_runs_on())
@@ -1206,13 +1207,18 @@ pub fn build_ci_workflow(platform: CiPlatform, repo_root: &Utf8Path) -> Workflow
                 Step::run("Build WASM", "cargo xtask wasm"),
                 upload_artifact(
                     platform,
-                    wasm_artifact.clone(),
+                    devtools_wasm_artifact.clone(),
                     "crates/dodeca-devtools/pkg",
+                ),
+                upload_artifact(
+                    platform,
+                    search_wasm_artifact.clone(),
+                    "crates/dodeca-search-wasm/pkg",
                 ),
             ]),
     );
 
-    // Clippy depends on WASM because dodeca embeds devtools at compile time
+    // Clippy depends on WASM because dodeca embeds WASM bundles at compile time.
     jobs.insert(
         "clippy".to_string(),
         Job::with_runner(ci_linux.runner.to_runs_on())
@@ -1228,11 +1234,16 @@ pub fn build_ci_workflow(platform: CiPlatform, repo_root: &Utf8Path) -> Workflow
                     "wasm32-unknown-unknown",
                 ),
                 ci_linux_cache.clone(),
-                // Download WASM devtools (embedded at compile time via include_bytes!)
+                // Download WASM bundles embedded at compile time via include_bytes!.
                 Step::uses("Download WASM", platform.download_artifact_action()).with_inputs([
-                    ("name", wasm_artifact.clone()),
+                    ("name", devtools_wasm_artifact.clone()),
                     ("path", "crates/dodeca-devtools/pkg".into()),
                 ]),
+                Step::uses("Download search WASM", platform.download_artifact_action())
+                    .with_inputs([
+                        ("name", search_wasm_artifact.clone()),
+                        ("path", "crates/dodeca-search-wasm/pkg".into()),
+                    ]),
                 Step::run(
                     "Clippy",
                     "cargo clippy --all-features --all-targets -- -D warnings",
@@ -1244,7 +1255,7 @@ pub fn build_ci_workflow(platform: CiPlatform, repo_root: &Utf8Path) -> Workflow
         let short = target.short_name();
 
         // Job 1: Build ddc (main binary)
-        // Depends on build-wasm because ddc embeds devtools assets at compile time
+        // Depends on build-wasm because ddc embeds WASM bundles at compile time.
         let ddc_job_id = format!("build-ddc-{short}");
         jobs.insert(
             ddc_job_id.clone(),
@@ -1265,11 +1276,16 @@ pub fn build_ci_workflow(platform: CiPlatform, repo_root: &Utf8Path) -> Workflow
                     } else {
                         rust_cache_with_targets(platform, false, target)
                     },
-                    // Download WASM devtools (embedded at compile time via include_bytes!)
+                    // Download WASM bundles embedded at compile time via include_bytes!.
                     Step::uses("Download WASM", platform.download_artifact_action()).with_inputs([
-                        ("name", wasm_artifact.clone()),
+                        ("name", devtools_wasm_artifact.clone()),
                         ("path", "crates/dodeca-devtools/pkg".into()),
                     ]),
+                    Step::uses("Download search WASM", platform.download_artifact_action())
+                        .with_inputs([
+                            ("name", search_wasm_artifact.clone()),
+                            ("path", "crates/dodeca-search-wasm/pkg".into()),
+                        ]),
                     Step::run("Build ddc", "cargo build --release -p dodeca --verbose"),
                     // Only run binary unit tests here - integration tests (serve/) need cells
                     // and run in the integration phase after assembly
@@ -1441,9 +1457,9 @@ pub fn build_ci_workflow(platform: CiPlatform, repo_root: &Utf8Path) -> Workflow
                             "find dist -mindepth 2 -type f -exec mv -t dist {} + 2>/dev/null || true; \
                              find dist -mindepth 1 -type d -empty -delete 2>/dev/null || true",
                         ),
-                        // Download WASM devtools
+                        // Download WASM devtools for the archive served in browser tests.
                         Step::uses("Download WASM", platform.download_artifact_action()).with_inputs([
-                            ("name", wasm_artifact.clone()),
+                            ("name", devtools_wasm_artifact.clone()),
                             ("path", "crates/dodeca-devtools/pkg".into()),
                         ]),
                         Step::run("Prepare artifacts", "chmod +x dist/ddc && ls -la dist/"),
@@ -1498,7 +1514,7 @@ pub fn build_ci_workflow(platform: CiPlatform, repo_root: &Utf8Path) -> Workflow
                          find target/release -mindepth 1 -type d -empty -delete 2>/dev/null || true",
                     ),
                     Step::uses("Download WASM", platform.download_artifact_action()).with_inputs([
-                        ("name", wasm_artifact.clone()),
+                        ("name", devtools_wasm_artifact.clone()),
                         ("path", "crates/dodeca-devtools/pkg".into()),
                     ]),
                     Step::run(
@@ -1672,11 +1688,11 @@ pub fn build_forgejo_workflow(repo_root: &Utf8Path) -> Workflow {
                 // Save cache immediately after build (before uploads that might fail)
                 ctree_cache_save("wasm", linux_cache_base),
                 cargo_sweep_cache_trim("wasm", linux_cache_base),
-                // Upload WASM to CAS as a tarball
+                // Upload WASM bundles to CAS as a tarball.
                 Step::run(
                     "Upload WASM to CAS",
                     format!(
-                        r#"tar -czf /tmp/wasm.tar.gz -C crates/dodeca-devtools pkg
+                        r#"tar -czf /tmp/wasm.tar.gz crates/dodeca-devtools/pkg crates/dodeca-search-wasm/pkg
 ./scripts/cas-upload.ts /tmp/wasm.tar.gz "ci/{run_id}/wasm.tar.gz""#
                     ),
                 ),
@@ -1684,7 +1700,7 @@ pub fn build_forgejo_workflow(repo_root: &Utf8Path) -> Workflow {
     );
 
     // -------------------------------------------------------------------------
-    // Clippy job (depends on WASM because dodeca embeds devtools at compile time)
+    // Clippy job (depends on WASM because dodeca embeds bundles at compile time)
     // -------------------------------------------------------------------------
     jobs.insert(
         "clippy".to_string(),
@@ -1705,13 +1721,12 @@ pub fn build_forgejo_workflow(repo_root: &Utf8Path) -> Workflow {
                 timelord_cache_info(linux_cache_base, "before sync"),
                 timelord_restore(linux_cache_base),
                 cargo_sweep_cache_stamp("clippy", linux_cache_base),
-                // Download WASM from CAS (embedded at compile time via include_bytes!)
+                // Download WASM bundles from CAS (embedded at compile time via include_bytes!).
                 Step::run(
                     "Download WASM from CAS",
                     format!(
                         r#"./scripts/cas-download.ts "ci/{run_id}/wasm.tar.gz" /tmp/wasm.tar.gz
-mkdir -p crates/dodeca-devtools
-tar -xzf /tmp/wasm.tar.gz -C crates/dodeca-devtools"#
+tar -xzf /tmp/wasm.tar.gz"#
                     ),
                 ),
                 Step::run(
@@ -1730,7 +1745,7 @@ tar -xzf /tmp/wasm.tar.gz -C crates/dodeca-devtools"#
         let short = target.short_name();
         let cache_base = target.cache_base_path();
 
-        // Build ddc (main binary) - depends on WASM for embedded devtools
+        // Build ddc (main binary) - depends on WASM for embedded bundles
         let ddc_job_id = format!("build-ddc-{short}");
         jobs.insert(
             ddc_job_id.clone(),
@@ -1746,13 +1761,12 @@ tar -xzf /tmp/wasm.tar.gz -C crates/dodeca-devtools"#
                     timelord_cache_info(cache_base, "before sync"),
                     timelord_restore(cache_base),
                     cargo_sweep_cache_stamp(&format!("ddc-{short}"), cache_base),
-                    // Download WASM from CAS (embedded at compile time via include_bytes!)
+                    // Download WASM bundles from CAS (embedded at compile time via include_bytes!).
                     Step::run(
                         "Download WASM from CAS",
                         format!(
                             r#"./scripts/cas-download.ts "ci/{run_id}/wasm.tar.gz" /tmp/wasm.tar.gz
-mkdir -p crates/dodeca-devtools
-tar -xzf /tmp/wasm.tar.gz -C crates/dodeca-devtools"#
+tar -xzf /tmp/wasm.tar.gz"#
                         ),
                     ),
                     Step::run(
@@ -1943,8 +1957,7 @@ fi"#,
                         "Download WASM from CAS",
                         format!(
                             r#"./scripts/cas-download.ts "ci/{run_id}/wasm.tar.gz" /tmp/wasm.tar.gz
-mkdir -p crates/dodeca-devtools
-tar -xzf /tmp/wasm.tar.gz -C crates/dodeca-devtools"#
+tar -xzf /tmp/wasm.tar.gz"#
                         ),
                     ),
                     Step::run(

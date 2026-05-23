@@ -125,7 +125,7 @@ jobs:
           fi
       - name: Upload WASM to CAS
         run: |-
-          tar -czf /tmp/wasm.tar.gz -C crates/dodeca-devtools pkg
+          tar -czf /tmp/wasm.tar.gz crates/dodeca-devtools/pkg crates/dodeca-search-wasm/pkg
           ./scripts/cas-upload.ts /tmp/wasm.tar.gz "ci/${{ github.run_id }}/wasm.tar.gz"
   clippy: 
     name: Clippy
@@ -181,8 +181,7 @@ jobs:
       - name: Download WASM from CAS
         run: |-
           ./scripts/cas-download.ts "ci/${{ github.run_id }}/wasm.tar.gz" /tmp/wasm.tar.gz
-          mkdir -p crates/dodeca-devtools
-          tar -xzf /tmp/wasm.tar.gz -C crates/dodeca-devtools
+          tar -xzf /tmp/wasm.tar.gz
       - name: Clippy
         run: cargo clippy --all-features --all-targets -- -D warnings
       - name: Save cache (ctree)
@@ -251,8 +250,7 @@ jobs:
       - name: Download WASM from CAS
         run: |-
           ./scripts/cas-download.ts "ci/${{ github.run_id }}/wasm.tar.gz" /tmp/wasm.tar.gz
-          mkdir -p crates/dodeca-devtools
-          tar -xzf /tmp/wasm.tar.gz -C crates/dodeca-devtools
+          tar -xzf /tmp/wasm.tar.gz
       - name: Debug proc-macro2 mtimes
         run: |-
           set -euo pipefail
@@ -2102,8 +2100,7 @@ jobs:
       - name: Download WASM from CAS
         run: |-
           ./scripts/cas-download.ts "ci/${{ github.run_id }}/wasm.tar.gz" /tmp/wasm.tar.gz
-          mkdir -p crates/dodeca-devtools
-          tar -xzf /tmp/wasm.tar.gz -C crates/dodeca-devtools
+          tar -xzf /tmp/wasm.tar.gz
       - name: Install xz (macOS)
         run: if command -v brew >/dev/null 2>&1; then HOMEBREW_NO_AUTO_UPDATE=1 brew install xz; fi
       - name: List binaries
@@ -2163,8 +2160,7 @@ jobs:
       - name: Download WASM from CAS
         run: |-
           ./scripts/cas-download.ts "ci/${{ github.run_id }}/wasm.tar.gz" /tmp/wasm.tar.gz
-          mkdir -p crates/dodeca-devtools
-          tar -xzf /tmp/wasm.tar.gz -C crates/dodeca-devtools
+          tar -xzf /tmp/wasm.tar.gz
       - name: Debug proc-macro2 mtimes
         run: |-
           set -euo pipefail
@@ -4014,8 +4010,7 @@ jobs:
       - name: Download WASM from CAS
         run: |-
           ./scripts/cas-download.ts "ci/${{ github.run_id }}/wasm.tar.gz" /tmp/wasm.tar.gz
-          mkdir -p crates/dodeca-devtools
-          tar -xzf /tmp/wasm.tar.gz -C crates/dodeca-devtools
+          tar -xzf /tmp/wasm.tar.gz
       - name: Install xz (macOS)
         run: if command -v brew >/dev/null 2>&1; then HOMEBREW_NO_AUTO_UPDATE=1 brew install xz; fi
       - name: List binaries

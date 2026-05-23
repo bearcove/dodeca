@@ -69,6 +69,11 @@ jobs:
         with: 
           name: dodeca-devtools-wasm
           path: crates/dodeca-devtools/pkg
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with: 
+          name: dodeca-search-wasm
+          path: crates/dodeca-search-wasm/pkg
   clippy: 
     name: Clippy
     runs-on: 
@@ -96,6 +101,11 @@ jobs:
         with: 
           name: dodeca-devtools-wasm
           path: crates/dodeca-devtools/pkg
+      - name: Download search WASM
+        uses: actions/download-artifact@v4
+        with: 
+          name: dodeca-search-wasm
+          path: crates/dodeca-search-wasm/pkg
       - name: Clippy
         run: cargo clippy --all-features --all-targets -- -D warnings
   build-ddc-linux-x64: 
@@ -122,6 +132,11 @@ jobs:
         with: 
           name: dodeca-devtools-wasm
           path: crates/dodeca-devtools/pkg
+      - name: Download search WASM
+        uses: actions/download-artifact@v4
+        with: 
+          name: dodeca-search-wasm
+          path: crates/dodeca-search-wasm/pkg
       - name: Build ddc
         run: cargo build --release -p dodeca --verbose
       - name: Test ddc
@@ -508,6 +523,11 @@ jobs:
         with: 
           name: dodeca-devtools-wasm
           path: crates/dodeca-devtools/pkg
+      - name: Download search WASM
+        uses: actions/download-artifact@v4
+        with: 
+          name: dodeca-search-wasm
+          path: crates/dodeca-search-wasm/pkg
       - name: Build ddc
         run: cargo build --release -p dodeca --verbose
       - name: Test ddc
