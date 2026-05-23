@@ -501,7 +501,7 @@ jobs:
   build-ddc-macos-arm64: 
     name: Build ddc (macos-arm64)
     runs-on: 
-      - mac-arm64-oakhost
+      - depot-macos-15
     timeout-minutes: 30
     needs: 
       - build-wasm
@@ -540,7 +540,7 @@ jobs:
   build-cells-macos-arm64-1: 
     name: Build cells (macos-arm64) [cell-code-execution, cell-css, cell-data, cell-dialoguer, cell-fonts, cell-gingembre, cell-html, cell-html-diff, cell-http, cell-image, cell-js, cell-jxl, cell-linkcheck, cell-markdown, cell-minify, cell-sass, cell-search, cell-svgo, cell-term, cell-tui, cell-vite, cell-webp]
     runs-on: 
-      - mac-arm64-oakhost
+      - depot-macos-15
     timeout-minutes: 30
     steps: 
       - name: Checkout
@@ -589,7 +589,7 @@ jobs:
   integration-macos-arm64: 
     name: Integration (macos-arm64)
     runs-on: 
-      - mac-arm64-oakhost
+      - depot-macos-15
     timeout-minutes: 30
     needs: 
       - build-ddc-macos-arm64
@@ -811,7 +811,7 @@ jobs:
   assemble-macos-arm64: 
     name: Assemble (macos-arm64)
     runs-on: 
-      - mac-arm64-oakhost
+      - depot-macos-15
     timeout-minutes: 30
     needs: 
       - integration-macos-arm64
