@@ -49,7 +49,7 @@ impl JsProcessor for JsProcessorImpl {
             return Ok(js.to_string());
         }
 
-        replacements.sort_by(|a, b| b.0.cmp(&a.0)); // Sort by start position, descending
+        replacements.sort_by_key(|replacement| std::cmp::Reverse(replacement.0));
 
         let mut result = js.to_string();
         for (start, end, new_value) in replacements {

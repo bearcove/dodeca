@@ -269,7 +269,7 @@ impl LogFilter {
         }
 
         // Sort targets by length (descending) so more specific matches come first
-        targets.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+        targets.sort_by_key(|target| std::cmp::Reverse(target.0.len()));
 
         Some(LogFilter {
             default_level,

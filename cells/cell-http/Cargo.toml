@@ -23,12 +23,10 @@ cell-http-proto = { path = "../cell-http-proto" }
 dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }
 dodeca-protocol = { path = "../../crates/dodeca-protocol" }
 eyre.workspace = true
-facet-postcard.workspace = true
 futures-util.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
 vox.workspace = true
-vox-stream.workspace = true
 tokio.workspace = true
 tokio-tungstenite.workspace = true
 tracing.workspace = true

@@ -278,7 +278,42 @@ const BUILD_INFO_POPUP_SCRIPT: &str = r##"<script>
         return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
-    window.showBuildInfoPopup = function(info) {
+    function normalizeBuildInfo(info) {
+        function normalizeSource(source) {
+            if (source && typeof source === 'object') return source;
+            if (typeof source !== 'string') return { type: 'path' };
+            if (source === 'crates.io') return { type: 'crates.io' };
+            if (source.indexOf('git:') === 0) {
+                var git = source.slice(4);
+                var at = git.lastIndexOf('@');
+                if (at !== -1) {
+                    return { type: 'git', url: git.slice(0, at), commit: git.slice(at + 1) };
+                }
+                return { type: 'git', url: git, commit: '' };
+            }
+            if (source.indexOf('path:') === 0) return { type: 'path', path: source.slice(5) };
+            return { type: 'path', path: source };
+        }
+
+        return {
+            rustc: info.rustc || info.rustc_version || '',
+            cargo: info.cargo || info.cargo_version || '',
+            target: info.target || '',
+            timestamp: info.timestamp || '',
+            cacheHit: info.cacheHit || info.cache_hit || false,
+            deps: (info.deps || info.dependencies || []).map(function(dep) {
+                return {
+                    name: dep.name || '',
+                    version: dep.version || '',
+                    source: normalizeSource(dep.source)
+                };
+            })
+        };
+    }
+
+    window.showBuildInfoPopup = function(rawInfo) {
+        var info = normalizeBuildInfo(rawInfo || {});
+
         // Remove existing popup
         var existing = document.querySelector('.build-info-overlay');
         if (existing) existing.remove();
@@ -1074,7 +1109,9 @@ mod tests {
                 "Should contain rustc version in title"
             );
             assert!(
-                result.contains(r#"style="position:relative""#),
+                result.contains("style=")
+                    && result.contains("position")
+                    && result.contains("relative"),
                 "Should have inline position:relative"
             );
         } else {

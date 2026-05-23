@@ -115,6 +115,12 @@ impl HostHandle {
     }
 }
 
+impl Default for HostHandle {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Recorded death info for a cell whose runtime thread (or one of its tokio
 /// workers) panicked. Read by the host's `cell_loader` when it sees the
 /// matching session close.

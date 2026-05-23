@@ -5,22 +5,20 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use cell_sass_proto::{SassCompiler, SassCompilerDispatcher, SassInput, SassResult};
+use cell_sass_proto::{SassCompiler, SassCompilerDispatcher, SassResult};
 
 /// SASS compiler implementation
 #[derive(Clone)]
 pub struct SassCompilerImpl;
 
 impl SassCompiler for SassCompilerImpl {
-    async fn compile_sass(&self, input: SassInput) -> SassResult {
-        let files = input.files;
-
+    async fn compile_sass(&self, entrypoint: String, files: HashMap<String, String>) -> SassResult {
         // Find main.scss
-        let main_content = match files.get("main.scss") {
+        let main_content = match files.get(&entrypoint) {
             Some(content) => content,
             None => {
                 return SassResult::Error {
-                    message: "main.scss not found in files".to_string(),
+                    message: format!("{entrypoint} not found in files"),
                 };
             }
         };

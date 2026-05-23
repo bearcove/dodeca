@@ -15,12 +15,6 @@ pub enum SassResult {
     Error { message: String },
 }
 
-/// Input for SASS compilation - a map of filename -> content pairs
-#[derive(Debug, Clone, Facet)]
-pub struct SassInput {
-    pub files: HashMap<String, String>,
-}
-
 /// SASS compilation service implemented by the cell.
 ///
 /// The host calls these methods to compile SASS/SCSS to CSS.
@@ -29,7 +23,7 @@ pub struct SassInput {
 pub trait SassCompiler {
     /// Compile SASS/SCSS to CSS
     ///
-    /// Takes a map of filename -> content pairs, with "main.scss" as the entry point.
+    /// Takes the entry point filename and a map of filename -> content pairs.
     /// Returns compiled CSS, or an error if compilation fails.
-    async fn compile_sass(&self, input: SassInput) -> SassResult;
+    async fn compile_sass(&self, entrypoint: String, files: HashMap<String, String>) -> SassResult;
 }

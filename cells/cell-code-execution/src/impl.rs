@@ -32,23 +32,21 @@ impl CodeExecutor for CodeExecutorImpl {
                     code_start_line = current_line;
                     current_code.clear();
                 }
-                Event::End(pulldown_cmark::TagEnd::CodeBlock) => {
-                    if in_code_block {
-                        let executable = should_execute(&current_language);
+                Event::End(pulldown_cmark::TagEnd::CodeBlock) if in_code_block => {
+                    let executable = should_execute(&current_language);
 
-                        samples.push(CodeSample {
-                            source_path: input.source_path.clone(),
-                            line: code_start_line,
-                            language: current_language.clone(),
-                            code: current_code.clone(),
-                            executable,
-                            expected_errors: vec![],
-                        });
+                    samples.push(CodeSample {
+                        source_path: input.source_path.clone(),
+                        line: code_start_line,
+                        language: current_language.clone(),
+                        code: current_code.clone(),
+                        executable,
+                        expected_errors: vec![],
+                    });
 
-                        in_code_block = false;
-                        current_language.clear();
-                        current_code.clear();
-                    }
+                    in_code_block = false;
+                    current_language.clear();
+                    current_code.clear();
                 }
                 Event::Text(text) => {
                     if in_code_block {

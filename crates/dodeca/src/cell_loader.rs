@@ -11,7 +11,6 @@
 //! connections routed by the `vox-service` name. Typed cell clients are
 //! obtained by opening a virtual connection on the stored root `SessionHandle`.
 
-use std::collections::HashMap;
 use std::io;
 use std::sync::Arc;
 
@@ -267,12 +266,4 @@ fn cell_library_path(cell_name: &str) -> Option<std::path::PathBuf> {
     }
     error!(cell = cell_name, file, "cell cdylib not found");
     None
-}
-
-/// Cached resolved cell names (logical) → whether the cdylib exists.
-pub fn available_cells() -> HashMap<&'static str, bool> {
-    crate::cells::CELL_NAMES
-        .iter()
-        .map(|n| (*n, cell_library_path(n).is_some()))
-        .collect()
 }

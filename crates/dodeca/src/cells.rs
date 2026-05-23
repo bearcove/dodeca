@@ -33,7 +33,7 @@ use cell_lifecycle_proto::CellLifecycle;
 use cell_linkcheck_proto::{LinkCheckInput, LinkCheckResult, LinkCheckerClient, LinkStatus};
 use cell_markdown_proto::MarkdownProcessorClient;
 use cell_minify_proto::{MinifierClient, MinifyResult};
-use cell_sass_proto::{SassCompilerClient, SassInput, SassResult};
+use cell_sass_proto::{SassCompilerClient, SassResult};
 use cell_search_proto::{SearchFile, SearchIndexResult, SearchIndexerClient, SearchPage};
 use cell_svgo_proto::{SvgoOptimizerClient, SvgoResult};
 use cell_term_proto::{RecordConfig, TermRecorderClient, TermResult};
@@ -44,10 +44,9 @@ use dashmap::DashMap;
 use facet::Facet;
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use std::time::SystemTime;
-use tracing::{debug, warn};
+use tracing::debug;
 
 use crate::serve::SiteServer;
 
@@ -57,7 +56,6 @@ use crate::serve::SiteServer;
 
 // Note: Most globals have been moved to Host singleton:
 // - Site server: Host::get().site_server()
-// - Quiet mode: Host::get().is_quiet_mode()
 // - Cell handles: Host::get().get_cell_handle(name)
 
 /// Provide the SiteServer for HTTP cell initialization.
@@ -70,13 +68,6 @@ pub fn provide_site_server(server: Arc<SiteServer>) {
 // Note: TUI command forwarding now goes through Host::get().handle_tui_command()
 // The old TUI_HOST_FOR_INIT global has been removed.
 // Exit signaling now goes through Host::get().signal_exit() / wait_for_exit().
-// Quiet mode now goes through Host::get().set_quiet_mode() / is_quiet_mode().
-
-/// Enable quiet mode for spawned cells (call this when TUI is active).
-pub fn set_quiet_mode(quiet: bool) {
-    crate::host::Host::get().set_quiet_mode(quiet);
-}
-
 // ============================================================================
 // Cell Readiness Registry
 // ============================================================================
@@ -86,14 +77,12 @@ pub fn set_quiet_mode(quiet: bool) {
 #[derive(Clone)]
 pub struct CellReadyRegistry {
     ready: Arc<DashMap<String, ReadyMsg>>,
-    failed: Arc<DashMap<String, String>>,
 }
 
 impl CellReadyRegistry {
     fn new() -> Self {
         Self {
             ready: Arc::new(DashMap::new()),
-            failed: Arc::new(DashMap::new()),
         }
     }
 
@@ -111,20 +100,6 @@ impl CellReadyRegistry {
             "CellReadyRegistry::mark_ready: cell marked ready, registry now has {} cells",
             self.ready.len()
         );
-    }
-
-    pub fn is_ready(&self, cell_name: &str) -> bool {
-        self.ready.contains_key(cell_name)
-    }
-
-    /// Mark a cell as failed (called from child monitor task when process crashes).
-    pub fn mark_failed(&self, cell_name: &str, reason: String) {
-        self.failed.insert(cell_name.to_string(), reason);
-    }
-
-    /// Check if a cell has been marked as failed, returning the failure reason.
-    pub fn failure_reason(&self, cell_name: &str) -> Option<String> {
-        self.failed.get(cell_name).map(|r| r.value().clone())
     }
 }
 
@@ -193,33 +168,6 @@ impl HostServiceImpl {
         }
     }
 }
-
-/// Logical cell names that have a `libddc_cell_<name>` cdylib.
-/// Keep in sync with `cell_loader::host_cell_endpoints!` and `CELL_DEFS`.
-pub const CELL_NAMES: &[&str] = &[
-    "image",
-    "webp",
-    "jxl",
-    "markdown",
-    "html",
-    "minify",
-    "css",
-    "sass",
-    "js",
-    "svgo",
-    "fonts",
-    "linkcheck",
-    "search",
-    "html-diff",
-    "dialoguer",
-    "code-execution",
-    "http",
-    "gingembre",
-    "data",
-    "vite",
-    "term",
-    "tui",
-];
 
 /// Build the unified host service the cell loader serves back to every cell.
 pub fn make_host_service() -> HostServiceImpl {
@@ -435,27 +383,6 @@ pub async fn get_tui_display_client() -> Option<TuiDisplayClient> {
 pub type DecodedImage = cell_image_proto::DecodedImage;
 
 // ============================================================================
-// Cell Registry
-// ============================================================================
-
-static CELLS: tokio::sync::OnceCell<CellRegistry> = tokio::sync::OnceCell::const_new();
-static INIT_ERROR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-
-/// Ensure cell registry is initialized (registers cells for lazy spawning, does NOT spawn them).
-/// This is idempotent and safe to call multiple times.
-/// Called automatically by client_async(), should not be called directly.
-pub(crate) async fn ensure_cell_registry_initialized() -> eyre::Result<()> {
-    let _ = CELLS.get_or_init(init_cells).await;
-
-    // Check if init failed
-    if let Some(err) = INIT_ERROR.get() {
-        return Err(eyre::eyre!("Cell initialization failed: {}", err));
-    }
-
-    Ok(())
-}
-
-// ============================================================================
 // Template Rendering
 // ============================================================================
 
@@ -473,157 +400,6 @@ pub async fn render_template(
         .await
         .map_err(|e| eyre::eyre!("RPC call error: {:?}", e))?;
     Ok(result)
-}
-
-// ============================================================================
-// Cell Registry Implementation
-// ============================================================================
-
-/// Configuration for a cell's spawn behavior.
-struct CellDef {
-    /// Binary suffix (e.g., "image" -> "ddc-cell-image")
-    suffix: &'static str,
-    /// If true, cell inherits stdio for direct terminal access
-    inherit_stdio: bool,
-}
-
-impl CellDef {
-    const fn new(suffix: &'static str) -> Self {
-        Self {
-            suffix,
-            inherit_stdio: false,
-        }
-    }
-
-    const fn inherit_stdio(mut self) -> Self {
-        self.inherit_stdio = true;
-        self
-    }
-}
-
-/// Cell definitions with their spawn configuration.
-const CELL_DEFS: &[CellDef] = &[
-    CellDef::new("image"),
-    CellDef::new("webp"),
-    CellDef::new("jxl"),
-    CellDef::new("markdown"),
-    CellDef::new("mermaid"),
-    CellDef::new("html"),
-    CellDef::new("minify"),
-    CellDef::new("css"),
-    CellDef::new("sass"),
-    CellDef::new("js"),
-    CellDef::new("svgo"),
-    CellDef::new("fonts"),
-    CellDef::new("linkcheck"),
-    CellDef::new("search"),
-    CellDef::new("html-diff"),
-    CellDef::new("dialoguer").inherit_stdio(),
-    CellDef::new("code-execution"),
-    CellDef::new("http"),
-    CellDef::new("gingembre"),
-    CellDef::new("data"),
-    CellDef::new("vite"),
-    // Term needs terminal access for PTY recording
-    CellDef::new("term").inherit_stdio(),
-    // TUI needs terminal access
-    CellDef::new("tui").inherit_stdio(),
-];
-
-/// Cell registry providing typed client accessors.
-pub struct CellRegistry {
-    _phantom: std::marker::PhantomData<()>,
-}
-
-impl CellRegistry {
-    fn new() -> Self {
-        Self {
-            _phantom: std::marker::PhantomData,
-        }
-    }
-}
-
-/// Initialize the cell infrastructure.
-///
-/// This function:
-/// 1. Creates the SHM host with a temp path
-/// 2. Spawns all cell processes
-/// 3. Sets up the MultiPeerHostDriver
-/// 4. Stores connection handles for later use
-async fn init_cells() -> CellRegistry {
-    match init_cells_inner().await {
-        Ok(()) => {
-            debug!("Cell infrastructure initialized");
-        }
-        Err(e) => {
-            let _ = INIT_ERROR.set(e.to_string());
-        }
-    }
-    CellRegistry::new()
-}
-
-async fn init_cells_inner() -> eyre::Result<()> {
-    // Cells are in-process cdylibs loaded lazily by `cell_loader` on first
-    // use — there is no shared-memory host/driver to set up. Just surface a
-    // clear error early if the cdylibs aren't where we expect them.
-    let avail = crate::cell_loader::available_cells();
-    let total = avail.len();
-    let missing: Vec<&str> = avail
-        .iter()
-        .filter(|(_, present)| !**present)
-        .map(|(name, _)| *name)
-        .collect();
-    if missing.len() > total / 2 {
-        return Err(eyre::eyre!(
-            "dodeca installation is incomplete.\n\n\
-             Missing {} of {} cell cdylibs (libddc_cell_*): {}\n\n\
-             They should be in the same directory as 'ddc'.\n\
-             Please reinstall dodeca or download a complete release.",
-            missing.len(),
-            total,
-            missing.join(", ")
-        ));
-    } else if !missing.is_empty() {
-        warn!("Some cell cdylibs not found: {:?}", missing);
-    }
-    debug!(
-        available = total - missing.len(),
-        total, "init_cells_inner: cell cdylibs discovered"
-    );
-    Ok(())
-}
-
-/// Find the directory containing cell binaries.
-fn find_cell_directory() -> eyre::Result<PathBuf> {
-    // Try DODECA_CELL_PATH first
-    if let Ok(path) = std::env::var("DODECA_CELL_PATH") {
-        let dir = PathBuf::from(path);
-        if dir.is_dir() {
-            return Ok(dir);
-        }
-    }
-
-    // Try adjacent to current exe
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(dir) = exe_path.parent() {
-            if dir.join("ddc-cell-image").exists() || dir.join("ddc-cell-image.exe").exists() {
-                return Ok(dir.to_path_buf());
-            }
-        }
-    }
-
-    // Try target/debug or target/release
-    #[cfg(debug_assertions)]
-    let profile = "debug";
-    #[cfg(not(debug_assertions))]
-    let profile = "release";
-
-    let target_dir = PathBuf::from("target").join(profile);
-    if target_dir.is_dir() {
-        return Ok(target_dir);
-    }
-
-    Err(eyre::eyre!("Could not find cell binary directory"))
 }
 
 // ============================================================================
@@ -1188,11 +964,8 @@ pub async fn compile_sass_cell(input: &HashMap<String, String>) -> Result<SassRe
     let client = sass_cell()
         .await
         .ok_or_else(|| eyre::eyre!("SASS cell not available"))?;
-    let sass_input = SassInput {
-        files: input.clone(),
-    };
     client
-        .compile_sass(sass_input)
+        .compile_sass("main.scss".to_string(), input.clone())
         .await
         .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
 }

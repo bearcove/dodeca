@@ -1240,16 +1240,7 @@ fn inject_code_buttons_in_doc(
                     let code_text = get_text_content(doc, node_id);
                     let normalized = normalize_code_for_matching(&code_text);
 
-                    // Add position:relative to pre element
-                    let existing_style = get_attr(doc, node_id, "style").unwrap_or_default();
-                    if !existing_style.contains("position") {
-                        set_attr(
-                            doc,
-                            node_id,
-                            "style",
-                            &format!("position:relative;{}", existing_style),
-                        );
-                    }
+                    ensure_position_relative(doc, node_id);
 
                     // Create and append buttons
                     if let Some(meta) = code_metadata.get(&normalized) {
@@ -1262,6 +1253,8 @@ fn inject_code_buttons_in_doc(
                     had_buttons = true;
                 }
                 CodeTarget::CodeBlockDiv(node_id) => {
+                    ensure_position_relative(doc, node_id);
+
                     // Find the pre inside and get its code text
                     let mut code_text = String::new();
                     for child_id in doc.children(node_id) {
@@ -1290,6 +1283,18 @@ fn inject_code_buttons_in_doc(
     }
 
     had_buttons
+}
+
+fn ensure_position_relative(doc: &mut Document, node_id: NodeId) {
+    let existing_style = get_attr(doc, node_id, "style").unwrap_or_default();
+    if !existing_style.contains("position") {
+        set_attr(
+            doc,
+            node_id,
+            "style",
+            &format!("position:relative;{}", existing_style),
+        );
+    }
 }
 
 enum CodeTarget {
@@ -1360,6 +1365,12 @@ fn create_build_info_button(doc: &mut Document, meta: &CodeExecutionMetadata) ->
     // Store metadata as data attribute for JS to use
     let json = metadata_to_json(meta);
     set_attr(doc, btn, "data-build-info", &json);
+    set_attr(
+        doc,
+        btn,
+        "onclick",
+        "showBuildInfoPopup(JSON.parse(this.getAttribute('data-build-info')))",
+    );
 
     let text = doc.create_text("\u{2139}".to_string()); // Unicode info symbol
     doc.append_child(btn, text);

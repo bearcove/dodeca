@@ -1635,7 +1635,6 @@ dependencies = [
  "dodeca-cell-runtime",
  "dodeca-protocol",
  "eyre",
- "facet-postcard",
  "futures-util",
  "hyper",
  "hyper-util",
@@ -1643,7 +1642,6 @@ dependencies = [
  "tokio-tungstenite 0.26.2",
  "tracing",
  "vox 0.8.1",
- "vox-stream",
 ]
 
 [[package]]
@@ -2844,10 +2842,8 @@ version = "0.6.1"
 dependencies = [
  "cell-host-proto",
  "dashmap 6.2.1",
- "dodeca-debug",
  "tokio",
  "tracing",
- "tracing-subscriber",
  "ur-taking-me-with-you",
  "vox 0.8.1",
  "vox-ffi",

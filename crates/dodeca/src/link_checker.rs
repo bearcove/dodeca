@@ -236,7 +236,7 @@ pub async fn check_external_links(
     let mut broken = Vec::new();
     let checked_count = results.len();
 
-    for (url, result) in urls.iter().zip(results.into_iter()) {
+    for (url, result) in urls.iter().zip(results) {
         let status = match result {
             Ok(s) => s,
             Err(e) => {

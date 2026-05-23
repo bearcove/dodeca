@@ -2511,9 +2511,6 @@ async fn serve_with_tui(
     use std::sync::Arc;
     use tokio::sync::watch;
 
-    // Enable quiet mode for cells so they don't print startup messages that corrupt TUI
-    cells::set_quiet_mode(true);
-
     // Enable TUI mode (must happen before cells init)
     host::Host::get().enable_tui_mode();
 

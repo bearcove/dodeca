@@ -88,15 +88,13 @@ fn parse_ansi_style(seq: &str) -> Option<String> {
             "35" => styles.push("color:#c678dd".to_string()), // Magenta
             "36" => styles.push("color:#56b6c2".to_string()), // Cyan
             "37" => styles.push("color:#abb2bf".to_string()), // White
-            "38" => {
-                // Extended color (24-bit RGB)
-                if i + 1 < parts.len() && parts[i + 1] == "2" && i + 4 < parts.len() {
-                    let r = parts[i + 2];
-                    let g = parts[i + 3];
-                    let b = parts[i + 4];
-                    styles.push(format!("color:rgb({r},{g},{b})"));
-                    i += 4;
-                }
+            // Extended color (24-bit RGB)
+            "38" if i + 1 < parts.len() && parts[i + 1] == "2" && i + 4 < parts.len() => {
+                let r = parts[i + 2];
+                let g = parts[i + 3];
+                let b = parts[i + 4];
+                styles.push(format!("color:rgb({r},{g},{b})"));
+                i += 4;
             }
             "90" => styles.push("color:#5c6370".to_string()), // Bright black (gray)
             "91" => styles.push("color:#e06c75".to_string()), // Bright red

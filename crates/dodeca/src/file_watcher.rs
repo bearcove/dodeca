@@ -266,30 +266,28 @@ pub fn process_notify_event(
                         }
                     }
                 }
-                RenameMode::Both => {
-                    // Both paths provided - first is From, second is To
-                    if event.paths.len() >= 2 {
-                        let from_path = &event.paths[0];
-                        let to_path = &event.paths[1];
+                // Both paths provided - first is From, second is To
+                RenameMode::Both if event.paths.len() >= 2 => {
+                    let from_path = &event.paths[0];
+                    let to_path = &event.paths[1];
 
-                        if should_watch_path(from_path, config)
-                            && let Ok(utf8) = Utf8PathBuf::from_path_buf(from_path.clone())
-                        {
-                            events.push(FileEvent::Removed(utf8));
-                        }
+                    if should_watch_path(from_path, config)
+                        && let Ok(utf8) = Utf8PathBuf::from_path_buf(from_path.clone())
+                    {
+                        events.push(FileEvent::Removed(utf8));
+                    }
 
-                        if to_path.is_dir() {
-                            if let Ok(mut w) = watcher.lock() {
-                                let _ = w.watch(to_path, RecursiveMode::Recursive);
-                                if let Ok(utf8) = Utf8PathBuf::from_path_buf(to_path.clone()) {
-                                    events.push(FileEvent::DirectoryCreated(utf8));
-                                }
+                    if to_path.is_dir() {
+                        if let Ok(mut w) = watcher.lock() {
+                            let _ = w.watch(to_path, RecursiveMode::Recursive);
+                            if let Ok(utf8) = Utf8PathBuf::from_path_buf(to_path.clone()) {
+                                events.push(FileEvent::DirectoryCreated(utf8));
                             }
-                        } else if should_watch_path(to_path, config)
-                            && let Ok(utf8) = Utf8PathBuf::from_path_buf(to_path.clone())
-                        {
-                            events.push(FileEvent::Changed(utf8));
                         }
+                    } else if should_watch_path(to_path, config)
+                        && let Ok(utf8) = Utf8PathBuf::from_path_buf(to_path.clone())
+                    {
+                        events.push(FileEvent::Changed(utf8));
                     }
                 }
                 _ => {}

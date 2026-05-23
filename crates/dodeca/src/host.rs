@@ -49,9 +49,6 @@ pub struct Host {
     /// Receiver end - taken by main.rs via `take_command_rx()`.
     command_rx: Mutex<Option<mpsc::UnboundedReceiver<ServerCommand>>>,
 
-    /// Whether quiet mode is enabled (suppress cell output when TUI is active).
-    quiet_mode: std::sync::atomic::AtomicBool,
-
     // -------------------------------------------------------------------------
     // Site Server (for HTTP cell)
     // -------------------------------------------------------------------------
@@ -86,7 +83,6 @@ impl Host {
                 next_context_id: AtomicU64::new(1),
                 command_tx,
                 command_rx: Mutex::new(Some(command_rx)),
-                quiet_mode: std::sync::atomic::AtomicBool::new(false),
                 site_server: std::sync::OnceLock::new(),
                 vite_port: std::sync::OnceLock::new(),
                 build_step_executor: std::sync::OnceLock::new(),
@@ -155,20 +151,6 @@ impl Host {
                 message: format!("Failed to send command: {}", e),
             },
         }
-    }
-
-    // =========================================================================
-    // Quiet Mode
-    // =========================================================================
-
-    /// Enable quiet mode for spawned cells (call this when TUI is active).
-    pub fn set_quiet_mode(&self, quiet: bool) {
-        self.quiet_mode.store(quiet, Ordering::SeqCst);
-    }
-
-    /// Check if quiet mode is enabled.
-    pub fn is_quiet_mode(&self) -> bool {
-        self.quiet_mode.load(Ordering::SeqCst)
     }
 
     // =========================================================================

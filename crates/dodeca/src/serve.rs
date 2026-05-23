@@ -1479,7 +1479,7 @@ impl SiteServer {
         }
 
         // Sort by score (descending) and take top 5
-        candidates.sort_by(|a, b| b.2.cmp(&a.2));
+        candidates.sort_by_key(|candidate| std::cmp::Reverse(candidate.2));
         candidates
             .into_iter()
             .take(5)

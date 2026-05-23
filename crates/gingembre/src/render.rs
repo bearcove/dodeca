@@ -517,15 +517,13 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
                                                 self.ctx.set(name.clone(), val);
                                             }
                                         }
-                                        DestructuredRef::Object(obj) => {
-                                            // Special case: dict iteration gives key, value
-                                            if names.len() == 2 {
-                                                if let Some(key) = obj.get("key") {
-                                                    self.ctx.set(names[0].0.clone(), key.clone());
-                                                }
-                                                if let Some(value) = obj.get("value") {
-                                                    self.ctx.set(names[1].0.clone(), value.clone());
-                                                }
+                                        // Special case: dict iteration gives key, value
+                                        DestructuredRef::Object(obj) if names.len() == 2 => {
+                                            if let Some(key) = obj.get("key") {
+                                                self.ctx.set(names[0].0.clone(), key.clone());
+                                            }
+                                            if let Some(value) = obj.get("value") {
+                                                self.ctx.set(names[1].0.clone(), value.clone());
                                             }
                                         }
                                         _ => {}

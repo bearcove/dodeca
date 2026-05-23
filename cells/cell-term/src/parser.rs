@@ -237,11 +237,9 @@ impl Perform for Performer {
     fn execute(&mut self, byte: u8) {
         match byte {
             0x07 => {} // bell, ignore
-            0x08 => {
-                // backspace
-                if self.screen.col > 0 {
-                    self.screen.col -= 1;
-                }
+            // backspace
+            0x08 if self.screen.col > 0 => {
+                self.screen.col -= 1;
             }
             0x09 => {
                 // tab
