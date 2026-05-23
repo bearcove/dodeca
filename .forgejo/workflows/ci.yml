@@ -2112,7 +2112,7 @@ jobs:
   build-ddc-macos-arm64: 
     name: Build ddc (macos-arm64)
     runs-on: 
-      - mac-arm64-oakhost
+      - depot-macos-15
     timeout-minutes: 30
     needs: 
       - build-wasm
@@ -2198,7 +2198,7 @@ jobs:
   build-cells-macos-arm64-1: 
     name: Build cells (macos-arm64) [cell-code-execution]
     runs-on: 
-      - mac-arm64-oakhost
+      - depot-macos-15
     timeout-minutes: 30
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -2265,7 +2265,7 @@ jobs:
   build-cells-macos-arm64-2: 
     name: Build cells (macos-arm64) [cell-css]
     runs-on: 
-      - mac-arm64-oakhost
+      - depot-macos-15
     timeout-minutes: 30
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -2332,7 +2332,7 @@ jobs:
   build-cells-macos-arm64-3: 
     name: Build cells (macos-arm64) [cell-data]
     runs-on: 
-      - mac-arm64-oakhost
+      - depot-macos-15
     timeout-minutes: 30
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -2399,7 +2399,7 @@ jobs:
   build-cells-macos-arm64-4: 
     name: Build cells (macos-arm64) [cell-dialoguer]
     runs-on: 
-      - mac-arm64-oakhost
+      - depot-macos-15
     timeout-minutes: 30
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -2466,7 +2466,7 @@ jobs:
   build-cells-macos-arm64-5: 
     name: Build cells (macos-arm64) [cell-fonts]
     runs-on: 
-      - mac-arm64-oakhost
+      - depot-macos-15
     timeout-minutes: 30
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -2533,7 +2533,7 @@ jobs:
   build-cells-macos-arm64-6: 
     name: Build cells (macos-arm64) [cell-gingembre]
     runs-on: 
-      - mac-arm64-oakhost
+      - depot-macos-15
     timeout-minutes: 30
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -2600,7 +2600,7 @@ jobs:
   build-cells-macos-arm64-7: 
     name: Build cells (macos-arm64) [cell-html]
     runs-on: 
-      - mac-arm64-oakhost
+      - depot-macos-15
     timeout-minutes: 30
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -2667,7 +2667,7 @@ jobs:
   build-cells-macos-arm64-8: 
     name: Build cells (macos-arm64) [cell-html-diff]
     runs-on: 
-      - mac-arm64-oakhost
+      - depot-macos-15
     timeout-minutes: 30
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -2734,7 +2734,7 @@ jobs:
   build-cells-macos-arm64-9: 
     name: Build cells (macos-arm64) [cell-http]
     runs-on: 
-      - mac-arm64-oakhost
+      - depot-macos-15
     timeout-minutes: 30
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -2801,7 +2801,7 @@ jobs:
   build-cells-macos-arm64-10: 
     name: Build cells (macos-arm64) [cell-image]
     runs-on: 
-      - mac-arm64-oakhost
+      - depot-macos-15
     timeout-minutes: 30
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -2868,7 +2868,7 @@ jobs:
   build-cells-macos-arm64-11: 
     name: Build cells (macos-arm64) [cell-js]
     runs-on: 
-      - mac-arm64-oakhost
+      - depot-macos-15
     timeout-minutes: 30
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -2935,7 +2935,7 @@ jobs:
   build-cells-macos-arm64-12: 
     name: Build cells (macos-arm64) [cell-jxl]
     runs-on: 
-      - mac-arm64-oakhost
+      - depot-macos-15
     timeout-minutes: 30
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -3002,7 +3002,7 @@ jobs:
   build-cells-macos-arm64-13: 
     name: Build cells (macos-arm64) [cell-linkcheck]
     runs-on: 
-      - mac-arm64-oakhost
+      - depot-macos-15
     timeout-minutes: 30
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -3069,7 +3069,7 @@ jobs:
   build-cells-macos-arm64-14: 
     name: Build cells (macos-arm64) [cell-markdown]
     runs-on: 
-      - mac-arm64-oakhost
+      - depot-macos-15
     timeout-minutes: 30
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -3136,7 +3136,7 @@ jobs:
   build-cells-macos-arm64-15: 
     name: Build cells (macos-arm64) [cell-minify]
     runs-on: 
-      - mac-arm64-oakhost
+      - depot-macos-15
     timeout-minutes: 30
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -3203,7 +3203,7 @@ jobs:
   build-cells-macos-arm64-16: 
     name: Build cells (macos-arm64) [cell-sass]
     runs-on: 
-      - mac-arm64-oakhost
+      - depot-macos-15
     timeout-minutes: 30
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -3270,7 +3270,7 @@ jobs:
   build-cells-macos-arm64-17: 
     name: Build cells (macos-arm64) [cell-search]
     runs-on: 
-      - mac-arm64-oakhost
+      - depot-macos-15
     timeout-minutes: 30
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -3337,7 +3337,7 @@ jobs:
   build-cells-macos-arm64-18: 
     name: Build cells (macos-arm64) [cell-svgo]
     runs-on: 
-      - mac-arm64-oakhost
+      - depot-macos-15
     timeout-minutes: 30
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -3404,7 +3404,7 @@ jobs:
   build-cells-macos-arm64-19: 
     name: Build cells (macos-arm64) [cell-term]
     runs-on: 
-      - mac-arm64-oakhost
+      - depot-macos-15
     timeout-minutes: 30
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -3471,7 +3471,7 @@ jobs:
   build-cells-macos-arm64-20: 
     name: Build cells (macos-arm64) [cell-tui]
     runs-on: 
-      - mac-arm64-oakhost
+      - depot-macos-15
     timeout-minutes: 30
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -3538,7 +3538,7 @@ jobs:
   build-cells-macos-arm64-21: 
     name: Build cells (macos-arm64) [cell-vite]
     runs-on: 
-      - mac-arm64-oakhost
+      - depot-macos-15
     timeout-minutes: 30
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -3605,7 +3605,7 @@ jobs:
   build-cells-macos-arm64-22: 
     name: Build cells (macos-arm64) [cell-webp]
     runs-on: 
-      - mac-arm64-oakhost
+      - depot-macos-15
     timeout-minutes: 30
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -3672,7 +3672,7 @@ jobs:
   integration-macos-arm64: 
     name: Integration (macos-arm64)
     runs-on: 
-      - mac-arm64-oakhost
+      - depot-macos-15
     timeout-minutes: 30
     needs: 
       - build-ddc-macos-arm64
@@ -3971,7 +3971,7 @@ jobs:
   assemble-macos-arm64: 
     name: Assemble (macos-arm64)
     runs-on: 
-      - mac-arm64-oakhost
+      - depot-macos-15
     timeout-minutes: 30
     needs: 
       - integration-macos-arm64
