@@ -40,10 +40,7 @@ pub fn build_step_basic_command() {
     let site = TestSite::with_files(
         "sample-site",
         &[
-            (
-                ".config/dodeca.styx",
-                STYX_CONFIG,
-            ),
+            (".config/dodeca.styx", STYX_CONFIG),
             (
                 "templates/index.html",
                 r#"<!DOCTYPE html>
@@ -71,14 +68,8 @@ pub fn build_step_read_file() {
     let site = TestSite::with_files(
         "sample-site",
         &[
-            (
-                ".config/dodeca.styx",
-                STYX_CONFIG,
-            ),
-            (
-                "content/data.txt",
-                "Hello from data file!\n",
-            ),
+            (".config/dodeca.styx", STYX_CONFIG),
+            ("content/data.txt", "Hello from data file!\n"),
             (
                 "templates/index.html",
                 r#"<!DOCTYPE html>
@@ -105,14 +96,8 @@ pub fn build_step_command_with_file_param() {
     let site = TestSite::with_files(
         "sample-site",
         &[
-            (
-                ".config/dodeca.styx",
-                STYX_CONFIG,
-            ),
-            (
-                "content/words.txt",
-                "one two three four five\n",
-            ),
+            (".config/dodeca.styx", STYX_CONFIG),
+            ("content/words.txt", "one two three four five\n"),
             (
                 "templates/index.html",
                 r#"<!DOCTYPE html>
@@ -147,10 +132,7 @@ pub fn build_step_string_param() {
     let site = TestSite::with_files(
         "sample-site",
         &[
-            (
-                ".config/dodeca.styx",
-                STYX_CONFIG,
-            ),
+            (".config/dodeca.styx", STYX_CONFIG),
             (
                 "templates/index.html",
                 r#"<!DOCTYPE html>
@@ -177,10 +159,7 @@ pub fn build_step_caching_same_call() {
     let site = TestSite::with_files(
         "sample-site",
         &[
-            (
-                ".config/dodeca.styx",
-                STYX_CONFIG,
-            ),
+            (".config/dodeca.styx", STYX_CONFIG),
             (
                 "templates/index.html",
                 r#"<!DOCTYPE html>
@@ -234,18 +213,9 @@ pub fn build_step_caching_different_files() {
     let site = TestSite::with_files(
         "sample-site",
         &[
-            (
-                ".config/dodeca.styx",
-                STYX_CONFIG,
-            ),
-            (
-                "content/file1.txt",
-                "one two three\n",
-            ),
-            (
-                "content/file2.txt",
-                "alpha beta gamma delta epsilon\n",
-            ),
+            (".config/dodeca.styx", STYX_CONFIG),
+            ("content/file1.txt", "one two three\n"),
+            ("content/file2.txt", "alpha beta gamma delta epsilon\n"),
             (
                 "templates/index.html",
                 r#"<!DOCTYPE html>
@@ -280,14 +250,8 @@ pub fn build_step_cache_consistency() {
     let site = TestSite::with_files(
         "sample-site",
         &[
-            (
-                ".config/dodeca.styx",
-                STYX_CONFIG,
-            ),
-            (
-                "content/data.txt",
-                "stable content here\n",
-            ),
+            (".config/dodeca.styx", STYX_CONFIG),
+            ("content/data.txt", "stable content here\n"),
             (
                 "templates/index.html",
                 r#"<!DOCTYPE html>
@@ -324,14 +288,8 @@ pub fn builtin_read_function() {
     let site = TestSite::with_files(
         "sample-site",
         &[
-            (
-                ".config/dodeca.styx",
-                STYX_CONFIG,
-            ),
-            (
-                "content/readme.txt",
-                "This is readme content.\n",
-            ),
+            (".config/dodeca.styx", STYX_CONFIG),
+            ("content/readme.txt", "This is readme content.\n"),
             (
                 "templates/index.html",
                 r#"<!DOCTYPE html>
@@ -358,10 +316,7 @@ pub fn build_step_unknown_step_error() {
     let site = TestSite::with_files(
         "sample-site",
         &[
-            (
-                ".config/dodeca.styx",
-                STYX_CONFIG,
-            ),
+            (".config/dodeca.styx", STYX_CONFIG),
             (
                 "templates/index.html",
                 r#"<!DOCTYPE html>
@@ -394,10 +349,7 @@ pub fn build_step_missing_param_error() {
     let site = TestSite::with_files(
         "sample-site",
         &[
-            (
-                ".config/dodeca.styx",
-                STYX_CONFIG,
-            ),
+            (".config/dodeca.styx", STYX_CONFIG),
             (
                 "templates/index.html",
                 r#"<!DOCTYPE html>
@@ -418,7 +370,10 @@ pub fn build_step_missing_param_error() {
     html.assert_ok();
     let body = html.text();
     assert!(
-        body.contains("Missing parameter") || body.contains("error") || body.contains("Error") || body.contains("file"),
+        body.contains("Missing parameter")
+            || body.contains("error")
+            || body.contains("Error")
+            || body.contains("file"),
         "Should show error for missing parameter, got: {}",
         &body[..body.len().min(500)]
     );
