@@ -40,20 +40,32 @@ esac
 
 ARCHIVE_NAME="dodeca-${TARGET}.${ARCHIVE_EXT}"
 
-# Auto-discover rapace cells (cells with [[bin]] in Cargo.toml, excluding -proto)
-RAPACE_CELLS=()
+# Auto-discover cell cdylibs (cells with crate-type = ["cdylib"], excluding -proto)
+CELL_LIBS=()
 for dir in cells/cell-*/; do
     dirname=$(basename "$dir")
     # Skip proto crates
     if [[ "$dirname" == *-proto ]]; then
         continue
     fi
-    if [[ -f "$dir/Cargo.toml" ]] && grep -q '\[\[bin\]\]' "$dir/Cargo.toml"; then
-        RAPACE_CELLS+=("$dirname")
+    if [[ -f "$dir/Cargo.toml" ]] && grep -q '"cdylib"' "$dir/Cargo.toml"; then
+        lib_name=$(
+            awk '
+                /^\[/ { in_lib = ($0 == "[lib]"); next }
+                in_lib && $1 == "name" {
+                    gsub(/"/, "", $3)
+                    print $3
+                    exit
+                }
+            ' "$dir/Cargo.toml"
+        )
+        if [[ -n "$lib_name" ]]; then
+            CELL_LIBS+=("$lib_name")
+        fi
     fi
 done
 
-echo "Discovered rapace cells: ${RAPACE_CELLS[*]:-none}"
+echo "Discovered cell cdylibs: ${CELL_LIBS[*]:-none}"
 
 # Create staging directory
 rm -rf staging
@@ -79,20 +91,16 @@ BIN_FILES=()
 cp "${RELEASE_DIR}/${BINARY_NAME}" staging/
 BIN_FILES+=("${BINARY_NAME}")
 
-# Copy and strip rapace cell binaries
-for cell in "${RAPACE_CELLS[@]}"; do
-    if [[ "$TARGET" == *windows* ]]; then
-        BIN_NAME="ddc-${cell}.exe"
-    else
-        BIN_NAME="ddc-${cell}"
-    fi
-    SRC="${RELEASE_DIR}/${BIN_NAME}"
+# Copy and strip cell cdylibs
+for lib in "${CELL_LIBS[@]}"; do
+    LIB_FILE="${LIB_PREFIX}${lib}.${LIB_EXT}"
+    SRC="${RELEASE_DIR}/${LIB_FILE}"
     if [[ -f "$SRC" ]]; then
         cp "$SRC" staging/
-        BIN_FILES+=("${BIN_NAME}")
-        echo "Copied rapace cell: ${BIN_NAME}"
+        BIN_FILES+=("${LIB_FILE}")
+        echo "Copied cell cdylib: ${LIB_FILE}"
     else
-        echo "Warning: Rapace cell not found: $SRC"
+        echo "Warning: cell cdylib not found: $SRC"
     fi
 done
 

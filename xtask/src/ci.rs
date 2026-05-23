@@ -199,8 +199,38 @@ pub fn discover_cdylib_cells(repo_root: &Utf8Path) -> Vec<String> {
     cells
 }
 
-/// Discover cells by scanning cells/cell-*/Cargo.toml for `[[bin]]` sections.
-/// Returns (package_name, binary_name) pairs sorted alphabetically.
+fn discover_cell_lib_name(cargo_toml: &str) -> Option<String> {
+    let mut in_lib = false;
+    let mut lib_name = None;
+    let mut is_cdylib = false;
+
+    for line in cargo_toml.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            in_lib = trimmed == "[lib]";
+            continue;
+        }
+
+        if !in_lib {
+            continue;
+        }
+
+        if let Some((key, value)) = trimmed.split_once('=')
+            && key.trim() == "name"
+        {
+            lib_name = Some(value.trim().trim_matches('"').to_string());
+        }
+
+        if trimmed.starts_with("crate-type") && trimmed.contains("\"cdylib\"") {
+            is_cdylib = true;
+        }
+    }
+
+    if is_cdylib { lib_name } else { None }
+}
+
+/// Discover cells by scanning cells/cell-*/Cargo.toml for cdylib `[lib]` targets.
+/// Returns (package_name, library_name) pairs sorted alphabetically.
 pub fn discover_cells(repo_root: &Utf8Path) -> Vec<(String, String)> {
     let mut cells = Vec::new();
     let cells_dir = repo_root.join("cells");
@@ -215,10 +245,9 @@ pub fn discover_cells(repo_root: &Utf8Path) -> Vec<(String, String)> {
             {
                 let cargo_toml = path.join("Cargo.toml");
                 if let Ok(content) = std::fs::read_to_string(&cargo_toml)
-                    && content.contains("[[bin]]")
+                    && let Some(lib_name) = discover_cell_lib_name(&content)
                 {
-                    let bin_name = format!("ddc-{}", name);
-                    cells.push((name.to_string(), bin_name));
+                    cells.push((name.to_string(), lib_name));
                 }
             }
         }
@@ -313,6 +342,11 @@ impl Target {
             "x86_64-unknown-linux-gnu" => "/home/amos/.cache",
             _ => "/tmp/.cache",
         }
+    }
+
+    /// Get the release artifact filename for a cell cdylib target.
+    pub fn cell_library_filename(&self, lib_name: &str) -> String {
+        format!("{}{}.{}", self.lib_prefix, lib_name, self.lib_ext)
     }
 }
 
@@ -1013,11 +1047,11 @@ done"#,
     }
 
     /// Generate a shell script to verify all expected artifacts exist.
-    /// Fails CI if any binary is missing.
-    pub fn verify_artifacts_script(cells: &[(String, String)]) -> String {
+    /// Fails CI if ddc or any cell cdylib is missing.
+    pub fn verify_artifacts_script(target: &Target, cells: &[(String, String)]) -> String {
         let mut script = String::new();
         script.push_str("#!/bin/bash\nset -euo pipefail\n\n");
-        script.push_str("echo 'Verifying all required binaries exist in dist/'\n");
+        script.push_str("echo 'Verifying all required artifacts exist in dist/'\n");
         script.push_str("missing=0\n\n");
 
         // Check main binary
@@ -1028,13 +1062,14 @@ done"#,
         script.push_str("  echo '✓ ddc'\n");
         script.push_str("fi\n\n");
 
-        // Check all cell binaries
-        for (_, bin) in cells {
-            script.push_str(&format!("if [[ ! -x dist/{bin} ]]; then\n"));
-            script.push_str(&format!("  echo '❌ MISSING: {bin}'\n"));
+        // Check all cell cdylibs
+        for (_, lib_name) in cells {
+            let filename = target.cell_library_filename(lib_name);
+            script.push_str(&format!("if [[ ! -f dist/{filename} ]]; then\n"));
+            script.push_str(&format!("  echo '❌ MISSING: {filename}'\n"));
             script.push_str("  missing=1\n");
             script.push_str("else\n");
-            script.push_str(&format!("  echo '✓ {bin}'\n"));
+            script.push_str(&format!("  echo '✓ {filename}'\n"));
             script.push_str("fi\n\n");
         }
 
@@ -1046,7 +1081,7 @@ done"#,
         script.push_str("fi\n\n");
         script.push_str("echo ''\n");
         script.push_str(&format!(
-            "echo 'All {} binaries verified.'\n",
+            "echo 'All {} artifacts verified.'\n",
             cells.len() + 1
         ));
 
@@ -1250,7 +1285,7 @@ pub fn build_ci_workflow(platform: CiPlatform, repo_root: &Utf8Path) -> Workflow
 
             let build_args: String = cells
                 .iter()
-                .map(|(pkg, bin)| format!("-p {pkg} --bin {bin}"))
+                .map(|(pkg, _)| format!("-p {pkg}"))
                 .collect::<Vec<_>>()
                 .join(" ");
 
@@ -1269,7 +1304,9 @@ pub fn build_ci_workflow(platform: CiPlatform, repo_root: &Utf8Path) -> Workflow
             // Collect binary paths for upload
             let binary_paths: String = cells
                 .iter()
-                .map(|(_, bin)| format!("target/release/{bin}"))
+                .map(|(_, lib_name)| {
+                    format!("target/release/{}", target.cell_library_filename(lib_name))
+                })
                 .collect::<Vec<_>>()
                 .join("\n");
 
@@ -1357,8 +1394,8 @@ pub fn build_ci_workflow(platform: CiPlatform, repo_root: &Utf8Path) -> Workflow
                         "find dist -mindepth 2 -type f -exec mv -t dist {} + 2>/dev/null || true; \
                          find dist -mindepth 1 -type d -empty -delete 2>/dev/null || true",
                     ),
-                    Step::run("Prepare binaries", "chmod +x dist/ddc* && ls -la dist/"),
-                    Step::run("Verify artifacts", verify_artifacts_script(&cells)),
+                    Step::run("Prepare artifacts", "chmod +x dist/ddc && ls -la dist/"),
+                    Step::run("Verify artifacts", verify_artifacts_script(target, &cells)),
                     Step::run(
                         "Run integration tests",
                         "cargo xtask integration --no-build",
@@ -1409,7 +1446,7 @@ pub fn build_ci_workflow(platform: CiPlatform, repo_root: &Utf8Path) -> Workflow
                             ("name", wasm_artifact.clone()),
                             ("path", "crates/dodeca-devtools/pkg".into()),
                         ]),
-                        Step::run("Prepare binaries", "chmod +x dist/ddc* && ls -la dist/"),
+                        Step::run("Prepare artifacts", "chmod +x dist/ddc && ls -la dist/"),
                         // Setup Node.js for Playwright
                         Step::uses("Setup Node.js", "actions/setup-node@v4")
                             .with_inputs([("node-version", "20")]),
@@ -1753,7 +1790,7 @@ fi"#,
 
             let build_args: String = cells
                 .iter()
-                .map(|(pkg, bin)| format!("-p {pkg} --bin {bin}"))
+                .map(|(pkg, _)| format!("-p {pkg}"))
                 .collect::<Vec<_>>()
                 .join(" ");
 
@@ -1769,11 +1806,13 @@ fi"#,
                 .collect::<Vec<_>>()
                 .join(", ");
 
-            // Upload cell binaries to CAS with pointer files (batch upload)
+            // Upload cell cdylibs to CAS with pointer files (batch upload)
             // Each group gets its own manifest to avoid overwriting
             let binary_list: String = cells
                 .iter()
-                .map(|(_, bin)| format!("target/release/{bin}"))
+                .map(|(_, lib_name)| {
+                    format!("target/release/{}", target.cell_library_filename(lib_name))
+                })
                 .collect::<Vec<_>>()
                 .join(" ");
             let upload_script = format!(
@@ -1852,7 +1891,7 @@ fi"#,
                         },
                     ),
                     Step::run("List binaries", "ls -la dist/"),
-                    Step::run("Verify artifacts", verify_artifacts_script(&cells)),
+                    Step::run("Verify artifacts", verify_artifacts_script(target, &cells)),
                     Step::run(
                         "Run integration tests",
                         "cargo xtask integration --no-build",
@@ -2087,11 +2126,10 @@ main() {{
     cp "$tmpdir/ddc" "$install_dir/"
     chmod +x "$install_dir/ddc"
 
-    # Copy cell binaries (ddc-cell-*)
-    for plugin in "$tmpdir"/ddc-cell-*; do
+    # Copy cell cdylibs (libddc_cell_*)
+    for plugin in "$tmpdir"/libddc_cell_*; do
         if [ -f "$plugin" ]; then
             cp "$plugin" "$install_dir/"
-            chmod +x "$install_dir/$(basename "$plugin")"
         fi
     done
 

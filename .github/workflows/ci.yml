@@ -132,7 +132,7 @@ jobs:
           name: ddc-linux-x64
           path: target/release/ddc
   build-cells-linux-x64-1: 
-    name: Build cells (linux-x64) [cell-code-execution, cell-css, cell-data, cell-dialoguer, cell-fonts, cell-gingembre, cell-html, cell-html-diff, cell-http, cell-image, cell-js, cell-jxl, cell-linkcheck, cell-markdown, cell-minify, cell-sass, cell-svgo, cell-term, cell-tui, cell-vite, cell-webp]
+    name: Build cells (linux-x64) [cell-code-execution, cell-css, cell-data, cell-dialoguer, cell-fonts, cell-gingembre, cell-html, cell-html-diff, cell-http, cell-image, cell-js, cell-jxl, cell-linkcheck, cell-markdown, cell-minify, cell-sass, cell-search, cell-svgo, cell-term, cell-tui, cell-vite, cell-webp]
     runs-on: 
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
@@ -149,35 +149,36 @@ jobs:
           cache-on-failure: "true"
           cache-targets: "true"
       - name: Build cells
-        run: cargo build --release -p cell-code-execution --bin ddc-cell-code-execution -p cell-css --bin ddc-cell-css -p cell-data --bin ddc-cell-data -p cell-dialoguer --bin ddc-cell-dialoguer -p cell-fonts --bin ddc-cell-fonts -p cell-gingembre --bin ddc-cell-gingembre -p cell-html --bin ddc-cell-html -p cell-html-diff --bin ddc-cell-html-diff -p cell-http --bin ddc-cell-http -p cell-image --bin ddc-cell-image -p cell-js --bin ddc-cell-js -p cell-jxl --bin ddc-cell-jxl -p cell-linkcheck --bin ddc-cell-linkcheck -p cell-markdown --bin ddc-cell-markdown -p cell-minify --bin ddc-cell-minify -p cell-sass --bin ddc-cell-sass -p cell-svgo --bin ddc-cell-svgo -p cell-term --bin ddc-cell-term -p cell-tui --bin ddc-cell-tui -p cell-vite --bin ddc-cell-vite -p cell-webp --bin ddc-cell-webp --verbose
+        run: cargo build --release -p cell-code-execution -p cell-css -p cell-data -p cell-dialoguer -p cell-fonts -p cell-gingembre -p cell-html -p cell-html-diff -p cell-http -p cell-image -p cell-js -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-minify -p cell-sass -p cell-search -p cell-svgo -p cell-term -p cell-tui -p cell-vite -p cell-webp --verbose
       - name: Test cells
-        run: cargo test --release -p cell-code-execution -p cell-css -p cell-data -p cell-dialoguer -p cell-fonts -p cell-gingembre -p cell-html -p cell-html-diff -p cell-http -p cell-image -p cell-js -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-minify -p cell-sass -p cell-svgo -p cell-term -p cell-tui -p cell-vite -p cell-webp
+        run: cargo test --release -p cell-code-execution -p cell-css -p cell-data -p cell-dialoguer -p cell-fonts -p cell-gingembre -p cell-html -p cell-html-diff -p cell-http -p cell-image -p cell-js -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-minify -p cell-sass -p cell-search -p cell-svgo -p cell-term -p cell-tui -p cell-vite -p cell-webp
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with: 
           name: cells-linux-x64-1
           path: |-
-            target/release/ddc-cell-code-execution
-            target/release/ddc-cell-css
-            target/release/ddc-cell-data
-            target/release/ddc-cell-dialoguer
-            target/release/ddc-cell-fonts
-            target/release/ddc-cell-gingembre
-            target/release/ddc-cell-html
-            target/release/ddc-cell-html-diff
-            target/release/ddc-cell-http
-            target/release/ddc-cell-image
-            target/release/ddc-cell-js
-            target/release/ddc-cell-jxl
-            target/release/ddc-cell-linkcheck
-            target/release/ddc-cell-markdown
-            target/release/ddc-cell-minify
-            target/release/ddc-cell-sass
-            target/release/ddc-cell-svgo
-            target/release/ddc-cell-term
-            target/release/ddc-cell-tui
-            target/release/ddc-cell-vite
-            target/release/ddc-cell-webp
+            target/release/libddc_cell_code_execution.so
+            target/release/libddc_cell_css.so
+            target/release/libddc_cell_data.so
+            target/release/libddc_cell_dialoguer.so
+            target/release/libddc_cell_fonts.so
+            target/release/libddc_cell_gingembre.so
+            target/release/libddc_cell_html.so
+            target/release/libddc_cell_html_diff.so
+            target/release/libddc_cell_http.so
+            target/release/libddc_cell_image.so
+            target/release/libddc_cell_js.so
+            target/release/libddc_cell_jxl.so
+            target/release/libddc_cell_linkcheck.so
+            target/release/libddc_cell_markdown.so
+            target/release/libddc_cell_minify.so
+            target/release/libddc_cell_sass.so
+            target/release/libddc_cell_search.so
+            target/release/libddc_cell_svgo.so
+            target/release/libddc_cell_term.so
+            target/release/libddc_cell_tui.so
+            target/release/libddc_cell_vite.so
+            target/release/libddc_cell_webp.so
   integration-linux-x64: 
     name: Integration (linux-x64)
     runs-on: 
@@ -213,14 +214,14 @@ jobs:
           merge-multiple: "true"
       - name: Flatten cell directories
         run: find dist -mindepth 2 -type f -exec mv -t dist {} + 2>/dev/null || true; find dist -mindepth 1 -type d -empty -delete 2>/dev/null || true
-      - name: Prepare binaries
-        run: chmod +x dist/ddc* && ls -la dist/
+      - name: Prepare artifacts
+        run: chmod +x dist/ddc && ls -la dist/
       - name: Verify artifacts
         run: |
           #!/bin/bash
           set -euo pipefail
           
-          echo 'Verifying all required binaries exist in dist/'
+          echo 'Verifying all required artifacts exist in dist/'
           missing=0
           
           if [[ ! -x dist/ddc ]]; then
@@ -230,151 +231,158 @@ jobs:
             echo '✓ ddc'
           fi
           
-          if [[ ! -x dist/ddc-cell-code-execution ]]; then
-            echo '❌ MISSING: ddc-cell-code-execution'
+          if [[ ! -f dist/libddc_cell_code_execution.so ]]; then
+            echo '❌ MISSING: libddc_cell_code_execution.so'
             missing=1
           else
-            echo '✓ ddc-cell-code-execution'
+            echo '✓ libddc_cell_code_execution.so'
           fi
           
-          if [[ ! -x dist/ddc-cell-css ]]; then
-            echo '❌ MISSING: ddc-cell-css'
+          if [[ ! -f dist/libddc_cell_css.so ]]; then
+            echo '❌ MISSING: libddc_cell_css.so'
             missing=1
           else
-            echo '✓ ddc-cell-css'
+            echo '✓ libddc_cell_css.so'
           fi
           
-          if [[ ! -x dist/ddc-cell-data ]]; then
-            echo '❌ MISSING: ddc-cell-data'
+          if [[ ! -f dist/libddc_cell_data.so ]]; then
+            echo '❌ MISSING: libddc_cell_data.so'
             missing=1
           else
-            echo '✓ ddc-cell-data'
+            echo '✓ libddc_cell_data.so'
           fi
           
-          if [[ ! -x dist/ddc-cell-dialoguer ]]; then
-            echo '❌ MISSING: ddc-cell-dialoguer'
+          if [[ ! -f dist/libddc_cell_dialoguer.so ]]; then
+            echo '❌ MISSING: libddc_cell_dialoguer.so'
             missing=1
           else
-            echo '✓ ddc-cell-dialoguer'
+            echo '✓ libddc_cell_dialoguer.so'
           fi
           
-          if [[ ! -x dist/ddc-cell-fonts ]]; then
-            echo '❌ MISSING: ddc-cell-fonts'
+          if [[ ! -f dist/libddc_cell_fonts.so ]]; then
+            echo '❌ MISSING: libddc_cell_fonts.so'
             missing=1
           else
-            echo '✓ ddc-cell-fonts'
+            echo '✓ libddc_cell_fonts.so'
           fi
           
-          if [[ ! -x dist/ddc-cell-gingembre ]]; then
-            echo '❌ MISSING: ddc-cell-gingembre'
+          if [[ ! -f dist/libddc_cell_gingembre.so ]]; then
+            echo '❌ MISSING: libddc_cell_gingembre.so'
             missing=1
           else
-            echo '✓ ddc-cell-gingembre'
+            echo '✓ libddc_cell_gingembre.so'
           fi
           
-          if [[ ! -x dist/ddc-cell-html ]]; then
-            echo '❌ MISSING: ddc-cell-html'
+          if [[ ! -f dist/libddc_cell_html.so ]]; then
+            echo '❌ MISSING: libddc_cell_html.so'
             missing=1
           else
-            echo '✓ ddc-cell-html'
+            echo '✓ libddc_cell_html.so'
           fi
           
-          if [[ ! -x dist/ddc-cell-html-diff ]]; then
-            echo '❌ MISSING: ddc-cell-html-diff'
+          if [[ ! -f dist/libddc_cell_html_diff.so ]]; then
+            echo '❌ MISSING: libddc_cell_html_diff.so'
             missing=1
           else
-            echo '✓ ddc-cell-html-diff'
+            echo '✓ libddc_cell_html_diff.so'
           fi
           
-          if [[ ! -x dist/ddc-cell-http ]]; then
-            echo '❌ MISSING: ddc-cell-http'
+          if [[ ! -f dist/libddc_cell_http.so ]]; then
+            echo '❌ MISSING: libddc_cell_http.so'
             missing=1
           else
-            echo '✓ ddc-cell-http'
+            echo '✓ libddc_cell_http.so'
           fi
           
-          if [[ ! -x dist/ddc-cell-image ]]; then
-            echo '❌ MISSING: ddc-cell-image'
+          if [[ ! -f dist/libddc_cell_image.so ]]; then
+            echo '❌ MISSING: libddc_cell_image.so'
             missing=1
           else
-            echo '✓ ddc-cell-image'
+            echo '✓ libddc_cell_image.so'
           fi
           
-          if [[ ! -x dist/ddc-cell-js ]]; then
-            echo '❌ MISSING: ddc-cell-js'
+          if [[ ! -f dist/libddc_cell_js.so ]]; then
+            echo '❌ MISSING: libddc_cell_js.so'
             missing=1
           else
-            echo '✓ ddc-cell-js'
+            echo '✓ libddc_cell_js.so'
           fi
           
-          if [[ ! -x dist/ddc-cell-jxl ]]; then
-            echo '❌ MISSING: ddc-cell-jxl'
+          if [[ ! -f dist/libddc_cell_jxl.so ]]; then
+            echo '❌ MISSING: libddc_cell_jxl.so'
             missing=1
           else
-            echo '✓ ddc-cell-jxl'
+            echo '✓ libddc_cell_jxl.so'
           fi
           
-          if [[ ! -x dist/ddc-cell-linkcheck ]]; then
-            echo '❌ MISSING: ddc-cell-linkcheck'
+          if [[ ! -f dist/libddc_cell_linkcheck.so ]]; then
+            echo '❌ MISSING: libddc_cell_linkcheck.so'
             missing=1
           else
-            echo '✓ ddc-cell-linkcheck'
+            echo '✓ libddc_cell_linkcheck.so'
           fi
           
-          if [[ ! -x dist/ddc-cell-markdown ]]; then
-            echo '❌ MISSING: ddc-cell-markdown'
+          if [[ ! -f dist/libddc_cell_markdown.so ]]; then
+            echo '❌ MISSING: libddc_cell_markdown.so'
             missing=1
           else
-            echo '✓ ddc-cell-markdown'
+            echo '✓ libddc_cell_markdown.so'
           fi
           
-          if [[ ! -x dist/ddc-cell-minify ]]; then
-            echo '❌ MISSING: ddc-cell-minify'
+          if [[ ! -f dist/libddc_cell_minify.so ]]; then
+            echo '❌ MISSING: libddc_cell_minify.so'
             missing=1
           else
-            echo '✓ ddc-cell-minify'
+            echo '✓ libddc_cell_minify.so'
           fi
           
-          if [[ ! -x dist/ddc-cell-sass ]]; then
-            echo '❌ MISSING: ddc-cell-sass'
+          if [[ ! -f dist/libddc_cell_sass.so ]]; then
+            echo '❌ MISSING: libddc_cell_sass.so'
             missing=1
           else
-            echo '✓ ddc-cell-sass'
+            echo '✓ libddc_cell_sass.so'
           fi
           
-          if [[ ! -x dist/ddc-cell-svgo ]]; then
-            echo '❌ MISSING: ddc-cell-svgo'
+          if [[ ! -f dist/libddc_cell_search.so ]]; then
+            echo '❌ MISSING: libddc_cell_search.so'
             missing=1
           else
-            echo '✓ ddc-cell-svgo'
+            echo '✓ libddc_cell_search.so'
           fi
           
-          if [[ ! -x dist/ddc-cell-term ]]; then
-            echo '❌ MISSING: ddc-cell-term'
+          if [[ ! -f dist/libddc_cell_svgo.so ]]; then
+            echo '❌ MISSING: libddc_cell_svgo.so'
             missing=1
           else
-            echo '✓ ddc-cell-term'
+            echo '✓ libddc_cell_svgo.so'
           fi
           
-          if [[ ! -x dist/ddc-cell-tui ]]; then
-            echo '❌ MISSING: ddc-cell-tui'
+          if [[ ! -f dist/libddc_cell_term.so ]]; then
+            echo '❌ MISSING: libddc_cell_term.so'
             missing=1
           else
-            echo '✓ ddc-cell-tui'
+            echo '✓ libddc_cell_term.so'
           fi
           
-          if [[ ! -x dist/ddc-cell-vite ]]; then
-            echo '❌ MISSING: ddc-cell-vite'
+          if [[ ! -f dist/libddc_cell_tui.so ]]; then
+            echo '❌ MISSING: libddc_cell_tui.so'
             missing=1
           else
-            echo '✓ ddc-cell-vite'
+            echo '✓ libddc_cell_tui.so'
           fi
           
-          if [[ ! -x dist/ddc-cell-webp ]]; then
-            echo '❌ MISSING: ddc-cell-webp'
+          if [[ ! -f dist/libddc_cell_vite.so ]]; then
+            echo '❌ MISSING: libddc_cell_vite.so'
             missing=1
           else
-            echo '✓ ddc-cell-webp'
+            echo '✓ libddc_cell_vite.so'
+          fi
+          
+          if [[ ! -f dist/libddc_cell_webp.so ]]; then
+            echo '❌ MISSING: libddc_cell_webp.so'
+            missing=1
+          else
+            echo '✓ libddc_cell_webp.so'
           fi
           
           if [[ $missing -eq 1 ]]; then
@@ -385,7 +393,7 @@ jobs:
           fi
           
           echo ''
-          echo 'All 22 binaries verified.'
+          echo 'All 23 artifacts verified.'
       - name: Run integration tests
         run: cargo xtask integration --no-build
         env: 
@@ -422,8 +430,8 @@ jobs:
         with: 
           name: dodeca-devtools-wasm
           path: crates/dodeca-devtools/pkg
-      - name: Prepare binaries
-        run: chmod +x dist/ddc* && ls -la dist/
+      - name: Prepare artifacts
+        run: chmod +x dist/ddc && ls -la dist/
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with: 
@@ -510,7 +518,7 @@ jobs:
           name: ddc-macos-arm64
           path: target/release/ddc
   build-cells-macos-arm64-1: 
-    name: Build cells (macos-arm64) [cell-code-execution, cell-css, cell-data, cell-dialoguer, cell-fonts, cell-gingembre, cell-html, cell-html-diff, cell-http, cell-image, cell-js, cell-jxl, cell-linkcheck, cell-markdown, cell-minify, cell-sass, cell-svgo, cell-term, cell-tui, cell-vite, cell-webp]
+    name: Build cells (macos-arm64) [cell-code-execution, cell-css, cell-data, cell-dialoguer, cell-fonts, cell-gingembre, cell-html, cell-html-diff, cell-http, cell-image, cell-js, cell-jxl, cell-linkcheck, cell-markdown, cell-minify, cell-sass, cell-search, cell-svgo, cell-term, cell-tui, cell-vite, cell-webp]
     runs-on: 
       - mac-arm64-oakhost
     timeout-minutes: 30
@@ -528,35 +536,36 @@ jobs:
           cache-targets: "true"
           cache-bin: "false"
       - name: Build cells
-        run: cargo build --release -p cell-code-execution --bin ddc-cell-code-execution -p cell-css --bin ddc-cell-css -p cell-data --bin ddc-cell-data -p cell-dialoguer --bin ddc-cell-dialoguer -p cell-fonts --bin ddc-cell-fonts -p cell-gingembre --bin ddc-cell-gingembre -p cell-html --bin ddc-cell-html -p cell-html-diff --bin ddc-cell-html-diff -p cell-http --bin ddc-cell-http -p cell-image --bin ddc-cell-image -p cell-js --bin ddc-cell-js -p cell-jxl --bin ddc-cell-jxl -p cell-linkcheck --bin ddc-cell-linkcheck -p cell-markdown --bin ddc-cell-markdown -p cell-minify --bin ddc-cell-minify -p cell-sass --bin ddc-cell-sass -p cell-svgo --bin ddc-cell-svgo -p cell-term --bin ddc-cell-term -p cell-tui --bin ddc-cell-tui -p cell-vite --bin ddc-cell-vite -p cell-webp --bin ddc-cell-webp --verbose
+        run: cargo build --release -p cell-code-execution -p cell-css -p cell-data -p cell-dialoguer -p cell-fonts -p cell-gingembre -p cell-html -p cell-html-diff -p cell-http -p cell-image -p cell-js -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-minify -p cell-sass -p cell-search -p cell-svgo -p cell-term -p cell-tui -p cell-vite -p cell-webp --verbose
       - name: Test cells
-        run: cargo test --release -p cell-code-execution -p cell-css -p cell-data -p cell-dialoguer -p cell-fonts -p cell-gingembre -p cell-html -p cell-html-diff -p cell-http -p cell-image -p cell-js -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-minify -p cell-sass -p cell-svgo -p cell-term -p cell-tui -p cell-vite -p cell-webp
+        run: cargo test --release -p cell-code-execution -p cell-css -p cell-data -p cell-dialoguer -p cell-fonts -p cell-gingembre -p cell-html -p cell-html-diff -p cell-http -p cell-image -p cell-js -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-minify -p cell-sass -p cell-search -p cell-svgo -p cell-term -p cell-tui -p cell-vite -p cell-webp
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with: 
           name: cells-macos-arm64-1
           path: |-
-            target/release/ddc-cell-code-execution
-            target/release/ddc-cell-css
-            target/release/ddc-cell-data
-            target/release/ddc-cell-dialoguer
-            target/release/ddc-cell-fonts
-            target/release/ddc-cell-gingembre
-            target/release/ddc-cell-html
-            target/release/ddc-cell-html-diff
-            target/release/ddc-cell-http
-            target/release/ddc-cell-image
-            target/release/ddc-cell-js
-            target/release/ddc-cell-jxl
-            target/release/ddc-cell-linkcheck
-            target/release/ddc-cell-markdown
-            target/release/ddc-cell-minify
-            target/release/ddc-cell-sass
-            target/release/ddc-cell-svgo
-            target/release/ddc-cell-term
-            target/release/ddc-cell-tui
-            target/release/ddc-cell-vite
-            target/release/ddc-cell-webp
+            target/release/libddc_cell_code_execution.dylib
+            target/release/libddc_cell_css.dylib
+            target/release/libddc_cell_data.dylib
+            target/release/libddc_cell_dialoguer.dylib
+            target/release/libddc_cell_fonts.dylib
+            target/release/libddc_cell_gingembre.dylib
+            target/release/libddc_cell_html.dylib
+            target/release/libddc_cell_html_diff.dylib
+            target/release/libddc_cell_http.dylib
+            target/release/libddc_cell_image.dylib
+            target/release/libddc_cell_js.dylib
+            target/release/libddc_cell_jxl.dylib
+            target/release/libddc_cell_linkcheck.dylib
+            target/release/libddc_cell_markdown.dylib
+            target/release/libddc_cell_minify.dylib
+            target/release/libddc_cell_sass.dylib
+            target/release/libddc_cell_search.dylib
+            target/release/libddc_cell_svgo.dylib
+            target/release/libddc_cell_term.dylib
+            target/release/libddc_cell_tui.dylib
+            target/release/libddc_cell_vite.dylib
+            target/release/libddc_cell_webp.dylib
   integration-macos-arm64: 
     name: Integration (macos-arm64)
     runs-on: 
@@ -593,14 +602,14 @@ jobs:
           merge-multiple: "true"
       - name: Flatten cell directories
         run: find dist -mindepth 2 -type f -exec mv -t dist {} + 2>/dev/null || true; find dist -mindepth 1 -type d -empty -delete 2>/dev/null || true
-      - name: Prepare binaries
-        run: chmod +x dist/ddc* && ls -la dist/
+      - name: Prepare artifacts
+        run: chmod +x dist/ddc && ls -la dist/
       - name: Verify artifacts
         run: |
           #!/bin/bash
           set -euo pipefail
           
-          echo 'Verifying all required binaries exist in dist/'
+          echo 'Verifying all required artifacts exist in dist/'
           missing=0
           
           if [[ ! -x dist/ddc ]]; then
@@ -610,151 +619,158 @@ jobs:
             echo '✓ ddc'
           fi
           
-          if [[ ! -x dist/ddc-cell-code-execution ]]; then
-            echo '❌ MISSING: ddc-cell-code-execution'
+          if [[ ! -f dist/libddc_cell_code_execution.dylib ]]; then
+            echo '❌ MISSING: libddc_cell_code_execution.dylib'
             missing=1
           else
-            echo '✓ ddc-cell-code-execution'
+            echo '✓ libddc_cell_code_execution.dylib'
           fi
           
-          if [[ ! -x dist/ddc-cell-css ]]; then
-            echo '❌ MISSING: ddc-cell-css'
+          if [[ ! -f dist/libddc_cell_css.dylib ]]; then
+            echo '❌ MISSING: libddc_cell_css.dylib'
             missing=1
           else
-            echo '✓ ddc-cell-css'
+            echo '✓ libddc_cell_css.dylib'
           fi
           
-          if [[ ! -x dist/ddc-cell-data ]]; then
-            echo '❌ MISSING: ddc-cell-data'
+          if [[ ! -f dist/libddc_cell_data.dylib ]]; then
+            echo '❌ MISSING: libddc_cell_data.dylib'
             missing=1
           else
-            echo '✓ ddc-cell-data'
+            echo '✓ libddc_cell_data.dylib'
           fi
           
-          if [[ ! -x dist/ddc-cell-dialoguer ]]; then
-            echo '❌ MISSING: ddc-cell-dialoguer'
+          if [[ ! -f dist/libddc_cell_dialoguer.dylib ]]; then
+            echo '❌ MISSING: libddc_cell_dialoguer.dylib'
             missing=1
           else
-            echo '✓ ddc-cell-dialoguer'
+            echo '✓ libddc_cell_dialoguer.dylib'
           fi
           
-          if [[ ! -x dist/ddc-cell-fonts ]]; then
-            echo '❌ MISSING: ddc-cell-fonts'
+          if [[ ! -f dist/libddc_cell_fonts.dylib ]]; then
+            echo '❌ MISSING: libddc_cell_fonts.dylib'
             missing=1
           else
-            echo '✓ ddc-cell-fonts'
+            echo '✓ libddc_cell_fonts.dylib'
           fi
           
-          if [[ ! -x dist/ddc-cell-gingembre ]]; then
-            echo '❌ MISSING: ddc-cell-gingembre'
+          if [[ ! -f dist/libddc_cell_gingembre.dylib ]]; then
+            echo '❌ MISSING: libddc_cell_gingembre.dylib'
             missing=1
           else
-            echo '✓ ddc-cell-gingembre'
+            echo '✓ libddc_cell_gingembre.dylib'
           fi
           
-          if [[ ! -x dist/ddc-cell-html ]]; then
-            echo '❌ MISSING: ddc-cell-html'
+          if [[ ! -f dist/libddc_cell_html.dylib ]]; then
+            echo '❌ MISSING: libddc_cell_html.dylib'
             missing=1
           else
-            echo '✓ ddc-cell-html'
+            echo '✓ libddc_cell_html.dylib'
           fi
           
-          if [[ ! -x dist/ddc-cell-html-diff ]]; then
-            echo '❌ MISSING: ddc-cell-html-diff'
+          if [[ ! -f dist/libddc_cell_html_diff.dylib ]]; then
+            echo '❌ MISSING: libddc_cell_html_diff.dylib'
             missing=1
           else
-            echo '✓ ddc-cell-html-diff'
+            echo '✓ libddc_cell_html_diff.dylib'
           fi
           
-          if [[ ! -x dist/ddc-cell-http ]]; then
-            echo '❌ MISSING: ddc-cell-http'
+          if [[ ! -f dist/libddc_cell_http.dylib ]]; then
+            echo '❌ MISSING: libddc_cell_http.dylib'
             missing=1
           else
-            echo '✓ ddc-cell-http'
+            echo '✓ libddc_cell_http.dylib'
           fi
           
-          if [[ ! -x dist/ddc-cell-image ]]; then
-            echo '❌ MISSING: ddc-cell-image'
+          if [[ ! -f dist/libddc_cell_image.dylib ]]; then
+            echo '❌ MISSING: libddc_cell_image.dylib'
             missing=1
           else
-            echo '✓ ddc-cell-image'
+            echo '✓ libddc_cell_image.dylib'
           fi
           
-          if [[ ! -x dist/ddc-cell-js ]]; then
-            echo '❌ MISSING: ddc-cell-js'
+          if [[ ! -f dist/libddc_cell_js.dylib ]]; then
+            echo '❌ MISSING: libddc_cell_js.dylib'
             missing=1
           else
-            echo '✓ ddc-cell-js'
+            echo '✓ libddc_cell_js.dylib'
           fi
           
-          if [[ ! -x dist/ddc-cell-jxl ]]; then
-            echo '❌ MISSING: ddc-cell-jxl'
+          if [[ ! -f dist/libddc_cell_jxl.dylib ]]; then
+            echo '❌ MISSING: libddc_cell_jxl.dylib'
             missing=1
           else
-            echo '✓ ddc-cell-jxl'
+            echo '✓ libddc_cell_jxl.dylib'
           fi
           
-          if [[ ! -x dist/ddc-cell-linkcheck ]]; then
-            echo '❌ MISSING: ddc-cell-linkcheck'
+          if [[ ! -f dist/libddc_cell_linkcheck.dylib ]]; then
+            echo '❌ MISSING: libddc_cell_linkcheck.dylib'
             missing=1
           else
-            echo '✓ ddc-cell-linkcheck'
+            echo '✓ libddc_cell_linkcheck.dylib'
           fi
           
-          if [[ ! -x dist/ddc-cell-markdown ]]; then
-            echo '❌ MISSING: ddc-cell-markdown'
+          if [[ ! -f dist/libddc_cell_markdown.dylib ]]; then
+            echo '❌ MISSING: libddc_cell_markdown.dylib'
             missing=1
           else
-            echo '✓ ddc-cell-markdown'
+            echo '✓ libddc_cell_markdown.dylib'
           fi
           
-          if [[ ! -x dist/ddc-cell-minify ]]; then
-            echo '❌ MISSING: ddc-cell-minify'
+          if [[ ! -f dist/libddc_cell_minify.dylib ]]; then
+            echo '❌ MISSING: libddc_cell_minify.dylib'
             missing=1
           else
-            echo '✓ ddc-cell-minify'
+            echo '✓ libddc_cell_minify.dylib'
           fi
           
-          if [[ ! -x dist/ddc-cell-sass ]]; then
-            echo '❌ MISSING: ddc-cell-sass'
+          if [[ ! -f dist/libddc_cell_sass.dylib ]]; then
+            echo '❌ MISSING: libddc_cell_sass.dylib'
             missing=1
           else
-            echo '✓ ddc-cell-sass'
+            echo '✓ libddc_cell_sass.dylib'
           fi
           
-          if [[ ! -x dist/ddc-cell-svgo ]]; then
-            echo '❌ MISSING: ddc-cell-svgo'
+          if [[ ! -f dist/libddc_cell_search.dylib ]]; then
+            echo '❌ MISSING: libddc_cell_search.dylib'
             missing=1
           else
-            echo '✓ ddc-cell-svgo'
+            echo '✓ libddc_cell_search.dylib'
           fi
           
-          if [[ ! -x dist/ddc-cell-term ]]; then
-            echo '❌ MISSING: ddc-cell-term'
+          if [[ ! -f dist/libddc_cell_svgo.dylib ]]; then
+            echo '❌ MISSING: libddc_cell_svgo.dylib'
             missing=1
           else
-            echo '✓ ddc-cell-term'
+            echo '✓ libddc_cell_svgo.dylib'
           fi
           
-          if [[ ! -x dist/ddc-cell-tui ]]; then
-            echo '❌ MISSING: ddc-cell-tui'
+          if [[ ! -f dist/libddc_cell_term.dylib ]]; then
+            echo '❌ MISSING: libddc_cell_term.dylib'
             missing=1
           else
-            echo '✓ ddc-cell-tui'
+            echo '✓ libddc_cell_term.dylib'
           fi
           
-          if [[ ! -x dist/ddc-cell-vite ]]; then
-            echo '❌ MISSING: ddc-cell-vite'
+          if [[ ! -f dist/libddc_cell_tui.dylib ]]; then
+            echo '❌ MISSING: libddc_cell_tui.dylib'
             missing=1
           else
-            echo '✓ ddc-cell-vite'
+            echo '✓ libddc_cell_tui.dylib'
           fi
           
-          if [[ ! -x dist/ddc-cell-webp ]]; then
-            echo '❌ MISSING: ddc-cell-webp'
+          if [[ ! -f dist/libddc_cell_vite.dylib ]]; then
+            echo '❌ MISSING: libddc_cell_vite.dylib'
             missing=1
           else
-            echo '✓ ddc-cell-webp'
+            echo '✓ libddc_cell_vite.dylib'
+          fi
+          
+          if [[ ! -f dist/libddc_cell_webp.dylib ]]; then
+            echo '❌ MISSING: libddc_cell_webp.dylib'
+            missing=1
+          else
+            echo '✓ libddc_cell_webp.dylib'
           fi
           
           if [[ $missing -eq 1 ]]; then
@@ -765,7 +781,7 @@ jobs:
           fi
           
           echo ''
-          echo 'All 22 binaries verified.'
+          echo 'All 23 artifacts verified.'
       - name: Run integration tests
         run: cargo xtask integration --no-build
         env: 

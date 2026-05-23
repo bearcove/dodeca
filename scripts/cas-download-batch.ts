@@ -70,8 +70,8 @@ async function main() {
         const destPath = join(outputDir, name);
         const { bytes, durationMs } = await client.get(hash, destPath);
 
-        // Make executable if it looks like a binary
-        if (name === "ddc" || name.startsWith("ddc-cell-")) {
+        // Make the main binary executable; cell artifacts are cdylibs.
+        if (name === "ddc") {
           await chmod(destPath, 0o755);
         }
 
