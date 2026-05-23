@@ -2102,7 +2102,7 @@ jobs:
           ./scripts/cas-download.ts "ci/${{ github.run_id }}/wasm.tar.gz" /tmp/wasm.tar.gz
           tar -xzf /tmp/wasm.tar.gz
       - name: Install xz (macOS)
-        run: if command -v brew >/dev/null 2>&1; then HOMEBREW_NO_AUTO_UPDATE=1 brew install xz; fi
+        run: if ! command -v xz >/dev/null 2>&1 && command -v brew >/dev/null 2>&1; then HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 brew install xz; fi
       - name: List binaries
         run: ls -la target/release/
       - name: Assemble archive
@@ -4012,7 +4012,7 @@ jobs:
           ./scripts/cas-download.ts "ci/${{ github.run_id }}/wasm.tar.gz" /tmp/wasm.tar.gz
           tar -xzf /tmp/wasm.tar.gz
       - name: Install xz (macOS)
-        run: if command -v brew >/dev/null 2>&1; then HOMEBREW_NO_AUTO_UPDATE=1 brew install xz; fi
+        run: if ! command -v xz >/dev/null 2>&1 && command -v brew >/dev/null 2>&1; then HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 brew install xz; fi
       - name: List binaries
         run: ls -la target/release/
       - name: Assemble archive

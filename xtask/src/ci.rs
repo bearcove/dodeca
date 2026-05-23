@@ -1519,7 +1519,7 @@ pub fn build_ci_workflow(platform: CiPlatform, repo_root: &Utf8Path) -> Workflow
                     ]),
                     Step::run(
                         "Install xz (macOS)",
-                        "if command -v brew >/dev/null 2>&1; then HOMEBREW_NO_AUTO_UPDATE=1 brew install xz; fi",
+                        "if ! command -v xz >/dev/null 2>&1 && command -v brew >/dev/null 2>&1; then HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 brew install xz; fi",
                     ),
                     Step::run("List binaries", "ls -la target/release/"),
                     Step::run(
@@ -1962,7 +1962,7 @@ tar -xzf /tmp/wasm.tar.gz"#
                     ),
                     Step::run(
                         "Install xz (macOS)",
-                        "if command -v brew >/dev/null 2>&1; then HOMEBREW_NO_AUTO_UPDATE=1 brew install xz; fi",
+                        "if ! command -v xz >/dev/null 2>&1 && command -v brew >/dev/null 2>&1; then HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 brew install xz; fi",
                     ),
                     Step::run("List binaries", "ls -la target/release/"),
                     Step::run(
