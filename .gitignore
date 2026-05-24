@@ -27,3 +27,4 @@ crates/dodeca-search-wasm/pkg/
 examples/vite-starter/node_modules
 
 .playwright-mcp/
+profile.json.gz
