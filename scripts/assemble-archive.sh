@@ -72,17 +72,21 @@ rm -rf staging
 mkdir -p staging
 
 # Determine strip command
+STRIP_CMD=()
 case "$TARGET" in
     *windows*)
         # Windows: skip stripping (could use llvm-strip if needed)
-        STRIP_CMD=""
+        ;;
+    *apple*)
+        # Mach-O dylibs keep imported symbols in the indirect symbol table.
+        STRIP_CMD=(strip -Sx)
         ;;
     aarch64-unknown-linux-gnu)
         # Cross-compiled ARM: use aarch64 strip
-        STRIP_CMD="aarch64-linux-gnu-strip"
+        STRIP_CMD=(aarch64-linux-gnu-strip)
         ;;
     *)
-        STRIP_CMD="strip"
+        STRIP_CMD=(strip)
         ;;
 esac
 
@@ -115,11 +119,11 @@ else
 fi
 
 # Strip binaries in parallel (if applicable)
-if [[ -n "$STRIP_CMD" ]]; then
-    echo "Stripping binaries (${#BIN_FILES[@]} files) with: ${STRIP_CMD}"
+if [[ ${#STRIP_CMD[@]} -gt 0 ]]; then
+    echo "Stripping binaries (${#BIN_FILES[@]} files) with: ${STRIP_CMD[*]}"
     pids=()
     for bin in "${BIN_FILES[@]}"; do
-        $STRIP_CMD "staging/${bin}" &
+        "${STRIP_CMD[@]}" "staging/${bin}" &
         pids+=("$!")
     done
     for pid in "${pids[@]}"; do
