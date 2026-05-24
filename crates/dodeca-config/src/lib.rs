@@ -63,10 +63,31 @@ pub struct SyntaxHighlightConfig {
     pub dark_theme: Option<String>,
 }
 
+/// What to check.
+///
+/// `Full` (default) walks every internal link and probes every external one;
+/// `Internal` skips external HTTP probes (fast, no network); `None` skips
+/// link checking entirely. Set via `link_check.mode` in
+/// `.config/dodeca.styx` or `--link-check` on the CLI (CLI wins).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Facet)]
+#[facet(rename_all = "snake_case")]
+#[repr(u8)]
+pub enum LinkCheckMode {
+    None,
+    Internal,
+    #[default]
+    Full,
+}
+
 /// Link checking configuration
 #[derive(Debug, Clone, Default, Facet)]
 #[facet(rename_all = "snake_case")]
 pub struct LinkCheckConfig {
+    /// What to check. Defaults to `full`. Override at the CLI with
+    /// `ddc build --link-check none|internal|full`.
+    #[facet(default)]
+    pub mode: Option<LinkCheckMode>,
+
     /// Domains to skip checking (anti-bot policies, known flaky, etc.)
     #[facet(default)]
     pub skip_domains: Option<Vec<String>>,

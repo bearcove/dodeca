@@ -36,7 +36,7 @@ mod types;
 mod url_rewrite;
 mod vite;
 
-use crate::config::ResolvedConfig;
+use crate::config::{LinkCheckMode, ResolvedConfig};
 use crate::db::{
     DataFile, DataRegistry, Database, OutputFile, QueryStats, SassFile, SassRegistry, SourceFile,
     SourceRegistry, StaticFile, StaticRegistry, TemplateFile, TemplateRegistry,
@@ -94,6 +94,13 @@ struct BuildArgs {
     /// Output directory (uses .config/dodeca.styx if not specified)
     #[facet(args::named, args::short = 'o', default)]
     output: Option<String>,
+
+    /// Override link checking mode (`none`, `internal`, or `full`).
+    /// CLI wins over `link_check.mode` in `.config/dodeca.styx`.
+    /// `none` skips link checking entirely (useful for fast prod builds);
+    /// `internal` checks intra-site links only (no network).
+    #[facet(args::named, default)]
+    link_check: Option<LinkCheckMode>,
 
     /// Show TUI progress display
     #[facet(args::named)]
@@ -248,6 +255,7 @@ struct ResolvedBuildConfig {
     output_dir: Utf8PathBuf,
     skip_domains: Vec<String>,
     rate_limit_ms: Option<u64>,
+    link_check_mode: LinkCheckMode,
     stable_assets: Vec<String>,
 }
 
@@ -269,6 +277,7 @@ fn resolve_dirs(
             output_dir: o.clone(),
             skip_domains: vec![],
             rate_limit_ms: None,
+            link_check_mode: LinkCheckMode::default(),
             stable_assets: vec![],
         });
     }
@@ -291,6 +300,7 @@ fn resolve_dirs(
                 output_dir,
                 skip_domains: cfg.skip_domains,
                 rate_limit_ms: cfg.rate_limit_ms,
+                link_check_mode: cfg.link_check_mode,
                 stable_assets: cfg.stable_assets,
             })
         }
@@ -338,11 +348,23 @@ async fn async_main(command: Command) -> Result<()> {
             // Initialize tracing early so config errors are visible
             logging::init_standard_tracing();
 
+            let cli_mode = args.link_check;
             let cfg = resolve_dirs(args.path, args.content, args.output)?;
 
             // Run Vite build if configured (before dodeca build so assets are available)
             let project_dir = cfg.content_dir.parent().unwrap_or(&cfg.content_dir);
             vite::maybe_run_vite_build(project_dir.as_std_path()).await?;
+
+            // CLI flag wins over `link_check.mode` in dodeca.styx.
+            let mode = cli_mode.unwrap_or(cfg.link_check_mode);
+            let link_check = match mode {
+                LinkCheckMode::None => LinkCheckOptions::None,
+                LinkCheckMode::Internal => LinkCheckOptions::InternalOnly,
+                LinkCheckMode::Full => LinkCheckOptions::Full {
+                    skip_domains: cfg.skip_domains,
+                    rate_limit_ms: cfg.rate_limit_ms,
+                },
+            };
 
             let options = BuildOptions {
                 render_options: render::RenderOptions {
@@ -350,10 +372,7 @@ async fn async_main(command: Command) -> Result<()> {
                     dev_mode: false,
                 },
                 progress: None,
-                link_check: LinkCheckOptions::Full {
-                    skip_domains: cfg.skip_domains,
-                    rate_limit_ms: cfg.rate_limit_ms,
-                },
+                link_check,
             };
 
             build(&cfg.content_dir, &cfg.output_dir, options).await?;

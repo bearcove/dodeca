@@ -13,7 +13,7 @@ use std::fs;
 use std::sync::OnceLock;
 
 // Re-export config types from dodeca-config crate
-pub use dodeca_config::{CodeExecutionConfig, DodecaConfig};
+pub use dodeca_config::{CodeExecutionConfig, DodecaConfig, LinkCheckMode};
 
 /// Configuration file names
 const CONFIG_DIR: &str = ".config";
@@ -126,6 +126,9 @@ pub struct ResolvedConfig {
     pub skip_domains: Vec<String>,
     /// Rate limit for external link checking (milliseconds between requests to same domain)
     pub rate_limit_ms: Option<u64>,
+    /// What to check (none / internal / full). Defaults to `Full`. CLI
+    /// flag `--link-check` overrides this at command time.
+    pub link_check_mode: LinkCheckMode,
     /// Asset paths that should be served at original paths (no cache-busting)
     pub stable_assets: Vec<String>,
     /// Code execution configuration
@@ -283,6 +286,13 @@ fn load_config(config_path: &Utf8Path) -> Result<ResolvedConfig> {
     // Extract rate limit
     let rate_limit_ms = config.link_check.as_ref().and_then(|lc| lc.rate_limit_ms);
 
+    // Extract link check mode (defaults to Full)
+    let link_check_mode = config
+        .link_check
+        .as_ref()
+        .and_then(|lc| lc.mode)
+        .unwrap_or_default();
+
     // Extract stable asset paths
     let stable_assets = config.stable_assets.unwrap_or_default();
 
@@ -314,6 +324,7 @@ fn load_config(config_path: &Utf8Path) -> Result<ResolvedConfig> {
         output_dir,
         skip_domains,
         rate_limit_ms,
+        link_check_mode,
         stable_assets,
         code_execution: config.code_execution.unwrap_or_default(),
         light_theme_css,
