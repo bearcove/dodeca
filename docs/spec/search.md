@@ -138,9 +138,11 @@ The indexer receives the rendered HTML of every page.
 
 > s[render.text-fragment]
 > A result's link MUST also carry a [text-fragment][] directive
-> (`:~:text=start[,end]`) spanning the matched words, so a browser that
-> supports it scrolls to and highlights the match itself. The heading anchor
-> remains the fallback for browsers that do not.
+> (`:~:text=[prefix-,]match[,-suffix]`) for one matched word, with adjacent
+> word context when available, so a browser that supports it scrolls to and
+> highlights the match itself without selecting unrelated text between
+> non-adjacent query terms. The heading anchor remains the fallback for
+> browsers that do not.
 >
 > [text-fragment]: https://developer.mozilla.org/en-US/docs/Web/URI/Fragment/Text_fragments
 

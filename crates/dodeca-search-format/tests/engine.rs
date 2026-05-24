@@ -122,18 +122,21 @@ fn render_marks_matches_and_truncates() {
     let r = render(&hit, &frag);
     assert!(r.excerpt.contains("<mark>w10</mark>"));
     assert!(r.excerpt.contains('…'));
-    // Heading anchor plus a single-word text-fragment directive at the match.
-    assert_eq!(r.url, "/p/#sec:~:text=w10");
+    // Heading anchor plus a locally-contextualized text-fragment directive at
+    // the match.
+    assert_eq!(r.url, "/p/#sec:~:text=w9-,w10,-w11");
 }
 
 // s[verify render.text-fragment]
 #[test]
-fn render_text_fragment_spans_matches_and_escapes() {
+fn render_text_fragment_uses_one_contextualized_match_and_escapes() {
     let frag = Fragment {
         url: "/p/".into(),
         title: "Page".into(),
-        // A space-bearing word forces percent-encoding of the directive.
-        words: vec!["alpha".into(), "mid".into(), "om ga".into()],
+        // A space-bearing word forces percent-encoding of the directive. The
+        // two matches are intentionally non-adjacent: the URL should not use a
+        // `start,end` range that would highlight the unrelated word between.
+        words: vec!["alpha".into(), "mid".into(), "om ga".into(), "tail".into()],
         anchors: vec![],
     };
     let hit = Hit {
@@ -142,9 +145,7 @@ fn render_text_fragment_spans_matches_and_escapes() {
         match_positions: vec![0, 2],
     };
     let r = render(&hit, &frag);
-    // No heading anchor, so the directive opens its own fragment; `start,end`
-    // spans the first and last matched words, with the space %-encoded.
-    assert_eq!(r.url, "/p/#:~:text=alpha,om%20ga");
+    assert_eq!(r.url, "/p/#:~:text=mid-,om%20ga,-tail");
 }
 
 // s[verify format.encoding]

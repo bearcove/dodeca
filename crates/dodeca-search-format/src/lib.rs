@@ -349,9 +349,6 @@ pub struct SearchResult {
 
 const EXCERPT_WORDS: usize = 30;
 
-/// Number of trailing context words the text-fragment directive may span.
-const TEXT_FRAGMENT_MAX_SPAN: usize = 10;
-
 /// Build the displayable result for `hit` from its [`Fragment`]. Picks the
 /// densest window of matched words, wraps matches in `<mark>`, deep-links to
 /// the nearest preceding heading, and appends a text-fragment directive so a
@@ -422,25 +419,14 @@ pub fn render(hit: &Hit, fragment: &Fragment) -> SearchResult {
         _ => fragment.url.clone(),
     };
 
-    // Append a text-fragment directive (`:~:text=start[,end]`) spanning the
-    // matched words in the excerpt window. `start` and `end` are single words,
-    // which keeps the directive robust to punctuation; a browser that can't
-    // find them — or doesn't support text fragments at all — falls back to the
-    // heading anchor already in `url`.
+    // Append a text-fragment directive for one matched word, disambiguated by
+    // neighboring words when possible. A `start,end` range across non-adjacent
+    // query terms lets the browser highlight every intervening node, including
+    // site chrome that appears before `<main>`.
     let window_matches: Vec<usize> = (best_start..end)
         .filter(|i| matched.contains(&(*i as u32)))
         .collect();
-    if let Some(&first) = window_matches.first() {
-        let last = window_matches
-            .last()
-            .copied()
-            .unwrap_or(first)
-            .min(first + TEXT_FRAGMENT_MAX_SPAN);
-        let mut directive = format!("text={}", percent_encode(&words[first]));
-        if last > first {
-            directive.push(',');
-            directive.push_str(&percent_encode(&words[last]));
-        }
+    if let Some(directive) = text_fragment_directive(words, &window_matches) {
         if !url.contains('#') {
             url.push('#');
         }
@@ -456,7 +442,24 @@ pub fn render(hit: &Hit, fragment: &Fragment) -> SearchResult {
     }
 }
 
-/// Percent-encode a single word for use inside a `:~:text=` directive. Only
+fn text_fragment_directive(words: &[String], matches: &[usize]) -> Option<String> {
+    let &pos = matches
+        .iter()
+        .max_by_key(|&&pos| usize::from(pos > 0) + usize::from(pos + 1 < words.len()))?;
+    let mut directive = String::from("text=");
+    if pos > 0 {
+        directive.push_str(&percent_encode(&words[pos - 1]));
+        directive.push_str("-,");
+    }
+    directive.push_str(&percent_encode(&words[pos]));
+    if pos + 1 < words.len() {
+        directive.push_str(",-");
+        directive.push_str(&percent_encode(&words[pos + 1]));
+    }
+    Some(directive)
+}
+
+/// Percent-encode a word for use inside a `:~:text=` directive. Only
 /// `A-Za-z0-9_.~` pass through; every other byte (including the directive
 /// delimiters `-` and `,`, and all non-ASCII) is `%`-escaped.
 fn percent_encode(word: &str) -> String {
