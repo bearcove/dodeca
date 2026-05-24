@@ -57,6 +57,11 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::sync::Arc;
 
+fn dodeca_version() -> &'static str {
+    let version = option_env!("DODECA_RELEASE_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"));
+    version.strip_prefix('v').unwrap_or(version)
+}
+
 /// Check if a file extension is a supported data file format
 fn is_data_file_extension(ext: &str) -> bool {
     let ext_lower = ext.to_lowercase();
@@ -314,7 +319,7 @@ fn main() -> Result<()> {
         .expect("failed to build args schema")
         .cli(|cli| cli.args(cli_args))
         .env(|env| env.prefix("DDC"))
-        .help(|h| h.program_name("ddc").version(env!("CARGO_PKG_VERSION")))
+        .help(|h| h.program_name("ddc").version(dodeca_version()))
         .build();
 
     let args = args::Driver::new(config).run().unwrap();

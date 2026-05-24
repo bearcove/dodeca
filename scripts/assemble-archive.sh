@@ -93,6 +93,7 @@ esac
 # Copy binaries
 BIN_FILES=()
 cp "${RELEASE_DIR}/${BINARY_NAME}" staging/
+chmod +x "staging/${BINARY_NAME}"
 BIN_FILES+=("${BINARY_NAME}")
 
 # Copy and strip cell cdylibs

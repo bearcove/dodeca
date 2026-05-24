@@ -265,7 +265,22 @@ jobs:
           fi
         shell: bash
       - name: Build ddc
-        run: cargo build --release -p dodeca --verbose
+        run: |-
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
+            export DODECA_RELEASE_VERSION="${GITHUB_REF_NAME}"
+          fi
+          cargo build --release -p dodeca --verbose
+          actual="$(target/release/ddc --version)"
+          echo "$actual"
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
+            expected="ddc ${GITHUB_REF_NAME#v}"
+            if [[ "$actual" != "$expected" ]]; then
+              echo "Expected '$expected', got '$actual'" >&2
+              exit 1
+            fi
+          fi
+        shell: bash
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -282,7 +297,13 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/ddc-linux-x64 to trim"
           fi
       - name: Test ddc
-        run: cargo test --release -p dodeca --bins
+        run: |-
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
+            export DODECA_RELEASE_VERSION="${GITHUB_REF_NAME}"
+          fi
+          cargo test --release -p dodeca --bins
+        shell: bash
       - name: Upload ddc to CAS
         run: "./scripts/cas-upload.ts target/release/ddc \"ci/${{ github.run_id }}/ddc-linux-x64\""
   build-cells-linux-x64-1: 
@@ -2175,7 +2196,22 @@ jobs:
           fi
         shell: bash
       - name: Build ddc
-        run: cargo build --release -p dodeca --verbose
+        run: |-
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
+            export DODECA_RELEASE_VERSION="${GITHUB_REF_NAME}"
+          fi
+          cargo build --release -p dodeca --verbose
+          actual="$(target/release/ddc --version)"
+          echo "$actual"
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
+            expected="ddc ${GITHUB_REF_NAME#v}"
+            if [[ "$actual" != "$expected" ]]; then
+              echo "Expected '$expected', got '$actual'" >&2
+              exit 1
+            fi
+          fi
+        shell: bash
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -2192,7 +2228,13 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/ddc-macos-arm64 to trim"
           fi
       - name: Test ddc
-        run: cargo test --release -p dodeca --bins
+        run: |-
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
+            export DODECA_RELEASE_VERSION="${GITHUB_REF_NAME}"
+          fi
+          cargo test --release -p dodeca --bins
+        shell: bash
       - name: Upload ddc to CAS
         run: "./scripts/cas-upload.ts target/release/ddc \"ci/${{ github.run_id }}/ddc-macos-arm64\""
   build-cells-macos-arm64-1: 

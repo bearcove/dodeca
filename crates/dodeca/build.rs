@@ -6,6 +6,8 @@
 use std::process::Command;
 
 fn main() {
+    println!("cargo::rerun-if-env-changed=DODECA_RELEASE_VERSION");
+
     // Build devtools WASM (replaces livereload-client)
     build_wasm_crate("dodeca-devtools");
 

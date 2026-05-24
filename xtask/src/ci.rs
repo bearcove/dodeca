@@ -696,6 +696,27 @@ impl Job {
 // Common step patterns
 // =============================================================================
 
+const BUILD_DDC_COMMAND: &str = r#"set -euo pipefail
+if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
+  export DODECA_RELEASE_VERSION="${GITHUB_REF_NAME}"
+fi
+cargo build --release -p dodeca --verbose
+actual="$(target/release/ddc --version)"
+echo "$actual"
+if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
+  expected="ddc ${GITHUB_REF_NAME#v}"
+  if [[ "$actual" != "$expected" ]]; then
+    echo "Expected '$expected', got '$actual'" >&2
+    exit 1
+  fi
+fi"#;
+
+const TEST_DDC_COMMAND: &str = r#"set -euo pipefail
+if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
+  export DODECA_RELEASE_VERSION="${GITHUB_REF_NAME}"
+fi
+cargo test --release -p dodeca --bins"#;
+
 pub mod common {
     use super::*;
 
@@ -1286,10 +1307,10 @@ pub fn build_ci_workflow(platform: CiPlatform, repo_root: &Utf8Path) -> Workflow
                             ("name", search_wasm_artifact.clone()),
                             ("path", "crates/dodeca-search-wasm/pkg".into()),
                         ]),
-                    Step::run("Build ddc", "cargo build --release -p dodeca --verbose"),
+                    Step::run("Build ddc", BUILD_DDC_COMMAND).shell("bash"),
                     // Only run binary unit tests here - integration tests (serve/) need cells
                     // and run in the integration phase after assembly
-                    Step::run("Test ddc", "cargo test --release -p dodeca --bins"),
+                    Step::run("Test ddc", TEST_DDC_COMMAND).shell("bash"),
                     upload_artifact(platform, format!("ddc-{short}"), "target/release/ddc"),
                 ]),
         );
@@ -1783,11 +1804,11 @@ else
 fi"#,
                     )
                     .shell("bash"),
-                    Step::run("Build ddc", "cargo build --release -p dodeca --verbose"),
+                    Step::run("Build ddc", BUILD_DDC_COMMAND).shell("bash"),
                     // Save cache immediately after build (before tests/uploads that might fail)
                     ctree_cache_save(&format!("ddc-{short}"), cache_base),
                     cargo_sweep_cache_trim(&format!("ddc-{short}"), cache_base),
-                    Step::run("Test ddc", "cargo test --release -p dodeca --bins"),
+                    Step::run("Test ddc", TEST_DDC_COMMAND).shell("bash"),
                     Step::run(
                         "Upload ddc to CAS",
                         format!(

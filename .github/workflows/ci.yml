@@ -138,9 +138,30 @@ jobs:
           name: dodeca-search-wasm
           path: crates/dodeca-search-wasm/pkg
       - name: Build ddc
-        run: cargo build --release -p dodeca --verbose
+        run: |-
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
+            export DODECA_RELEASE_VERSION="${GITHUB_REF_NAME}"
+          fi
+          cargo build --release -p dodeca --verbose
+          actual="$(target/release/ddc --version)"
+          echo "$actual"
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
+            expected="ddc ${GITHUB_REF_NAME#v}"
+            if [[ "$actual" != "$expected" ]]; then
+              echo "Expected '$expected', got '$actual'" >&2
+              exit 1
+            fi
+          fi
+        shell: bash
       - name: Test ddc
-        run: cargo test --release -p dodeca --bins
+        run: |-
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
+            export DODECA_RELEASE_VERSION="${GITHUB_REF_NAME}"
+          fi
+          cargo test --release -p dodeca --bins
+        shell: bash
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with: 
@@ -529,9 +550,30 @@ jobs:
           name: dodeca-search-wasm
           path: crates/dodeca-search-wasm/pkg
       - name: Build ddc
-        run: cargo build --release -p dodeca --verbose
+        run: |-
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
+            export DODECA_RELEASE_VERSION="${GITHUB_REF_NAME}"
+          fi
+          cargo build --release -p dodeca --verbose
+          actual="$(target/release/ddc --version)"
+          echo "$actual"
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
+            expected="ddc ${GITHUB_REF_NAME#v}"
+            if [[ "$actual" != "$expected" ]]; then
+              echo "Expected '$expected', got '$actual'" >&2
+              exit 1
+            fi
+          fi
+        shell: bash
       - name: Test ddc
-        run: cargo test --release -p dodeca --bins
+        run: |-
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
+            export DODECA_RELEASE_VERSION="${GITHUB_REF_NAME}"
+          fi
+          cargo test --release -p dodeca --bins
+        shell: bash
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with: 
