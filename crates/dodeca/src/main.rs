@@ -180,10 +180,6 @@ struct CleanArgs {
 /// Authoring LSP server arguments
 #[derive(Facet, Debug)]
 struct LspArgs {
-    /// Project directory (looks for .config/dodeca.styx here)
-    #[facet(args::positional, default)]
-    path: Option<String>,
-
     /// Content directory (uses .config/dodeca.styx if not specified)
     #[facet(args::named, args::short = 'c', default)]
     content: Option<String>,
@@ -515,7 +511,7 @@ async fn async_main(command: Command) -> Result<()> {
         }
         Command::Lsp(args) => {
             logging::init_standard_tracing();
-            authoring_lsp::run(args.path, args.content, args.output).await
+            authoring_lsp::run(args.content, args.output).await
         }
         Command::Static(args) => {
             let path = Utf8PathBuf::from(&args.path);

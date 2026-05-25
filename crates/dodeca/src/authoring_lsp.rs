@@ -23,17 +23,9 @@ use crate::types::SourcePath;
 const LIST_PAGES_COMMAND: &str = "dodeca.listPages";
 const DIAGNOSTICS_COMMAND: &str = "dodeca.authoringDiagnostics";
 
-pub async fn run(
-    path: Option<String>,
-    content: Option<String>,
-    output: Option<String>,
-) -> Result<()> {
+pub async fn run(content: Option<String>, output: Option<String>) -> Result<()> {
     let state = Arc::new(Mutex::new(AuthoringState {
-        startup_args: LspStartupArgs {
-            path,
-            content,
-            output,
-        },
+        startup_args: LspStartupArgs { content, output },
         dirs: None,
         documents: HashMap::new(),
     }));
@@ -64,7 +56,6 @@ struct AuthoringState {
 
 #[derive(Debug, Clone)]
 struct LspStartupArgs {
-    path: Option<String>,
     content: Option<String>,
     output: Option<String>,
 }
@@ -323,10 +314,6 @@ fn resolve_initial_authoring_dirs(
         return Ok(Some(authoring_dirs_from_config(content_dir)));
     }
 
-    if let Some(path) = startup_args.path.as_ref() {
-        return resolve_authoring_dirs_from_project_path(startup_args, path).map(Some);
-    }
-
     let Some(path) = project_path_from_initialize(params)? else {
         return Ok(None);
     };
@@ -350,22 +337,9 @@ fn resolve_authoring_dirs_for_document(
         return Ok(authoring_dirs_from_config(content_dir));
     }
 
-    if let Some(path) = startup_args.path.as_ref() {
-        return resolve_authoring_dirs_from_project_path(startup_args, path);
-    }
-
     let path = lsp_file_uri_to_utf8_path(uri)?;
     let cfg = ResolvedConfig::discover_containing(&path)?
         .ok_or_else(|| eyre!("No Dodeca configuration found for document {}", path))?;
-    Ok(authoring_dirs_from_resolved_config(startup_args, cfg))
-}
-
-fn resolve_authoring_dirs_from_project_path(
-    startup_args: &LspStartupArgs,
-    path: &str,
-) -> Result<AuthoringDirs> {
-    let cfg = ResolvedConfig::discover_from(Utf8Path::new(path))?
-        .ok_or_else(|| eyre!("No configuration found."))?;
     Ok(authoring_dirs_from_resolved_config(startup_args, cfg))
 }
 
@@ -1319,7 +1293,6 @@ mod tests {
 
     fn default_startup_args() -> LspStartupArgs {
         LspStartupArgs {
-            path: None,
             content: None,
             output: None,
         }
