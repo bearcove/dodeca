@@ -439,8 +439,7 @@ impl Backend {
             std::fs::create_dir_all(parent)?;
         }
         if !path.exists() {
-            let title = default_title_from_source_path(&source_file);
-            std::fs::write(&path, format!("# {title}\n"))?;
+            std::fs::write(&path, "")?;
         }
 
         let uri = Url::from_file_path(path.as_std_path())

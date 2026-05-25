@@ -1825,9 +1825,8 @@ fn source_path_for_route(route: &str) -> Result<String> {
 
 fn dead_link_stub_content(title: &str) -> String {
     format!(
-        "+++\ntitle = \"{}\"\n+++\n\n# {}\n",
-        toml_basic_string_escape(title),
-        title
+        "+++\ntitle = \"{}\"\n+++\n",
+        toml_basic_string_escape(title)
     )
 }
 
@@ -2485,7 +2484,7 @@ mod tests {
         assert_eq!(stub.title, "Missing Page");
         assert_eq!(
             dead_link_stub_content(&stub.title),
-            "+++\ntitle = \"Missing Page\"\n+++\n\n# Missing Page\n"
+            "+++\ntitle = \"Missing Page\"\n+++\n"
         );
     }
 
@@ -2505,7 +2504,7 @@ mod tests {
     fn dead_link_stub_escapes_toml_title() {
         assert_eq!(
             dead_link_stub_content("A \"quoted\" title"),
-            "+++\ntitle = \"A \\\"quoted\\\" title\"\n+++\n\n# A \"quoted\" title\n"
+            "+++\ntitle = \"A \\\"quoted\\\" title\"\n+++\n"
         );
     }
 
