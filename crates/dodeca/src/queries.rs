@@ -387,10 +387,16 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
     // Compute URL route
     let route = path.to_route();
 
+    let title = if frontmatter.title.trim().is_empty() {
+        default_title_from_source_path(path.as_str())
+    } else {
+        frontmatter.title
+    };
+
     Ok(Ok(ParsedData {
         source_path: (*path).clone(),
         route,
-        title: Title::new(frontmatter.title),
+        title: Title::new(title),
         description: frontmatter.description,
         weight: frontmatter.weight,
         body_html,
@@ -403,6 +409,44 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
         extra,
         template: frontmatter.template,
     }))
+}
+
+fn default_title_from_source_path(path: &str) -> String {
+    let path = path.strip_suffix(".md").unwrap_or(path);
+    let slug = if path == "_index" {
+        "home"
+    } else if let Some(section_path) = path.strip_suffix("/_index") {
+        section_path.rsplit('/').next().unwrap_or("home")
+    } else {
+        path.rsplit('/').next().unwrap_or("home")
+    };
+
+    title_case_slug(slug)
+}
+
+fn title_case_slug(slug: &str) -> String {
+    let mut title = String::new();
+    let mut capitalize_next = true;
+
+    for ch in slug.chars() {
+        if ch == '-' || ch == '_' {
+            if !title.is_empty() && !title.ends_with(' ') {
+                title.push(' ');
+            }
+            capitalize_next = true;
+        } else if capitalize_next {
+            title.extend(ch.to_uppercase());
+            capitalize_next = false;
+        } else {
+            title.push(ch);
+        }
+    }
+
+    if title.trim().is_empty() {
+        "Home".to_string()
+    } else {
+        title.trim().to_string()
+    }
 }
 
 fn convert_source_kind(kind: cell_markdown_proto::SourceKind) -> SourceKind {

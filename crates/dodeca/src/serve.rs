@@ -899,14 +899,31 @@ impl SiteServer {
     ) -> Option<ServeContent> {
         // Get known routes for dead link detection (only in dev mode)
         let known_routes: Option<HashSet<String>> = if self.render_options.livereload {
-            let site_tree = build_tree(&snapshot).await.ok()?.ok()?;
-            let routes: HashSet<String> = site_tree
-                .sections
-                .keys()
-                .chain(site_tree.pages.keys())
-                .map(|r| r.as_str().to_string())
-                .collect();
-            Some(routes)
+            match build_tree(&snapshot).await {
+                Ok(Ok(site_tree)) => {
+                    let routes: HashSet<String> = site_tree
+                        .sections
+                        .keys()
+                        .chain(site_tree.pages.keys())
+                        .map(|r| r.as_str().to_string())
+                        .collect();
+                    Some(routes)
+                }
+                Ok(Err(errors)) => {
+                    tracing::debug!(
+                        error_count = errors.len(),
+                        "known route collection skipped because source parsing failed"
+                    );
+                    None
+                }
+                Err(err) => {
+                    tracing::debug!(
+                        error = %err,
+                        "known route collection skipped because build_tree failed"
+                    );
+                    None
+                }
+            }
         } else {
             None
         };
@@ -924,9 +941,9 @@ impl SiteServer {
         tracing::debug!(route = %route_path, has_result = serve_html_result.is_ok(), "find_content: serve_html returned");
 
         // Process the result, tracking if we got an error for devtools notification
-        let (html, head_injections, maybe_render_error) = match serve_html_result {
-            Ok(Ok(Some(served))) => (Some(served.html), served.head_injections, None),
-            Ok(Ok(None)) => (None, Vec::new(), None),
+        let (html, head_injections, maybe_render_error, is_error_page) = match serve_html_result {
+            Ok(Ok(Some(served))) => (Some(served.html), served.head_injections, None, false),
+            Ok(Ok(None)) => (None, Vec::new(), None, false),
             Ok(Err(site_error)) => {
                 use crate::queries::SiteError;
                 match site_error {
@@ -945,6 +962,7 @@ impl SiteServer {
                             )),
                             Vec::new(),
                             None, // Parse errors don't have structured ErrorInfo yet
+                            true,
                         )
                     }
                     SiteError::Render(render_error) => {
@@ -1002,7 +1020,7 @@ impl SiteServer {
                         // Format as HTML error page for the browser
                         let html =
                             crate::error_pages::render_structured_error_page(&render_error.error);
-                        (Some(html), Vec::new(), Some(error_info))
+                        (Some(html), Vec::new(), Some(error_info), true)
                     }
                     SiteError::WikiLinks(wiki_error) => (
                         Some(crate::error_pages::render_generic_error_page(
@@ -1011,6 +1029,7 @@ impl SiteServer {
                         )),
                         Vec::new(),
                         None,
+                        true,
                     ),
                 }
             }
@@ -1021,8 +1040,6 @@ impl SiteServer {
         };
 
         if let Some(html) = html {
-            let is_error_page = maybe_render_error.is_some();
-
             // Handle error notification to devtools
             if let Some(error_info) = maybe_render_error {
                 tracing::info!(
@@ -1050,7 +1067,7 @@ impl SiteServer {
                 );
                 // Also notify via RPC
                 self.notify_browsers(dodeca_protocol::DevtoolsEvent::Error(error_info));
-            } else {
+            } else if !is_error_page {
                 // Page rendered successfully - clear any previous error
                 {
                     let mut errors = self.current_errors.write().unwrap();

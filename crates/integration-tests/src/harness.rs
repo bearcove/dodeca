@@ -244,11 +244,31 @@ pub fn get_setup_for(id: u64) -> Option<Duration> {
     states_map.get(&id).and_then(|state| state.setup_duration)
 }
 
-/// Get the path to the ddc binary
-fn ddc_binary() -> PathBuf {
-    std::env::var("DODECA_BIN")
-        .map(PathBuf::from)
-        .expect("DODECA_BIN environment variable must be set")
+/// Get the path to the ddc binary.
+///
+/// `DODECA_BIN` remains an override for CI and wrappers. For local runs, infer
+/// the sibling `ddc` binary next to the integration test runner.
+pub fn ddc_binary() -> PathBuf {
+    if let Ok(path) = std::env::var("DODECA_BIN") {
+        return PathBuf::from(path);
+    }
+
+    let exe = std::env::current_exe().expect("get current executable path");
+    let Some(dir) = exe.parent() else {
+        panic!(
+            "current executable has no parent directory: {}",
+            exe.display()
+        );
+    };
+    let inferred = dir.join(format!("ddc{}", std::env::consts::EXE_SUFFIX));
+    if inferred.exists() {
+        return inferred;
+    }
+
+    panic!(
+        "DODECA_BIN is not set and inferred ddc binary does not exist at {}",
+        inferred.display()
+    );
 }
 
 /// Get the path to the cell binaries directory

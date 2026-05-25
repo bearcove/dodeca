@@ -20,3 +20,25 @@ pub fn nested_content_structure() {
     site.get("/guide/getting-started/").assert_ok();
     site.get("/guide/advanced/").assert_ok();
 }
+
+pub fn missing_page_title_defaults_from_slug() {
+    let site = TestSite::with_files(
+        "sample-site",
+        &[("content/hello-world.md", "# Hello\n\nBody\n")],
+    );
+
+    let html = site.get("/hello-world/");
+    html.assert_ok();
+    html.assert_contains("<title>Hello World</title>");
+}
+
+pub fn missing_section_title_defaults_from_slug() {
+    let site = TestSite::with_files(
+        "sample-site",
+        &[("content/hello-world/_index.md", "# Hello\n\nBody\n")],
+    );
+
+    let html = site.get("/hello-world/");
+    html.assert_ok();
+    html.assert_contains("<title>Hello World</title>");
+}

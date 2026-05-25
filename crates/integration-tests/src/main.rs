@@ -7,14 +7,15 @@
 //!   `integration-tests [OPTIONS]`
 //!
 //! Environment variables:
-//!   DODECA_BIN       - Path to the ddc binary (required)
+//!   DODECA_BIN       - Path to the ddc binary (optional, inferred from runner dir)
 //!   DODECA_CELL_PATH - Path to cell binaries (optional, defaults to same dir as ddc)
 
 mod harness;
 mod tests;
 
 use harness::{
-    clear_test_state, get_exit_status_for, get_logs_for, get_setup_for, set_current_test_id,
+    clear_test_state, ddc_binary, get_exit_status_for, get_logs_for, get_setup_for,
+    set_current_test_id,
 };
 use owo_colors::OwoColorize;
 use std::panic::{self, AssertUnwindSafe};
@@ -305,14 +306,14 @@ fn main() {
     use tracing_subscriber::util::SubscriberInitExt;
     tracing_subscriber::registry().with(test_layer).init();
 
-    // Check required environment variables
-    if std::env::var("DODECA_BIN").is_err() {
+    let ddc = ddc_binary();
+    if !ddc.exists() {
         eprintln!(
-            "{}: DODECA_BIN environment variable must be set",
-            "error".red().bold()
+            "{}: ddc binary not found at {}",
+            "error".red().bold(),
+            ddc.display()
         );
-        eprintln!("  Set it to the path of the ddc binary, e.g.:");
-        eprintln!("    export DODECA_BIN=/path/to/target/release/ddc");
+        eprintln!("  Build it first, or set DODECA_BIN=/path/to/ddc");
         std::process::exit(1);
     }
 
@@ -436,6 +437,18 @@ fn collect_tests() -> Vec<Test> {
             name: "nested_content_structure",
             module: "content",
             func: content::nested_content_structure,
+            ignored: false,
+        },
+        Test {
+            name: "missing_page_title_defaults_from_slug",
+            module: "content",
+            func: content::missing_page_title_defaults_from_slug,
+            ignored: false,
+        },
+        Test {
+            name: "missing_section_title_defaults_from_slug",
+            module: "content",
+            func: content::missing_section_title_defaults_from_slug,
             ignored: false,
         },
         // cache_busting tests
@@ -629,6 +642,12 @@ fn collect_tests() -> Vec<Test> {
             name: "type_error_shows_ariadne_formatted_source",
             module: "error_detection",
             func: error_detection::type_error_shows_ariadne_formatted_source,
+            ignored: false,
+        },
+        Test {
+            name: "frontmatter_parse_error_shows_error_page_and_recovers",
+            module: "error_detection",
+            func: error_detection::frontmatter_parse_error_shows_error_page_and_recovers,
             ignored: false,
         },
         // dead_links tests

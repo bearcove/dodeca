@@ -95,4 +95,29 @@ pub fn type_error_shows_ariadne_formatted_source() {
     );
 }
 
+pub fn frontmatter_parse_error_shows_error_page_and_recovers() {
+    let site = TestSite::new("sample-site");
+    let original = site.read_file("content/guide/getting-started.md");
+
+    site.modify_file("content/guide/getting-started.md", |content| {
+        content.replace("title = \"Getting Started\"", "title: Getting Started")
+    });
+
+    site.wait_debounce();
+
+    let html = site.get("/");
+    html.assert_ok();
+    html.assert_contains(RENDER_ERROR_MARKER);
+    html.assert_contains("Failed to parse 1 file");
+    html.assert_contains("guide/getting-started.md");
+
+    site.write_file("content/guide/getting-started.md", &original);
+    site.wait_debounce();
+
+    let html = site.get("/");
+    html.assert_ok();
+    html.assert_not_contains(RENDER_ERROR_MARKER);
+    html.assert_contains("<!DOCTYPE html>");
+}
+
 const RENDER_ERROR_MARKER: &str = "data-dodeca-error";
