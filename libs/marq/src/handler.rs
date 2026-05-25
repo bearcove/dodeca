@@ -144,6 +144,62 @@ pub trait LinkResolver: Send + Sync {
 /// Type alias for a boxed link resolver.
 pub type BoxedLinkResolver = Arc<dyn LinkResolver>;
 
+/// A wiki-style link parsed from `[[target]]` or `[[target|label]]`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WikiLink {
+    /// The target text before the optional `|`.
+    pub target: String,
+}
+
+/// Render instructions for a wiki-style link.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WikiLinkOutput {
+    /// The href attribute to emit.
+    pub href: String,
+    /// Additional attributes to emit on the `<a>` element.
+    pub attrs: Vec<(String, String)>,
+}
+
+impl WikiLinkOutput {
+    /// Create a wiki link output with just an href.
+    pub fn new(href: impl Into<String>) -> Self {
+        Self {
+            href: href.into(),
+            attrs: Vec::new(),
+        }
+    }
+
+    /// Add an attribute to the output.
+    pub fn with_attr(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.attrs.push((name.into(), value.into()));
+        self
+    }
+}
+
+/// A handler for resolving wiki-style links.
+///
+/// This allows callers to decide how `[[target]]` links become regular HTML
+/// anchors while keeping the parsing of wiki-link syntax inside marq.
+pub trait WikiLinkResolver: Send + Sync {
+    /// Resolve a wiki-style link.
+    ///
+    /// # Arguments
+    /// * `link` - The parsed wiki link target
+    /// * `source_path` - The path of the source file containing the link
+    ///
+    /// # Returns
+    /// * `Some(output)` - Render an `<a>` element using this output
+    /// * `None` - Leave the wiki-link syntax as plain text
+    fn resolve<'a>(
+        &'a self,
+        link: &'a WikiLink,
+        source_path: Option<&'a str>,
+    ) -> Pin<Box<dyn Future<Output = Option<WikiLinkOutput>> + Send + 'a>>;
+}
+
+/// Type alias for a boxed wiki link resolver.
+pub type BoxedWikiLinkResolver = Arc<dyn WikiLinkResolver>;
+
 /// Default req handler that renders simple anchor divs.
 ///
 /// This is used when no custom req handler is registered.

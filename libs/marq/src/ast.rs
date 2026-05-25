@@ -1,4 +1,4 @@
-use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, LinkType, Options, Parser, Tag, TagEnd};
 
 fn heading_level_from_u8(n: u8) -> HeadingLevel {
     match n {
@@ -49,6 +49,10 @@ pub enum Inline {
         title: String,
         content: Vec<Inline>,
     },
+    WikiLink {
+        target: String,
+        label: Vec<Inline>,
+    },
     Image {
         url: String,
         title: String,
@@ -72,6 +76,7 @@ fn parser_options() -> Options {
         | Options::ENABLE_FOOTNOTES
         | Options::ENABLE_STRIKETHROUGH
         | Options::ENABLE_HEADING_ATTRIBUTES
+        | Options::ENABLE_WIKILINKS
 }
 
 /// Parse markdown string into block-level AST.
@@ -299,17 +304,26 @@ fn parse_inlines(events: &[Event<'_>], pos: &mut usize, end: TagEnd) -> Vec<Inli
                 inlines.push(Inline::Strikethrough(inner));
             }
             Event::Start(Tag::Link {
-                dest_url, title, ..
+                link_type,
+                dest_url,
+                title,
+                ..
             }) => {
-                let url = dest_url.to_string();
-                let title = title.to_string();
+                let target = dest_url.to_string();
                 *pos += 1;
                 let content = parse_inlines(events, pos, TagEnd::Link);
-                inlines.push(Inline::Link {
-                    url,
-                    title,
-                    content,
-                });
+                if matches!(link_type, LinkType::WikiLink { .. }) {
+                    inlines.push(Inline::WikiLink {
+                        target,
+                        label: content,
+                    });
+                } else {
+                    inlines.push(Inline::Link {
+                        url: target,
+                        title: title.to_string(),
+                        content,
+                    });
+                }
             }
             Event::Start(Tag::Image {
                 dest_url, title, ..
@@ -500,6 +514,16 @@ fn render_inlines(out: &mut String, inlines: &[Inline]) {
                 }
                 out.push(')');
             }
+            Inline::WikiLink { target, label } => {
+                out.push_str("[[");
+                out.push_str(target);
+                let label_text = inline_text(label);
+                if label_text != *target {
+                    out.push('|');
+                    render_inlines(out, label);
+                }
+                out.push_str("]]");
+            }
             Inline::Image { url, title, alt } => {
                 out.push_str("![");
                 render_inlines(out, alt);
@@ -534,6 +558,7 @@ pub(crate) fn inline_text(inlines: &[Inline]) -> String {
                 out.push_str(&inline_text(inner));
             }
             Inline::Link { content, .. } => out.push_str(&inline_text(content)),
+            Inline::WikiLink { label, .. } => out.push_str(&inline_text(label)),
             Inline::Image { alt, .. } => out.push_str(&inline_text(alt)),
             Inline::SoftBreak | Inline::HardBreak => out.push(' '),
             Inline::Html(h) => out.push_str(h),
@@ -632,6 +657,29 @@ mod tests {
     fn round_trip_link() {
         let md = "See [example](https://example.com) for details.\n";
         let blocks = parse(md);
+        let rendered = render_to_markdown(&blocks);
+        let reparsed = parse(&rendered);
+        assert_eq!(blocks, reparsed);
+    }
+
+    #[test]
+    fn round_trip_wiki_link() {
+        let md = "See [[Company]] and [[Repository Map|repo map]].\n";
+        let blocks = parse(md);
+        match &blocks[0] {
+            Block::Paragraph(inlines) => {
+                assert!(matches!(
+                    &inlines[1],
+                    Inline::WikiLink { target, .. } if target == "Company"
+                ));
+                assert!(matches!(
+                    &inlines[3],
+                    Inline::WikiLink { target, label }
+                        if target == "Repository Map" && inline_text(label) == "repo map"
+                ));
+            }
+            other => panic!("expected paragraph, got {other:?}"),
+        }
         let rendered = render_to_markdown(&blocks);
         let reparsed = parse(&rendered);
         assert_eq!(blocks, reparsed);

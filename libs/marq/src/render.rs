@@ -6,15 +6,16 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use pulldown_cmark::{
-    Alignment, BlockQuoteKind, CodeBlockKind, Event, MetadataBlockKind, Options, Parser, Tag,
-    TagEnd,
+    Alignment, BlockQuoteKind, CodeBlockKind, Event, LinkType, MetadataBlockKind, Options, Parser,
+    Tag, TagEnd,
 };
 
 use crate::Result;
 use crate::frontmatter::{Frontmatter, FrontmatterFormat};
 use crate::handler::{
-    BoxedHandler, BoxedInlineCodeHandler, BoxedLinkResolver, BoxedReqHandler, CodeBlockHandler,
-    CodeBlockOutput, DefaultReqHandler, InlineCodeHandler, RawCodeHandler, ReqHandler, html_escape,
+    BoxedHandler, BoxedInlineCodeHandler, BoxedLinkResolver, BoxedReqHandler,
+    BoxedWikiLinkResolver, CodeBlockHandler, CodeBlockOutput, DefaultReqHandler, InlineCodeHandler,
+    RawCodeHandler, ReqHandler, WikiLink, WikiLinkOutput, WikiLinkResolver, html_escape,
 };
 use crate::headings::{Heading, slugify};
 use crate::links::resolve_link;
@@ -148,6 +149,9 @@ pub struct RenderOptions {
 
     /// Custom handler for resolving links (for dependency tracking)
     pub link_resolver: Option<BoxedLinkResolver>,
+
+    /// Custom handler for resolving wiki-style links.
+    pub wiki_link_resolver: Option<BoxedWikiLinkResolver>,
 }
 
 impl RenderOptions {
@@ -206,6 +210,12 @@ impl RenderOptions {
         resolver: R,
     ) -> Self {
         self.link_resolver = Some(Arc::new(resolver));
+        self
+    }
+
+    /// Set a custom wiki-link resolver.
+    pub fn with_wiki_link_resolver<R: WikiLinkResolver + 'static>(mut self, resolver: R) -> Self {
+        self.wiki_link_resolver = Some(Arc::new(resolver));
         self
     }
 }
@@ -339,6 +349,117 @@ async fn resolve_link_with_resolver(
     }
     // Fall back to default resolution
     resolve_link(link, source_path)
+}
+
+fn render_text(html: &mut String, text: &str) {
+    html.push_str(&html_escape(text));
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ActiveLink {
+    Regular,
+    WikiResolved,
+    WikiLiteral,
+}
+
+async fn render_link_start(
+    html: &mut String,
+    link_type: &LinkType,
+    dest_url: &str,
+    title: &str,
+    options: &RenderOptions,
+) -> ActiveLink {
+    if let LinkType::WikiLink { has_pothole } = link_type {
+        return render_wiki_link_start(html, dest_url, *has_pothole, options).await;
+    }
+
+    let resolved = resolve_link_with_resolver(
+        dest_url,
+        options.source_path.as_deref(),
+        options.link_resolver.as_ref(),
+    )
+    .await;
+    let title_attr = if title.is_empty() {
+        String::new()
+    } else {
+        format!(" title=\"{}\"", html_escape(title))
+    };
+    html.push_str(&format!(
+        "<a href=\"{}\"{}>",
+        html_escape(&resolved),
+        title_attr
+    ));
+    ActiveLink::Regular
+}
+
+fn render_link_end(html: &mut String, active_link: ActiveLink) {
+    match active_link {
+        ActiveLink::Regular | ActiveLink::WikiResolved => html.push_str("</a>"),
+        ActiveLink::WikiLiteral => html.push_str("]]"),
+    }
+}
+
+async fn render_wiki_link_start(
+    html: &mut String,
+    target: &str,
+    has_label: bool,
+    options: &RenderOptions,
+) -> ActiveLink {
+    let link = WikiLink {
+        target: target.to_string(),
+    };
+
+    let Some(resolver) = options.wiki_link_resolver.as_ref() else {
+        render_wiki_link_literal_start(html, target, has_label);
+        return ActiveLink::WikiLiteral;
+    };
+
+    match resolver
+        .resolve(&link, options.source_path.as_deref())
+        .await
+    {
+        Some(output) => {
+            render_wiki_link_anchor_start(html, &output);
+            ActiveLink::WikiResolved
+        }
+        None => {
+            render_wiki_link_literal_start(html, target, has_label);
+            ActiveLink::WikiLiteral
+        }
+    }
+}
+
+fn render_wiki_link_literal_start(html: &mut String, target: &str, has_label: bool) {
+    if has_label {
+        html.push_str("[[");
+        html.push_str(&html_escape(target));
+        html.push('|');
+    } else {
+        html.push_str("[[");
+    }
+}
+
+fn render_wiki_link_anchor_start(html: &mut String, output: &WikiLinkOutput) {
+    html.push_str("<a href=\"");
+    html.push_str(&html_escape(&output.href));
+    html.push('"');
+    for (name, value) in &output.attrs {
+        if is_valid_html_attr_name(name) {
+            html.push(' ');
+            html.push_str(name);
+            html.push_str("=\"");
+            html.push_str(&html_escape(value));
+            html.push('"');
+        }
+    }
+    html.push('>');
+}
+
+fn is_valid_html_attr_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':' | '.'))
 }
 
 /// A code sample extracted from markdown
@@ -593,7 +714,8 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
         | Options::ENABLE_STRIKETHROUGH
         | Options::ENABLE_HEADING_ATTRIBUTES
         | Options::ENABLE_YAML_STYLE_METADATA_BLOCKS
-        | Options::ENABLE_PLUSES_DELIMITED_METADATA_BLOCKS;
+        | Options::ENABLE_PLUSES_DELIMITED_METADATA_BLOCKS
+        | Options::ENABLE_WIKILINKS;
 
     let parser = Parser::new_ext(markdown, parser_options).into_offset_iter();
 
@@ -623,6 +745,7 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
 
     // The context stack
     let mut context_stack: Vec<ParseContext<'_>> = Vec::new();
+    let mut inline_link_stack: Vec<ActiveLink> = Vec::new();
 
     // Default req handler
     let default_req_handler: Arc<dyn ReqHandler> = Arc::new(DefaultReqHandler);
@@ -1028,7 +1151,11 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                     unreachable!("BlockQuote text should be handled in blockquote branch");
                 }
                 None => {
-                    html.push_str(&html_escape(text));
+                    if inline_link_stack.is_empty() {
+                        render_text(&mut html, text);
+                    } else {
+                        html.push_str(&html_escape(text));
+                    }
                 }
             },
             Event::Code(code) => match context_stack.last_mut() {
@@ -1069,35 +1196,25 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
 
             // ===== Links (must be handled explicitly for @/ resolution) =====
             Event::Start(Tag::Link {
-                dest_url, title, ..
+                link_type,
+                dest_url,
+                title,
+                ..
             }) => {
                 if let Some(ParseContext::Paragraph { events, .. }) = context_stack.last_mut() {
                     events.push((event, range));
                 } else if !stack_contains(&context_stack, |c| c.is_metadata()) {
-                    // Resolve @/ and .md links
-                    let resolved = resolve_link_with_resolver(
-                        dest_url,
-                        options.source_path.as_deref(),
-                        options.link_resolver.as_ref(),
-                    )
-                    .await;
-                    let title_attr = if title.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" title=\"{}\"", html_escape(title))
-                    };
-                    html.push_str(&format!(
-                        "<a href=\"{}\"{}>",
-                        html_escape(&resolved),
-                        title_attr
-                    ));
+                    let active_link =
+                        render_link_start(&mut html, link_type, dest_url, title, options).await;
+                    inline_link_stack.push(active_link);
                 }
             }
             Event::End(TagEnd::Link) => {
                 if let Some(ParseContext::Paragraph { events, .. }) = context_stack.last_mut() {
                     events.push((event, range));
                 } else if !stack_contains(&context_stack, |c| c.is_metadata()) {
-                    html.push_str("</a>");
+                    let active_link = inline_link_stack.pop().unwrap_or(ActiveLink::Regular);
+                    render_link_end(&mut html, active_link);
                 }
             }
 
@@ -1155,6 +1272,7 @@ async fn render_events_to_html(
     source_map: &mut SourceMapBuilder,
 ) {
     let mut html_state = HtmlRenderState::default();
+    let mut link_stack: Vec<ActiveLink> = Vec::new();
     let mut i = 0;
     while i < events.len() {
         let (event, range) = &events[i];
@@ -1168,6 +1286,13 @@ async fn render_events_to_html(
             }
             Event::End(TagEnd::Paragraph) => {
                 html.push_str("</p>\n");
+            }
+            Event::Text(text) => {
+                if link_stack.is_empty() {
+                    render_text(html, text);
+                } else {
+                    html.push_str(&html_escape(text));
+                }
             }
             Event::Start(Tag::Image {
                 dest_url, title, ..
@@ -1208,27 +1333,18 @@ async fn render_events_to_html(
                 // Already handled by Start(Tag::Image)
             }
             Event::Start(Tag::Link {
-                dest_url, title, ..
+                link_type,
+                dest_url,
+                title,
+                ..
             }) => {
-                let resolved = resolve_link_with_resolver(
-                    dest_url,
-                    options.source_path.as_deref(),
-                    options.link_resolver.as_ref(),
-                )
-                .await;
-                let title_attr = if title.is_empty() {
-                    String::new()
-                } else {
-                    format!(" title=\"{}\"", html_escape(title))
-                };
-                html.push_str(&format!(
-                    "<a href=\"{}\"{}>",
-                    html_escape(&resolved),
-                    title_attr
-                ));
+                let active_link =
+                    render_link_start(html, link_type, dest_url, title, options).await;
+                link_stack.push(active_link);
             }
             Event::End(TagEnd::Link) => {
-                html.push_str("</a>");
+                let active_link = link_stack.pop().unwrap_or(ActiveLink::Regular);
+                render_link_end(html, active_link);
             }
             Event::Code(code) => {
                 html.push_str(&render_inline_code(
@@ -1488,6 +1604,34 @@ fn strip_req_marker(text: &str) -> String {
     req_marker_regex().replace(text, "").into_owned()
 }
 
+async fn flush_req_text(
+    html: &mut String,
+    buffer: &mut String,
+    marker_stripped: &mut bool,
+    _options: &RenderOptions,
+    render_wiki_links: bool,
+) {
+    if buffer.is_empty() {
+        return;
+    }
+
+    let text = if !*marker_stripped {
+        *marker_stripped = true;
+        strip_req_marker(buffer)
+    } else {
+        std::mem::take(buffer)
+    };
+
+    if !text.is_empty() {
+        if render_wiki_links {
+            render_text(html, &text);
+        } else {
+            html.push_str(&html_escape(&text));
+        }
+    }
+    buffer.clear();
+}
+
 /// Render the content of a paragraph req (stripping the r[...] marker)
 ///
 /// Uses a text buffer to accumulate consecutive text events (pulldown-cmark
@@ -1499,23 +1643,7 @@ async fn render_paragraph_req_content(
     let mut html = String::new();
     let mut text_buffer = String::new();
     let mut marker_stripped = false;
-
-    // Flush the text buffer, stripping the req marker if we haven't yet
-    let flush_text = |html: &mut String, buffer: &mut String, stripped: &mut bool| {
-        if buffer.is_empty() {
-            return;
-        }
-        let text = if !*stripped {
-            *stripped = true;
-            strip_req_marker(buffer)
-        } else {
-            std::mem::take(buffer)
-        };
-        if !text.is_empty() {
-            html.push_str(&html_escape(&text));
-        }
-        buffer.clear();
-    };
+    let mut link_stack: Vec<ActiveLink> = Vec::new();
 
     for (event, _range) in events {
         match event {
@@ -1526,11 +1654,25 @@ async fn render_paragraph_req_content(
                 text_buffer.push('\n');
             }
             Event::HardBreak => {
-                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                flush_req_text(
+                    &mut html,
+                    &mut text_buffer,
+                    &mut marker_stripped,
+                    options,
+                    link_stack.is_empty(),
+                )
+                .await;
                 html.push_str("<br />\n");
             }
             Event::Code(code) => {
-                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                flush_req_text(
+                    &mut html,
+                    &mut text_buffer,
+                    &mut marker_stripped,
+                    options,
+                    link_stack.is_empty(),
+                )
+                .await;
                 html.push_str(&render_inline_code(
                     code,
                     options.inline_code_handler.as_ref(),
@@ -1540,59 +1682,113 @@ async fn render_paragraph_req_content(
                 html.push_str("<p>");
             }
             Event::End(TagEnd::Paragraph) => {
-                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                flush_req_text(
+                    &mut html,
+                    &mut text_buffer,
+                    &mut marker_stripped,
+                    options,
+                    link_stack.is_empty(),
+                )
+                .await;
                 html.push_str("</p>\n");
             }
             Event::Start(Tag::Emphasis) => {
-                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                flush_req_text(
+                    &mut html,
+                    &mut text_buffer,
+                    &mut marker_stripped,
+                    options,
+                    link_stack.is_empty(),
+                )
+                .await;
                 html.push_str("<em>");
             }
             Event::End(TagEnd::Emphasis) => {
-                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                flush_req_text(
+                    &mut html,
+                    &mut text_buffer,
+                    &mut marker_stripped,
+                    options,
+                    link_stack.is_empty(),
+                )
+                .await;
                 html.push_str("</em>");
             }
             Event::Start(Tag::Strong) => {
-                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                flush_req_text(
+                    &mut html,
+                    &mut text_buffer,
+                    &mut marker_stripped,
+                    options,
+                    link_stack.is_empty(),
+                )
+                .await;
                 html.push_str("<strong>");
             }
             Event::End(TagEnd::Strong) => {
-                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                flush_req_text(
+                    &mut html,
+                    &mut text_buffer,
+                    &mut marker_stripped,
+                    options,
+                    link_stack.is_empty(),
+                )
+                .await;
                 html.push_str("</strong>");
             }
             Event::Start(Tag::Link {
-                dest_url, title, ..
+                link_type,
+                dest_url,
+                title,
+                ..
             }) => {
-                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
-                let resolved = resolve_link_with_resolver(
-                    dest_url,
-                    options.source_path.as_deref(),
-                    options.link_resolver.as_ref(),
+                flush_req_text(
+                    &mut html,
+                    &mut text_buffer,
+                    &mut marker_stripped,
+                    options,
+                    link_stack.is_empty(),
                 )
                 .await;
-                let title_attr = if title.is_empty() {
-                    String::new()
-                } else {
-                    format!(" title=\"{}\"", html_escape(title))
-                };
-                html.push_str(&format!(
-                    "<a href=\"{}\"{}>",
-                    html_escape(&resolved),
-                    title_attr
-                ));
+                let active_link =
+                    render_link_start(&mut html, link_type, dest_url, title, options).await;
+                link_stack.push(active_link);
             }
             Event::End(TagEnd::Link) => {
-                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
-                html.push_str("</a>");
+                flush_req_text(
+                    &mut html,
+                    &mut text_buffer,
+                    &mut marker_stripped,
+                    options,
+                    false,
+                )
+                .await;
+                let active_link = link_stack.pop().unwrap_or(ActiveLink::Regular);
+                render_link_end(&mut html, active_link);
             }
             _ => {
-                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                flush_req_text(
+                    &mut html,
+                    &mut text_buffer,
+                    &mut marker_stripped,
+                    options,
+                    link_stack.is_empty(),
+                )
+                .await;
                 pulldown_cmark::html::push_html(&mut html, std::iter::once(event.clone()));
             }
         }
     }
 
     // Final flush
-    flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+    flush_req_text(
+        &mut html,
+        &mut text_buffer,
+        &mut marker_stripped,
+        options,
+        link_stack.is_empty(),
+    )
+    .await;
 
     html
 }
@@ -1613,29 +1809,20 @@ async fn render_blockquote_req_content(
     let mut code_block_lang = String::new();
     let mut code_block_content = String::new();
     let mut blockquote_depth: usize = 0;
-
-    // Flush the text buffer, stripping the req marker if we haven't yet
-    let flush_text = |html: &mut String, buffer: &mut String, stripped: &mut bool| {
-        if buffer.is_empty() {
-            return;
-        }
-        let text = if !*stripped {
-            *stripped = true;
-            strip_req_marker(buffer)
-        } else {
-            std::mem::take(buffer)
-        };
-        if !text.is_empty() {
-            html.push_str(&html_escape(&text));
-        }
-        buffer.clear();
-    };
+    let mut link_stack: Vec<ActiveLink> = Vec::new();
 
     for (event, _range) in events {
         match event {
             Event::Start(Tag::BlockQuote(_)) => {
                 if blockquote_depth > 0 {
-                    flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                    flush_req_text(
+                        &mut html,
+                        &mut text_buffer,
+                        &mut marker_stripped,
+                        options,
+                        link_stack.is_empty(),
+                    )
+                    .await;
                     html.push_str("<blockquote>");
                 }
                 blockquote_depth += 1;
@@ -1643,7 +1830,14 @@ async fn render_blockquote_req_content(
             Event::End(TagEnd::BlockQuote(_)) => {
                 blockquote_depth -= 1;
                 if blockquote_depth > 0 {
-                    flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                    flush_req_text(
+                        &mut html,
+                        &mut text_buffer,
+                        &mut marker_stripped,
+                        options,
+                        link_stack.is_empty(),
+                    )
+                    .await;
                     html.push_str("</blockquote>");
                 }
             }
@@ -1652,12 +1846,26 @@ async fn render_blockquote_req_content(
                 in_paragraph = true;
             }
             Event::End(TagEnd::Paragraph) => {
-                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                flush_req_text(
+                    &mut html,
+                    &mut text_buffer,
+                    &mut marker_stripped,
+                    options,
+                    link_stack.is_empty(),
+                )
+                .await;
                 html.push_str("</p>\n");
                 in_paragraph = false;
             }
             Event::Start(Tag::CodeBlock(kind)) => {
-                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                flush_req_text(
+                    &mut html,
+                    &mut text_buffer,
+                    &mut marker_stripped,
+                    options,
+                    link_stack.is_empty(),
+                )
+                .await;
                 in_code_block = true;
                 code_block_lang = match kind {
                     CodeBlockKind::Fenced(lang) => lang.split(',').next().unwrap_or("").to_string(),
@@ -1689,60 +1897,114 @@ async fn render_blockquote_req_content(
                 text_buffer.push('\n');
             }
             Event::HardBreak if in_paragraph => {
-                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                flush_req_text(
+                    &mut html,
+                    &mut text_buffer,
+                    &mut marker_stripped,
+                    options,
+                    link_stack.is_empty(),
+                )
+                .await;
                 html.push_str("<br />\n");
             }
             Event::Code(code) => {
-                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                flush_req_text(
+                    &mut html,
+                    &mut text_buffer,
+                    &mut marker_stripped,
+                    options,
+                    link_stack.is_empty(),
+                )
+                .await;
                 html.push_str(&render_inline_code(
                     code,
                     options.inline_code_handler.as_ref(),
                 ));
             }
             Event::Start(Tag::Emphasis) => {
-                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                flush_req_text(
+                    &mut html,
+                    &mut text_buffer,
+                    &mut marker_stripped,
+                    options,
+                    link_stack.is_empty(),
+                )
+                .await;
                 html.push_str("<em>");
             }
             Event::End(TagEnd::Emphasis) => {
-                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                flush_req_text(
+                    &mut html,
+                    &mut text_buffer,
+                    &mut marker_stripped,
+                    options,
+                    link_stack.is_empty(),
+                )
+                .await;
                 html.push_str("</em>");
             }
             Event::Start(Tag::Strong) => {
-                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                flush_req_text(
+                    &mut html,
+                    &mut text_buffer,
+                    &mut marker_stripped,
+                    options,
+                    link_stack.is_empty(),
+                )
+                .await;
                 html.push_str("<strong>");
             }
             Event::End(TagEnd::Strong) => {
-                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                flush_req_text(
+                    &mut html,
+                    &mut text_buffer,
+                    &mut marker_stripped,
+                    options,
+                    link_stack.is_empty(),
+                )
+                .await;
                 html.push_str("</strong>");
             }
             Event::Start(Tag::Link {
-                dest_url, title, ..
+                link_type,
+                dest_url,
+                title,
+                ..
             }) => {
-                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
-                let resolved = resolve_link_with_resolver(
-                    dest_url,
-                    options.source_path.as_deref(),
-                    options.link_resolver.as_ref(),
+                flush_req_text(
+                    &mut html,
+                    &mut text_buffer,
+                    &mut marker_stripped,
+                    options,
+                    link_stack.is_empty(),
                 )
                 .await;
-                let title_attr = if title.is_empty() {
-                    String::new()
-                } else {
-                    format!(" title=\"{}\"", html_escape(title))
-                };
-                html.push_str(&format!(
-                    "<a href=\"{}\"{}>",
-                    html_escape(&resolved),
-                    title_attr
-                ));
+                let active_link =
+                    render_link_start(&mut html, link_type, dest_url, title, options).await;
+                link_stack.push(active_link);
             }
             Event::End(TagEnd::Link) => {
-                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
-                html.push_str("</a>");
+                flush_req_text(
+                    &mut html,
+                    &mut text_buffer,
+                    &mut marker_stripped,
+                    options,
+                    false,
+                )
+                .await;
+                let active_link = link_stack.pop().unwrap_or(ActiveLink::Regular);
+                render_link_end(&mut html, active_link);
             }
             _ => {
                 if !in_code_block {
-                    flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                    flush_req_text(
+                        &mut html,
+                        &mut text_buffer,
+                        &mut marker_stripped,
+                        options,
+                        link_stack.is_empty(),
+                    )
+                    .await;
                     pulldown_cmark::html::push_html(&mut html, std::iter::once(event.clone()));
                 }
             }
@@ -1750,7 +2012,14 @@ async fn render_blockquote_req_content(
     }
 
     // Final flush
-    flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+    flush_req_text(
+        &mut html,
+        &mut text_buffer,
+        &mut marker_stripped,
+        options,
+        link_stack.is_empty(),
+    )
+    .await;
 
     Ok(html)
 }
@@ -1925,6 +2194,37 @@ fn parse_req_leading_marker(text: &str) -> Option<(&str, &str, usize)> {
 mod tests {
     use super::*;
 
+    struct TestWikiResolver;
+
+    impl WikiLinkResolver for TestWikiResolver {
+        fn resolve<'a>(
+            &'a self,
+            link: &'a WikiLink,
+            _source_path: Option<&'a str>,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<WikiLinkOutput>> + Send + 'a>>
+        {
+            Box::pin(async move {
+                let key = link
+                    .target
+                    .chars()
+                    .map(|c| {
+                        if c.is_ascii_alphanumeric() {
+                            c.to_ascii_lowercase()
+                        } else {
+                            '-'
+                        }
+                    })
+                    .collect::<String>()
+                    .trim_matches('-')
+                    .to_string();
+                Some(
+                    WikiLinkOutput::new(format!("wiki:{key}"))
+                        .with_attr("data-wiki-target", link.target.as_str()),
+                )
+            })
+        }
+    }
+
     fn source_text<'a>(markdown: &'a str, entry: &SourceMapEntry) -> &'a str {
         &markdown[entry.byte_start..entry.byte_end]
     }
@@ -1967,6 +2267,82 @@ mod tests {
         assert_eq!(doc.reqs[0].id, "my.req");
         assert_eq!(doc.reqs[0].line, 1);
         assert!(doc.html.contains("id=\"r-my.req\""));
+    }
+
+    #[tokio::test]
+    async fn test_wiki_links_are_plain_text_without_resolver() {
+        let md = "See [[Company]] and [[Repository Map|repo map]].";
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        assert!(
+            doc.html.contains("[[Company]]"),
+            "wiki syntax should stay literal without resolver: {}",
+            doc.html
+        );
+        assert!(
+            !doc.html.contains("wiki:company"),
+            "wiki links should be opt-in: {}",
+            doc.html
+        );
+    }
+
+    #[tokio::test]
+    async fn test_wiki_links_resolve_with_label_and_attrs() {
+        let md = "See [[Company]] and [[Repository Map|repo map]].";
+        let opts = RenderOptions::new().with_wiki_link_resolver(TestWikiResolver);
+        let doc = render(md, &opts).await.unwrap();
+
+        assert!(
+            doc.html
+                .contains(r#"<a href="wiki:company" data-wiki-target="Company">Company</a>"#),
+            "bare wiki link should resolve: {}",
+            doc.html
+        );
+        assert!(
+            doc.html.contains(
+                r#"<a href="wiki:repository-map" data-wiki-target="Repository Map">repo map</a>"#
+            ),
+            "labeled wiki link should resolve: {}",
+            doc.html
+        );
+    }
+
+    #[tokio::test]
+    async fn test_wiki_links_skip_code_spans_and_code_blocks() {
+        let md = "Inline `[[Company]]`.\n\n```md\n[[Company]]\n```\n";
+        let opts = RenderOptions::new().with_wiki_link_resolver(TestWikiResolver);
+        let doc = render(md, &opts).await.unwrap();
+
+        assert!(
+            !doc.html.contains("wiki:company"),
+            "wiki syntax in code should not resolve: {}",
+            doc.html
+        );
+        assert!(
+            doc.html.contains("<code>[[Company]]</code>") || doc.html.contains("[[Company]]"),
+            "literal wiki syntax should remain visible in code: {}",
+            doc.html
+        );
+    }
+
+    #[tokio::test]
+    async fn test_wiki_links_do_not_disturb_regular_links() {
+        let md = "[[Company]] and [literal link](https://example.com).";
+        let opts = RenderOptions::new().with_wiki_link_resolver(TestWikiResolver);
+        let doc = render(md, &opts).await.unwrap();
+
+        assert_eq!(
+            doc.html.matches("wiki:company").count(),
+            1,
+            "only the standalone wiki link should resolve: {}",
+            doc.html
+        );
+        assert!(
+            doc.html
+                .contains(r#"<a href="https://example.com">literal link</a>"#),
+            "regular links should still render normally: {}",
+            doc.html
+        );
     }
 
     #[tokio::test]
