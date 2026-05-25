@@ -1,9 +1,10 @@
 use crate::db::{
     AllRenderedHtml, CharSet, CodeExecutionMetadata, CodeExecutionResult, CssOutput, DataRegistry,
-    Db, DependencySourceInfo, ExternalLinkStatus, Heading, ImageVariant, OutputFile, Page,
-    ParsedData, ProcessedImages, RenderedHtml, ReqDefinition, ResolvedDependencyInfo, SassFile,
-    SassRegistry, Section, SiteOutput, SiteTree, SourceFile, SourceRegistry, StaticFile,
-    StaticFileOutput, StaticRegistry, TemplateFile, TemplateRegistry,
+    Db, DependencySourceInfo, ExternalLinkStatus, Heading, ImageVariant, MarkdownRenderSettings,
+    OutputFile, Page, ParsedData, ProcessedImages, RenderedHtml, ReqDefinition,
+    ResolvedDependencyInfo, SassFile, SassRegistry, Section, SiteOutput, SiteTree, SourceFile,
+    SourceKind, SourceMap, SourceMapEntry, SourceRegistry, StaticFile, StaticFileOutput,
+    StaticRegistry, TemplateFile, TemplateRegistry,
 };
 use picante::PicanteResult;
 
@@ -323,25 +324,37 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
     tracing::Span::current().record("path", path.as_str());
     tracing::debug!(path = %path, "Parsing markdown");
 
+    let source_maps = MarkdownRenderSettings::source_maps(db)?.unwrap_or(false);
+
     // Use the markdown cell to parse frontmatter and render markdown
-    let parse_result = match parse_and_render_markdown_cell(path.as_str(), content.as_str()).await {
-        Ok(p) => p,
-        Err(e) => return Ok(Err(e)),
-    };
+    let parse_result =
+        match parse_and_render_markdown_cell(path.as_str(), content.as_str(), source_maps).await {
+            Ok(p) => p,
+            Err(e) => return Ok(Err(e)),
+        };
 
     // Handle the enum result
-    let (frontmatter, html_output, headings_raw, reqs_raw, head_injections) = match parse_result {
-        ParseResult::Success {
-            frontmatter,
-            html,
-            headings,
-            reqs,
-            head_injections,
-        } => (frontmatter, html, headings, reqs, head_injections),
-        ParseResult::Error { message } => {
-            return Ok(Err(MarkdownParseError { message }));
-        }
-    };
+    let (frontmatter, html_output, headings_raw, reqs_raw, head_injections, source_map_raw) =
+        match parse_result {
+            ParseResult::Success {
+                frontmatter,
+                html,
+                headings,
+                reqs,
+                head_injections,
+                source_map,
+            } => (
+                frontmatter,
+                html,
+                headings,
+                reqs,
+                head_injections,
+                source_map,
+            ),
+            ParseResult::Error { message } => {
+                return Ok(Err(MarkdownParseError { message }));
+            }
+        };
 
     // Convert frontmatter from cell type
     let extra: Value = frontmatter.extra.clone();
@@ -364,6 +377,7 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
             anchor_id: r.anchor_id,
         })
         .collect();
+    let source_map = convert_source_map(*source_map_raw);
 
     let body_html = HtmlBody::new(html_output);
 
@@ -383,11 +397,51 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
         is_section,
         headings,
         reqs,
+        source_map,
         head_injections,
         last_updated: last_modified,
         extra,
         template: frontmatter.template,
     }))
+}
+
+fn convert_source_kind(kind: cell_markdown_proto::SourceKind) -> SourceKind {
+    match kind {
+        cell_markdown_proto::SourceKind::Heading => SourceKind::Heading,
+        cell_markdown_proto::SourceKind::Paragraph => SourceKind::Paragraph,
+        cell_markdown_proto::SourceKind::BlockQuote => SourceKind::BlockQuote,
+        cell_markdown_proto::SourceKind::List => SourceKind::List,
+        cell_markdown_proto::SourceKind::ListItem => SourceKind::ListItem,
+        cell_markdown_proto::SourceKind::DefinitionList => SourceKind::DefinitionList,
+        cell_markdown_proto::SourceKind::DefinitionListTitle => SourceKind::DefinitionListTitle,
+        cell_markdown_proto::SourceKind::DefinitionListDefinition => {
+            SourceKind::DefinitionListDefinition
+        }
+        cell_markdown_proto::SourceKind::ThematicBreak => SourceKind::ThematicBreak,
+        cell_markdown_proto::SourceKind::Table => SourceKind::Table,
+        cell_markdown_proto::SourceKind::TableHead => SourceKind::TableHead,
+        cell_markdown_proto::SourceKind::TableRow => SourceKind::TableRow,
+        cell_markdown_proto::SourceKind::TableCell => SourceKind::TableCell,
+        cell_markdown_proto::SourceKind::Image => SourceKind::Image,
+    }
+}
+
+fn convert_source_map(source_map: cell_markdown_proto::SourceMap) -> SourceMap {
+    SourceMap {
+        source_path: source_map.source_path,
+        entries: source_map
+            .entries
+            .into_iter()
+            .map(|entry| SourceMapEntry {
+                id: entry.id,
+                kind: convert_source_kind(entry.kind),
+                line_start: entry.line_start,
+                line_end: entry.line_end,
+                byte_start: entry.byte_start,
+                byte_end: entry.byte_end,
+            })
+            .collect(),
+    }
 }
 
 /// A parse error with its source file path
@@ -511,6 +565,7 @@ pub async fn build_tree<DB: Db>(db: &DB) -> PicanteResult<BuildTreeResult> {
                 body_html: data.body_html.clone(),
                 headings: data.headings.clone(),
                 reqs: data.reqs.clone(),
+                source_map: data.source_map.clone(),
                 head_injections: data.head_injections.clone(),
                 last_updated: data.last_updated,
                 extra: data.extra.clone(),
@@ -528,6 +583,7 @@ pub async fn build_tree<DB: Db>(db: &DB) -> PicanteResult<BuildTreeResult> {
         body_html: HtmlBody::from_static(""),
         headings: Vec::new(),
         reqs: Vec::new(),
+        source_map: SourceMap::default(),
         head_injections: Vec::new(),
         last_updated: 0,
         extra: Value::default(),
@@ -547,6 +603,7 @@ pub async fn build_tree<DB: Db>(db: &DB) -> PicanteResult<BuildTreeResult> {
                 section_route,
                 headings: data.headings.clone(),
                 rules: data.reqs.clone(),
+                source_map: data.source_map.clone(),
                 head_injections: data.head_injections.clone(),
                 last_updated: data.last_updated,
                 extra: data.extra.clone(),

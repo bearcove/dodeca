@@ -7,7 +7,7 @@ use wasm_bindgen::JsCast;
 
 use crate::protocol::{
     BrowserService, BrowserServiceDispatcher, DevtoolsEvent, DevtoolsServiceClient, ErrorInfo,
-    ScopeEntry, ScopeValue,
+    OpenSourceResult, ScopeEntry, ScopeValue,
 };
 use vox::FromVoxSession;
 use vox_websocket::WsLink;
@@ -455,6 +455,71 @@ pub fn dismiss_error(route: String) {
     wasm_bindgen_futures::spawn_local(async move {
         if let Err(e) = client.dismiss_error(route).await {
             tracing::error!("[devtools] dismiss_error failed: {:?}", e);
+        }
+    });
+}
+
+/// Open a source location in the host editor.
+pub fn open_source(source_file: String, line: u32) {
+    tracing::debug!(
+        source_file = %source_file,
+        line,
+        "[devtools] requesting open_source RPC"
+    );
+
+    let Some(client) = get_client() else {
+        tracing::warn!(
+            source_file,
+            line,
+            "[devtools] open_source requested before RPC client was ready"
+        );
+        return;
+    };
+
+    wasm_bindgen_futures::spawn_local(async move {
+        match client.open_source(source_file.clone(), line).await {
+            Ok(OpenSourceResult::Ok) => {
+                tracing::info!(source_file, line, "[devtools] open_source succeeded");
+            }
+            Ok(OpenSourceResult::Err(err)) => {
+                tracing::warn!(source_file, line, err, "[devtools] open_source failed");
+            }
+            Err(err) => {
+                tracing::error!(source_file, line, ?err, "[devtools] open_source RPC failed");
+            }
+        }
+    });
+}
+
+/// Open a rendered markdown element in the host editor.
+pub fn open_source_id(sid: String) {
+    let route = current_route();
+    tracing::debug!(
+        route = %route,
+        sid = %sid,
+        "[devtools] requesting open_source_id RPC"
+    );
+
+    let Some(client) = get_client() else {
+        tracing::warn!(
+            route,
+            sid,
+            "[devtools] open_source_id requested before RPC client was ready"
+        );
+        return;
+    };
+
+    wasm_bindgen_futures::spawn_local(async move {
+        match client.open_source_id(route.clone(), sid.clone()).await {
+            Ok(OpenSourceResult::Ok) => {
+                tracing::info!(route, sid, "[devtools] open_source_id succeeded");
+            }
+            Ok(OpenSourceResult::Err(err)) => {
+                tracing::warn!(route, sid, err, "[devtools] open_source_id failed");
+            }
+            Err(err) => {
+                tracing::error!(route, sid, ?err, "[devtools] open_source_id RPC failed");
+            }
         }
     });
 }

@@ -41,7 +41,7 @@ pub fn find_cell_path() -> Result<std::path::PathBuf> {
 // HostDevtoolsService - vox RPC implementation of DevtoolsService
 // ============================================================================
 
-use dodeca_protocol::{DevtoolsEvent, DevtoolsService, EvalResult, ScopeEntry};
+use dodeca_protocol::{DevtoolsEvent, DevtoolsService, EvalResult, OpenSourceResult, ScopeEntry};
 
 /// Host-side implementation of DevtoolsService for direct vox RPC.
 ///
@@ -133,6 +133,70 @@ impl DevtoolsService for HostDevtoolsService {
         tracing::debug!(route = %route, "Client dismissed error via RPC");
         // The existing implementation just logs this - errors are resolved
         // when the template successfully re-renders
+    }
+
+    async fn open_source(&self, source_file: String, line: u32) -> OpenSourceResult {
+        tracing::debug!(
+            browser_id = self.browser_id,
+            source_file = %source_file,
+            line,
+            "devtools open_source RPC received"
+        );
+
+        let result = match self.server.open_source_in_editor(&source_file, line).await {
+            Ok(()) => OpenSourceResult::Ok,
+            Err(err) => OpenSourceResult::Err(err.to_string()),
+        };
+
+        match &result {
+            OpenSourceResult::Ok => tracing::debug!(
+                browser_id = self.browser_id,
+                source_file = %source_file,
+                line,
+                "devtools open_source RPC succeeded"
+            ),
+            OpenSourceResult::Err(err) => tracing::debug!(
+                browser_id = self.browser_id,
+                source_file = %source_file,
+                line,
+                error = %err,
+                "devtools open_source RPC failed"
+            ),
+        }
+
+        result
+    }
+
+    async fn open_source_id(&self, route: String, sid: String) -> OpenSourceResult {
+        tracing::debug!(
+            browser_id = self.browser_id,
+            route = %route,
+            sid = %sid,
+            "devtools open_source_id RPC received"
+        );
+
+        let result = match self.server.open_source_id_in_editor(&route, &sid).await {
+            Ok(()) => OpenSourceResult::Ok,
+            Err(err) => OpenSourceResult::Err(err.to_string()),
+        };
+
+        match &result {
+            OpenSourceResult::Ok => tracing::debug!(
+                browser_id = self.browser_id,
+                route = %route,
+                sid = %sid,
+                "devtools open_source_id RPC succeeded"
+            ),
+            OpenSourceResult::Err(err) => tracing::debug!(
+                browser_id = self.browser_id,
+                route = %route,
+                sid = %sid,
+                error = %err,
+                "devtools open_source_id RPC failed"
+            ),
+        }
+
+        result
     }
 }
 

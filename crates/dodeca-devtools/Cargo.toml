@@ -41,6 +41,16 @@ features = [
     "MessageEvent",
     "ErrorEvent",
     "CloseEvent",
+    "CssStyleDeclaration",
+    "Document",
+    "DomRect",
+    "Element",
+    "EventTarget",
+    "HtmlElement",
+    "KeyboardEvent",
+    "MouseEvent",
+    "Node",
+    "Window",
 ]
 
 [dev-dependencies]

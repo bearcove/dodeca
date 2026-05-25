@@ -88,6 +88,22 @@ impl MarkdownProcessorImpl {
     }
 }
 
+fn render_options(source_path: &str, source_map: bool) -> RenderOptions {
+    RenderOptions::new()
+        .with_handler(&["aa", "aasvg"], AasvgHandler::new())
+        .with_handler(&["compare"], CompareHandler::new())
+        .with_handler(&["pikchr"], PikruHandler::with_css_variables(true))
+        .with_handler(&["term"], TermHandler::new())
+        .with_handler(&["mermaid"], MermaidHandler::new())
+        .with_default_handler(ArboriumHandler::new())
+        .with_source_path(source_path)
+        .with_source_map(source_map)
+        // Pass through @/ links unchanged - dodeca will resolve them with site tree
+        .with_link_resolver(PassthroughLinkResolver)
+        // Convert rule marker inline code to links
+        .with_inline_code_handler(RuleRefHandler)
+}
+
 impl MarkdownProcessor for MarkdownProcessorImpl {
     async fn parse_frontmatter(&self, content: String) -> FrontmatterResult {
         match marq::parse_frontmatter(&content) {
@@ -101,20 +117,13 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
         }
     }
 
-    async fn render_markdown(&self, source_path: String, markdown: String) -> MarkdownResult {
-        // Configure marq with real handlers (no placeholders!)
-        let opts = RenderOptions::new()
-            .with_handler(&["aa", "aasvg"], AasvgHandler::new())
-            .with_handler(&["compare"], CompareHandler::new())
-            .with_handler(&["pikchr"], PikruHandler::with_css_variables(true))
-            .with_handler(&["term"], TermHandler::new())
-            .with_handler(&["mermaid"], MermaidHandler::new())
-            .with_default_handler(ArboriumHandler::new())
-            .with_source_path(&source_path)
-            // Pass through @/ links unchanged - dodeca will resolve them with site tree
-            .with_link_resolver(PassthroughLinkResolver)
-            // Convert rule marker inline code to links
-            .with_inline_code_handler(RuleRefHandler);
+    async fn render_markdown(
+        &self,
+        source_path: String,
+        markdown: String,
+        source_map: bool,
+    ) -> MarkdownResult {
+        let opts = render_options(&source_path, source_map);
 
         // Render markdown with all code blocks rendered inline
         match render(&markdown, &opts).await {
@@ -123,6 +132,7 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
                 headings: doc.headings.into_iter().map(convert_heading).collect(),
                 reqs: doc.reqs.into_iter().map(convert_req).collect(),
                 head_injections: doc.head_injections,
+                source_map: Box::new(convert_source_map(doc.source_map)),
             },
             Err(e) => MarkdownResult::Error {
                 message: e.to_string(),
@@ -149,9 +159,14 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
         }
     }
 
-    async fn parse_and_render(&self, source_path: String, content: String) -> ParseResult {
+    async fn parse_and_render(
+        &self,
+        source_path: String,
+        content: String,
+        source_map: bool,
+    ) -> ParseResult {
         // Parse frontmatter
-        let (fm, body) = match marq::parse_frontmatter(&content) {
+        let (fm, _) = match marq::parse_frontmatter(&content) {
             Ok(result) => result,
             Err(e) => {
                 return ParseResult::Error {
@@ -160,19 +175,22 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
             }
         };
 
-        // Render markdown body
-        match self.render_markdown(source_path, body.to_string()).await {
+        // Render the full document so source-map line and byte ranges refer to
+        // the actual source file, including any frontmatter offset.
+        match self.render_markdown(source_path, content, source_map).await {
             MarkdownResult::Success {
                 html,
                 headings,
                 reqs,
                 head_injections,
+                source_map,
             } => ParseResult::Success {
                 frontmatter: convert_frontmatter(fm),
                 html,
                 headings,
                 reqs,
                 head_injections,
+                source_map,
             },
             MarkdownResult::Error { message } => ParseResult::Error { message },
         }
@@ -202,6 +220,43 @@ fn convert_req(r: marq::ReqDefinition) -> ReqDefinition {
     ReqDefinition {
         id: r.id.to_string(),
         anchor_id: r.anchor_id,
+    }
+}
+
+fn convert_source_kind(kind: marq::SourceKind) -> SourceKind {
+    match kind {
+        marq::SourceKind::Heading => SourceKind::Heading,
+        marq::SourceKind::Paragraph => SourceKind::Paragraph,
+        marq::SourceKind::BlockQuote => SourceKind::BlockQuote,
+        marq::SourceKind::List => SourceKind::List,
+        marq::SourceKind::ListItem => SourceKind::ListItem,
+        marq::SourceKind::DefinitionList => SourceKind::DefinitionList,
+        marq::SourceKind::DefinitionListTitle => SourceKind::DefinitionListTitle,
+        marq::SourceKind::DefinitionListDefinition => SourceKind::DefinitionListDefinition,
+        marq::SourceKind::ThematicBreak => SourceKind::ThematicBreak,
+        marq::SourceKind::Table => SourceKind::Table,
+        marq::SourceKind::TableHead => SourceKind::TableHead,
+        marq::SourceKind::TableRow => SourceKind::TableRow,
+        marq::SourceKind::TableCell => SourceKind::TableCell,
+        marq::SourceKind::Image => SourceKind::Image,
+    }
+}
+
+fn convert_source_map(source_map: marq::SourceMap) -> SourceMap {
+    SourceMap {
+        source_path: source_map.source_path,
+        entries: source_map
+            .entries
+            .into_iter()
+            .map(|entry| SourceMapEntry {
+                id: entry.id.as_str().to_string(),
+                kind: convert_source_kind(entry.kind),
+                line_start: entry.line_start as u32,
+                line_end: entry.line_end as u32,
+                byte_start: entry.byte_start as u64,
+                byte_end: entry.byte_end as u64,
+            })
+            .collect(),
     }
 }
 
