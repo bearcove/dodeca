@@ -10,9 +10,9 @@ use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::{
     Diagnostic, DiagnosticSeverity, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, DidSaveTextDocumentParams, ExecuteCommandOptions,
-    ExecuteCommandParams, InitializeParams, InitializeResult, InitializedParams, MessageType,
-    NumberOrString, Position, Range, ServerCapabilities, ServerInfo, TextDocumentSyncCapability,
-    TextDocumentSyncKind, Url,
+    ExecuteCommandParams, GotoDefinitionParams, GotoDefinitionResponse, InitializeParams,
+    InitializeResult, InitializedParams, Location, MessageType, NumberOrString, OneOf, Position,
+    Range, ServerCapabilities, ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
 };
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
@@ -36,6 +36,7 @@ pub async fn run(
     let state = Arc::new(Mutex::new(AuthoringState {
         content_dir: cfg.content_dir,
         static_dir,
+        documents: HashMap::new(),
     }));
 
     let stdin = tokio::io::stdin();
@@ -59,6 +60,13 @@ struct Backend {
 struct AuthoringState {
     content_dir: Utf8PathBuf,
     static_dir: Utf8PathBuf,
+    documents: HashMap<Url, String>,
+}
+
+#[derive(Debug, Clone)]
+struct AuthoringDirs {
+    content_dir: Utf8PathBuf,
+    static_dir: Utf8PathBuf,
 }
 
 #[tower_lsp::async_trait]
@@ -76,6 +84,7 @@ impl LanguageServer for Backend {
                     ],
                     ..Default::default()
                 }),
+                definition_provider: Some(OneOf::Left(true)),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -97,14 +106,16 @@ impl LanguageServer for Backend {
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let uri = params.text_document.uri;
-        self.publish_document_diagnostics(uri, params.text_document.text)
-            .await;
+        let content = params.text_document.text;
+        self.set_document(uri.clone(), content.clone());
+        self.publish_document_diagnostics(uri, content).await;
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         if let Some(change) = params.content_changes.into_iter().last() {
-            self.publish_document_diagnostics(params.text_document.uri, change.text)
-                .await;
+            let uri = params.text_document.uri;
+            self.set_document(uri.clone(), change.text.clone());
+            self.publish_document_diagnostics(uri, change.text).await;
         }
     }
 
@@ -112,11 +123,13 @@ impl LanguageServer for Backend {
         let Some(text) = params.text else {
             return;
         };
+        self.set_document(params.text_document.uri.clone(), text.clone());
         self.publish_document_diagnostics(params.text_document.uri, text)
             .await;
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
+        self.remove_document(&params.text_document.uri);
         self.client
             .publish_diagnostics(params.text_document.uri, Vec::new(), None)
             .await;
@@ -150,12 +163,31 @@ impl LanguageServer for Backend {
             _ => Err(tower_lsp::jsonrpc::Error::invalid_request()),
         }
     }
+
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> LspResult<Option<GotoDefinitionResponse>> {
+        match self.definition_for_position(
+            &params.text_document_position_params.text_document.uri,
+            params.text_document_position_params.position,
+        ) {
+            Ok(Some(location)) => Ok(Some(GotoDefinitionResponse::Scalar(location))),
+            Ok(None) => Ok(None),
+            Err(err) => {
+                self.client
+                    .log_message(MessageType::ERROR, err.to_string())
+                    .await;
+                Ok(None)
+            }
+        }
+    }
 }
 
 impl Backend {
-    fn dirs(&self) -> AuthoringState {
+    fn dirs(&self) -> AuthoringDirs {
         let state = self.state.lock().unwrap();
-        AuthoringState {
+        AuthoringDirs {
             content_dir: state.content_dir.clone(),
             static_dir: state.static_dir.clone(),
         }
@@ -169,6 +201,45 @@ impl Backend {
     fn authoring_diagnostics(&self) -> Result<Vec<AuthoringDiagnostic>> {
         let dirs = self.dirs();
         load_authoring_diagnostics(&dirs.content_dir, &dirs.static_dir)
+    }
+
+    fn set_document(&self, uri: Url, content: String) {
+        self.state.lock().unwrap().documents.insert(uri, content);
+    }
+
+    fn remove_document(&self, uri: &Url) {
+        self.state.lock().unwrap().documents.remove(uri);
+    }
+
+    fn document_content(&self, uri: &Url) -> Result<String> {
+        if let Some(content) = self.state.lock().unwrap().documents.get(uri).cloned() {
+            return Ok(content);
+        }
+
+        let path = uri
+            .to_file_path()
+            .map_err(|_| eyre!("LSP document URI is not a file URI: {uri}"))?;
+        Ok(std::fs::read_to_string(path)?)
+    }
+
+    fn definition_for_position(&self, uri: &Url, position: Position) -> Result<Option<Location>> {
+        let dirs = self.dirs();
+        let content = self.document_content(uri)?;
+        let Some(reference) = reference_at_position(&content, position) else {
+            return Ok(None);
+        };
+
+        let path = Utf8PathBuf::from_path_buf(
+            uri.to_file_path()
+                .map_err(|_| eyre!("LSP document URI is not a file URI: {uri}"))?,
+        )
+        .map_err(|path| eyre!("LSP document path is not UTF-8: {}", path.display()))?;
+        let source_file = source_file_for_path(&dirs.content_dir, &path)?;
+        let page = page_for_source_file(&source_file, &content);
+        let pages = load_authoring_pages_with_overlay(&dirs.content_dir, &source_file, &content)?;
+        let site_index = SiteAuthoringIndex::new(&pages);
+
+        definition_for_reference(&dirs, &site_index, &page, &reference)
     }
 
     async fn publish_document_diagnostics(&self, uri: Url, content: String) {
@@ -306,29 +377,7 @@ fn diagnostics_for_uri(
     .map_err(|path| eyre!("LSP document path is not UTF-8: {}", path.display()))?;
 
     let source_file = source_file_for_path(content_dir, &path)?;
-    let mut pages = load_authoring_pages(content_dir)?;
-    if let Some(page) = pages
-        .iter_mut()
-        .find(|page| page.source_file == source_file)
-    {
-        page.heading_ids = markdown_heading_ids(content);
-    } else {
-        let source_path = SourcePath::new(source_file.clone());
-        pages.push(AuthoringPage {
-            kind: if source_path.is_section_index() {
-                AuthoringPageKind::Section
-            } else {
-                AuthoringPageKind::Page
-            },
-            route: source_path.to_route().to_string(),
-            source_file: source_file.clone(),
-            title: frontmatter_title(content)
-                .filter(|title| !title.trim().is_empty())
-                .unwrap_or_else(|| default_title_from_source_path(&source_file)),
-            heading_ids: markdown_heading_ids(content),
-        });
-    }
-
+    let pages = load_authoring_pages_with_overlay(content_dir, &source_file, content)?;
     let site_index = SiteAuthoringIndex::new(&pages);
     let page = pages
         .into_iter()
@@ -344,11 +393,47 @@ fn diagnostics_for_uri(
     ))
 }
 
+fn load_authoring_pages_with_overlay(
+    content_dir: &Utf8Path,
+    source_file: &str,
+    content: &str,
+) -> Result<Vec<AuthoringPage>> {
+    let mut pages = load_authoring_pages(content_dir)?;
+    let overlay = page_for_source_file(source_file, content);
+    if let Some(page) = pages
+        .iter_mut()
+        .find(|page| page.source_file == source_file)
+    {
+        *page = overlay;
+    } else {
+        pages.push(overlay);
+    }
+    Ok(pages)
+}
+
+fn page_for_source_file(source_file: &str, content: &str) -> AuthoringPage {
+    let source_path = SourcePath::new(source_file.to_string());
+    AuthoringPage {
+        kind: if source_path.is_section_index() {
+            AuthoringPageKind::Section
+        } else {
+            AuthoringPageKind::Page
+        },
+        route: source_path.to_route().to_string(),
+        source_file: source_file.to_string(),
+        title: frontmatter_title(content)
+            .filter(|title| !title.trim().is_empty())
+            .unwrap_or_else(|| default_title_from_source_path(source_file)),
+        heading_ids: markdown_heading_ids(content),
+    }
+}
+
 #[derive(Debug)]
 struct SiteAuthoringIndex {
     known_routes: HashSet<String>,
     headings_by_route: HashMap<String, HashSet<String>>,
     source_to_route: HashMap<String, String>,
+    route_to_source: HashMap<String, String>,
 }
 
 impl SiteAuthoringIndex {
@@ -367,11 +452,16 @@ impl SiteAuthoringIndex {
             .iter()
             .map(|page| (page.source_file.clone(), page.route.clone()))
             .collect();
+        let route_to_source = pages
+            .iter()
+            .map(|page| (page.route.clone(), page.source_file.clone()))
+            .collect();
 
         Self {
             known_routes,
             headings_by_route,
             source_to_route,
+            route_to_source,
         }
     }
 }
@@ -446,12 +536,7 @@ fn diagnostic_for_reference(
         } else if target_without_fragment.starts_with('/') {
             normalize_route(target_without_fragment)
         } else {
-            let base = if page.route.ends_with('/') {
-                page.route.clone()
-            } else {
-                format!("{}/", page.route)
-            };
-            normalize_route(&format!("{base}{target_without_fragment}"))
+            route_for_relative_target(page, target_without_fragment)
         };
 
         if !route_exists(site_index, &target_route) {
@@ -467,6 +552,128 @@ fn diagnostic_for_reference(
     };
 
     Some(reference.diagnostic(page, content, kind, message))
+}
+
+fn definition_for_reference(
+    dirs: &AuthoringDirs,
+    site_index: &SiteAuthoringIndex,
+    page: &AuthoringPage,
+    reference: &MarkdownReference,
+) -> Result<Option<Location>> {
+    let target = reference.target.as_str();
+    if is_special_target(target) {
+        return Ok(None);
+    }
+
+    let (target_without_fragment, fragment) = split_fragment(target);
+    if let Some(source_target) = target_without_fragment.strip_prefix("@/") {
+        let path = dirs.content_dir.join(source_target);
+        return location_for_source_path(&path, fragment);
+    }
+
+    if reference.kind == MarkdownReferenceKind::Image
+        || is_likely_static_file(target_without_fragment)
+    {
+        return Ok(static_target_path(
+            &dirs.content_dir,
+            &dirs.static_dir,
+            &page.source_file,
+            target_without_fragment,
+        )
+        .and_then(|path| location_for_path(&path, 1, 1)));
+    }
+
+    let target_route = if target_without_fragment.is_empty() {
+        page.route.clone()
+    } else if target_without_fragment.starts_with('/') {
+        normalize_route(target_without_fragment)
+    } else {
+        route_for_relative_target(page, target_without_fragment)
+    };
+
+    let Some(source_file) = source_file_for_route(site_index, &target_route) else {
+        return Ok(None);
+    };
+    let path = dirs.content_dir.join(source_file);
+    location_for_source_path(&path, fragment)
+}
+
+fn location_for_source_path(path: &Utf8Path, fragment: Option<&str>) -> Result<Option<Location>> {
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let line = match fragment.filter(|fragment| !fragment.is_empty()) {
+        Some(fragment) => {
+            let content = std::fs::read_to_string(path)?;
+            markdown_headings(&content)
+                .into_iter()
+                .find(|heading| heading.id == fragment)
+                .map(|heading| heading.line)
+                .unwrap_or(1)
+        }
+        None => 1,
+    };
+
+    Ok(location_for_path(path, line, 1))
+}
+
+fn location_for_path(path: &Utf8Path, line: u32, column: u32) -> Option<Location> {
+    let uri = Url::from_file_path(path).ok()?;
+    let start = Position {
+        line: line.saturating_sub(1),
+        character: column.saturating_sub(1),
+    };
+    Some(Location {
+        uri,
+        range: Range { start, end: start },
+    })
+}
+
+fn source_file_for_route<'a>(
+    site_index: &'a SiteAuthoringIndex,
+    target_route: &str,
+) -> Option<&'a str> {
+    site_index
+        .route_to_source
+        .get(target_route)
+        .or_else(|| {
+            site_index
+                .route_to_source
+                .get(target_route.trim_end_matches('/'))
+        })
+        .or_else(|| {
+            let with_slash = format!("{}/", target_route.trim_end_matches('/'));
+            site_index.route_to_source.get(&with_slash)
+        })
+        .map(|source_file| source_file.as_str())
+}
+
+fn route_for_relative_target(page: &AuthoringPage, target: &str) -> String {
+    normalize_route(&format!("{}{target}", link_base_route(page)))
+}
+
+fn link_base_route(page: &AuthoringPage) -> String {
+    if page.kind == AuthoringPageKind::Section {
+        ensure_trailing_slash(&page.route)
+    } else {
+        let source_parent = Utf8Path::new(&page.source_file)
+            .parent()
+            .unwrap_or_else(|| Utf8Path::new(""));
+        if source_parent.as_str().is_empty() {
+            "/".to_string()
+        } else {
+            format!("/{}/", source_parent.as_str())
+        }
+    }
+}
+
+fn ensure_trailing_slash(route: &str) -> String {
+    if route == "/" || route.ends_with('/') {
+        route.to_string()
+    } else {
+        format!("{route}/")
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -530,23 +737,43 @@ fn markdown_references(content: &str) -> Vec<MarkdownReference> {
         .collect()
 }
 
+fn reference_at_position(content: &str, position: Position) -> Option<MarkdownReference> {
+    let byte_offset = position_to_byte_offset(content, position)?;
+    markdown_references(content)
+        .into_iter()
+        .find(|reference| reference.byte_start <= byte_offset && byte_offset <= reference.byte_end)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MarkdownHeading {
+    id: String,
+    line: u32,
+}
+
 fn markdown_heading_ids(content: &str) -> Vec<String> {
+    markdown_headings(content)
+        .into_iter()
+        .map(|heading| heading.id)
+        .collect()
+}
+
+fn markdown_headings(content: &str) -> Vec<MarkdownHeading> {
     let mut headings = Vec::new();
     let mut heading_stack: Vec<(u8, String)> = Vec::new();
-    let mut current_heading: Option<(u8, String)> = None;
+    let mut current_heading: Option<(u8, usize, String)> = None;
 
-    for (event, _) in Parser::new_ext(content, Options::all()).into_offset_iter() {
+    for (event, range) in Parser::new_ext(content, Options::all()).into_offset_iter() {
         match event {
             Event::Start(Tag::Heading { level, .. }) => {
-                current_heading = Some((level as u8, String::new()));
+                current_heading = Some((level as u8, range.start, String::new()));
             }
             Event::Text(text) | Event::Code(text) => {
-                if let Some((_, heading_text)) = &mut current_heading {
+                if let Some((_, _, heading_text)) = &mut current_heading {
                     heading_text.push_str(&text);
                 }
             }
             Event::End(TagEnd::Heading(level)) => {
-                if let Some((_, heading_text)) = current_heading.take() {
+                if let Some((_, byte_start, heading_text)) = current_heading.take() {
                     let current_level = level as u8;
                     let slug = marq::slugify(&heading_text);
                     while heading_stack
@@ -569,7 +796,8 @@ fn markdown_heading_ids(content: &str) -> Vec<String> {
                     };
 
                     heading_stack.push((current_level, slug));
-                    headings.push(id);
+                    let (line, _) = byte_to_line_column(content, byte_start);
+                    headings.push(MarkdownHeading { id, line });
                 }
             }
             _ => {}
@@ -669,19 +897,35 @@ fn static_target_exists(
     source_file: &str,
     target: &str,
 ) -> bool {
+    static_target_path(content_dir, static_dir, source_file, target).is_some()
+}
+
+fn static_target_path(
+    content_dir: &Utf8Path,
+    static_dir: &Utf8Path,
+    source_file: &str,
+    target: &str,
+) -> Option<Utf8PathBuf> {
     if target.is_empty() {
-        return false;
+        return None;
     }
 
     let target = strip_query(target);
     if target.starts_with('/') {
-        return static_dir.join(target.trim_start_matches('/')).exists();
+        let path = static_dir.join(target.trim_start_matches('/'));
+        return path.exists().then_some(path);
     }
 
     let source_parent = Utf8Path::new(source_file)
         .parent()
         .unwrap_or_else(|| Utf8Path::new(""));
-    content_dir.join(source_parent).join(target).exists() || static_dir.join(target).exists()
+    let content_relative = content_dir.join(source_parent).join(target);
+    if content_relative.exists() {
+        return Some(content_relative);
+    }
+
+    let static_relative = static_dir.join(target);
+    static_relative.exists().then_some(static_relative)
 }
 
 fn is_special_target(target: &str) -> bool {
@@ -749,6 +993,32 @@ fn byte_to_line_column(content: &str, byte_offset: usize) -> (u32, u32) {
         }
     }
     (line, column)
+}
+
+fn position_to_byte_offset(content: &str, position: Position) -> Option<usize> {
+    let target_line = position.line as usize;
+    let target_character = position.character as usize;
+    let line_start = content
+        .split_inclusive('\n')
+        .take(target_line)
+        .map(str::len)
+        .sum::<usize>();
+    let line = content.split_inclusive('\n').nth(target_line)?;
+    let line_without_newline = line.strip_suffix('\n').unwrap_or(line);
+
+    if target_character == 0 {
+        return Some(line_start);
+    }
+
+    let mut chars_seen = 0;
+    for (offset, _) in line_without_newline.char_indices() {
+        if chars_seen == target_character {
+            return Some(line_start + offset);
+        }
+        chars_seen += 1;
+    }
+
+    (chars_seen == target_character).then_some(line_start + line_without_newline.len())
 }
 
 fn authoring_diagnostic_to_lsp(diagnostic: &AuthoringDiagnostic) -> Diagnostic {
@@ -853,6 +1123,15 @@ mod tests {
         .expect("utf8 temp path")
     }
 
+    fn position_for(content: &str, needle: &str) -> Position {
+        let byte = content.find(needle).expect("needle in content");
+        let (line, column) = byte_to_line_column(content, byte);
+        Position {
+            line: line - 1,
+            character: column - 1,
+        }
+    }
+
     #[test]
     fn lists_pages_and_sections_from_content_dir() {
         let dir = temp_dir("list-pages");
@@ -936,6 +1215,85 @@ mod tests {
             ]
         );
         assert_eq!(diagnostics[0].source_file, "guide/source.md");
+
+        std::fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[test]
+    fn resolves_definition_locations_for_links_and_static_assets() {
+        let dir = temp_dir("definition");
+        let content_dir = dir.join("content");
+        let static_dir = dir.join("static");
+        std::fs::create_dir_all(content_dir.join("guide")).expect("create content dirs");
+        std::fs::create_dir_all(&static_dir).expect("create static dir");
+        std::fs::write(static_dir.join("logo.png"), b"png").expect("write static");
+        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
+        std::fs::write(
+            content_dir.join("guide/intro.md"),
+            "# Intro\n\n## Details\n",
+        )
+        .expect("write target");
+        let source = "\
+# Source
+
+[route](/guide/intro#intro--details)
+[source](@/guide/intro.md#intro)
+[relative](intro#intro)
+![logo](/logo.png)
+";
+        std::fs::write(content_dir.join("guide/source.md"), source).expect("write source");
+
+        let dirs = AuthoringDirs {
+            content_dir: content_dir.clone(),
+            static_dir: static_dir.clone(),
+        };
+        let pages = load_authoring_pages(&content_dir).expect("load pages");
+        let site_index = SiteAuthoringIndex::new(&pages);
+        let page = pages
+            .iter()
+            .find(|page| page.source_file == "guide/source.md")
+            .expect("source page");
+
+        let route_reference =
+            reference_at_position(source, position_for(source, "/guide/intro#intro--details"))
+                .expect("route reference");
+        let route_location = definition_for_reference(&dirs, &site_index, page, &route_reference)
+            .expect("route definition")
+            .expect("route location");
+        assert_eq!(
+            route_location.uri,
+            Url::from_file_path(content_dir.join("guide/intro.md")).expect("target uri")
+        );
+        assert_eq!(route_location.range.start.line, 2);
+
+        let source_reference =
+            reference_at_position(source, position_for(source, "@/guide/intro.md#intro"))
+                .expect("source reference");
+        let source_location = definition_for_reference(&dirs, &site_index, page, &source_reference)
+            .expect("source definition")
+            .expect("source location");
+        assert_eq!(source_location.range.start.line, 0);
+
+        let relative_reference = reference_at_position(source, position_for(source, "[relative]"))
+            .expect("relative reference");
+        let relative_location =
+            definition_for_reference(&dirs, &site_index, page, &relative_reference)
+                .expect("relative definition")
+                .expect("relative location");
+        assert_eq!(
+            relative_location.uri,
+            Url::from_file_path(content_dir.join("guide/intro.md")).expect("target uri")
+        );
+
+        let static_reference = reference_at_position(source, position_for(source, "/logo.png"))
+            .expect("image reference");
+        let static_location = definition_for_reference(&dirs, &site_index, page, &static_reference)
+            .expect("static definition")
+            .expect("static location");
+        assert_eq!(
+            static_location.uri,
+            Url::from_file_path(static_dir.join("logo.png")).expect("static uri")
+        );
 
         std::fs::remove_dir_all(&dir).expect("remove temp dir");
     }
