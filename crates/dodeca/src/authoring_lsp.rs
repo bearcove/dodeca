@@ -565,13 +565,6 @@ impl Backend {
     ) -> Result<Vec<Location>> {
         let dirs = self.dirs_for_uri(uri)?;
         let content = self.document_content(uri)?;
-        let Some(frontmatter_range) = frontmatter_lsp_range(&content) else {
-            return Ok(Vec::new());
-        };
-        if !range_contains_position(&frontmatter_range, position) {
-            return Ok(Vec::new());
-        }
-
         let path = lsp_file_uri_to_utf8_path(uri)?;
         let source_file = source_file_for_path(&dirs.content_dir, &path)?;
         let project = self.current_project(&dirs).await?;
@@ -579,7 +572,17 @@ impl Backend {
             .page_for_source_file(&source_file)
             .ok_or_else(|| eyre!("missing authoring page for {source_file}"))?;
 
-        references_to_page(&dirs.content_dir, &project, page)
+        if let Some(frontmatter_range) = frontmatter_lsp_range(&content)
+            && range_contains_position(&frontmatter_range, position)
+        {
+            return references_to_page(&dirs.content_dir, &project, page);
+        }
+
+        if let Some(heading_id) = heading_id_at_position(page, &content, position) {
+            return references_to_heading(&dirs.content_dir, &project, page, &heading_id);
+        }
+
+        Ok(Vec::new())
     }
 
     async fn publish_document_diagnostics(&self, uri: Url, content: String) {
@@ -1341,6 +1344,50 @@ fn references_to_page(
     Ok(locations)
 }
 
+fn references_to_heading(
+    content_dir: &Utf8Path,
+    project: &AuthoringProject,
+    target_page: &AuthoringPage,
+    heading_id: &str,
+) -> Result<Vec<Location>> {
+    let mut locations = Vec::new();
+
+    for page in &project.pages {
+        let Some(content) = project.source_contents.get(&page.source_file) else {
+            continue;
+        };
+
+        for reference in markdown_references(content) {
+            let Some(target_route) = reference_target_route(project, page, &reference) else {
+                continue;
+            };
+            if !project.routes_refer_to_same_page(&target_route, &target_page.route) {
+                continue;
+            }
+
+            let (_, fragment) = split_fragment(&reference.target);
+            if fragment != Some(heading_id) {
+                continue;
+            }
+
+            if let Some(location) =
+                location_for_markdown_reference(content_dir, &page.source_file, content, &reference)
+            {
+                locations.push(location);
+            }
+        }
+    }
+
+    locations.sort_by(|a, b| {
+        a.uri
+            .as_str()
+            .cmp(b.uri.as_str())
+            .then_with(|| position_cmp(a.range.start, b.range.start))
+            .then_with(|| position_cmp(a.range.end, b.range.end))
+    });
+    Ok(locations)
+}
+
 fn reference_target_route(
     project: &AuthoringProject,
     page: &AuthoringPage,
@@ -1877,6 +1924,18 @@ fn byte_range_to_lsp_range(content: &str, byte_start: usize, byte_end: usize) ->
 
 fn lsp_position_to_byte_offset(content: &str, position: Position) -> Option<usize> {
     position_to_byte_offset(content, position)
+}
+
+fn heading_id_at_position(
+    page: &AuthoringPage,
+    content: &str,
+    position: Position,
+) -> Option<String> {
+    let line = position.line + 1;
+    markdown_headings(content)
+        .into_iter()
+        .find(|heading| heading.line == line && page.heading_ids.contains(&heading.id))
+        .map(|heading| heading.id)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2669,6 +2728,78 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![
                 "_index.md".to_string(),
+                "_index.md".to_string(),
+                "_index.md".to_string(),
+                "nested/source.md".to_string(),
+            ]
+        );
+
+        std::fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[tokio::test]
+    async fn finds_references_to_exact_heading_fragments() {
+        let dir = temp_dir("heading-references");
+        let content_dir = dir.join("content");
+        std::fs::create_dir_all(content_dir.join("nested")).expect("create content dirs");
+        let target = "\
++++
+title = \"Target\"
++++
+
+# Target
+
+## Details
+";
+        std::fs::write(content_dir.join("target.md"), target).expect("write target");
+        std::fs::write(
+            content_dir.join("_index.md"),
+            "\
+# Home
+
+[page](/target)
+[route heading](/target#target--details)
+[source heading](@/target.md#target--details)
+[wrong heading](/target#target)
+",
+        )
+        .expect("write root");
+        std::fs::write(
+            content_dir.join("nested/source.md"),
+            "\
+# Source
+
+[relative heading](../target#target--details)
+",
+        )
+        .expect("write nested source");
+
+        let project = load_authoring_project(&content_dir, &[])
+            .await
+            .expect("load project");
+        let target_page = project
+            .page_for_source_file("target.md")
+            .expect("target page");
+        let heading_id =
+            heading_id_at_position(target_page, target, position_for(target, "Details"))
+                .expect("heading id");
+        let references = references_to_heading(&content_dir, &project, target_page, &heading_id)
+            .expect("heading references");
+
+        assert_eq!(heading_id, "target--details");
+        assert_eq!(references.len(), 3);
+        assert_eq!(
+            references
+                .iter()
+                .map(|location| {
+                    Utf8PathBuf::from_path_buf(location.uri.to_file_path().expect("file uri"))
+                        .expect("utf8 path")
+                        .strip_prefix(&content_dir)
+                        .expect("content relative")
+                        .to_string()
+                })
+                .collect::<Vec<_>>(),
+            vec![
                 "_index.md".to_string(),
                 "_index.md".to_string(),
                 "nested/source.md".to_string(),
