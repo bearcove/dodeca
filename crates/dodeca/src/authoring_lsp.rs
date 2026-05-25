@@ -72,7 +72,13 @@ impl LanguageServer for Backend {
         let dirs = match self.resolve_dirs_from_initialize(&params) {
             Ok(dirs) => dirs,
             Err(err) => {
-                return Err(tower_lsp::jsonrpc::Error::invalid_params(err.to_string()));
+                self.client
+                    .log_message(
+                        MessageType::WARNING,
+                        format!("deferred Dodeca project discovery: {err}"),
+                    )
+                    .await;
+                None
             }
         };
         if let Some(dirs) = dirs {
@@ -318,7 +324,7 @@ fn resolve_initial_authoring_dirs(
         return Ok(None);
     };
 
-    let cfg = ResolvedConfig::discover_from(Utf8Path::new(&path))?;
+    let cfg = ResolvedConfig::discover_containing(Utf8Path::new(&path))?;
     Ok(cfg.map(|cfg| authoring_dirs_from_resolved_config(startup_args, cfg)))
 }
 
@@ -1327,6 +1333,29 @@ mod tests {
                 .expect("initialize without workspace");
 
         assert!(dirs.is_none());
+    }
+
+    #[test]
+    fn resolves_authoring_dirs_from_lsp_workspace_descendant() {
+        let project = temp_dir("initialize-descendant");
+        let content_dir = project.join("content");
+        std::fs::create_dir_all(project.join(".config")).expect("create config dir");
+        std::fs::create_dir_all(&content_dir).expect("create content dir");
+        std::fs::write(
+            project.join(".config/dodeca.styx"),
+            "content content\noutput public\n",
+        )
+        .expect("write config");
+
+        let params = initialize_params_for_workspace(&content_dir);
+        let dirs = resolve_initial_authoring_dirs(&default_startup_args(), &params)
+            .expect("resolve dirs")
+            .expect("workspace config");
+
+        assert_eq!(dirs.content_dir, content_dir);
+        assert_eq!(dirs.static_dir, project.join("static"));
+
+        std::fs::remove_dir_all(&project).expect("remove temp dir");
     }
 
     #[test]

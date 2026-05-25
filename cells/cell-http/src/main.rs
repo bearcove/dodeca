@@ -113,6 +113,7 @@ fn build_router(ctx: Arc<dyn RouterContext>) -> axum::Router {
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
                 .header(header::CACHE_CONTROL, CACHE_NO_CACHE)
+                .header(header::CONNECTION, "close")
                 .header("x-picante-generation", generation.to_string())
                 .body(Body::from(content))
                 .unwrap(),
@@ -123,6 +124,7 @@ fn build_router(ctx: Arc<dyn RouterContext>) -> axum::Router {
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, "text/css; charset=utf-8")
                 .header(header::CACHE_CONTROL, CACHE_IMMUTABLE)
+                .header(header::CONNECTION, "close")
                 .header("x-picante-generation", generation.to_string())
                 .body(Body::from(content))
                 .unwrap(),
@@ -134,6 +136,7 @@ fn build_router(ctx: Arc<dyn RouterContext>) -> axum::Router {
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, mime)
                 .header(header::CACHE_CONTROL, CACHE_IMMUTABLE)
+                .header(header::CONNECTION, "close")
                 .header("x-picante-generation", generation.to_string())
                 .body(Body::from(content))
                 .unwrap(),
@@ -145,6 +148,7 @@ fn build_router(ctx: Arc<dyn RouterContext>) -> axum::Router {
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, mime)
                 .header(header::CACHE_CONTROL, CACHE_NO_CACHE)
+                .header(header::CONNECTION, "close")
                 .header("x-picante-generation", generation.to_string())
                 .body(Body::from(content))
                 .unwrap(),
@@ -155,6 +159,7 @@ fn build_router(ctx: Arc<dyn RouterContext>) -> axum::Router {
                 .status(StatusCode::FOUND) // 302 Temporary Redirect
                 .header(header::LOCATION, location)
                 .header(header::CACHE_CONTROL, CACHE_NO_CACHE)
+                .header(header::CONNECTION, "close")
                 .header("x-picante-generation", generation.to_string())
                 .body(Body::empty())
                 .unwrap(),
@@ -162,6 +167,7 @@ fn build_router(ctx: Arc<dyn RouterContext>) -> axum::Router {
                 .status(StatusCode::NOT_FOUND)
                 .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
                 .header(header::CACHE_CONTROL, CACHE_NO_CACHE)
+                .header(header::CONNECTION, "close")
                 .header("x-picante-generation", generation.to_string())
                 .body(Body::from(html))
                 .unwrap(),

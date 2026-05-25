@@ -44,7 +44,6 @@ impl TcpTunnel for TcpTunnelImpl {
             // Serve HTTP on the hyper side of the duplex.
             let serve = tokio::spawn(async move {
                 if let Err(e) = hyper::server::conn::http1::Builder::new()
-                    .keep_alive(false)
                     .serve_connection(
                         hyper_util::rt::TokioIo::new(hyper_io),
                         hyper_util::service::TowerToHyperService::new(service),
