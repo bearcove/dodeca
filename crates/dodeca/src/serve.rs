@@ -1984,6 +1984,7 @@ async fn associated_app_for_file(_path: &Utf8Path) -> Option<AssociatedApp> {
     None
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn associated_app_from_osascript_output(output: &str) -> Option<AssociatedApp> {
     let mut lines = output.lines();
     let path = lines.next()?.trim();
