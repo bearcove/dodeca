@@ -7,7 +7,7 @@ use cell_markdown_proto::*;
 use dodeca_cell_runtime::HostHandle;
 use marq::{
     AasvgHandler, ArboriumHandler, CompareHandler, InlineCodeHandler, LinkResolver, MermaidHandler,
-    RenderOptions, TermHandler, render,
+    PikruHandler, RenderOptions, TermHandler, render,
 };
 use std::future::Future;
 use std::pin::Pin;
@@ -78,51 +78,6 @@ impl LinkResolver for PassthroughLinkResolver {
     }
 }
 
-/// Pikchr handler kept in Dodeca until the published Marq handler catches up
-/// with `pikru`'s current RenderOptions shape.
-struct DodecaPikruHandler {
-    css_variables: bool,
-}
-
-impl DodecaPikruHandler {
-    fn with_css_variables(css_variables: bool) -> Self {
-        Self { css_variables }
-    }
-}
-
-impl marq::CodeBlockHandler for DodecaPikruHandler {
-    fn render<'a>(
-        &'a self,
-        _language: &'a str,
-        code: &'a str,
-    ) -> Pin<Box<dyn Future<Output = marq::Result<marq::CodeBlockOutput>> + Send + 'a>> {
-        Box::pin(async move {
-            let program = pikru::parse::parse(code).map_err(|e| marq::Error::CodeBlockHandler {
-                language: "pik".to_string(),
-                message: format!("parse error: {e}"),
-            })?;
-
-            let program = pikru::macros::expand_macros(program).map_err(|e| {
-                marq::Error::CodeBlockHandler {
-                    language: "pik".to_string(),
-                    message: format!("macro error: {e}"),
-                }
-            })?;
-
-            let options = pikru::render::RenderOptions {
-                css_variables: self.css_variables,
-                explicit_size: false,
-            };
-            pikru::render::render_with_options(&program, &options)
-                .map(Into::into)
-                .map_err(|e| marq::Error::CodeBlockHandler {
-                    language: "pik".to_string(),
-                    message: format!("render error: {e}"),
-                })
-        })
-    }
-}
-
 #[derive(Clone)]
 pub struct MarkdownProcessorImpl;
 
@@ -137,7 +92,7 @@ fn render_options(source_path: &str, source_map: bool) -> RenderOptions {
     RenderOptions::new()
         .with_handler(&["aa", "aasvg"], AasvgHandler::new())
         .with_handler(&["compare"], CompareHandler::new())
-        .with_handler(&["pikchr"], DodecaPikruHandler::with_css_variables(true))
+        .with_handler(&["pikchr"], PikruHandler::with_css_variables(true))
         .with_handler(&["term"], TermHandler::new())
         .with_handler(&["mermaid"], MermaidHandler::new())
         .with_default_handler(ArboriumHandler::new())
