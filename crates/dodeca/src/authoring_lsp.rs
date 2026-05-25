@@ -11,23 +11,25 @@ use tower_lsp::lsp_types::{
     CodeActionProviderCapability, CodeActionResponse, Command, CompletionItem, CompletionItemKind,
     CompletionOptions, CompletionParams, CompletionResponse, CompletionTextEdit, CreateFile,
     CreateFileOptions, Diagnostic, DiagnosticSeverity, DidChangeTextDocumentParams,
+    DidChangeWatchedFilesParams, DidChangeWatchedFilesRegistrationOptions,
     DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
     DocumentChangeOperation, DocumentChanges, DocumentLink, DocumentLinkOptions,
     DocumentLinkParams, DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse,
-    ExecuteCommandOptions, ExecuteCommandParams, GotoDefinitionParams, GotoDefinitionResponse,
-    Hover, HoverContents, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
-    InitializedParams, Location, MarkupContent, MarkupKind, MessageType, NumberOrString, OneOf,
+    ExecuteCommandOptions, ExecuteCommandParams, FileChangeType, FileSystemWatcher, GlobPattern,
+    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams,
+    HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, Location,
+    MarkupContent, MarkupKind, MessageType, NumberOrString, OneOf,
     OptionalVersionedTextDocumentIdentifier, Position, PrepareRenameResponse, Range,
-    ReferenceParams, RenameFile, RenameFileOptions, RenameOptions, RenameParams, ResourceOp,
-    ServerCapabilities, ServerInfo, ShowDocumentParams, SymbolInformation, SymbolKind,
+    ReferenceParams, Registration, RenameFile, RenameFileOptions, RenameOptions, RenameParams,
+    ResourceOp, ServerCapabilities, ServerInfo, ShowDocumentParams, SymbolInformation, SymbolKind,
     TextDocumentEdit, TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind,
-    TextEdit, Url, WorkspaceEdit, WorkspaceSymbolParams,
+    TextEdit, Url, WatchKind, WorkspaceEdit, WorkspaceSymbolParams,
 };
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 use crate::authoring_model::{
-    AuthoringDocumentOverlay, AuthoringPage, AuthoringPageKind, AuthoringProject,
-    AuthoringWorkspace,
+    AuthoringDocumentOverlay, AuthoringInputPath, AuthoringPage, AuthoringPageKind,
+    AuthoringProject, AuthoringWorkspace,
 };
 use crate::config::ResolvedConfig;
 use crate::queries::{Frontmatter, default_title_from_source_path};
@@ -42,9 +44,9 @@ pub async fn run(content: Option<String>, output: Option<String>) -> Result<()> 
         startup_args: LspStartupArgs { content, output },
         dirs: None,
         documents: HashMap::new(),
-        document_revision: 0,
+        input_revision: 0,
         workspace: None,
-        workspace_revision: None,
+        applied_input_revision: None,
         project_cache: None,
     }));
 
@@ -69,9 +71,9 @@ struct AuthoringState {
     startup_args: LspStartupArgs,
     dirs: Option<AuthoringDirs>,
     documents: HashMap<Url, String>,
-    document_revision: u64,
+    input_revision: u64,
     workspace: Option<AuthoringWorkspace>,
-    workspace_revision: Option<u64>,
+    applied_input_revision: Option<u64>,
     project_cache: Option<CachedAuthoringProject>,
 }
 
@@ -84,7 +86,7 @@ struct LspStartupArgs {
 #[derive(Debug, Clone)]
 struct CachedAuthoringProject {
     content_dir: Utf8PathBuf,
-    document_revision: u64,
+    input_revision: u64,
     project: AuthoringProject,
 }
 
@@ -163,6 +165,7 @@ impl LanguageServer for Backend {
         self.client
             .log_message(MessageType::INFO, "dodeca authoring server initialized")
             .await;
+        self.register_workspace_file_watches().await;
         self.publish_workspace_diagnostics().await;
     }
 
@@ -202,6 +205,15 @@ impl LanguageServer for Backend {
         self.client
             .publish_diagnostics(params.text_document.uri, Vec::new(), None)
             .await;
+        self.publish_workspace_diagnostics().await;
+    }
+
+    async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
+        if let Err(err) = self.apply_watched_file_changes(params).await {
+            self.client
+                .log_message(MessageType::ERROR, err.to_string())
+                .await;
+        }
         self.publish_workspace_diagnostics().await;
     }
 
@@ -413,7 +425,7 @@ impl Backend {
         let mut state = self.state.lock().unwrap();
         if state.dirs.as_ref() != Some(&dirs) {
             state.workspace = None;
-            state.workspace_revision = None;
+            state.applied_input_revision = None;
             state.project_cache = None;
         }
         state.dirs = Some(dirs);
@@ -442,6 +454,78 @@ impl Backend {
         Ok(dirs)
     }
 
+    #[allow(clippy::disallowed_types)]
+    async fn register_workspace_file_watches(&self) {
+        let watchers = vec![FileSystemWatcher {
+            glob_pattern: GlobPattern::String("**/*".to_string()),
+            kind: Some(WatchKind::Create | WatchKind::Change | WatchKind::Delete),
+        }];
+        let options = DidChangeWatchedFilesRegistrationOptions { watchers };
+        let registration = Registration {
+            id: "dodeca-authoring-inputs".to_string(),
+            method: "workspace/didChangeWatchedFiles".to_string(),
+            register_options: serde_json::to_value(options).ok(),
+        };
+
+        if let Err(err) = self.client.register_capability(vec![registration]).await {
+            self.client
+                .log_message(
+                    MessageType::WARNING,
+                    format!("could not register Dodeca file watches: {err}"),
+                )
+                .await;
+        }
+    }
+
+    async fn apply_watched_file_changes(&self, params: DidChangeWatchedFilesParams) -> Result<()> {
+        let dirs = self.dirs()?;
+        let mut changed = false;
+        {
+            let mut state = self.state.lock().unwrap();
+            let needs_workspace = state
+                .workspace
+                .as_ref()
+                .is_none_or(|workspace| workspace.content_dir() != dirs.content_dir);
+
+            if needs_workspace {
+                state.workspace = Some(AuthoringWorkspace::new(&dirs.content_dir)?);
+                state.applied_input_revision = None;
+                state.project_cache = None;
+            }
+
+            let open_documents = state.documents.keys().cloned().collect::<HashSet<_>>();
+            let workspace = state
+                .workspace
+                .as_mut()
+                .expect("authoring workspace initialized");
+            for event in params.changes {
+                let path = lsp_file_uri_to_utf8_path(&event.uri)?;
+                let Some(input_path) = workspace.input_path_for_absolute_path(&path)? else {
+                    continue;
+                };
+                if open_documents.contains(&event.uri) {
+                    continue;
+                }
+                let content = match (&input_path, event.typ == FileChangeType::DELETED) {
+                    (_, true)
+                    | (AuthoringInputPath::Static(_), false)
+                    | (AuthoringInputPath::Dist(_), false) => None,
+                    (_, false) => Some(std::fs::read_to_string(&path)?),
+                };
+                workspace.apply_file_change(&input_path, content.as_deref())?;
+                changed = true;
+            }
+
+            if changed {
+                state.input_revision = state.input_revision.wrapping_add(1);
+                state.applied_input_revision = Some(state.input_revision);
+                state.project_cache = None;
+            }
+        }
+
+        Ok(())
+    }
+
     async fn list_pages(&self) -> Result<Vec<AuthoringPage>> {
         let dirs = self.dirs()?;
         Ok(self.current_project(&dirs).await?.pages)
@@ -456,14 +540,14 @@ impl Backend {
     fn set_document(&self, uri: Url, content: String) {
         let mut state = self.state.lock().unwrap();
         state.documents.insert(uri, content);
-        state.document_revision = state.document_revision.wrapping_add(1);
+        state.input_revision = state.input_revision.wrapping_add(1);
         state.project_cache = None;
     }
 
     fn remove_document(&self, uri: &Url) {
         let mut state = self.state.lock().unwrap();
         state.documents.remove(uri);
-        state.document_revision = state.document_revision.wrapping_add(1);
+        state.input_revision = state.input_revision.wrapping_add(1);
         state.project_cache = None;
     }
 
@@ -478,23 +562,6 @@ impl Backend {
         Ok(std::fs::read_to_string(path)?)
     }
 
-    fn document_overlays(&self, content_dir: &Utf8Path) -> Vec<AuthoringDocumentOverlay> {
-        self.state
-            .lock()
-            .unwrap()
-            .documents
-            .iter()
-            .filter_map(|(uri, content)| {
-                let path = lsp_file_uri_to_utf8_path(uri).ok()?;
-                let source_file = source_file_for_path(content_dir, &path).ok()?;
-                Some(AuthoringDocumentOverlay {
-                    source_file,
-                    content: content.clone(),
-                })
-            })
-            .collect()
-    }
-
     async fn current_project(&self, dirs: &AuthoringDirs) -> Result<AuthoringProject> {
         let cached = {
             let state = self.state.lock().unwrap();
@@ -503,7 +570,7 @@ impl Backend {
                 .as_ref()
                 .filter(|cached| {
                     cached.content_dir == dirs.content_dir
-                        && cached.document_revision == state.document_revision
+                        && cached.input_revision == state.input_revision
                 })
                 .map(|cached| cached.project.clone())
         };
@@ -511,10 +578,9 @@ impl Backend {
             return Ok(project);
         }
 
-        let overlays = self.document_overlays(&dirs.content_dir);
-        let (snapshot, snapshot_revision) = {
+        let (inputs, inputs_revision) = {
             let mut state = self.state.lock().unwrap();
-            let revision = state.document_revision;
+            let revision = state.input_revision;
             let needs_workspace = state
                 .workspace
                 .as_ref()
@@ -522,17 +588,33 @@ impl Backend {
 
             if needs_workspace {
                 state.workspace = Some(AuthoringWorkspace::new(&dirs.content_dir)?);
-                state.workspace_revision = None;
+                state.applied_input_revision = None;
                 state.project_cache = None;
             }
 
-            if state.workspace_revision != Some(revision) {
+            if state.applied_input_revision != Some(revision) {
+                let documents = state.documents.clone();
+                let workspace = state
+                    .workspace
+                    .as_mut()
+                    .expect("authoring workspace initialized");
+                let overlays = documents
+                    .iter()
+                    .filter_map(|(uri, content)| {
+                        let path = lsp_file_uri_to_utf8_path(uri).ok()?;
+                        let input_path = workspace.input_path_for_absolute_path(&path).ok()??;
+                        Some(AuthoringDocumentOverlay {
+                            path: input_path,
+                            content: content.clone(),
+                        })
+                    })
+                    .collect::<Vec<_>>();
                 state
                     .workspace
                     .as_mut()
                     .expect("authoring workspace initialized")
                     .apply_overlays(&overlays)?;
-                state.workspace_revision = Some(revision);
+                state.applied_input_revision = Some(revision);
             }
 
             (
@@ -540,18 +622,18 @@ impl Backend {
                     .workspace
                     .as_ref()
                     .expect("authoring workspace initialized")
-                    .snapshot(),
+                    .inputs(),
                 revision,
             )
         };
 
-        let project = snapshot.project().await?;
+        let project = inputs.project().await?;
 
         let mut state = self.state.lock().unwrap();
-        if state.document_revision == snapshot_revision {
+        if state.input_revision == inputs_revision {
             state.project_cache = Some(CachedAuthoringProject {
                 content_dir: dirs.content_dir.clone(),
-                document_revision: snapshot_revision,
+                input_revision: inputs_revision,
                 project: project.clone(),
             });
         }
@@ -871,6 +953,10 @@ impl Backend {
                 return;
             }
         };
+        if !is_content_markdown_document(&dirs.content_dir, &uri) {
+            self.client.publish_diagnostics(uri, Vec::new(), None).await;
+            return;
+        }
         let diagnostics = match diagnostics_for_uri(&dirs.content_dir, &project, &uri, &content) {
             Ok(diagnostics) => diagnostics
                 .iter()
@@ -4055,6 +4141,14 @@ fn source_file_for_path(content_dir: &Utf8Path, path: &Utf8Path) -> Result<Strin
         .to_string())
 }
 
+fn is_content_markdown_document(content_dir: &Utf8Path, uri: &Url) -> bool {
+    lsp_file_uri_to_utf8_path(uri)
+        .ok()
+        .filter(|path| path.extension() == Some("md"))
+        .and_then(|path| source_file_for_path(content_dir, &path).ok())
+        .is_some()
+}
+
 fn missing_anchor_message(
     project: &AuthoringProject,
     target_route: &str,
@@ -4339,6 +4433,8 @@ fn diagnostic_kind_name(kind: AuthoringDiagnosticKind) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use crate::authoring_model::AuthoringInputPath;
+
     use super::*;
     use crate::authoring_model::load_authoring_project;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -5432,7 +5528,7 @@ title = \"Source\"
         let project = load_authoring_project(
             &content_dir,
             &[AuthoringDocumentOverlay {
-                source_file: "guide/draft.md".to_string(),
+                path: AuthoringInputPath::Source("guide/draft.md".to_string()),
                 content: "+++\ntitle = \"Draft\"\n+++\n\n# Draft\n".to_string(),
             }],
         )
@@ -5492,7 +5588,7 @@ title = \"Source\"
         let overlay_project = load_authoring_project(
             &content_dir,
             &[AuthoringDocumentOverlay {
-                source_file: "draft.md".to_string(),
+                path: AuthoringInputPath::Source("draft.md".to_string()),
                 content: "+++\ntitle = \"Draft\"\n+++\n".to_string(),
             }],
         )
@@ -5519,7 +5615,7 @@ title = \"Source\"
         let mut workspace = AuthoringWorkspace::new(&content_dir).expect("workspace");
         assert!(
             !workspace
-                .snapshot()
+                .inputs()
                 .project()
                 .await
                 .expect("project")
@@ -5528,13 +5624,13 @@ title = \"Source\"
 
         workspace
             .apply_overlays(&[AuthoringDocumentOverlay {
-                source_file: "draft.md".to_string(),
+                path: AuthoringInputPath::Source("draft.md".to_string()),
                 content: "+++\ntitle = \"Draft\"\n+++\n".to_string(),
             }])
             .expect("apply overlay");
         assert!(
             workspace
-                .snapshot()
+                .inputs()
                 .project()
                 .await
                 .expect("project")
@@ -5544,7 +5640,95 @@ title = \"Source\"
         workspace.apply_overlays(&[]).expect("clear overlay");
         assert!(
             !workspace
-                .snapshot()
+                .inputs()
+                .project()
+                .await
+                .expect("project")
+                .route_exists("/draft")
+        );
+
+        std::fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[tokio::test]
+    async fn authoring_workspace_updates_template_overlays() {
+        let dir = temp_dir("workspace-template-overlays");
+        let content_dir = dir.join("content");
+        let templates_dir = dir.join("templates");
+        std::fs::create_dir_all(&content_dir).expect("create content dir");
+        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
+        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
+
+        let mut workspace = AuthoringWorkspace::new(&content_dir).expect("workspace");
+        assert!(
+            !workspace
+                .inputs()
+                .project()
+                .await
+                .expect("project")
+                .template_paths
+                .contains_key("custom.html")
+        );
+
+        workspace
+            .apply_overlays(&[AuthoringDocumentOverlay {
+                path: AuthoringInputPath::Template("custom.html".to_string()),
+                content: "{{ page.content }}".to_string(),
+            }])
+            .expect("apply template overlay");
+        assert!(
+            workspace
+                .inputs()
+                .project()
+                .await
+                .expect("project")
+                .template_paths
+                .contains_key("custom.html")
+        );
+
+        workspace.apply_overlays(&[]).expect("clear overlay");
+        assert!(
+            !workspace
+                .inputs()
+                .project()
+                .await
+                .expect("project")
+                .template_paths
+                .contains_key("custom.html")
+        );
+
+        std::fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[tokio::test]
+    async fn authoring_workspace_updates_disk_source_changes() {
+        let dir = temp_dir("workspace-disk-source-changes");
+        let content_dir = dir.join("content");
+        std::fs::create_dir_all(&content_dir).expect("create content dir");
+        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
+
+        let mut workspace = AuthoringWorkspace::new(&content_dir).expect("workspace");
+        workspace
+            .apply_file_change(
+                &AuthoringInputPath::Source("draft.md".to_string()),
+                Some("+++\ntitle = \"Draft\"\n+++\n"),
+            )
+            .expect("apply source change");
+        assert!(
+            workspace
+                .inputs()
+                .project()
+                .await
+                .expect("project")
+                .route_exists("/draft")
+        );
+
+        workspace
+            .apply_file_change(&AuthoringInputPath::Source("draft.md".to_string()), None)
+            .expect("apply source removal");
+        assert!(
+            !workspace
+                .inputs()
                 .project()
                 .await
                 .expect("project")
