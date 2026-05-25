@@ -11,9 +11,10 @@ use tower_lsp::lsp_types::{
     CompletionOptions, CompletionParams, CompletionResponse, CompletionTextEdit, Diagnostic,
     DiagnosticSeverity, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, DidSaveTextDocumentParams, ExecuteCommandOptions,
-    ExecuteCommandParams, GotoDefinitionParams, GotoDefinitionResponse, InitializeParams,
-    InitializeResult, InitializedParams, Location, MessageType, NumberOrString, OneOf, Position,
-    Range, ReferenceParams, ServerCapabilities, ServerInfo, ShowDocumentParams,
+    ExecuteCommandParams, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents,
+    HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams,
+    Location, MarkupContent, MarkupKind, MessageType, NumberOrString, OneOf, Position, Range,
+    ReferenceParams, ServerCapabilities, ServerInfo, ShowDocumentParams,
     TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url,
 };
 use tower_lsp::{Client, LanguageServer, LspService, Server};
@@ -106,6 +107,7 @@ impl LanguageServer for Backend {
                 definition_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
                 code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+                hover_provider: Some(HoverProviderCapability::Simple(true)),
                 completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(false),
                     trigger_characters: Some(vec![
@@ -225,6 +227,24 @@ impl LanguageServer for Backend {
     async fn completion(&self, params: CompletionParams) -> LspResult<Option<CompletionResponse>> {
         match self.completions(params).await {
             Ok(items) => Ok(Some(CompletionResponse::Array(items))),
+            Err(err) => {
+                self.client
+                    .log_message(MessageType::ERROR, err.to_string())
+                    .await;
+                Ok(None)
+            }
+        }
+    }
+
+    async fn hover(&self, params: HoverParams) -> LspResult<Option<Hover>> {
+        match self
+            .hover_for_position(
+                &params.text_document_position_params.text_document.uri,
+                params.text_document_position_params.position,
+            )
+            .await
+        {
+            Ok(hover) => Ok(hover),
             Err(err) => {
                 self.client
                     .log_message(MessageType::ERROR, err.to_string())
@@ -421,6 +441,36 @@ impl Backend {
         Ok(completion_items_for_markdown_target(
             &project, page, &context,
         ))
+    }
+
+    async fn hover_for_position(&self, uri: &Url, position: Position) -> Result<Option<Hover>> {
+        let dirs = self.dirs_for_uri(uri)?;
+        let content = self.document_content(uri)?;
+        let path = lsp_file_uri_to_utf8_path(uri)?;
+        let source_file = source_file_for_path(&dirs.content_dir, &path)?;
+        let project = self.current_project(&dirs).await?;
+        let page = project
+            .page_for_source_file(&source_file)
+            .ok_or_else(|| eyre!("missing authoring page for {source_file}"))?;
+
+        if let Some(frontmatter_range) = frontmatter_lsp_range(&content)
+            && range_contains_position(&frontmatter_range, position)
+        {
+            let backlink_count = references_to_page(&dirs.content_dir, &project, page)?.len();
+            return Ok(Some(markdown_hover(
+                frontmatter_hover_markdown(page, backlink_count),
+                frontmatter_range,
+            )));
+        }
+
+        let Some(reference) = reference_at_position(&content, position) else {
+            return Ok(None);
+        };
+        let range = byte_range_to_lsp_range(&content, reference.byte_start, reference.byte_end);
+        Ok(Some(markdown_hover(
+            link_hover_markdown(&project, page, &content, &reference),
+            range,
+        )))
     }
 
     async fn definition_for_position(
@@ -826,6 +876,130 @@ fn diagnostic_for_reference(
         };
 
     Some(reference.diagnostic(page, content, kind, resolved_route, message))
+}
+
+fn link_hover_markdown(
+    project: &AuthoringProject,
+    page: &AuthoringPage,
+    content: &str,
+    reference: &MarkdownReference,
+) -> String {
+    let target = reference.target.as_str();
+    if is_special_target(target) {
+        return format!("**Dodeca link**\n\nSpecial target: `{target}`");
+    }
+
+    if let Some(diagnostic) = diagnostic_for_reference(project, page, content, reference.clone()) {
+        return format!(
+            "**Dodeca link**\n\n{}\n\nTarget: `{}`",
+            diagnostic.message, diagnostic.target
+        );
+    }
+
+    let (target_without_fragment, fragment) = split_fragment(target);
+    if let Some(source_target) = target_without_fragment.strip_prefix("@/") {
+        let Some(route) = project.source_to_route.get(source_target) else {
+            return format!("**Dodeca source link**\n\nSource not found: `{source_target}`");
+        };
+        let Some(target_page) = project.page_for_route(route) else {
+            return format!("**Dodeca source link**\n\nRoute: `{route}`");
+        };
+        return page_link_hover_markdown(project, target_page, fragment);
+    }
+
+    if reference.kind == MarkdownReferenceKind::Image
+        || is_likely_static_file(target_without_fragment)
+    {
+        return match project.static_target_path(&page.source_file, target_without_fragment) {
+            Some(path) => format!(
+                "**Dodeca static asset**\n\nURL: `{target_without_fragment}`\n\nFile: `{path}`"
+            ),
+            None => format!(
+                "**Dodeca static asset**\n\nStatic asset not found: `{target_without_fragment}`"
+            ),
+        };
+    }
+
+    let target_route = route_for_link_target(project, page, target_without_fragment);
+    let Some(target_page) = project.page_for_route(&target_route) else {
+        return format!("**Dodeca route**\n\nRoute not found: `{target_route}`");
+    };
+    page_link_hover_markdown(project, target_page, fragment)
+}
+
+fn page_link_hover_markdown(
+    project: &AuthoringProject,
+    page: &AuthoringPage,
+    fragment: Option<&str>,
+) -> String {
+    let mut lines = vec![
+        "**Dodeca page**".to_string(),
+        String::new(),
+        format!("Title: `{}`", page.title),
+        format!("Route: `{}`", page.route),
+        format!("Source: `{}`", page.source_file),
+        format!("Template: `{}`", page.template),
+        format!("Output: `{}`", page.output_path),
+    ];
+
+    if let Some(description) = page
+        .description
+        .as_deref()
+        .filter(|description| !description.is_empty())
+    {
+        lines.push(format!("Description: {description}"));
+    }
+
+    if let Some(fragment) = fragment.filter(|fragment| !fragment.is_empty()) {
+        match project.heading_for_route(&page.route, fragment) {
+            Some(heading) => lines.push(format!(
+                "Heading: `{}` H{} `{}`",
+                heading.id, heading.level, heading.title
+            )),
+            None => lines.push(format!("Heading not found: `#{fragment}`")),
+        }
+    }
+
+    lines.join("\n\n")
+}
+
+fn frontmatter_hover_markdown(page: &AuthoringPage, backlink_count: usize) -> String {
+    let kind = match page.kind {
+        AuthoringPageKind::Page => "page",
+        AuthoringPageKind::Section => "section",
+    };
+    let mut lines = vec![
+        "**Dodeca frontmatter**".to_string(),
+        String::new(),
+        format!("Kind: `{kind}`"),
+        format!("Title: `{}`", page.title),
+        format!("Route: `{}`", page.route),
+        format!("Source: `{}`", page.source_file),
+        format!("Template: `{}`", page.template),
+        format!("Output: `{}`", page.output_path),
+        format!("Headings: `{}`", page.heading_ids.len()),
+        format!("Backlinks: `{backlink_count}`"),
+    ];
+
+    if let Some(description) = page
+        .description
+        .as_deref()
+        .filter(|description| !description.is_empty())
+    {
+        lines.push(format!("Description: {description}"));
+    }
+
+    lines.join("\n\n")
+}
+
+fn markdown_hover(markdown: String, range: Range) -> Hover {
+    Hover {
+        contents: HoverContents::Markup(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value: markdown,
+        }),
+        range: Some(range),
+    }
 }
 
 fn definition_for_reference(
@@ -2013,6 +2187,14 @@ mod tests {
                     route: "/".to_string(),
                     source_file: "_index.md".to_string(),
                     title: "Knowledge Base".to_string(),
+                    description: None,
+                    template: "index.html".to_string(),
+                    output_path: "index.html".to_string(),
+                    headings: vec![crate::authoring_model::AuthoringHeading {
+                        id: "home".to_string(),
+                        title: "Home".to_string(),
+                        level: 1,
+                    }],
                     heading_ids: vec!["home".to_string()],
                     link_base_route: "/".to_string(),
                 },
@@ -2021,6 +2203,21 @@ mod tests {
                     route: "/guide/intro".to_string(),
                     source_file: "guide/intro.md".to_string(),
                     title: "Intro".to_string(),
+                    description: None,
+                    template: "page.html".to_string(),
+                    output_path: "guide/intro/index.html".to_string(),
+                    headings: vec![
+                        crate::authoring_model::AuthoringHeading {
+                            id: "intro".to_string(),
+                            title: "Intro".to_string(),
+                            level: 1,
+                        },
+                        crate::authoring_model::AuthoringHeading {
+                            id: "intro--details".to_string(),
+                            title: "Details".to_string(),
+                            level: 2,
+                        },
+                    ],
                     heading_ids: vec!["intro".to_string(), "intro--details".to_string()],
                     link_base_route: "/".to_string(),
                 },
@@ -2286,6 +2483,65 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    #[tokio::test]
+    async fn hovers_links_and_frontmatter_from_authoring_project() {
+        let dir = temp_dir("hovers");
+        let content_dir = dir.join("content");
+        let static_dir = dir.join("static");
+        std::fs::create_dir_all(content_dir.join("guide")).expect("create content dirs");
+        std::fs::create_dir_all(&static_dir).expect("create static dir");
+        std::fs::write(static_dir.join("logo.png"), b"png").expect("write static");
+        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
+        std::fs::write(
+            content_dir.join("guide/intro.md"),
+            "+++\ntitle = \"Intro\"\n+++\n\n# Intro\n\n## Details\n",
+        )
+        .expect("write intro");
+        let source = "\
++++
+title = \"Source\"
++++
+
+[intro](/guide/intro#intro--details)
+[missing](/missing)
+![logo](/logo.png)
+";
+        std::fs::write(content_dir.join("guide/source.md"), source).expect("write source");
+
+        let project = load_authoring_project(&content_dir, &[])
+            .await
+            .expect("load project");
+        let page = project
+            .page_for_source_file("guide/source.md")
+            .expect("source page");
+
+        let intro_reference = reference_at_position(source, position_for(source, "/guide/intro"))
+            .expect("intro reference");
+        let intro_hover = link_hover_markdown(&project, page, source, &intro_reference);
+        assert!(intro_hover.contains("Title: `Intro`"));
+        assert!(intro_hover.contains("Heading: `intro--details` H2 `Details`"));
+        assert!(intro_hover.contains("Output: `guide/intro/index.html`"));
+
+        let missing_reference = reference_at_position(source, position_for(source, "/missing"))
+            .expect("missing reference");
+        let missing_hover = link_hover_markdown(&project, page, source, &missing_reference);
+        assert!(missing_hover.contains("route '/missing' not found"));
+
+        let logo_reference = reference_at_position(source, position_for(source, "/logo.png"))
+            .expect("logo reference");
+        let logo_hover = link_hover_markdown(&project, page, source, &logo_reference);
+        assert!(logo_hover.contains("Dodeca static asset"));
+        assert!(logo_hover.contains("static/logo.png"));
+
+        let frontmatter_hover = frontmatter_hover_markdown(page, 3);
+        assert!(frontmatter_hover.contains("Title: `Source`"));
+        assert!(frontmatter_hover.contains("Route: `/guide/source`"));
+        assert!(frontmatter_hover.contains("Template: `page.html`"));
+        assert!(frontmatter_hover.contains("Backlinks: `3`"));
+
+        std::fs::remove_dir_all(&dir).expect("remove temp dir");
     }
 
     #[tokio::test]

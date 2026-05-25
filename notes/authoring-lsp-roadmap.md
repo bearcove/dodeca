@@ -30,8 +30,8 @@ Status values:
 | `lsp-002` | `done` | Project-wide link diagnostics | Editors receive warnings for broken links across the whole project, not just the open file. | Current diagnostic kinds cover missing routes, anchors, source files, and static assets. |
 | `lsp-003` | `done` | Page backlinks | Find All References on page frontmatter returns every Markdown link resolving to that page. | Covers route links, `@/source.md`, anchors, and relative links. |
 | `lsp-004` | `done` | Link completions | Complete routes, source files, static assets, and heading fragments inside Markdown links. | Uses the shared authoring model for candidates and LSP edit spans only for replacement ranges. |
-| `lsp-005` | `todo` | Link hover | Hovering a Markdown link explains the resolved target page, route, source file, heading, or static asset. | Broken links should expose the same reason as diagnostics. |
-| `lsp-006` | `todo` | Frontmatter hover | Hovering frontmatter shows canonical route, source file, title, template, output path, and backlink count. | Backlink count can share the references implementation. |
+| `lsp-005` | `done` | Link hover | Hovering a Markdown link explains the resolved target page, route, source file, heading, or static asset. | Broken links expose the same reason as diagnostics. |
+| `lsp-006` | `done` | Frontmatter hover | Hovering frontmatter shows canonical route, source file, title, template, output path, and backlink count. | Backlink count shares the references implementation. |
 | `lsp-007` | `todo` | Page workspace symbols | Editor symbol search lists pages by title, route, source file, and headings. | Lets users jump around the site graph without knowing filenames. |
 | `lsp-008` | `todo` | Heading references | Find All References on a heading returns every link to that exact fragment. | Also supports route fragment links such as `/page#heading`. |
 | `lsp-009` | `todo` | Heading rename | Renaming a heading updates every fragment link that targets it. | Depends on heading references and slug generation parity. |

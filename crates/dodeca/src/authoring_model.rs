@@ -35,8 +35,19 @@ pub(crate) struct AuthoringPage {
     pub route: String,
     pub source_file: String,
     pub title: String,
+    pub description: Option<String>,
+    pub template: String,
+    pub output_path: String,
+    pub headings: Vec<AuthoringHeading>,
     pub heading_ids: Vec<String>,
     pub link_base_route: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AuthoringHeading {
+    pub id: String,
+    pub title: String,
+    pub level: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,6 +107,18 @@ pub(crate) async fn load_authoring_project(
                     route: route.clone(),
                     source_file: source_file.clone(),
                     title: section.title.as_str().to_string(),
+                    description: section.description.clone(),
+                    template: section_template_name(section.route.as_str(), &section.template),
+                    output_path: route_output_path(section.route.as_str()),
+                    headings: section
+                        .headings
+                        .iter()
+                        .map(|heading| AuthoringHeading {
+                            id: heading.id.clone(),
+                            title: heading.title.clone(),
+                            level: heading.level,
+                        })
+                        .collect(),
                     heading_ids: section
                         .headings
                         .iter()
@@ -110,6 +133,21 @@ pub(crate) async fn load_authoring_project(
                 route: route.clone(),
                 source_file: source_file.clone(),
                 title: page.title.as_str().to_string(),
+                description: None,
+                template: page
+                    .template
+                    .clone()
+                    .unwrap_or_else(|| "page.html".to_string()),
+                output_path: route_output_path(page.route.as_str()),
+                headings: page
+                    .headings
+                    .iter()
+                    .map(|heading| AuthoringHeading {
+                        id: heading.id.clone(),
+                        title: heading.title.clone(),
+                        level: heading.level,
+                    })
+                    .collect(),
                 heading_ids: page
                     .headings
                     .iter()
@@ -198,6 +236,17 @@ impl AuthoringProject {
             .map(|ids| ids.contains(heading_id))
     }
 
+    pub(crate) fn heading_for_route(
+        &self,
+        target_route: &str,
+        heading_id: &str,
+    ) -> Option<&AuthoringHeading> {
+        self.page_for_route(target_route)?
+            .headings
+            .iter()
+            .find(|heading| heading.id == heading_id)
+    }
+
     fn heading_ids_for_route(&self, target_route: &str) -> Option<&HashSet<String>> {
         self.headings_by_route
             .get(target_route)
@@ -225,7 +274,7 @@ impl AuthoringProject {
         self.static_target_path(source_file, target).is_some()
     }
 
-    fn static_target_path(&self, source_file: &str, target: &str) -> Option<&str> {
+    pub(crate) fn static_target_path(&self, source_file: &str, target: &str) -> Option<&str> {
         let target = strip_query(target);
         if target.is_empty() {
             return None;
@@ -306,6 +355,25 @@ fn static_source_path(content_dir: &Utf8Path, relative: &str) -> Option<Utf8Path
     }
     let dist_path = project_dir.join("dist").join(relative);
     dist_path.exists().then_some(dist_path)
+}
+
+fn section_template_name(route: &str, template: &Option<String>) -> String {
+    template.clone().unwrap_or_else(|| {
+        if route == "/" {
+            "index.html".to_string()
+        } else {
+            "section.html".to_string()
+        }
+    })
+}
+
+fn route_output_path(route: &str) -> String {
+    let route = route.trim_matches('/');
+    if route.is_empty() {
+        "index.html".to_string()
+    } else {
+        format!("{route}/index.html")
+    }
 }
 
 fn normalize_route(path: &str) -> String {
