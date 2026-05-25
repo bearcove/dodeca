@@ -13,8 +13,8 @@ use tower_lsp::lsp_types::{
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     DidSaveTextDocumentParams, ExecuteCommandOptions, ExecuteCommandParams, GotoDefinitionParams,
     GotoDefinitionResponse, InitializeParams, InitializeResult, InitializedParams, Location,
-    MessageType, NumberOrString, OneOf, Position, Range, ServerCapabilities, ServerInfo,
-    ShowDocumentParams, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
+    MessageType, NumberOrString, OneOf, Position, Range, ReferenceParams, ServerCapabilities,
+    ServerInfo, ShowDocumentParams, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
 };
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
@@ -102,6 +102,7 @@ impl LanguageServer for Backend {
                     ..Default::default()
                 }),
                 definition_provider: Some(OneOf::Left(true)),
+                references_provider: Some(OneOf::Left(true)),
                 code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
                 ..Default::default()
             },
@@ -224,6 +225,21 @@ impl LanguageServer for Backend {
             }
         }
     }
+
+    async fn references(&self, params: ReferenceParams) -> LspResult<Option<Vec<Location>>> {
+        match self.references_for_position(
+            &params.text_document_position.text_document.uri,
+            params.text_document_position.position,
+        ) {
+            Ok(locations) => Ok(Some(locations)),
+            Err(err) => {
+                self.client
+                    .log_message(MessageType::ERROR, err.to_string())
+                    .await;
+                Ok(None)
+            }
+        }
+    }
 }
 
 impl Backend {
@@ -281,6 +297,20 @@ impl Backend {
             .to_file_path()
             .map_err(|_| eyre!("LSP document URI is not a file URI: {uri}"))?;
         Ok(std::fs::read_to_string(path)?)
+    }
+
+    fn document_overlays(&self, content_dir: &Utf8Path) -> HashMap<String, String> {
+        self.state
+            .lock()
+            .unwrap()
+            .documents
+            .iter()
+            .filter_map(|(uri, content)| {
+                let path = lsp_file_uri_to_utf8_path(uri).ok()?;
+                let source_file = source_file_for_path(content_dir, &path).ok()?;
+                Some((source_file, content.clone()))
+            })
+            .collect()
     }
 
     fn code_actions(&self, params: CodeActionParams) -> Result<CodeActionResponse> {
@@ -347,6 +377,30 @@ impl Backend {
         let site_index = SiteAuthoringIndex::new(&pages);
 
         definition_for_reference(&dirs, &site_index, &page, &reference)
+    }
+
+    fn references_for_position(&self, uri: &Url, position: Position) -> Result<Vec<Location>> {
+        let dirs = self.dirs_for_uri(uri)?;
+        let content = self.document_content(uri)?;
+        let Some(frontmatter_range) = frontmatter_lsp_range(&content) else {
+            return Ok(Vec::new());
+        };
+        if !range_contains_position(&frontmatter_range, position) {
+            return Ok(Vec::new());
+        }
+
+        let path = lsp_file_uri_to_utf8_path(uri)?;
+        let source_file = source_file_for_path(&dirs.content_dir, &path)?;
+        let mut overlays = self.document_overlays(&dirs.content_dir);
+        overlays.insert(source_file.clone(), content);
+        let pages = load_authoring_pages_with_overlays(&dirs.content_dir, &overlays)?;
+        let site_index = SiteAuthoringIndex::new(&pages);
+        let page = pages
+            .iter()
+            .find(|page| page.source_file == source_file)
+            .ok_or_else(|| eyre!("missing authoring page for {source_file}"))?;
+
+        references_to_page(&dirs.content_dir, &site_index, &pages, page, &overlays)
     }
 
     async fn publish_document_diagnostics(&self, uri: Url, content: String) {
@@ -439,7 +493,8 @@ impl Backend {
             std::fs::create_dir_all(parent)?;
         }
         if !path.exists() {
-            std::fs::write(&path, "")?;
+            let title = default_title_from_source_path(&source_file);
+            std::fs::write(&path, page_frontmatter(&title))?;
         }
 
         let uri = Url::from_file_path(path.as_std_path())
@@ -707,16 +762,35 @@ fn load_authoring_pages_with_overlay(
     source_file: &str,
     content: &str,
 ) -> Result<Vec<AuthoringPage>> {
+    load_authoring_pages_with_overlays(
+        content_dir,
+        &HashMap::from([(source_file.to_string(), content.to_string())]),
+    )
+}
+
+fn load_authoring_pages_with_overlays(
+    content_dir: &Utf8Path,
+    overlays: &HashMap<String, String>,
+) -> Result<Vec<AuthoringPage>> {
     let mut pages = load_authoring_pages(content_dir)?;
-    let overlay = page_for_source_file(source_file, content);
-    if let Some(page) = pages
-        .iter_mut()
-        .find(|page| page.source_file == source_file)
-    {
-        *page = overlay;
-    } else {
-        pages.push(overlay);
+
+    for (source_file, content) in overlays {
+        let overlay = page_for_source_file(source_file, content);
+        if let Some(page) = pages
+            .iter_mut()
+            .find(|page| page.source_file == *source_file)
+        {
+            *page = overlay;
+        } else {
+            pages.push(overlay);
+        }
     }
+
+    pages.sort_by(|a, b| {
+        a.route
+            .cmp(&b.route)
+            .then_with(|| a.source_file.cmp(&b.source_file))
+    });
     Ok(pages)
 }
 
@@ -914,6 +988,117 @@ fn definition_for_reference(
     };
     let path = dirs.content_dir.join(source_file);
     location_for_source_path(&path, fragment)
+}
+
+fn references_to_page(
+    content_dir: &Utf8Path,
+    site_index: &SiteAuthoringIndex,
+    pages: &[AuthoringPage],
+    target_page: &AuthoringPage,
+    overlays: &HashMap<String, String>,
+) -> Result<Vec<Location>> {
+    let mut locations = Vec::new();
+
+    for page in pages {
+        let content = match overlays.get(&page.source_file) {
+            Some(content) => content.clone(),
+            None => std::fs::read_to_string(content_dir.join(&page.source_file))?,
+        };
+
+        for reference in markdown_references(&content) {
+            let Some(target_route) = reference_target_route(site_index, page, &reference) else {
+                continue;
+            };
+            if !routes_refer_to_same_page(site_index, &target_route, &target_page.route) {
+                continue;
+            }
+            if let Some(location) = location_for_markdown_reference(
+                content_dir,
+                &page.source_file,
+                &content,
+                &reference,
+            ) {
+                locations.push(location);
+            }
+        }
+    }
+
+    locations.sort_by(|a, b| {
+        a.uri
+            .as_str()
+            .cmp(b.uri.as_str())
+            .then_with(|| position_cmp(a.range.start, b.range.start))
+            .then_with(|| position_cmp(a.range.end, b.range.end))
+    });
+    Ok(locations)
+}
+
+fn reference_target_route(
+    site_index: &SiteAuthoringIndex,
+    page: &AuthoringPage,
+    reference: &MarkdownReference,
+) -> Option<String> {
+    let target = reference.target.as_str();
+    if is_special_target(target) {
+        return None;
+    }
+
+    let (target_without_fragment, _) = split_fragment(target);
+    if let Some(source_target) = target_without_fragment.strip_prefix("@/") {
+        return site_index.source_to_route.get(source_target).cloned();
+    }
+
+    if reference.kind == MarkdownReferenceKind::Image
+        || is_likely_static_file(target_without_fragment)
+    {
+        return None;
+    }
+
+    Some(if target_without_fragment.is_empty() {
+        page.route.clone()
+    } else if target_without_fragment.starts_with('/') {
+        normalize_route(target_without_fragment)
+    } else {
+        route_for_relative_target(page, target_without_fragment)
+    })
+}
+
+fn routes_refer_to_same_page(
+    site_index: &SiteAuthoringIndex,
+    left_route: &str,
+    right_route: &str,
+) -> bool {
+    match (
+        source_file_for_route(site_index, left_route),
+        source_file_for_route(site_index, right_route),
+    ) {
+        (Some(left_source), Some(right_source)) => left_source == right_source,
+        _ => normalize_route(left_route) == normalize_route(right_route),
+    }
+}
+
+fn location_for_markdown_reference(
+    content_dir: &Utf8Path,
+    source_file: &str,
+    content: &str,
+    reference: &MarkdownReference,
+) -> Option<Location> {
+    let uri = Url::from_file_path(content_dir.join(source_file)).ok()?;
+    let (line, column) = byte_to_line_column(content, reference.byte_start);
+    let (line_end, column_end) = byte_to_line_column(content, reference.byte_end);
+    Some(Location {
+        uri,
+        range: Range {
+            start: Position {
+                line: line.saturating_sub(1),
+                character: column.saturating_sub(1),
+            },
+            end: Position {
+                line: line_end.saturating_sub(1),
+                character: column_end.saturating_sub(1),
+            },
+        },
+    })
 }
 
 fn location_for_source_path(path: &Utf8Path, fragment: Option<&str>) -> Result<Option<Location>> {
@@ -1139,6 +1324,23 @@ fn frontmatter_title(content: &str) -> Option<String> {
     frontmatter.title
 }
 
+fn frontmatter_lsp_range(content: &str) -> Option<Range> {
+    content.strip_prefix("+++\n")?;
+    let end = content[4..].find("\n+++")? + 4 + "\n+++".len();
+    let (line_end, column_end) = byte_to_line_column(content, end);
+
+    Some(Range {
+        start: Position {
+            line: 0,
+            character: 0,
+        },
+        end: Position {
+            line: line_end.saturating_sub(1),
+            character: column_end.saturating_sub(1),
+        },
+    })
+}
+
 fn fenced_frontmatter(content: &str) -> Option<&str> {
     let content = content.strip_prefix("+++\n")?;
     let end = content.find("\n+++")?;
@@ -1358,8 +1560,18 @@ fn ranges_overlap(left: &Range, right: &Range) -> bool {
     position_le(left.start, right.end) && position_le(right.start, left.end)
 }
 
+fn range_contains_position(range: &Range, position: Position) -> bool {
+    position_le(range.start, position) && position_le(position, range.end)
+}
+
 fn position_le(left: Position, right: Position) -> bool {
     left.line < right.line || (left.line == right.line && left.character <= right.character)
+}
+
+fn position_cmp(left: Position, right: Position) -> std::cmp::Ordering {
+    left.line
+        .cmp(&right.line)
+        .then_with(|| left.character.cmp(&right.character))
 }
 
 fn source_file_for_new_route(route: &str) -> Option<String> {
@@ -1383,6 +1595,29 @@ fn source_file_for_new_route(route: &str) -> Option<String> {
     }
 
     Some(format!("{}.md", segments.join("/")))
+}
+
+fn page_frontmatter(title: &str) -> String {
+    format!(
+        "+++\ntitle = \"{}\"\n+++\n",
+        toml_basic_string_escape(title)
+    )
+}
+
+fn toml_basic_string_escape(input: &str) -> String {
+    let mut escaped = String::new();
+    for c in input.chars() {
+        match c {
+            '"' => escaped.push_str("\\\""),
+            '\\' => escaped.push_str("\\\\"),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            c if c.is_control() => escaped.push(' '),
+            c => escaped.push(c),
+        }
+    }
+    escaped
 }
 
 // tower-lsp command arguments are JSON-RPC values; keep JSON use at this edge.
@@ -1560,6 +1795,29 @@ mod tests {
         );
         assert_eq!(source_file_for_new_route("/"), None);
         assert_eq!(source_file_for_new_route("/bad:route"), None);
+    }
+
+    #[test]
+    fn creates_pages_with_frontmatter_only() {
+        assert_eq!(
+            page_frontmatter("New \"Page\""),
+            "+++\ntitle = \"New \\\"Page\\\"\"\n+++\n"
+        );
+    }
+
+    #[test]
+    fn recognizes_frontmatter_as_page_identity_range() {
+        let content = "+++\ntitle = \"Guide\"\n+++\n\nBody\n";
+        let range = frontmatter_lsp_range(content).expect("frontmatter range");
+
+        assert!(range_contains_position(
+            &range,
+            position_for(content, "title")
+        ));
+        assert!(!range_contains_position(
+            &range,
+            position_for(content, "Body")
+        ));
     }
 
     #[test]
@@ -1802,6 +2060,76 @@ mod tests {
         assert_eq!(
             static_location.uri,
             Url::from_file_path(static_dir.join("logo.png")).expect("static uri")
+        );
+
+        std::fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[test]
+    fn finds_references_to_page_routes_and_source_links() {
+        let dir = temp_dir("references");
+        let content_dir = dir.join("content");
+        std::fs::create_dir_all(content_dir.join("nested")).expect("create content dirs");
+        std::fs::write(
+            content_dir.join("target.md"),
+            "+++\ntitle = \"Target\"\n+++\n\n# Target\n",
+        )
+        .expect("write target");
+        std::fs::write(
+            content_dir.join("_index.md"),
+            "\
+# Home
+
+[route](/target)
+[source](@/target.md)
+[anchor](/target#target)
+![asset](/target.png)
+",
+        )
+        .expect("write root");
+        std::fs::write(
+            content_dir.join("nested/source.md"),
+            "\
+# Source
+
+[relative](../target)
+",
+        )
+        .expect("write nested source");
+
+        let pages = load_authoring_pages(&content_dir).expect("load pages");
+        let site_index = SiteAuthoringIndex::new(&pages);
+        let target_page = pages
+            .iter()
+            .find(|page| page.source_file == "target.md")
+            .expect("target page");
+        let references = references_to_page(
+            &content_dir,
+            &site_index,
+            &pages,
+            target_page,
+            &HashMap::new(),
+        )
+        .expect("references");
+
+        assert_eq!(references.len(), 4);
+        assert_eq!(
+            references
+                .iter()
+                .map(|location| {
+                    Utf8PathBuf::from_path_buf(location.uri.to_file_path().expect("file uri"))
+                        .expect("utf8 path")
+                        .strip_prefix(&content_dir)
+                        .expect("content relative")
+                        .to_string()
+                })
+                .collect::<Vec<_>>(),
+            vec![
+                "_index.md".to_string(),
+                "_index.md".to_string(),
+                "_index.md".to_string(),
+                "nested/source.md".to_string(),
+            ]
         );
 
         std::fs::remove_dir_all(&dir).expect("remove temp dir");
