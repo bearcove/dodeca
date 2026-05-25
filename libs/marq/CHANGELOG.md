@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.1](https://github.com/bearcove/marq/compare/v4.0.0...v4.0.1) - 2026-05-25
+
+### Fixed
+
+- Build the `pikru` feature with `pikru` 1.2.1.
+
 ## [4.0.0](https://github.com/bearcove/marq/compare/v3.0.0...v4.0.0) - 2026-05-25
 
 ### Other
