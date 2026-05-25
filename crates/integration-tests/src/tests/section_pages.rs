@@ -52,6 +52,57 @@ fn collect_link_titles(doc: &Document, node_id: NodeId, titles: &mut Vec<String>
     }
 }
 
+fn collect_link_details(
+    doc: &Document,
+    node_id: NodeId,
+    links: &mut Vec<(String, Option<String>, Option<String>)>,
+) {
+    let node = doc.get(node_id);
+    if let NodeKind::Element(elem) = &node.kind
+        && elem.tag.as_ref() == "a"
+    {
+        let mut text = String::new();
+        collect_text(doc, node_id, &mut text);
+        let title = text.trim();
+        if !title.is_empty() {
+            let href = elem
+                .attrs
+                .iter()
+                .find(|(name, _)| name.local.as_ref() == "href")
+                .map(|(_, value)| value.to_string());
+            let data_path = elem
+                .attrs
+                .iter()
+                .find(|(name, _)| name.local.as_ref() == "data-path")
+                .map(|(_, value)| value.to_string());
+            links.push((title.to_string(), href, data_path));
+        }
+    }
+
+    for child_id in doc.children(node_id) {
+        collect_link_details(doc, child_id, links);
+    }
+}
+
+fn extract_nav_links(
+    html: &str,
+    nav_id: &str,
+    context: &str,
+) -> Vec<(String, Option<String>, Option<String>)> {
+    let tendril = StrTendril::from(html);
+    let doc = hotmeal::parse(&tendril);
+
+    let Some(nav_node) = find_nav_by_id(&doc, doc.root, nav_id) else {
+        tracing::debug!("{}: No {} nav found in HTML", context, nav_id);
+        return Vec::new();
+    };
+
+    let mut links = Vec::new();
+    collect_link_details(&doc, nav_node, &mut links);
+    tracing::debug!("{}: Found subsection links: {:?}", context, links);
+    links
+}
+
 fn nav_exists(html: &str, nav_id: &str) -> bool {
     let tendril = StrTendril::from(html);
     let doc = hotmeal::parse(&tendril);
@@ -404,6 +455,101 @@ pub fn removing_page_updates_via_get_section_macro() {
         "Expected Advanced to be removed from macro section list, got {:?}",
         titles
     );
+}
+
+pub fn get_section_returns_weighted_subsection_objects() {
+    let site = TestSite::with_files(
+        "sample-site",
+        &[
+            (
+                "content/guide/alpha/_index.md",
+                r#"+++
+title = "Alpha"
+weight = 20
++++
+
+# Alpha
+"#,
+            ),
+            (
+                "content/guide/alpha/first.md",
+                r#"+++
+title = "Alpha Page"
++++
+
+# Alpha Page
+"#,
+            ),
+            (
+                "content/guide/beta/_index.md",
+                r#"+++
+title = "Beta"
+weight = 10
++++
+
+# Beta
+"#,
+            ),
+            (
+                "templates/section.html",
+                r#"<!DOCTYPE html>
+<html>
+<head>
+  <title>{{ section.title }}</title>
+</head>
+<body>
+  <h1>{{ section.title }}</h1>
+  {% set sec = get_section(path=section.path) %}
+  <nav id="subsection-list">
+    {% for sub in sec.subsections %}
+      <a href="{{ sub.permalink }}" data-path="{{ sub.path }}">{{ sub.title }}</a>
+      {% for page in sub.pages %}
+        <span class="subsection-page">{{ page.title }}</span>
+      {% endfor %}
+    {% endfor %}
+  </nav>
+</body>
+</html>
+"#,
+            ),
+        ],
+    );
+
+    let html = site.wait_until(
+        "get_section subsections to render as weighted objects",
+        Duration::from_secs(2),
+        || {
+            let html = site.get("/guide/");
+            if html.status != 200 || !nav_exists(&html.body, "subsection-list") {
+                return None;
+            }
+
+            let titles = extract_nav_titles(&html.body, "subsection-list", "Subsection objects");
+            if titles == ["Beta", "Alpha"] {
+                Some(html)
+            } else {
+                None
+            }
+        },
+    );
+
+    let links = extract_nav_links(&html.body, "subsection-list", "Subsection link details");
+    assert_eq!(
+        links,
+        vec![
+            (
+                "Beta".to_string(),
+                Some("/guide/beta".to_string()),
+                Some("/guide/beta".to_string())
+            ),
+            (
+                "Alpha".to_string(),
+                Some("/guide/alpha".to_string()),
+                Some("/guide/alpha".to_string())
+            ),
+        ]
+    );
+    html.assert_contains("Alpha Page");
 }
 
 pub fn removing_sibling_page_updates_page_section_pages_list() {
