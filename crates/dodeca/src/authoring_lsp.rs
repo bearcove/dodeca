@@ -12,16 +12,16 @@ use tower_lsp::lsp_types::{
     CompletionOptions, CompletionParams, CompletionResponse, CompletionTextEdit, CreateFile,
     CreateFileOptions, Diagnostic, DiagnosticSeverity, DidChangeTextDocumentParams,
     DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
-    DocumentChangeOperation, DocumentChanges, DocumentSymbol, DocumentSymbolParams,
-    DocumentSymbolResponse, ExecuteCommandOptions, ExecuteCommandParams, GotoDefinitionParams,
-    GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability,
-    InitializeParams, InitializeResult, InitializedParams, Location, MarkupContent, MarkupKind,
-    MessageType, NumberOrString, OneOf, OptionalVersionedTextDocumentIdentifier, Position,
-    PrepareRenameResponse, Range, ReferenceParams, RenameFile, RenameFileOptions, RenameOptions,
-    RenameParams, ResourceOp, ServerCapabilities, ServerInfo, ShowDocumentParams,
-    SymbolInformation, SymbolKind, TextDocumentEdit, TextDocumentPositionParams,
-    TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url, WorkspaceEdit,
-    WorkspaceSymbolParams,
+    DocumentChangeOperation, DocumentChanges, DocumentLink, DocumentLinkOptions,
+    DocumentLinkParams, DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse,
+    ExecuteCommandOptions, ExecuteCommandParams, GotoDefinitionParams, GotoDefinitionResponse,
+    Hover, HoverContents, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
+    InitializedParams, Location, MarkupContent, MarkupKind, MessageType, NumberOrString, OneOf,
+    OptionalVersionedTextDocumentIdentifier, Position, PrepareRenameResponse, Range,
+    ReferenceParams, RenameFile, RenameFileOptions, RenameOptions, RenameParams, ResourceOp,
+    ServerCapabilities, ServerInfo, ShowDocumentParams, SymbolInformation, SymbolKind,
+    TextDocumentEdit, TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind,
+    TextEdit, Url, WorkspaceEdit, WorkspaceSymbolParams,
 };
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
@@ -133,6 +133,10 @@ impl LanguageServer for Backend {
                 })),
                 code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
+                document_link_provider: Some(DocumentLinkOptions {
+                    resolve_provider: Some(false),
+                    work_done_progress_options: Default::default(),
+                }),
                 document_symbol_provider: Some(OneOf::Left(true)),
                 workspace_symbol_provider: Some(OneOf::Left(true)),
                 completion_provider: Some(CompletionOptions {
@@ -272,6 +276,21 @@ impl LanguageServer for Backend {
             .await
         {
             Ok(hover) => Ok(hover),
+            Err(err) => {
+                self.client
+                    .log_message(MessageType::ERROR, err.to_string())
+                    .await;
+                Ok(None)
+            }
+        }
+    }
+
+    async fn document_link(
+        &self,
+        params: DocumentLinkParams,
+    ) -> LspResult<Option<Vec<DocumentLink>>> {
+        match self.document_links(params).await {
+            Ok(links) => Ok(Some(links)),
             Err(err) => {
                 self.client
                     .log_message(MessageType::ERROR, err.to_string())
@@ -620,6 +639,14 @@ impl Backend {
             .page_for_source_file(&source_file)
             .ok_or_else(|| eyre!("missing authoring page for {source_file}"))?;
 
+        if let Some(target) = frontmatter_document_target_at_position(&project, &content, position)?
+        {
+            return Ok(Some(markdown_hover(
+                target.hover_markdown(),
+                target.source_range,
+            )));
+        }
+
         if let Some(frontmatter_range) = frontmatter_lsp_range(&content)
             && range_contains_position(&frontmatter_range, position)
         {
@@ -638,6 +665,25 @@ impl Backend {
             link_hover_markdown(&project, page, &content, &reference),
             range,
         )))
+    }
+
+    async fn document_links(&self, params: DocumentLinkParams) -> Result<Vec<DocumentLink>> {
+        let uri = params.text_document.uri;
+        let dirs = self.dirs_for_uri(&uri)?;
+        let content = self.document_content(&uri)?;
+        let project = self.current_project(&dirs).await?;
+
+        frontmatter_document_targets(&project, &content)?
+            .into_iter()
+            .map(|target| {
+                Ok(DocumentLink {
+                    range: target.source_range,
+                    target: Some(target.target_uri()?),
+                    tooltip: Some(target.tooltip()),
+                    data: None,
+                })
+            })
+            .collect()
     }
 
     async fn document_symbols(&self, params: DocumentSymbolParams) -> Result<Vec<DocumentSymbol>> {
@@ -674,6 +720,15 @@ impl Backend {
     ) -> Result<Option<Location>> {
         let dirs = self.dirs_for_uri(uri)?;
         let content = self.document_content(uri)?;
+        let project = self.current_project(&dirs).await?;
+        if let Some(target) = frontmatter_document_target_at_position(&project, &content, position)?
+        {
+            return Ok(Some(Location {
+                uri: target.target_uri()?,
+                range: one_line_range(0),
+            }));
+        }
+
         let Some(reference) = reference_at_position(&content, position) else {
             return Ok(None);
         };
@@ -684,7 +739,6 @@ impl Backend {
         )
         .map_err(|path| eyre!("LSP document path is not UTF-8: {}", path.display()))?;
         let source_file = source_file_for_path(&dirs.content_dir, &path)?;
-        let project = self.current_project(&dirs).await?;
         let page = project
             .page_for_source_file(&source_file)
             .ok_or_else(|| eyre!("missing authoring page for {source_file}"))?;
@@ -3524,6 +3578,52 @@ struct FrontmatterCompletionContext {
     current_table: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FrontmatterDocumentKind {
+    Template,
+}
+
+impl FrontmatterDocumentKind {
+    fn label(self) -> &'static str {
+        match self {
+            FrontmatterDocumentKind::Template => "template",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct FrontmatterDocumentTarget {
+    kind: FrontmatterDocumentKind,
+    path: String,
+    target_path: Utf8PathBuf,
+    source_range: Range,
+}
+
+impl FrontmatterDocumentTarget {
+    fn target_uri(&self) -> Result<Url> {
+        Url::from_file_path(self.target_path.as_std_path()).map_err(|_| {
+            eyre!(
+                "could not convert {} path to URI: {}",
+                self.kind.label(),
+                self.target_path
+            )
+        })
+    }
+
+    fn tooltip(&self) -> String {
+        format!("Open Dodeca {} `{}`", self.kind.label(), self.path)
+    }
+
+    fn hover_markdown(&self) -> String {
+        format!(
+            "**Dodeca {}**\n\n`{}`\n\nSource: `{}`",
+            self.kind.label(),
+            self.path,
+            self.target_path
+        )
+    }
+}
+
 fn frontmatter_field_specs() -> Vec<FrontmatterFieldSpec> {
     let fields = match <Frontmatter as Facet>::SHAPE.ty {
         Type::User(UserType::Struct(struct_type)) => struct_type.fields,
@@ -3701,6 +3801,66 @@ fn completion_items_for_frontmatter(
             ..CompletionItem::default()
         })
         .collect()
+}
+
+fn frontmatter_document_target_at_position(
+    project: &AuthoringProject,
+    content: &str,
+    position: Position,
+) -> Result<Option<FrontmatterDocumentTarget>> {
+    Ok(frontmatter_document_targets(project, content)?
+        .into_iter()
+        .find(|target| range_contains_position(&target.source_range, position)))
+}
+
+fn frontmatter_document_targets(
+    project: &AuthoringProject,
+    content: &str,
+) -> Result<Vec<FrontmatterDocumentTarget>> {
+    let targets = frontmatter_entries(content)
+        .into_iter()
+        .filter_map(|entry| {
+            let kind = frontmatter_document_kind_for_entry(&entry)?;
+            let (path, source_range) = frontmatter_string_value(content, &entry)?;
+            let target_path = match kind {
+                FrontmatterDocumentKind::Template => project.template_paths.get(&path)?,
+            };
+            Some(FrontmatterDocumentTarget {
+                kind,
+                path,
+                target_path: target_path.clone(),
+                source_range,
+            })
+        })
+        .collect();
+
+    Ok(targets)
+}
+
+fn frontmatter_document_kind_for_entry(
+    entry: &FrontmatterEntry,
+) -> Option<FrontmatterDocumentKind> {
+    (entry.table.is_none() && entry.key == "template").then_some(FrontmatterDocumentKind::Template)
+}
+
+fn frontmatter_string_value(content: &str, entry: &FrontmatterEntry) -> Option<(String, Range)> {
+    let value = entry.value.trim();
+    let leading = entry.value.find(value)?;
+    let start = entry.value_start + leading;
+    let quote = value.as_bytes().first().copied()?;
+    if quote != b'"' && quote != b'\'' {
+        return None;
+    }
+    if value.as_bytes().last().copied()? != quote || value.len() < 2 {
+        return None;
+    }
+
+    let inner_start = start + 1;
+    let inner_end = start + value.len() - 1;
+    Some((
+        content[inner_start..inner_end].to_string(),
+        byte_range_to_lsp_range(content, inner_start, inner_end),
+    ))
 }
 
 fn frontmatter_completion_label(spec: FrontmatterFieldSpec) -> &'static str {
@@ -4329,6 +4489,47 @@ mod tests {
                 CompletionTextEdit::InsertAndReplace(_) => false,
             })
         }));
+    }
+
+    #[tokio::test]
+    async fn resolves_frontmatter_template_document_targets_from_authoring_model() {
+        let dir = temp_dir("frontmatter-template-link");
+        let content_dir = dir.join("content");
+        let templates_dir = dir.join("templates");
+        std::fs::create_dir_all(&content_dir).expect("create content dir");
+        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
+        std::fs::write(templates_dir.join("custom.html"), "{{ page.content }}")
+            .expect("write template");
+
+        let content = "+++\ntitle = \"Guide\"\ntemplate = \"custom.html\"\n+++\n";
+        std::fs::write(content_dir.join("guide.md"), content).expect("write page");
+        let project = load_authoring_project(&content_dir, &[])
+            .await
+            .expect("load project");
+
+        let targets = frontmatter_document_targets(&project, content).expect("targets");
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].path, "custom.html");
+        assert_eq!(targets[0].target_path, templates_dir.join("custom.html"));
+        assert!(range_contains_position(
+            &targets[0].source_range,
+            position_for(content, "custom.html")
+        ));
+
+        let target = frontmatter_document_target_at_position(
+            &project,
+            content,
+            position_for(content, "custom.html"),
+        )
+        .expect("target lookup")
+        .expect("target");
+        assert_eq!(
+            target.target_uri().expect("target uri"),
+            Url::from_file_path(templates_dir.join("custom.html").as_std_path())
+                .expect("expected uri")
+        );
+
+        std::fs::remove_dir_all(&dir).expect("remove temp dir");
     }
 
     #[test]

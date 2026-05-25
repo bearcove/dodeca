@@ -7,10 +7,10 @@ use ignore::WalkBuilder;
 use crate::BuildContext;
 use crate::db::{
     DataRegistry, Database, MarkdownRenderSettings, SassRegistry, SourceFile, SourceRegistry,
-    StaticFile, StaticRegistry, TemplateRegistry,
+    StaticFile, StaticRegistry, TemplateFile, TemplateRegistry,
 };
 use crate::queries::{build_tree, source_to_route_map};
-use crate::types::{Route, SourceContent, SourcePath, StaticPath};
+use crate::types::{Route, SourceContent, SourcePath, StaticPath, TemplatePath};
 
 #[derive(Debug, Clone)]
 pub(crate) struct AuthoringDocumentOverlay {
@@ -28,6 +28,7 @@ pub(crate) struct AuthoringWorkspaceSnapshot {
     db: std::sync::Arc<Database>,
     content_dir: Utf8PathBuf,
     sources: std::collections::BTreeMap<SourcePath, SourceFile>,
+    templates: std::collections::BTreeMap<TemplatePath, TemplateFile>,
     static_files: std::collections::BTreeMap<StaticPath, StaticFile>,
 }
 
@@ -39,6 +40,7 @@ pub(crate) struct AuthoringProject {
     pub source_to_route: HashMap<String, String>,
     pub route_to_source: HashMap<String, String>,
     pub source_contents: HashMap<String, String>,
+    pub template_paths: HashMap<String, Utf8PathBuf>,
     pub static_paths: HashMap<String, Utf8PathBuf>,
 }
 
@@ -86,6 +88,8 @@ impl AuthoringWorkspace {
         MarkdownRenderSettings::set(&*ctx.db, false)?;
 
         ctx.load_sources()?;
+        ctx.load_templates()?;
+        ctx.load_data()?;
         load_authoring_static_paths(&mut ctx)?;
         set_registries(&ctx)?;
 
@@ -135,6 +139,7 @@ impl AuthoringWorkspace {
             db: self.ctx.db.clone(),
             content_dir: self.ctx.content_dir.clone(),
             sources: self.ctx.sources.clone(),
+            templates: self.ctx.templates.clone(),
             static_files: self.ctx.static_files.clone(),
         }
     }
@@ -262,6 +267,21 @@ async fn build_authoring_project_from_snapshot(
             )
         })
         .collect();
+    let project_dir = snapshot
+        .content_dir
+        .parent()
+        .unwrap_or(&snapshot.content_dir)
+        .to_path_buf();
+    let template_paths = snapshot
+        .templates
+        .keys()
+        .map(|path| {
+            (
+                path.as_str().to_string(),
+                project_dir.join("templates").join(path.as_str()),
+            )
+        })
+        .collect();
     let static_paths = snapshot
         .static_files
         .keys()
@@ -278,6 +298,7 @@ async fn build_authoring_project_from_snapshot(
         source_to_route,
         route_to_source,
         source_contents,
+        template_paths,
         static_paths,
     })
 }
