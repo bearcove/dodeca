@@ -579,6 +579,7 @@ async fn handle_browser_connection(
                     break;
                 }
             }
+            let _ = bw.shutdown().await;
         };
 
         tokio::join!(up, down);
