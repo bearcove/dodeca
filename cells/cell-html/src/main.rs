@@ -17,7 +17,7 @@ use hotmeal::{Document, LocalName, NodeId, NodeKind, QualName, Stem, StrTendril,
 use cell_host_proto::HostServiceClient;
 use cell_html_proto::{
     CodeExecutionMetadata, HtmlProcessInput, HtmlProcessResult, HtmlProcessor,
-    HtmlProcessorDispatcher, HtmlResult, Injection, ResponsiveImageInfo,
+    HtmlProcessorDispatcher, HtmlResult, Injection, ResponsiveImageInfo, WikiLinkRef,
 };
 use dodeca_cell_runtime::HostHandle;
 
@@ -42,6 +42,7 @@ impl HtmlProcessor for HtmlProcessorImpl {
     async fn process(&self, input: HtmlProcessInput) -> HtmlProcessResult {
         let mut had_dead_links = false;
         let mut had_code_buttons = false;
+        let mut unresolved_wiki_links = Vec::new();
 
         // Phase 1: All sync DOM work (before any await points)
         let (html, hrefs, element_ids) = {
@@ -68,27 +69,32 @@ impl HtmlProcessor for HtmlProcessorImpl {
                 resolve_internal_links_in_doc(&mut doc, source_to_route);
             }
 
-            // 5. Resolve relative links
+            // 5. Resolve wiki links
+            if let Some(wiki_to_route) = &input.wiki_to_route {
+                unresolved_wiki_links = resolve_wiki_links_in_doc(&mut doc, wiki_to_route);
+            }
+
+            // 6. Resolve relative links
             if let Some(base_route) = &input.base_route {
                 resolve_relative_links_in_doc(&mut doc, base_route);
             }
 
-            // 6. Transform images to picture elements
+            // 7. Transform images to picture elements
             if let Some(image_variants) = &input.image_variants {
                 transform_images_in_doc(&mut doc, image_variants);
             }
 
-            // 7. Inject Vite CSS links
+            // 8. Inject Vite CSS links
             if let Some(vite_css_map) = &input.vite_css_map {
                 inject_vite_css_in_doc(&mut doc, vite_css_map);
             }
 
-            // 8. Content injections (on the tree)
+            // 9. Content injections (on the tree)
             for injection in &input.injections {
                 apply_injection(&mut doc, injection);
             }
 
-            // 9. Extract hrefs and element IDs for link checking
+            // 10. Extract hrefs and element IDs for link checking
             let hrefs = extract_hrefs(&doc);
             let element_ids = extract_element_ids(&doc);
 
@@ -141,6 +147,7 @@ impl HtmlProcessor for HtmlProcessorImpl {
             had_code_buttons,
             hrefs,
             element_ids,
+            unresolved_wiki_links,
         }
     }
 
@@ -219,6 +226,14 @@ fn set_attr(doc: &mut Document, node_id: NodeId, attr_name: &str, value: &str) {
         } else {
             elem.attrs.push((qname, Stem::from(value.to_string())));
         }
+    }
+}
+
+/// Remove an attribute from an element
+fn remove_attr(doc: &mut Document, node_id: NodeId, attr_name: &str) {
+    if let NodeKind::Element(elem) = &mut doc.get_mut(node_id).kind {
+        elem.attrs
+            .retain(|(name, _)| name.local.as_ref() != attr_name);
     }
 }
 
@@ -941,6 +956,51 @@ fn resolve_internal_link(href: &str, source_to_route: &HashMap<String, String>) 
 }
 
 // ============================================================================
+// Wiki Link Resolution (dodeca-wiki: links)
+// ============================================================================
+
+const WIKI_LINK_PREFIX: &str = "dodeca-wiki:";
+
+fn resolve_wiki_links_in_doc(
+    doc: &mut Document,
+    wiki_to_route: &HashMap<String, String>,
+) -> Vec<WikiLinkRef> {
+    let mut unresolved = Vec::new();
+
+    if let Some(body_id) = doc.body() {
+        let mut anchors = Vec::new();
+        collect_anchors(doc, body_id, &mut anchors);
+
+        for node_id in anchors {
+            if let Some(href) = get_attr(doc, node_id, "href")
+                && let Some(key) = href.strip_prefix(WIKI_LINK_PREFIX)
+            {
+                if let Some(route) = wiki_to_route.get(key) {
+                    set_attr(doc, node_id, "href", &ensure_trailing_slash(route));
+                    remove_attr(doc, node_id, "data-wiki-target");
+                } else {
+                    unresolved.push(WikiLinkRef {
+                        key: key.to_string(),
+                        target: get_attr(doc, node_id, "data-wiki-target")
+                            .unwrap_or_else(|| key.to_string()),
+                    });
+                }
+            }
+        }
+    }
+
+    unresolved
+}
+
+fn ensure_trailing_slash(route: &str) -> String {
+    if route == "/" || route.ends_with('/') {
+        route.to_string()
+    } else {
+        format!("{route}/")
+    }
+}
+
+// ============================================================================
 // Relative Link Resolution
 // ============================================================================
 
@@ -974,6 +1034,7 @@ fn resolve_relative_link(href: &str, base: &str) -> Option<String> {
         || href.starts_with("https://")
         || href.starts_with('#')
         || href.starts_with("@/")
+        || href.starts_with(WIKI_LINK_PREFIX)
         || href.starts_with("mailto:")
         || href.starts_with("tel:")
         || href.starts_with("javascript:")

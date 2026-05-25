@@ -1284,6 +1284,9 @@ pub async fn build(
                         formatted
                     );
                 }
+                queries::SiteError::WikiLinks(wiki_error) => {
+                    eprintln!("{} {}", "✗".red(), wiki_error);
+                }
             }
             std::process::exit(1);
         }

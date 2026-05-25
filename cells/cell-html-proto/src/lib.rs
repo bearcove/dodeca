@@ -106,6 +106,10 @@ pub struct HtmlProcessInput {
     #[facet(default)]
     pub source_to_route: Option<HashMap<String, String>>,
 
+    /// Wiki link key to route mapping for resolving `dodeca-wiki:` links
+    #[facet(default)]
+    pub wiki_to_route: Option<HashMap<String, String>>,
+
     /// Base route for resolving relative links (e.g., "/guide/intro/")
     #[facet(default)]
     pub base_route: Option<String>,
@@ -135,9 +139,17 @@ pub enum HtmlProcessResult {
         hrefs: Vec<String>,
         /// All id attributes from any element (for fragment validation)
         element_ids: Vec<String>,
+        /// Wiki links that were present but could not be resolved
+        unresolved_wiki_links: Vec<WikiLinkRef>,
     },
     /// Error during processing
     Error { message: String },
+}
+
+#[derive(Debug, Clone, Facet)]
+pub struct WikiLinkRef {
+    pub key: String,
+    pub target: String,
 }
 
 // ============================================================================

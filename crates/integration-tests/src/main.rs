@@ -663,6 +663,24 @@ fn collect_tests() -> Vec<Test> {
             func: internal_links::relative_md_links_resolved,
             ignored: false,
         },
+        Test {
+            name: "wiki_links_resolved",
+            module: "internal_links",
+            func: internal_links::wiki_links_resolved,
+            ignored: false,
+        },
+        Test {
+            name: "missing_wiki_link_fails_build",
+            module: "internal_links",
+            func: internal_links::missing_wiki_link_fails_build,
+            ignored: false,
+        },
+        Test {
+            name: "ambiguous_wiki_link_fails_build",
+            module: "internal_links",
+            func: internal_links::ambiguous_wiki_link_fails_build,
+            ignored: false,
+        },
         // sass tests
         Test {
             name: "no_scss_builds_successfully",
