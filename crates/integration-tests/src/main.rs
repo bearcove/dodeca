@@ -537,6 +537,13 @@ fn collect_tests() -> Vec<Test> {
             func: static_assets::image_files_processed,
             ignored: false,
         },
+        #[cfg(unix)]
+        Test {
+            name: "symlinked_static_files_are_served",
+            module: "static_assets",
+            func: static_assets::symlinked_static_files_are_served,
+            ignored: false,
+        },
         // livereload tests
         Test {
             name: "test_new_section_detected",
@@ -667,6 +674,12 @@ fn collect_tests() -> Vec<Test> {
             name: "scss_compiled_to_css",
             module: "sass",
             func: sass::scss_compiled_to_css,
+            ignored: false,
+        },
+        Test {
+            name: "scss_can_import_from_node_modules",
+            module: "sass",
+            func: sass::scss_can_import_from_node_modules,
             ignored: false,
         },
         Test {

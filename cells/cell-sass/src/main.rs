@@ -12,24 +12,25 @@ use cell_sass_proto::{SassCompiler, SassCompilerDispatcher, SassResult};
 pub struct SassCompilerImpl;
 
 impl SassCompiler for SassCompilerImpl {
-    async fn compile_sass(&self, entrypoint: String, files: HashMap<String, String>) -> SassResult {
-        // Find main.scss
-        let main_content = match files.get(&entrypoint) {
-            Some(content) => content,
-            None => {
-                return SassResult::Error {
-                    message: format!("{entrypoint} not found in files"),
-                };
-            }
-        };
+    async fn compile_sass(
+        &self,
+        entrypoint: String,
+        files: HashMap<String, String>,
+        load_paths: Vec<String>,
+    ) -> SassResult {
+        if !files.contains_key(&entrypoint) {
+            return SassResult::Error {
+                message: format!("{entrypoint} not found in files"),
+            };
+        }
 
         // Create an in-memory filesystem for grass
         let fs = InMemorySassFs::new(&files);
 
-        // Compile with grass using in-memory fs
-        let options = grass::Options::default().fs(&fs);
+        let load_paths: Vec<PathBuf> = load_paths.into_iter().map(PathBuf::from).collect();
+        let options = grass::Options::default().fs(&fs).load_paths(&load_paths);
 
-        match grass::from_string(main_content.clone(), &options) {
+        match grass::from_path(entrypoint, &options) {
             Ok(css) => SassResult::Success { css },
             Err(e) => SassResult::Error {
                 message: format!("SASS compilation failed: {}", e),
@@ -58,19 +59,23 @@ impl grass::Fs for InMemorySassFs {
     fn is_dir(&self, path: &Path) -> bool {
         // Check if any file is under this directory
         self.files.keys().any(|f| f.starts_with(path))
+            || std::fs::metadata(path).map(|m| m.is_dir()).unwrap_or(false)
     }
 
     fn is_file(&self, path: &Path) -> bool {
         self.files.contains_key(path)
+            || std::fs::metadata(path)
+                .map(|m| m.is_file())
+                .unwrap_or(false)
     }
 
     fn read(&self, path: &Path) -> std::io::Result<Vec<u8>> {
-        self.files.get(path).cloned().ok_or_else(|| {
-            std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                format!("File not found: {path:?}"),
-            )
-        })
+        if let Some(content) = self.files.get(path) {
+            return Ok(content.clone());
+        }
+
+        std::fs::read(path)
+            .map_err(|e| std::io::Error::new(e.kind(), format!("File not found: {path:?}: {e}")))
     }
 }
 

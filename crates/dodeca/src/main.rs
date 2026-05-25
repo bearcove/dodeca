@@ -860,7 +860,11 @@ impl BuildContext {
             let static_files: Vec<Utf8PathBuf> = WalkBuilder::new(&static_dir)
                 .build()
                 .filter_map(|e| e.ok())
-                .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
+                .filter(|e| {
+                    e.file_type()
+                        .map(|ft| ft.is_file() || (ft.is_symlink() && e.path().is_file()))
+                        .unwrap_or(false)
+                })
                 .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
                 .collect();
 
@@ -882,7 +886,11 @@ impl BuildContext {
             let dist_files: Vec<Utf8PathBuf> = WalkBuilder::new(&dist_dir)
                 .build()
                 .filter_map(|e| e.ok())
-                .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
+                .filter(|e| {
+                    e.file_type()
+                        .map(|ft| ft.is_file() || (ft.is_symlink() && e.path().is_file()))
+                        .unwrap_or(false)
+                })
                 .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
                 .collect();
 
@@ -2330,7 +2338,11 @@ async fn serve_plain(
                 let path = Utf8Path::from_path(entry.path())
                     .ok_or_else(|| eyre!("Non-UTF8 path in static directory"))?;
 
-                if path.is_file() {
+                if entry
+                    .file_type()
+                    .map(|ft| ft.is_file() || (ft.is_symlink() && path.is_file()))
+                    .unwrap_or_else(|| path.is_file())
+                {
                     let relative = path.strip_prefix(&static_dir)?;
                     let content = fs::read(path)?;
                     let key = relative.to_string();
@@ -2349,7 +2361,11 @@ async fn serve_plain(
                 let path = Utf8Path::from_path(entry.path())
                     .ok_or_else(|| eyre!("Non-UTF8 path in dist directory"))?;
 
-                if path.is_file() {
+                if entry
+                    .file_type()
+                    .map(|ft| ft.is_file() || (ft.is_symlink() && path.is_file()))
+                    .unwrap_or_else(|| path.is_file())
+                {
                     let relative = path.strip_prefix(&dist_dir)?;
                     let content = fs::read(path)?;
                     let key = relative.to_string();
@@ -2754,7 +2770,11 @@ async fn serve_with_tui(
                 let path = Utf8Path::from_path(entry.path())
                     .ok_or_else(|| eyre!("Non-UTF8 path in static directory"))?;
 
-                if path.is_file() {
+                if entry
+                    .file_type()
+                    .map(|ft| ft.is_file() || (ft.is_symlink() && path.is_file()))
+                    .unwrap_or_else(|| path.is_file())
+                {
                     let relative = path.strip_prefix(&static_dir)?;
                     let content = fs::read(path)?;
                     let key = relative.to_string();
@@ -2773,7 +2793,11 @@ async fn serve_with_tui(
                 let path = Utf8Path::from_path(entry.path())
                     .ok_or_else(|| eyre!("Non-UTF8 path in dist directory"))?;
 
-                if path.is_file() {
+                if entry
+                    .file_type()
+                    .map(|ft| ft.is_file() || (ft.is_symlink() && path.is_file()))
+                    .unwrap_or_else(|| path.is_file())
+                {
                     let relative = path.strip_prefix(&dist_dir)?;
                     let content = fs::read(path)?;
                     let key = relative.to_string();
