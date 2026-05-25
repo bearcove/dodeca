@@ -37,6 +37,7 @@ use tokio::net::UnixListener;
 use tracing::{debug, error, info};
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
+const STARTUP_HTTP_TIMEOUT: Duration = Duration::from_secs(60);
 
 // Thread-local storage for the active test id (used to route logs).
 thread_local! {
@@ -658,7 +659,7 @@ impl TestSite {
         // Make an initial request to ensure the server is fully ready to serve requests
         // This prevents flakiness where tests make requests before the server has finished
         // loading content, building search index, etc.
-        let _ = site.get("/");
+        let _ = site.get_with_timeout("/", STARTUP_HTTP_TIMEOUT);
 
         site
     }
@@ -689,6 +690,10 @@ impl TestSite {
     /// guarantees connections are never refused/reset during boot; they may
     /// stall until ready, but connect+write must never fail.
     pub fn get(&self, path: &str) -> Response {
+        self.get_with_timeout(path, HTTP_TIMEOUT)
+    }
+
+    fn get_with_timeout(&self, path: &str, timeout: Duration) -> Response {
         let url = format!("http://127.0.0.1:{}{}", self.port, path);
         debug!("→ GET {}", path);
 
@@ -704,7 +709,7 @@ impl TestSite {
         }
 
         let request_start = Instant::now();
-        match harness_http_agent().get(&url).call() {
+        match harness_http_agent(timeout).get(&url).call() {
             Ok(resp) => {
                 let status = resp.status().as_u16();
                 let elapsed_ms = request_start.elapsed().as_millis();
@@ -746,7 +751,7 @@ impl TestSite {
                 panic!(
                     "GET {} failed after {:?}:\n{:?}\n{}",
                     url,
-                    HTTP_TIMEOUT,
+                    timeout,
                     e,
                     format_error_chain(&e)
                 );
@@ -760,7 +765,7 @@ impl TestSite {
     pub fn get_bytes(&self, path: &str) -> Vec<u8> {
         let url = format!("http://127.0.0.1:{}{}", self.port, path);
         debug!("→ GET (bytes) {}", path);
-        match harness_http_agent().get(&url).call() {
+        match harness_http_agent(HTTP_TIMEOUT).get(&url).call() {
             Ok(resp) => {
                 let status = resp.status().as_u16();
                 assert_eq!(status, 200, "GET {path}: expected 200, got {status}");
@@ -993,9 +998,9 @@ impl Drop for TestSite {
     }
 }
 
-fn harness_http_agent() -> ureq::Agent {
+fn harness_http_agent(timeout: Duration) -> ureq::Agent {
     ureq::Agent::config_builder()
-        .timeout_global(Some(HTTP_TIMEOUT))
+        .timeout_global(Some(timeout))
         .build()
         .new_agent()
 }
