@@ -36,7 +36,7 @@ Status values:
 | `lsp-008` | `done` | Heading references | Find All References on a heading returns every link to that exact fragment. | Supports route, source-file, and relative fragment links. |
 | `lsp-009` | `done` | Heading rename | Renaming a heading updates every fragment link that targets it. | Uses the shared authoring model for target identity and exact LSP edit spans for heading text and fragments. |
 | `lsp-010` | `done` | Page route rename | Renaming or moving a page updates every route, relative, and source-file link that targets it. | Frontmatter rename returns a typed file-rename plus link-edit plan resolved through the shared authoring model. |
-| `lsp-011` | `todo` | Broken anchor quick fixes | Missing anchor diagnostics suggest existing headings or creating a heading. | Fuzzy matching can suggest nearby heading slugs. |
+| `lsp-011` | `done` | Broken anchor quick fixes | Missing anchor diagnostics suggest existing headings or creating a heading. | Suggestions and heading creation are resolved from the shared authoring page/heading model. |
 | `lsp-012` | `todo` | Extract page code action | Extract selected Markdown into a new page and replace the selection with a link. | New page gets frontmatter, not a duplicate heading. |
 | `lsp-013` | `todo` | Frontmatter schema | Complete and validate known frontmatter fields. | Should source field semantics from Dodeca's typed page model. |
 | `lsp-014` | `todo` | Frontmatter document links | Template, asset, and data-file fields in frontmatter become navigable. | Requires knowing which fields contain paths. |

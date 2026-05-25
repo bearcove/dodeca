@@ -464,38 +464,27 @@ impl Backend {
             .map(authoring_diagnostic_to_lsp)
             .collect::<Vec<_>>();
 
-        let actions = diagnostics
+        let mut actions = Vec::new();
+        for diagnostic in diagnostics
             .into_iter()
-            .filter(|diagnostic| diagnostic.kind == AuthoringDiagnosticKind::Route)
             .filter(|diagnostic| ranges_overlap(&diagnostic.range(), &params.range))
-            .filter_map(|diagnostic| {
-                let route = diagnostic.resolved_route.as_deref()?;
-                let source_file = source_file_for_new_route(route)?;
-                let title = format!("Create page '{}'", source_file);
-                let arguments = create_page_command_arguments(&uri, route);
-                let diagnostic_range = diagnostic.range();
-
-                Some(CodeActionOrCommand::CodeAction(CodeAction {
-                    title: title.clone(),
-                    kind: Some(CodeActionKind::QUICKFIX),
-                    diagnostics: Some(
-                        lsp_diagnostics
-                            .iter()
-                            .filter(|lsp_diagnostic| lsp_diagnostic.range == diagnostic_range)
-                            .cloned()
-                            .collect(),
-                    ),
-                    edit: None,
-                    command: Some(Command {
-                        title,
-                        command: CREATE_PAGE_COMMAND.to_string(),
-                        arguments: Some(arguments),
-                    }),
-                    is_preferred: Some(true),
-                    ..CodeAction::default()
-                }))
-            })
-            .collect();
+        {
+            match diagnostic.kind {
+                AuthoringDiagnosticKind::Route => actions.extend(missing_route_code_actions(
+                    &uri,
+                    &diagnostic,
+                    &lsp_diagnostics,
+                )),
+                AuthoringDiagnosticKind::Anchor => actions.extend(missing_anchor_code_actions(
+                    &dirs.content_dir,
+                    &project,
+                    &content,
+                    &diagnostic,
+                    &lsp_diagnostics,
+                )),
+                AuthoringDiagnosticKind::Source | AuthoringDiagnosticKind::StaticAsset => {}
+            }
+        }
 
         Ok(actions)
     }
@@ -1053,6 +1042,173 @@ fn diagnostic_for_reference(
         };
 
     Some(reference.diagnostic(page, content, kind, resolved_route, message))
+}
+
+fn missing_route_code_actions(
+    uri: &Url,
+    diagnostic: &AuthoringDiagnostic,
+    lsp_diagnostics: &[Diagnostic],
+) -> Vec<CodeActionOrCommand> {
+    let Some(route) = diagnostic.resolved_route.as_deref() else {
+        return Vec::new();
+    };
+    let Some(source_file) = source_file_for_new_route(route) else {
+        return Vec::new();
+    };
+    let title = format!("Create page '{}'", source_file);
+    let arguments = create_page_command_arguments(uri, route);
+
+    vec![CodeActionOrCommand::CodeAction(CodeAction {
+        title: title.clone(),
+        kind: Some(CodeActionKind::QUICKFIX),
+        diagnostics: Some(lsp_diagnostics_for_range(
+            lsp_diagnostics,
+            diagnostic.range(),
+        )),
+        edit: None,
+        command: Some(Command {
+            title,
+            command: CREATE_PAGE_COMMAND.to_string(),
+            arguments: Some(arguments),
+        }),
+        is_preferred: Some(true),
+        ..CodeAction::default()
+    })]
+}
+
+fn missing_anchor_code_actions(
+    content_dir: &Utf8Path,
+    project: &AuthoringProject,
+    source_content: &str,
+    diagnostic: &AuthoringDiagnostic,
+    lsp_diagnostics: &[Diagnostic],
+) -> Vec<CodeActionOrCommand> {
+    let Some(target_route) = diagnostic.resolved_route.as_deref() else {
+        return Vec::new();
+    };
+    let Some(target_page) = project.page_for_route(target_route) else {
+        return Vec::new();
+    };
+    let Some(missing_fragment) = missing_anchor_fragment(&diagnostic.target) else {
+        return Vec::new();
+    };
+    let Some(context) = target_context_for_diagnostic(source_content, diagnostic) else {
+        return Vec::new();
+    };
+    let Some(fragment_range) =
+        fragment_range_for_target_context(source_content, &context, missing_fragment)
+    else {
+        return Vec::new();
+    };
+
+    let mut actions = existing_anchor_code_actions(
+        content_dir,
+        target_page,
+        diagnostic,
+        lsp_diagnostics,
+        fragment_range,
+        missing_fragment,
+    );
+    if let Some(action) = create_anchor_code_action(
+        content_dir,
+        project,
+        target_page,
+        diagnostic,
+        lsp_diagnostics,
+        missing_fragment,
+    ) {
+        actions.push(action);
+    }
+    actions
+}
+
+fn existing_anchor_code_actions(
+    content_dir: &Utf8Path,
+    target_page: &AuthoringPage,
+    diagnostic: &AuthoringDiagnostic,
+    lsp_diagnostics: &[Diagnostic],
+    fragment_range: Range,
+    missing_fragment: &str,
+) -> Vec<CodeActionOrCommand> {
+    let Some(source_uri) = source_file_uri(content_dir, &diagnostic.source_file).ok() else {
+        return Vec::new();
+    };
+    let mut headings = target_page.headings.iter().collect::<Vec<_>>();
+    headings.sort_by(|left, right| {
+        anchor_suggestion_score(missing_fragment, &right.id, &right.title)
+            .cmp(&anchor_suggestion_score(
+                missing_fragment,
+                &left.id,
+                &left.title,
+            ))
+            .then_with(|| left.id.cmp(&right.id))
+    });
+
+    headings
+        .into_iter()
+        .take(5)
+        .enumerate()
+        .filter(|(_, heading)| heading.id != missing_fragment)
+        .map(|(idx, heading)| {
+            let title = format!("Change anchor to '#{}'", heading.id);
+            let edit = WorkspaceEdit::new(HashMap::from([(
+                source_uri.clone(),
+                vec![TextEdit::new(fragment_range, heading.id.clone())],
+            )]));
+            CodeActionOrCommand::CodeAction(CodeAction {
+                title,
+                kind: Some(CodeActionKind::QUICKFIX),
+                diagnostics: Some(lsp_diagnostics_for_range(
+                    lsp_diagnostics,
+                    diagnostic.range(),
+                )),
+                edit: Some(edit),
+                command: None,
+                is_preferred: Some(idx == 0),
+                ..CodeAction::default()
+            })
+        })
+        .collect()
+}
+
+fn create_anchor_code_action(
+    content_dir: &Utf8Path,
+    project: &AuthoringProject,
+    target_page: &AuthoringPage,
+    diagnostic: &AuthoringDiagnostic,
+    lsp_diagnostics: &[Diagnostic],
+    missing_fragment: &str,
+) -> Option<CodeActionOrCommand> {
+    let target_content = project.source_contents.get(&target_page.source_file)?;
+    let heading_edit =
+        create_missing_anchor_heading_edit(target_page, target_content, missing_fragment)?;
+    let target_uri = source_file_uri(content_dir, &target_page.source_file).ok()?;
+    let edit = WorkspaceEdit::new(HashMap::from([(
+        target_uri,
+        vec![TextEdit::new(heading_edit.range, heading_edit.new_text)],
+    )]));
+    let title = format!("Create heading for '#{missing_fragment}'");
+
+    Some(CodeActionOrCommand::CodeAction(CodeAction {
+        title,
+        kind: Some(CodeActionKind::QUICKFIX),
+        diagnostics: Some(lsp_diagnostics_for_range(
+            lsp_diagnostics,
+            diagnostic.range(),
+        )),
+        edit: Some(edit),
+        command: None,
+        is_preferred: Some(target_page.headings.is_empty()),
+        ..CodeAction::default()
+    }))
+}
+
+fn lsp_diagnostics_for_range(lsp_diagnostics: &[Diagnostic], range: Range) -> Vec<Diagnostic> {
+    lsp_diagnostics
+        .iter()
+        .filter(|lsp_diagnostic| lsp_diagnostic.range == range)
+        .cloned()
+        .collect()
 }
 
 fn link_hover_markdown(
@@ -1615,6 +1771,147 @@ fn fragment_range_for_target_context(
         context.byte_start + fragment_start_in_target,
         context.byte_start + fragment_end_in_target,
     ))
+}
+
+fn missing_anchor_fragment(target: &str) -> Option<&str> {
+    split_fragment(target)
+        .1
+        .filter(|fragment| !fragment.is_empty())
+}
+
+fn target_context_for_diagnostic(
+    content: &str,
+    diagnostic: &AuthoringDiagnostic,
+) -> Option<MarkdownTargetContext> {
+    markdown_target_contexts(content)
+        .into_iter()
+        .find(|context| {
+            context.target == diagnostic.target
+                && diagnostic.byte_start <= context.byte_start
+                && context.byte_end <= diagnostic.byte_end
+        })
+}
+
+fn anchor_suggestion_score(fragment: &str, heading_id: &str, heading_title: &str) -> usize {
+    let fragment = fragment.to_lowercase();
+    let heading_id = heading_id.to_lowercase();
+    let heading_title = marq::slugify(heading_title);
+
+    if heading_id == fragment {
+        return usize::MAX;
+    }
+    let fragment_leaf = fragment.rsplit("--").next().unwrap_or(fragment.as_str());
+    let heading_leaf = heading_id
+        .rsplit("--")
+        .next()
+        .unwrap_or(heading_id.as_str());
+    let mut score = common_prefix_len(&fragment, &heading_id)
+        + common_prefix_len(fragment_leaf, heading_leaf) * 3;
+    if heading_id.contains(&fragment) || fragment.contains(&heading_id) {
+        score += 100;
+    }
+    if heading_title.contains(fragment_leaf) || fragment_leaf.contains(&heading_title) {
+        score += 50;
+    }
+    score
+}
+
+fn common_prefix_len(left: &str, right: &str) -> usize {
+    left.chars()
+        .zip(right.chars())
+        .take_while(|(left, right)| left == right)
+        .count()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MissingAnchorHeadingEdit {
+    range: Range,
+    new_text: String,
+}
+
+fn create_missing_anchor_heading_edit(
+    page: &AuthoringPage,
+    content: &str,
+    missing_fragment: &str,
+) -> Option<MissingAnchorHeadingEdit> {
+    let local_headings = markdown_headings(content);
+    let (insert_position, level, title) =
+        missing_anchor_heading_insertion(page, content, &local_headings, missing_fragment)?;
+    Some(MissingAnchorHeadingEdit {
+        range: Range {
+            start: insert_position,
+            end: insert_position,
+        },
+        new_text: format!("\n\n{} {}\n", "#".repeat(level as usize), title),
+    })
+}
+
+fn missing_anchor_heading_insertion(
+    page: &AuthoringPage,
+    content: &str,
+    local_headings: &[MarkdownHeading],
+    missing_fragment: &str,
+) -> Option<(Position, u8, String)> {
+    let (parent_id, leaf_slug) = missing_anchor_parent_and_leaf(missing_fragment);
+    let title = title_from_slug(leaf_slug)?;
+
+    if let Some(parent_id) = parent_id
+        && let Some(parent_heading) = local_headings.iter().find(|heading| {
+            heading.id == parent_id && page.heading_ids.iter().any(|id| id == &heading.id)
+        })
+    {
+        return Some((
+            insertion_position_after_line(content, parent_heading.line),
+            parent_heading.level.saturating_add(1).min(6),
+            title,
+        ));
+    }
+
+    let (line, character) = byte_to_line_column(content, content.len());
+    Some((
+        Position {
+            line: line.saturating_sub(1),
+            character: character.saturating_sub(1),
+        },
+        1,
+        title,
+    ))
+}
+
+fn missing_anchor_parent_and_leaf(fragment: &str) -> (Option<&str>, &str) {
+    match fragment.rfind("--") {
+        Some(idx) => (Some(&fragment[..idx]), &fragment[idx + 2..]),
+        None => (None, fragment),
+    }
+}
+
+fn title_from_slug(slug: &str) -> Option<String> {
+    let words = slug
+        .split('-')
+        .filter(|word| !word.is_empty())
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                Some(first) => format!("{}{}", first.to_uppercase(), chars.as_str()),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>();
+    (!words.is_empty()).then(|| words.join(" "))
+}
+
+fn insertion_position_after_line(content: &str, one_based_line: u32) -> Position {
+    let line_idx = one_based_line.saturating_sub(1) as usize;
+    let byte = content
+        .split_inclusive('\n')
+        .take(line_idx + 1)
+        .map(str::len)
+        .sum::<usize>();
+    let (line, column) = byte_to_line_column(content, byte);
+    Position {
+        line: line.saturating_sub(1),
+        character: column.saturating_sub(1),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2545,6 +2842,7 @@ fn heading_rename_target_at_position(
 struct MarkdownHeading {
     id: String,
     title: String,
+    level: u8,
     line: u32,
     title_range: Range,
 }
@@ -2594,6 +2892,7 @@ fn markdown_headings(content: &str) -> Vec<MarkdownHeading> {
                     headings.push(MarkdownHeading {
                         id,
                         title: heading_text,
+                        level: current_level,
                         line,
                         title_range,
                     });
@@ -3269,6 +3568,106 @@ mod tests {
         );
         assert_eq!(diagnostics[0].source_file, "guide/source.md");
         assert_eq!(diagnostics[0].resolved_route.as_deref(), Some("/missing"));
+
+        std::fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[tokio::test]
+    async fn code_actions_fix_missing_anchors_from_authoring_headings() {
+        let dir = temp_dir("anchor-actions");
+        let content_dir = dir.join("content");
+        std::fs::create_dir_all(content_dir.join("guide")).expect("create content dirs");
+        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
+        let target = "\
+# Intro
+
+## Details
+";
+        std::fs::write(content_dir.join("guide/intro.md"), target).expect("write target");
+        let source = "\
+# Source
+
+[typo](/guide/intro#intro--detals)
+[new](/guide/intro#intro--appendix)
+";
+        std::fs::write(content_dir.join("guide/source.md"), source).expect("write source");
+
+        let project = load_authoring_project(&content_dir, &[])
+            .await
+            .expect("load project");
+        let source_page = project
+            .page_for_source_file("guide/source.md")
+            .expect("source page");
+        let diagnostics = diagnostics_for_page(&project, source_page, source);
+        let lsp_diagnostics = diagnostics
+            .iter()
+            .map(authoring_diagnostic_to_lsp)
+            .collect::<Vec<_>>();
+        let typo_diagnostic = diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.target.contains("intro--detals"))
+            .expect("typo diagnostic");
+        let actions = missing_anchor_code_actions(
+            &content_dir,
+            &project,
+            source,
+            typo_diagnostic,
+            &lsp_diagnostics,
+        );
+
+        let titles = actions
+            .iter()
+            .filter_map(|action| match action {
+                CodeActionOrCommand::CodeAction(action) => Some(action.title.as_str()),
+                CodeActionOrCommand::Command(_) => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(titles.contains(&"Change anchor to '#intro--details'"));
+        assert!(titles.contains(&"Create heading for '#intro--detals'"));
+
+        let source_uri =
+            Url::from_file_path(content_dir.join("guide/source.md")).expect("source uri");
+        let replacement = actions
+            .iter()
+            .filter_map(|action| match action {
+                CodeActionOrCommand::CodeAction(action)
+                    if action.title == "Change anchor to '#intro--details'" =>
+                {
+                    action.edit.as_ref()
+                }
+                _ => None,
+            })
+            .next()
+            .expect("replacement edit");
+        let replacement_edits = replacement
+            .changes
+            .as_ref()
+            .and_then(|changes| changes.get(&source_uri))
+            .expect("source replacement edits");
+        assert_eq!(replacement_edits.len(), 1);
+        assert_eq!(replacement_edits[0].new_text, "intro--details");
+
+        let target_uri =
+            Url::from_file_path(content_dir.join("guide/intro.md")).expect("target uri");
+        let creation = actions
+            .iter()
+            .filter_map(|action| match action {
+                CodeActionOrCommand::CodeAction(action)
+                    if action.title == "Create heading for '#intro--detals'" =>
+                {
+                    action.edit.as_ref()
+                }
+                _ => None,
+            })
+            .next()
+            .expect("creation edit");
+        let creation_edits = creation
+            .changes
+            .as_ref()
+            .and_then(|changes| changes.get(&target_uri))
+            .expect("target creation edits");
+        assert_eq!(creation_edits.len(), 1);
+        assert_eq!(creation_edits[0].new_text, "\n\n## Detals\n");
 
         std::fs::remove_dir_all(&dir).expect("remove temp dir");
     }
