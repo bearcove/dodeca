@@ -7,7 +7,7 @@ use cell_markdown_proto::*;
 use dodeca_cell_runtime::HostHandle;
 use marq::{
     AasvgHandler, ArboriumHandler, CompareHandler, InlineCodeHandler, LinkResolver, MermaidHandler,
-    PikruHandler, RenderOptions, TermHandler, render,
+    PikruHandler, RenderOptions, TermHandler, WikiLink, WikiLinkOutput, WikiLinkResolver, render,
 };
 use std::future::Future;
 use std::pin::Pin;
@@ -68,12 +68,30 @@ impl LinkResolver for PassthroughLinkResolver {
     ) -> Pin<Box<dyn Future<Output = Option<String>> + Send + 'a>> {
         Box::pin(async move {
             // Keep @/ links unchanged - dodeca will resolve them with site tree access
-            if link.starts_with("@/") {
+            if link.starts_with("@/") || link.starts_with(WIKI_LINK_PREFIX) {
                 Some(link.to_string())
             } else {
                 // Let marq handle other links (relative .md, external, etc.)
                 None
             }
+        })
+    }
+}
+
+struct DodecaWikiLinkResolver;
+
+impl WikiLinkResolver for DodecaWikiLinkResolver {
+    fn resolve<'a>(
+        &'a self,
+        link: &'a WikiLink,
+        _source_path: Option<&'a str>,
+    ) -> Pin<Box<dyn Future<Output = Option<WikiLinkOutput>> + Send + 'a>> {
+        Box::pin(async move {
+            let key = wiki_link_key(&link.target)?;
+            Some(
+                WikiLinkOutput::new(format!("{WIKI_LINK_PREFIX}{key}"))
+                    .with_attr("data-wiki-target", link.target.as_str()),
+            )
         })
     }
 }
@@ -100,6 +118,7 @@ fn render_options(source_path: &str, source_map: bool) -> RenderOptions {
         .with_source_map(source_map)
         // Pass through @/ links unchanged - dodeca will resolve them with site tree
         .with_link_resolver(PassthroughLinkResolver)
+        .with_wiki_link_resolver(DodecaWikiLinkResolver)
         // Convert rule marker inline code to links
         .with_inline_code_handler(RuleRefHandler)
 }
@@ -195,6 +214,31 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
             MarkdownResult::Error { message } => ParseResult::Error { message },
         }
     }
+}
+
+const WIKI_LINK_PREFIX: &str = "dodeca-wiki:";
+
+fn wiki_link_key(target: &str) -> Option<String> {
+    let mut key = String::new();
+    let mut last_was_dash = true;
+
+    for c in target.chars() {
+        if c.is_alphanumeric() {
+            for lower in c.to_lowercase() {
+                key.push(lower);
+            }
+            last_was_dash = false;
+        } else if !last_was_dash {
+            key.push('-');
+            last_was_dash = true;
+        }
+    }
+
+    while key.ends_with('-') {
+        key.pop();
+    }
+
+    if key.is_empty() { None } else { Some(key) }
 }
 
 // Helper functions to convert marq types to protocol types

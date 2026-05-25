@@ -1004,6 +1004,14 @@ impl SiteServer {
                             crate::error_pages::render_structured_error_page(&render_error.error);
                         (Some(html), Vec::new(), Some(error_info))
                     }
+                    SiteError::WikiLinks(wiki_error) => (
+                        Some(crate::error_pages::render_generic_error_page(
+                            "Failed to resolve wiki links",
+                            &wiki_error.to_string(),
+                        )),
+                        Vec::new(),
+                        None,
+                    ),
                 }
             }
             Err(e) => {

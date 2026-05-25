@@ -168,3 +168,120 @@ This is page B.
         hrefs
     );
 }
+
+/// Test that wiki-style links resolve through the site title/slug index
+pub fn wiki_links_resolved() {
+    let site = TestSite::with_files(
+        "sample-site",
+        &[
+            (
+                "content/company.md",
+                r#"---
+title: Company
+---
+
+The company page.
+"#,
+            ),
+            (
+                "content/repository-map.md",
+                r#"---
+title: Repository Map
+---
+
+The repository map.
+"#,
+            ),
+            (
+                "content/wiki-link-test.md",
+                r#"---
+title: Wiki Link Test
+---
+
+See [[Company]] and [[Repository Map|repo map]].
+"#,
+            ),
+        ],
+    );
+
+    let html = site.get("/wiki-link-test/");
+    html.assert_ok();
+
+    let tendril = StrTendril::from(html.text());
+    let doc = hotmeal::parse(&tendril);
+    let hrefs = extract_hrefs(&doc);
+
+    assert!(
+        !hrefs.iter().any(|h| h.starts_with("dodeca-wiki:")),
+        "Wiki hrefs should be resolved before serving, found: {:?}",
+        hrefs
+    );
+    assert!(
+        hrefs.iter().any(|h| h == "/company/"),
+        "Should have wiki link to /company/, found: {:?}",
+        hrefs
+    );
+    assert!(
+        hrefs.iter().any(|h| h == "/repository-map/"),
+        "Should have wiki link to /repository-map/, found: {:?}",
+        hrefs
+    );
+    html.assert_contains(">repo map</a>");
+}
+
+/// Test that missing wiki links fail the build with a link diagnostic
+pub fn missing_wiki_link_fails_build() {
+    let site = InlineSite::new(&[(
+        "index.md",
+        r#"---
+title: Home
+---
+
+See [[Missing Page]].
+"#,
+    )]);
+
+    site.build()
+        .assert_failure()
+        .assert_output_contains("Failed to resolve 1 wiki link")
+        .assert_output_contains("[[Missing Page]] target not found");
+}
+
+/// Test that ambiguous wiki links fail the build with candidate routes
+pub fn ambiguous_wiki_link_fails_build() {
+    let site = InlineSite::new(&[
+        (
+            "index.md",
+            r#"---
+title: Home
+---
+
+See [[Shared]].
+"#,
+        ),
+        (
+            "a.md",
+            r#"---
+title: Shared
+---
+
+A.
+"#,
+        ),
+        (
+            "b.md",
+            r#"---
+title: Shared
+---
+
+B.
+"#,
+        ),
+    ]);
+
+    site.build()
+        .assert_failure()
+        .assert_output_contains("[[Shared]] is ambiguous")
+        .assert_output_contains("/a/")
+        .assert_output_contains("/b/");
+}

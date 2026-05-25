@@ -77,6 +77,7 @@ pub async fn process_html(
         injections: vec![],
         minify: None,
         source_to_route: options.source_to_route,
+        wiki_to_route: options.wiki_to_route,
         base_route: options.base_route,
         image_variants: options.image_variants,
         vite_css_map: options.vite_css_map,
@@ -89,11 +90,13 @@ pub async fn process_html(
             had_code_buttons: _,
             hrefs,
             element_ids,
+            unresolved_wiki_links,
         }) => Ok(HtmlProcessOutput {
             html,
             had_dead_links,
             hrefs,
             element_ids,
+            unresolved_wiki_links,
         }),
         Ok(cell_html_proto::HtmlProcessResult::Error { message }) => {
             Err(eyre::eyre!("HTML processing error: {}", message))
@@ -111,6 +114,8 @@ pub struct HtmlProcessOptions {
     pub known_routes: Option<HashSet<String>>,
     /// Source path to route mapping for @/ links
     pub source_to_route: Option<HashMap<String, String>>,
+    /// Wiki link key to route mapping for dodeca-wiki: links
+    pub wiki_to_route: Option<HashMap<String, String>>,
     /// Base route for relative link resolution
     pub base_route: Option<String>,
     /// Image variants for picture element transformation
@@ -130,6 +135,8 @@ pub struct HtmlProcessOutput {
     pub hrefs: Vec<String>,
     /// All id attributes from elements
     pub element_ids: Vec<String>,
+    /// Wiki link keys that were present but could not be resolved
+    pub unresolved_wiki_links: Vec<cell_html_proto::WikiLinkRef>,
 }
 
 /// Mark dead internal links in HTML using the cell
@@ -173,6 +180,36 @@ pub async fn resolve_internal_links(
             html.to_string()
         }
     }
+}
+
+/// Resolve `dodeca-wiki:` prefixed links in HTML using a wiki key to route mapping.
+pub async fn resolve_wiki_links(
+    html: &str,
+    wiki_to_route: &HashMap<String, String>,
+) -> WikiLinkResolution {
+    let options = HtmlProcessOptions {
+        wiki_to_route: Some(wiki_to_route.clone()),
+        ..Default::default()
+    };
+
+    match process_html(html, options).await {
+        Ok(output) => WikiLinkResolution {
+            html: output.html,
+            unresolved_wiki_links: output.unresolved_wiki_links,
+        },
+        Err(e) => {
+            tracing::warn!("Wiki link resolution failed: {}", e);
+            WikiLinkResolution {
+                html: html.to_string(),
+                unresolved_wiki_links: Vec::new(),
+            }
+        }
+    }
+}
+
+pub struct WikiLinkResolution {
+    pub html: String,
+    pub unresolved_wiki_links: Vec<cell_html_proto::WikiLinkRef>,
 }
 
 /// Resolve relative links in HTML by joining with base route.

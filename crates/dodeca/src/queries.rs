@@ -490,6 +490,51 @@ impl std::fmt::Display for RenderError {
 
 impl std::error::Error for RenderError {}
 
+/// Error when resolving wiki-style markdown links.
+#[derive(Debug, Clone, facet::Facet)]
+pub struct WikiLinkError {
+    pub route: Route,
+    pub target: String,
+    pub reason: WikiLinkErrorReason,
+}
+
+#[derive(Debug, Clone, facet::Facet)]
+#[repr(u8)]
+pub enum WikiLinkErrorReason {
+    Missing,
+    Ambiguous { candidates: Vec<String> },
+}
+
+#[derive(Debug, Clone, facet::Facet)]
+pub struct WikiLinkBuildError {
+    pub errors: Vec<WikiLinkError>,
+}
+
+impl std::fmt::Display for WikiLinkBuildError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "Failed to resolve {} wiki link(s):", self.errors.len())?;
+        for err in &self.errors {
+            match &err.reason {
+                WikiLinkErrorReason::Missing => {
+                    writeln!(f, "  - {}: [[{}]] target not found", err.route, err.target)?;
+                }
+                WikiLinkErrorReason::Ambiguous { candidates } => {
+                    writeln!(
+                        f,
+                        "  - {}: [[{}]] is ambiguous; candidates: {}",
+                        err.route,
+                        err.target,
+                        candidates.join(", ")
+                    )?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for WikiLinkBuildError {}
+
 /// Errors that can occur during site generation
 #[derive(Debug, Clone, facet::Facet)]
 #[repr(u8)]
@@ -498,6 +543,8 @@ pub enum SiteError {
     Parse(BuildError),
     /// Error during template rendering
     Render(RenderError),
+    /// Error resolving wiki-style markdown links
+    WikiLinks(WikiLinkBuildError),
 }
 
 impl std::fmt::Display for SiteError {
@@ -505,6 +552,7 @@ impl std::fmt::Display for SiteError {
         match self {
             SiteError::Parse(e) => write!(f, "{}", e),
             SiteError::Render(e) => write!(f, "{}", e),
+            SiteError::WikiLinks(e) => write!(f, "{}", e),
         }
     }
 }
@@ -520,6 +568,12 @@ impl From<BuildError> for SiteError {
 impl From<RenderError> for SiteError {
     fn from(e: RenderError) -> Self {
         SiteError::Render(e)
+    }
+}
+
+impl From<WikiLinkBuildError> for SiteError {
+    fn from(e: WikiLinkBuildError) -> Self {
+        SiteError::WikiLinks(e)
     }
 }
 
@@ -638,6 +692,106 @@ pub async fn source_to_route_map<DB: Db>(db: &DB) -> PicanteResult<HashMap<Strin
     }
 
     Ok(map)
+}
+
+#[derive(Debug, Clone, Default)]
+struct WikiLinkIndex {
+    resolved: HashMap<String, String>,
+    ambiguous: HashMap<String, Vec<String>>,
+}
+
+impl WikiLinkIndex {
+    fn build(site_tree: &SiteTree) -> Self {
+        let mut candidates: HashMap<String, Vec<String>> = HashMap::new();
+
+        for section in site_tree.sections.values() {
+            add_wiki_route_candidates(&mut candidates, section.title.as_str(), &section.route);
+            add_wiki_route_candidates(&mut candidates, section.route.as_str(), &section.route);
+            if let Some(slug) = route_leaf_slug(&section.route) {
+                add_wiki_route_candidates(&mut candidates, &slug, &section.route);
+            }
+        }
+
+        for page in site_tree.pages.values() {
+            add_wiki_route_candidates(&mut candidates, page.title.as_str(), &page.route);
+            add_wiki_route_candidates(&mut candidates, page.route.as_str(), &page.route);
+            if let Some(slug) = route_leaf_slug(&page.route) {
+                add_wiki_route_candidates(&mut candidates, &slug, &page.route);
+            }
+        }
+
+        let mut resolved = HashMap::new();
+        let mut ambiguous = HashMap::new();
+        for (key, mut routes) in candidates {
+            routes.sort();
+            routes.dedup();
+            if routes.len() == 1 {
+                resolved.insert(key, routes.remove(0));
+            } else {
+                ambiguous.insert(key, routes);
+            }
+        }
+
+        Self {
+            resolved,
+            ambiguous,
+        }
+    }
+}
+
+fn add_wiki_route_candidates(
+    candidates: &mut HashMap<String, Vec<String>>,
+    target: &str,
+    route: &Route,
+) {
+    if let Some(key) = wiki_link_key(target) {
+        candidates
+            .entry(key)
+            .or_default()
+            .push(wiki_link_route(route));
+    }
+}
+
+fn wiki_link_route(route: &Route) -> String {
+    let route = route.as_str();
+    if route == "/" || route.ends_with('/') {
+        route.to_string()
+    } else {
+        format!("{route}/")
+    }
+}
+
+fn route_leaf_slug(route: &Route) -> Option<String> {
+    route
+        .as_str()
+        .trim_matches('/')
+        .rsplit('/')
+        .next()
+        .filter(|slug| !slug.is_empty())
+        .map(str::to_string)
+}
+
+fn wiki_link_key(target: &str) -> Option<String> {
+    let mut key = String::new();
+    let mut last_was_dash = true;
+
+    for c in target.chars() {
+        if c.is_alphanumeric() {
+            for lower in c.to_lowercase() {
+                key.push(lower);
+            }
+            last_was_dash = false;
+        } else if !last_was_dash {
+            key.push('-');
+            last_was_dash = true;
+        }
+    }
+
+    while key.ends_with('-') {
+        key.pop();
+    }
+
+    if key.is_empty() { None } else { Some(key) }
 }
 
 /// Find the nearest parent section for a route
@@ -1405,7 +1559,7 @@ pub async fn all_rendered_html<DB: Db>(
     db: &DB,
 ) -> PicanteResult<Result<AllRenderedHtml, SiteError>> {
     use crate::render::{render_page_via_cell, render_section_via_cell};
-    use crate::url_rewrite::{resolve_internal_links, resolve_relative_links};
+    use crate::url_rewrite::{resolve_internal_links, resolve_relative_links, resolve_wiki_links};
 
     let site_tree = match build_tree(db).await? {
         Ok(tree) => tree,
@@ -1416,6 +1570,8 @@ pub async fn all_rendered_html<DB: Db>(
     // Get the source-to-route map for internal link resolution
     // This creates dependencies on all source files via parse_file
     let source_route_map = source_to_route_map(db).await?;
+    let wiki_link_index = WikiLinkIndex::build(&site_tree);
+    let mut wiki_link_errors = Vec::new();
 
     let mut pages = HashMap::new();
 
@@ -1433,6 +1589,14 @@ pub async fn all_rendered_html<DB: Db>(
         // Resolve relative links based on section route, then @/ links
         let html = resolve_relative_links(&html, route.as_str()).await;
         let html = resolve_internal_links(&html, &source_route_map).await;
+        let resolved = resolve_wiki_links(&html, &wiki_link_index.resolved).await;
+        collect_wiki_link_errors(
+            &mut wiki_link_errors,
+            route,
+            &resolved.unresolved_wiki_links,
+            &wiki_link_index,
+        );
+        let html = resolved.html;
         pages.insert(route.clone(), html);
     }
 
@@ -1450,10 +1614,48 @@ pub async fn all_rendered_html<DB: Db>(
         // Resolve relative links based on the page's section route, then @/ links
         let html = resolve_relative_links(&html, page.section_route.as_str()).await;
         let html = resolve_internal_links(&html, &source_route_map).await;
+        let resolved = resolve_wiki_links(&html, &wiki_link_index.resolved).await;
+        collect_wiki_link_errors(
+            &mut wiki_link_errors,
+            route,
+            &resolved.unresolved_wiki_links,
+            &wiki_link_index,
+        );
+        let html = resolved.html;
         pages.insert(route.clone(), html);
     }
 
+    if !wiki_link_errors.is_empty() {
+        return Ok(Err(WikiLinkBuildError {
+            errors: wiki_link_errors,
+        }
+        .into()));
+    }
+
     Ok(Ok(AllRenderedHtml { pages }))
+}
+
+fn collect_wiki_link_errors(
+    errors: &mut Vec<WikiLinkError>,
+    source_route: &Route,
+    unresolved_links: &[cell_html_proto::WikiLinkRef],
+    index: &WikiLinkIndex,
+) {
+    for link in unresolved_links {
+        let reason = if let Some(candidates) = index.ambiguous.get(&link.key) {
+            WikiLinkErrorReason::Ambiguous {
+                candidates: candidates.clone(),
+            }
+        } else {
+            WikiLinkErrorReason::Missing
+        };
+
+        errors.push(WikiLinkError {
+            route: source_route.clone(),
+            target: link.target.clone(),
+            reason,
+        });
+    }
 }
 
 /// Extract text content from HTML by stripping tags
