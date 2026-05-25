@@ -32,7 +32,6 @@ use cell_jxl_proto::{JXLEncodeInput, JXLProcessorClient, JXLResult};
 use cell_lifecycle_proto::CellLifecycle;
 use cell_linkcheck_proto::{LinkCheckInput, LinkCheckResult, LinkCheckerClient, LinkStatus};
 use cell_markdown_proto::MarkdownProcessorClient;
-use cell_minify_proto::{MinifierClient, MinifyResult};
 use cell_sass_proto::{SassCompilerClient, SassResult};
 use cell_search_proto::{SearchFile, SearchIndexResult, SearchIndexerClient, SearchPage};
 use cell_svgo_proto::{SvgoOptimizerClient, SvgoResult};
@@ -430,7 +429,6 @@ cell_client_accessor!(jxl_cell, "jxl", JXLProcessorClient);
 // Text processing
 cell_client_accessor!(markdown_cell, "markdown", MarkdownProcessorClient);
 cell_client_accessor!(html_cell, "html", HtmlProcessorClient);
-cell_client_accessor!(minify_cell, "minify", MinifierClient);
 cell_client_accessor!(css_cell, "css", CssProcessorClient);
 cell_client_accessor!(sass_cell, "sass", SassCompilerClient);
 cell_client_accessor!(js_cell, "js", JsProcessorClient);
@@ -476,16 +474,6 @@ pub async fn record_term_command(
         .ok_or_else(|| eyre::eyre!("Term cell not available"))?;
     client
         .record_command(command, config)
-        .await
-        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
-}
-
-pub async fn minify_html(html: String) -> Result<MinifyResult, eyre::Error> {
-    let client = minify_cell()
-        .await
-        .ok_or_else(|| eyre::eyre!("Minify cell not available"))?;
-    client
-        .minify_html(html)
         .await
         .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
 }
@@ -674,10 +662,6 @@ pub async fn eval_expression_cell(
         .await
         .map_err(|e| eyre::eyre!("RPC call error: {:?}", e))?;
     Ok(result)
-}
-
-pub async fn minify_html_cell(input: String) -> Result<MinifyResult, eyre::Error> {
-    minify_html(input).await
 }
 
 pub async fn optimize_svg_cell(input: String) -> Result<SvgoResult, eyre::Error> {
