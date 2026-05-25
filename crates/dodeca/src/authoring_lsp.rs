@@ -16,6 +16,7 @@ use tower_lsp::lsp_types::{
 };
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
+use crate::config::ResolvedConfig;
 use crate::queries::default_title_from_source_path;
 use crate::types::SourcePath;
 
@@ -83,7 +84,9 @@ impl LanguageServer for Backend {
                 return Err(tower_lsp::jsonrpc::Error::invalid_params(err.to_string()));
             }
         };
-        self.set_dirs(dirs);
+        if let Some(dirs) = dirs {
+            self.set_dirs(dirs);
+        }
 
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
@@ -202,9 +205,12 @@ impl Backend {
         self.state.lock().unwrap().dirs = Some(dirs);
     }
 
-    fn resolve_dirs_from_initialize(&self, params: &InitializeParams) -> Result<AuthoringDirs> {
+    fn resolve_dirs_from_initialize(
+        &self,
+        params: &InitializeParams,
+    ) -> Result<Option<AuthoringDirs>> {
         let startup_args = self.state.lock().unwrap().startup_args.clone();
-        resolve_authoring_dirs(&startup_args, params)
+        resolve_initial_authoring_dirs(&startup_args, params)
     }
 
     fn dirs(&self) -> Result<AuthoringDirs> {
@@ -213,6 +219,13 @@ impl Backend {
             .dirs
             .clone()
             .ok_or_else(|| eyre!("dodeca authoring server has not been initialized"))
+    }
+
+    fn dirs_for_uri(&self, uri: &Url) -> Result<AuthoringDirs> {
+        let startup_args = self.state.lock().unwrap().startup_args.clone();
+        let dirs = resolve_authoring_dirs_for_document(&startup_args, uri)?;
+        self.set_dirs(dirs.clone());
+        Ok(dirs)
     }
 
     fn list_pages(&self) -> Result<Vec<AuthoringPage>> {
@@ -245,7 +258,7 @@ impl Backend {
     }
 
     fn definition_for_position(&self, uri: &Url, position: Position) -> Result<Option<Location>> {
-        let dirs = self.dirs()?;
+        let dirs = self.dirs_for_uri(uri)?;
         let content = self.document_content(uri)?;
         let Some(reference) = reference_at_position(&content, position) else {
             return Ok(None);
@@ -265,7 +278,7 @@ impl Backend {
     }
 
     async fn publish_document_diagnostics(&self, uri: Url, content: String) {
-        let dirs = match self.dirs() {
+        let dirs = match self.dirs_for_uri(&uri) {
             Ok(dirs) => dirs,
             Err(err) => {
                 self.client
@@ -295,30 +308,77 @@ impl Backend {
     }
 }
 
-fn resolve_authoring_dirs(
+fn resolve_initial_authoring_dirs(
     startup_args: &LspStartupArgs,
     params: &InitializeParams,
-) -> Result<AuthoringDirs> {
+) -> Result<Option<AuthoringDirs>> {
     let complete_dir_override = startup_args.content.is_some() && startup_args.output.is_some();
-    let path = startup_args
-        .path
-        .clone()
-        .map(Ok)
-        .or_else(|| project_path_from_initialize(params).transpose())
-        .transpose()?;
-
-    if !complete_dir_override && path.is_none() {
-        return Err(eyre!(
-            "LSP initialize did not include a file workspace folder or root URI"
-        ));
+    if complete_dir_override {
+        let content_dir = Utf8PathBuf::from(
+            startup_args
+                .content
+                .clone()
+                .expect("complete override has content"),
+        );
+        return Ok(Some(authoring_dirs_from_config(content_dir)));
     }
 
-    let cfg = crate::resolve_dirs(
-        path,
-        startup_args.content.clone(),
-        startup_args.output.clone(),
-    )?;
-    Ok(authoring_dirs_from_config(cfg.content_dir))
+    if let Some(path) = startup_args.path.as_ref() {
+        return resolve_authoring_dirs_from_project_path(startup_args, path).map(Some);
+    }
+
+    let Some(path) = project_path_from_initialize(params)? else {
+        return Ok(None);
+    };
+
+    let cfg = ResolvedConfig::discover_from(Utf8Path::new(&path))?;
+    Ok(cfg.map(|cfg| authoring_dirs_from_resolved_config(startup_args, cfg)))
+}
+
+fn resolve_authoring_dirs_for_document(
+    startup_args: &LspStartupArgs,
+    uri: &Url,
+) -> Result<AuthoringDirs> {
+    let complete_dir_override = startup_args.content.is_some() && startup_args.output.is_some();
+    if complete_dir_override {
+        let content_dir = Utf8PathBuf::from(
+            startup_args
+                .content
+                .clone()
+                .expect("complete override has content"),
+        );
+        return Ok(authoring_dirs_from_config(content_dir));
+    }
+
+    if let Some(path) = startup_args.path.as_ref() {
+        return resolve_authoring_dirs_from_project_path(startup_args, path);
+    }
+
+    let path = lsp_file_uri_to_utf8_path(uri)?;
+    let cfg = ResolvedConfig::discover_containing(&path)?
+        .ok_or_else(|| eyre!("No Dodeca configuration found for document {}", path))?;
+    Ok(authoring_dirs_from_resolved_config(startup_args, cfg))
+}
+
+fn resolve_authoring_dirs_from_project_path(
+    startup_args: &LspStartupArgs,
+    path: &str,
+) -> Result<AuthoringDirs> {
+    let cfg = ResolvedConfig::discover_from(Utf8Path::new(path))?
+        .ok_or_else(|| eyre!("No configuration found."))?;
+    Ok(authoring_dirs_from_resolved_config(startup_args, cfg))
+}
+
+fn authoring_dirs_from_resolved_config(
+    startup_args: &LspStartupArgs,
+    cfg: ResolvedConfig,
+) -> AuthoringDirs {
+    let content_dir = startup_args
+        .content
+        .clone()
+        .map(Utf8PathBuf::from)
+        .unwrap_or(cfg.content_dir);
+    authoring_dirs_from_config(content_dir)
 }
 
 fn authoring_dirs_from_config(content_dir: Utf8PathBuf) -> AuthoringDirs {
@@ -1277,7 +1337,9 @@ mod tests {
         .expect("write config");
 
         let params = initialize_params_for_workspace(&dir);
-        let dirs = resolve_authoring_dirs(&default_startup_args(), &params).expect("resolve dirs");
+        let dirs = resolve_initial_authoring_dirs(&default_startup_args(), &params)
+            .expect("resolve dirs")
+            .expect("workspace config");
 
         assert_eq!(dirs.content_dir, dir.join("content"));
         assert_eq!(dirs.static_dir, dir.join("static"));
@@ -1286,14 +1348,36 @@ mod tests {
     }
 
     #[test]
-    fn refuses_cwd_discovery_without_lsp_workspace() {
-        let err = resolve_authoring_dirs(&default_startup_args(), &empty_initialize_params())
-            .expect_err("missing initialize workspace should fail");
+    fn initializes_without_lsp_workspace() {
+        let dirs =
+            resolve_initial_authoring_dirs(&default_startup_args(), &empty_initialize_params())
+                .expect("initialize without workspace");
 
-        assert!(
-            err.to_string()
-                .contains("LSP initialize did not include a file workspace folder or root URI")
-        );
+        assert!(dirs.is_none());
+    }
+
+    #[test]
+    fn resolves_authoring_dirs_from_document_ancestor_config() {
+        let workspace = temp_dir("document-root");
+        let project = workspace.join("kb.vixen.rs");
+        std::fs::create_dir_all(project.join(".config")).expect("create config dir");
+        std::fs::create_dir_all(project.join("content/ops")).expect("create content dir");
+        std::fs::write(
+            project.join(".config/dodeca.styx"),
+            "content content\noutput public\n",
+        )
+        .expect("write config");
+        let document = project.join("content/ops/deploy.md");
+        std::fs::write(&document, "# Deploy\n").expect("write document");
+        let uri = Url::from_file_path(document.as_std_path()).expect("document uri");
+
+        let dirs = resolve_authoring_dirs_for_document(&default_startup_args(), &uri)
+            .expect("resolve document dirs");
+
+        assert_eq!(dirs.content_dir, project.join("content"));
+        assert_eq!(dirs.static_dir, project.join("static"));
+
+        std::fs::remove_dir_all(&workspace).expect("remove temp dir");
     }
 
     #[test]

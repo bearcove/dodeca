@@ -179,6 +179,33 @@ impl ResolvedConfig {
 
         Ok(None)
     }
+
+    /// Discover and load configuration by walking up from a file or directory.
+    pub fn discover_containing(path: &Utf8Path) -> Result<Option<Self>> {
+        let mut current = if path.is_dir() {
+            path.to_owned()
+        } else if let Some(parent) = path.parent() {
+            parent.to_owned()
+        } else {
+            path.to_owned()
+        };
+
+        loop {
+            let config_dir = current.join(CONFIG_DIR);
+            check_legacy_configs(&config_dir)?;
+
+            let styx_file = config_dir.join(CONFIG_FILE_STYX);
+            if styx_file.exists() {
+                let resolved = load_config(&styx_file)?;
+                return Ok(Some(resolved));
+            }
+
+            match current.parent() {
+                Some(parent) => current = parent.to_owned(),
+                None => return Ok(None),
+            }
+        }
+    }
 }
 
 /// Check for legacy config formats and return helpful error
