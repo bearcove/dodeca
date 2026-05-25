@@ -588,6 +588,12 @@ fn collect_tests() -> Vec<Test> {
             ignored: false,
         },
         Test {
+            name: "get_section_returns_weighted_subsection_objects",
+            module: "section_pages",
+            func: section_pages::get_section_returns_weighted_subsection_objects,
+            ignored: false,
+        },
+        Test {
             name: "removing_sibling_page_updates_page_section_pages_list",
             module: "section_pages",
             func: section_pages::removing_sibling_page_updates_page_section_pages_list,
