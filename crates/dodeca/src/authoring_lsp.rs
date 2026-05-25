@@ -8,18 +8,19 @@ use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::{
     CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionParams,
     CodeActionProviderCapability, CodeActionResponse, Command, CompletionItem, CompletionItemKind,
-    CompletionOptions, CompletionParams, CompletionResponse, CompletionTextEdit, Diagnostic,
-    DiagnosticSeverity, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentChangeOperation, DocumentChanges,
-    DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, ExecuteCommandOptions,
-    ExecuteCommandParams, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents,
-    HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams,
-    Location, MarkupContent, MarkupKind, MessageType, NumberOrString, OneOf,
-    OptionalVersionedTextDocumentIdentifier, Position, PrepareRenameResponse, Range,
-    ReferenceParams, RenameFile, RenameFileOptions, RenameOptions, RenameParams, ResourceOp,
-    ServerCapabilities, ServerInfo, ShowDocumentParams, SymbolInformation, SymbolKind,
-    TextDocumentEdit, TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind,
-    TextEdit, Url, WorkspaceEdit, WorkspaceSymbolParams,
+    CompletionOptions, CompletionParams, CompletionResponse, CompletionTextEdit, CreateFile,
+    CreateFileOptions, Diagnostic, DiagnosticSeverity, DidChangeTextDocumentParams,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
+    DocumentChangeOperation, DocumentChanges, DocumentSymbol, DocumentSymbolParams,
+    DocumentSymbolResponse, ExecuteCommandOptions, ExecuteCommandParams, GotoDefinitionParams,
+    GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability,
+    InitializeParams, InitializeResult, InitializedParams, Location, MarkupContent, MarkupKind,
+    MessageType, NumberOrString, OneOf, OptionalVersionedTextDocumentIdentifier, Position,
+    PrepareRenameResponse, Range, ReferenceParams, RenameFile, RenameFileOptions, RenameOptions,
+    RenameParams, ResourceOp, ServerCapabilities, ServerInfo, ShowDocumentParams,
+    SymbolInformation, SymbolKind, TextDocumentEdit, TextDocumentPositionParams,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url, WorkspaceEdit,
+    WorkspaceSymbolParams,
 };
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
@@ -465,6 +466,11 @@ impl Backend {
             .collect::<Vec<_>>();
 
         let mut actions = Vec::new();
+        if let Some(action) =
+            extract_page_code_action(&dirs.content_dir, &project, &uri, &content, params.range)?
+        {
+            actions.push(action);
+        }
         for diagnostic in diagnostics
             .into_iter()
             .filter(|diagnostic| ranges_overlap(&diagnostic.range(), &params.range))
@@ -1211,6 +1217,28 @@ fn lsp_diagnostics_for_range(lsp_diagnostics: &[Diagnostic], range: Range) -> Ve
         .collect()
 }
 
+fn extract_page_code_action(
+    content_dir: &Utf8Path,
+    project: &AuthoringProject,
+    uri: &Url,
+    content: &str,
+    selection: Range,
+) -> Result<Option<CodeActionOrCommand>> {
+    let Some(plan) = extract_page_plan(content_dir, project, uri, content, selection)? else {
+        return Ok(None);
+    };
+    let title = format!("Extract selection to '{}'", plan.new_source_file);
+    Ok(Some(CodeActionOrCommand::CodeAction(CodeAction {
+        title,
+        kind: Some(CodeActionKind::REFACTOR_EXTRACT),
+        diagnostics: None,
+        edit: Some(workspace_edit_for_extract_page(content_dir, &plan)?),
+        command: None,
+        is_preferred: Some(true),
+        ..CodeAction::default()
+    })))
+}
+
 fn link_hover_markdown(
     project: &AuthoringProject,
     page: &AuthoringPage,
@@ -1912,6 +1940,242 @@ fn insertion_position_after_line(content: &str, one_based_line: u32) -> Position
         line: line.saturating_sub(1),
         character: column.saturating_sub(1),
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ExtractPagePlan {
+    source_file: String,
+    new_source_file: String,
+    new_route: String,
+    title: String,
+    new_content: String,
+    replacement: String,
+    selection: Range,
+}
+
+fn extract_page_plan(
+    content_dir: &Utf8Path,
+    project: &AuthoringProject,
+    uri: &Url,
+    content: &str,
+    selection: Range,
+) -> Result<Option<ExtractPagePlan>> {
+    if selection.start == selection.end {
+        return Ok(None);
+    }
+    if let Some(frontmatter_range) = frontmatter_lsp_range(content)
+        && ranges_overlap(&frontmatter_range, &selection)
+    {
+        return Ok(None);
+    }
+
+    let path = lsp_file_uri_to_utf8_path(uri)?;
+    let source_file = source_file_for_path(content_dir, &path)?;
+    let Some(page) = project.page_for_source_file(&source_file) else {
+        return Ok(None);
+    };
+    let Some((start, end)) = lsp_range_to_byte_range(content, selection) else {
+        return Ok(None);
+    };
+    if start >= end {
+        return Ok(None);
+    }
+    let selected = &content[start..end];
+    if selected.trim().is_empty() {
+        return Ok(None);
+    }
+
+    let extracted = extracted_page_content(selected);
+    let new_source_file =
+        unique_extracted_source_file(content_dir, project, &source_file, &extracted.slug)?;
+    let new_route = SourcePath::new(new_source_file.clone())
+        .to_route()
+        .to_string();
+    let target = route_completion_text(page, "", &new_route);
+    let replacement = format!("[{}]({target})", extracted.title);
+    let new_content = format!("{}{}", page_frontmatter(&extracted.title), extracted.body);
+
+    Ok(Some(ExtractPagePlan {
+        source_file,
+        new_source_file,
+        new_route,
+        title: extracted.title,
+        new_content,
+        replacement,
+        selection,
+    }))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ExtractedPageContent {
+    title: String,
+    slug: String,
+    body: String,
+}
+
+fn extracted_page_content(selected: &str) -> ExtractedPageContent {
+    if let Some((title, body)) = extract_leading_heading(selected) {
+        let slug = marq::slugify(&title);
+        return ExtractedPageContent {
+            title,
+            slug,
+            body: normalize_extracted_body(body),
+        };
+    }
+
+    let title = title_from_selection(selected);
+    let slug = marq::slugify(&title);
+    ExtractedPageContent {
+        title,
+        slug,
+        body: normalize_extracted_body(selected),
+    }
+}
+
+fn extract_leading_heading(selected: &str) -> Option<(String, &str)> {
+    let leading_len = selected.len() - selected.trim_start_matches([' ', '\t', '\n', '\r']).len();
+    let after_leading = &selected[leading_len..];
+    let line_end = after_leading.find('\n').unwrap_or(after_leading.len());
+    let first_line = &after_leading[..line_end];
+    let title = title_from_atx_heading_line(first_line)?;
+    let body_start = leading_len + line_end + usize::from(line_end < after_leading.len());
+    Some((title, &selected[body_start..]))
+}
+
+fn title_from_atx_heading_line(line: &str) -> Option<String> {
+    let line = line.trim();
+    let marker_len = line.chars().take_while(|ch| *ch == '#').count();
+    if marker_len == 0 || marker_len > 6 {
+        return None;
+    }
+    let rest = &line[marker_len..];
+    if !rest.is_empty() && !rest.starts_with(char::is_whitespace) {
+        return None;
+    }
+    let mut title = rest.trim().to_string();
+    let trimmed_hashes = title.trim_end_matches('#').trim_end().to_string();
+    if !trimmed_hashes.is_empty() {
+        title = trimmed_hashes;
+    }
+    (!title.is_empty()).then_some(title)
+}
+
+fn title_from_selection(selected: &str) -> String {
+    let text = selected
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("Extracted page");
+    let words = text
+        .split_whitespace()
+        .take(6)
+        .map(|word| {
+            word.trim_matches(|ch: char| {
+                matches!(
+                    ch,
+                    '#' | '*' | '_' | '`' | '[' | ']' | '(' | ')' | ':' | ',' | '.' | '!' | '?'
+                )
+            })
+        })
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>();
+    if words.is_empty() {
+        "Extracted page".to_string()
+    } else {
+        words.join(" ")
+    }
+}
+
+fn normalize_extracted_body(body: &str) -> String {
+    let body = body.trim_matches(|ch| matches!(ch, '\n' | '\r'));
+    if body.trim().is_empty() {
+        "\n".to_string()
+    } else {
+        format!("\n{}\n", body.trim())
+    }
+}
+
+fn unique_extracted_source_file(
+    content_dir: &Utf8Path,
+    project: &AuthoringProject,
+    source_file: &str,
+    slug: &str,
+) -> Result<String> {
+    let source_parent = Utf8Path::new(source_file)
+        .parent()
+        .unwrap_or_else(|| Utf8Path::new(""));
+    let base_slug = if slug.is_empty() {
+        "extracted-page"
+    } else {
+        slug
+    };
+    for idx in 0..1000 {
+        let slug = if idx == 0 {
+            base_slug.to_string()
+        } else {
+            format!("{base_slug}-{idx}")
+        };
+        let candidate = source_parent.join(format!("{slug}.md")).to_string();
+        if !project.source_to_route.contains_key(&candidate)
+            && !content_dir.join(&candidate).exists()
+        {
+            return Ok(candidate);
+        }
+    }
+    Err(eyre!(
+        "could not find available source file for extracted page"
+    ))
+}
+
+fn workspace_edit_for_extract_page(
+    content_dir: &Utf8Path,
+    plan: &ExtractPagePlan,
+) -> Result<WorkspaceEdit> {
+    let source_uri = source_file_uri(content_dir, &plan.source_file)?;
+    let new_uri = source_file_uri(content_dir, &plan.new_source_file)?;
+    Ok(WorkspaceEdit {
+        changes: None,
+        document_changes: Some(DocumentChanges::Operations(vec![
+            DocumentChangeOperation::Op(ResourceOp::Create(CreateFile {
+                uri: new_uri.clone(),
+                options: Some(CreateFileOptions {
+                    overwrite: Some(false),
+                    ignore_if_exists: Some(false),
+                }),
+                annotation_id: None,
+            })),
+            DocumentChangeOperation::Edit(TextDocumentEdit {
+                text_document: OptionalVersionedTextDocumentIdentifier {
+                    uri: new_uri,
+                    version: None,
+                },
+                edits: vec![OneOf::Left(TextEdit::new(
+                    Range {
+                        start: Position {
+                            line: 0,
+                            character: 0,
+                        },
+                        end: Position {
+                            line: 0,
+                            character: 0,
+                        },
+                    },
+                    plan.new_content.clone(),
+                ))],
+            }),
+            DocumentChangeOperation::Edit(TextDocumentEdit {
+                text_document: OptionalVersionedTextDocumentIdentifier {
+                    uri: source_uri,
+                    version: None,
+                },
+                edits: vec![OneOf::Left(TextEdit::new(
+                    plan.selection,
+                    plan.replacement.clone(),
+                ))],
+            }),
+        ])),
+        change_annotations: None,
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2796,6 +3060,12 @@ fn lsp_position_to_byte_offset(content: &str, position: Position) -> Option<usiz
     position_to_byte_offset(content, position)
 }
 
+fn lsp_range_to_byte_range(content: &str, range: Range) -> Option<(usize, usize)> {
+    let start = lsp_position_to_byte_offset(content, range.start)?;
+    let end = lsp_position_to_byte_offset(content, range.end)?;
+    (start <= end).then_some((start, end))
+}
+
 fn heading_id_at_position(
     page: &AuthoringPage,
     content: &str,
@@ -3304,6 +3574,12 @@ mod tests {
         }
     }
 
+    fn range_for(content: &str, needle: &str) -> Range {
+        let start_byte = content.find(needle).expect("needle in content");
+        let end_byte = start_byte + needle.len();
+        byte_range_to_lsp_range(content, start_byte, end_byte)
+    }
+
     #[allow(deprecated)]
     fn initialize_params_for_workspace(project_dir: &Utf8Path) -> InitializeParams {
         let uri = Url::from_directory_path(project_dir.as_std_path()).expect("workspace uri");
@@ -3668,6 +3944,68 @@ mod tests {
             .expect("target creation edits");
         assert_eq!(creation_edits.len(), 1);
         assert_eq!(creation_edits[0].new_text, "\n\n## Detals\n");
+
+        std::fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[tokio::test]
+    async fn code_action_extracts_selection_to_page_without_duplicate_title() {
+        let dir = temp_dir("extract-page");
+        let content_dir = dir.join("content");
+        std::fs::create_dir_all(content_dir.join("guide")).expect("create content dirs");
+        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
+        std::fs::write(content_dir.join("guide/_index.md"), "# Guide\n").expect("write guide");
+        let source = "\
++++
+title = \"Source\"
++++
+
+# Source
+
+Keep this.
+
+## Extract Me
+
+This moves.
+";
+        std::fs::write(content_dir.join("guide/source.md"), source).expect("write source");
+
+        let project = load_authoring_project(&content_dir, &[])
+            .await
+            .expect("load project");
+        let uri = Url::from_file_path(content_dir.join("guide/source.md")).expect("source uri");
+        let selection = range_for(source, "## Extract Me\n\nThis moves.");
+        let plan = extract_page_plan(&content_dir, &project, &uri, source, selection)
+            .expect("extract plan")
+            .expect("extract action");
+
+        assert_eq!(plan.source_file, "guide/source.md");
+        assert_eq!(plan.new_source_file, "guide/extract-me.md");
+        assert_eq!(plan.new_route, "/guide/extract-me");
+        assert_eq!(plan.title, "Extract Me");
+        assert_eq!(
+            plan.new_content,
+            "+++\ntitle = \"Extract Me\"\n+++\n\nThis moves.\n"
+        );
+        assert_eq!(plan.replacement, "[Extract Me](extract-me)");
+        assert!(!plan.new_content.contains("## Extract Me"));
+
+        let edit = workspace_edit_for_extract_page(&content_dir, &plan).expect("workspace edit");
+        let operations = match edit.document_changes.expect("document changes") {
+            DocumentChanges::Operations(operations) => operations,
+            DocumentChanges::Edits(_) => panic!("expected document change operations"),
+        };
+        assert_eq!(operations.len(), 3);
+        match &operations[0] {
+            DocumentChangeOperation::Op(ResourceOp::Create(create)) => {
+                assert_eq!(
+                    create.uri,
+                    Url::from_file_path(content_dir.join("guide/extract-me.md"))
+                        .expect("created uri")
+                );
+            }
+            _ => panic!("expected create file operation"),
+        }
 
         std::fs::remove_dir_all(&dir).expect("remove temp dir");
     }
