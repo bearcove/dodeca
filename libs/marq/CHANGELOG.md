@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0](https://github.com/bearcove/marq/compare/v3.0.0...v4.0.0) - 2026-05-25
+
+### Other
+
+- Add wiki-style link support
+
 ## [3.0.0](https://github.com/bearcove/marq/compare/v2.2.2...v3.0.0) - 2026-05-25
 
 ### Other
