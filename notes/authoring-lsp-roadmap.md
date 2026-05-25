@@ -38,7 +38,7 @@ Status values:
 | `lsp-010` | `done` | Page route rename | Renaming or moving a page updates every route, relative, and source-file link that targets it. | Frontmatter rename returns a typed file-rename plus link-edit plan resolved through the shared authoring model. |
 | `lsp-011` | `done` | Broken anchor quick fixes | Missing anchor diagnostics suggest existing headings or creating a heading. | Suggestions and heading creation are resolved from the shared authoring page/heading model. |
 | `lsp-012` | `done` | Extract page code action | Extract selected Markdown into a new page and replace the selection with a link. | New page gets frontmatter, strips a selected leading heading into metadata, and uses a document-change create/edit plan. |
-| `lsp-013` | `todo` | Frontmatter schema | Complete and validate known frontmatter fields. | Should source field semantics from Dodeca's typed page model. |
+| `lsp-013` | `done` | Frontmatter schema | Complete and validate known frontmatter fields. | Field names and scalar kinds come from the Facet shape of Dodeca's typed `Frontmatter`; LSP scanning only supplies live-buffer ranges. |
 | `lsp-014` | `todo` | Frontmatter document links | Template, asset, and data-file fields in frontmatter become navigable. | Requires knowing which fields contain paths. |
 | `lsp-015` | `todo` | Template navigation | Go to definition for template extends/includes, blocks, macros, filters, and tests. | Start with path-bearing constructs before semantic block matching. |
 | `lsp-016` | `todo` | Template diagnostics | Warn on missing templates, missing blocks, unknown macros, and unavailable filters/tests. | Should avoid reimplementing Gingembre analysis outside the real parser. |

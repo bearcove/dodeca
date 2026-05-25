@@ -6,8 +6,8 @@ use ignore::WalkBuilder;
 
 use crate::BuildContext;
 use crate::db::{
-    DataRegistry, MarkdownRenderSettings, SassRegistry, SourceFile, SourceRegistry, StaticRegistry,
-    TemplateRegistry,
+    DataRegistry, Database, MarkdownRenderSettings, SassRegistry, SourceFile, SourceRegistry,
+    StaticFile, StaticRegistry, TemplateRegistry,
 };
 use crate::queries::{build_tree, source_to_route_map};
 use crate::types::{Route, SourceContent, SourcePath, StaticPath};
@@ -16,6 +16,19 @@ use crate::types::{Route, SourceContent, SourcePath, StaticPath};
 pub(crate) struct AuthoringDocumentOverlay {
     pub source_file: String,
     pub content: String,
+}
+
+pub(crate) struct AuthoringWorkspace {
+    ctx: BuildContext,
+    overlay_sources: HashSet<String>,
+}
+
+#[derive(Clone)]
+pub(crate) struct AuthoringWorkspaceSnapshot {
+    db: std::sync::Arc<Database>,
+    content_dir: Utf8PathBuf,
+    sources: std::collections::BTreeMap<SourcePath, SourceFile>,
+    static_files: std::collections::BTreeMap<StaticPath, StaticFile>,
 }
 
 #[derive(Debug, Clone)]
@@ -56,43 +69,118 @@ pub(crate) enum AuthoringPageKind {
     Section,
 }
 
+#[cfg(test)]
 pub(crate) async fn load_authoring_project(
     content_dir: &Utf8Path,
     overlays: &[AuthoringDocumentOverlay],
 ) -> Result<AuthoringProject> {
-    let output_dir = content_dir.parent().unwrap_or(content_dir).join("public");
-    let mut ctx = BuildContext::new(content_dir, &output_dir);
-    MarkdownRenderSettings::set(&*ctx.db, false)?;
+    let mut workspace = AuthoringWorkspace::new(content_dir)?;
+    workspace.apply_overlays(overlays)?;
+    workspace.snapshot().project().await
+}
 
-    ctx.load_sources()?;
-    for overlay in overlays {
-        let source_path = SourcePath::new(overlay.source_file.clone());
-        let source = SourceFile::new(
-            &*ctx.db,
-            source_path.clone(),
-            SourceContent::new(overlay.content.clone()),
-            source_last_modified(content_dir, &overlay.source_file),
-        )?;
-        ctx.sources.insert(source_path, source);
+impl AuthoringWorkspace {
+    pub(crate) fn new(content_dir: &Utf8Path) -> Result<Self> {
+        let output_dir = content_dir.parent().unwrap_or(content_dir).join("public");
+        let mut ctx = BuildContext::new(content_dir, &output_dir);
+        MarkdownRenderSettings::set(&*ctx.db, false)?;
+
+        ctx.load_sources()?;
+        load_authoring_static_paths(&mut ctx)?;
+        set_registries(&ctx)?;
+
+        Ok(Self {
+            ctx,
+            overlay_sources: HashSet::new(),
+        })
     }
 
-    load_authoring_static_paths(&mut ctx)?;
-    set_registries(&ctx)?;
+    pub(crate) fn content_dir(&self) -> &Utf8Path {
+        &self.ctx.content_dir
+    }
 
-    let site_tree = build_tree(&*ctx.db)
+    pub(crate) fn apply_overlays(&mut self, overlays: &[AuthoringDocumentOverlay]) -> Result<()> {
+        let incoming = overlays
+            .iter()
+            .map(|overlay| overlay.source_file.clone())
+            .collect::<HashSet<_>>();
+        let removed = self
+            .overlay_sources
+            .difference(&incoming)
+            .cloned()
+            .collect::<Vec<_>>();
+
+        for source_file in removed {
+            self.restore_source_from_disk(&source_file)?;
+        }
+
+        for overlay in overlays {
+            let source_path = SourcePath::new(overlay.source_file.clone());
+            let source = SourceFile::new(
+                &*self.ctx.db,
+                source_path.clone(),
+                SourceContent::new(overlay.content.clone()),
+                source_last_modified(&self.ctx.content_dir, &overlay.source_file),
+            )?;
+            self.ctx.sources.insert(source_path, source);
+        }
+
+        self.overlay_sources = incoming;
+        SourceRegistry::set(&*self.ctx.db, self.ctx.sources.values().copied().collect())?;
+        Ok(())
+    }
+
+    pub(crate) fn snapshot(&self) -> AuthoringWorkspaceSnapshot {
+        AuthoringWorkspaceSnapshot {
+            db: self.ctx.db.clone(),
+            content_dir: self.ctx.content_dir.clone(),
+            sources: self.ctx.sources.clone(),
+            static_files: self.ctx.static_files.clone(),
+        }
+    }
+
+    fn restore_source_from_disk(&mut self, source_file: &str) -> Result<()> {
+        let path = self.ctx.content_dir.join(source_file);
+        let source_path = SourcePath::new(source_file.to_string());
+        if !path.exists() {
+            self.ctx.sources.remove(&source_path);
+            return Ok(());
+        }
+
+        let source = SourceFile::new(
+            &*self.ctx.db,
+            source_path.clone(),
+            SourceContent::new(std::fs::read_to_string(&path)?),
+            source_last_modified(&self.ctx.content_dir, source_file),
+        )?;
+        self.ctx.sources.insert(source_path, source);
+        Ok(())
+    }
+}
+
+impl AuthoringWorkspaceSnapshot {
+    pub(crate) async fn project(self) -> Result<AuthoringProject> {
+        build_authoring_project_from_snapshot(self).await
+    }
+}
+
+async fn build_authoring_project_from_snapshot(
+    snapshot: AuthoringWorkspaceSnapshot,
+) -> Result<AuthoringProject> {
+    let site_tree = build_tree(&*snapshot.db)
         .await?
         .map_err(|errors| eyre!("failed to parse source files for authoring model: {errors:?}"))?;
-    let source_to_route = source_to_route_map(&*ctx.db).await?;
+    let source_to_route = source_to_route_map(&*snapshot.db).await?;
     let route_to_source = source_to_route
         .iter()
         .map(|(source, route)| (route.clone(), source.clone()))
         .collect::<HashMap<_, _>>();
 
     let mut source_contents = HashMap::new();
-    for (source_path, source) in &ctx.sources {
+    for (source_path, source) in &snapshot.sources {
         source_contents.insert(
             source_path.to_string(),
-            source.content(&*ctx.db)?.as_str().to_string(),
+            source.content(&*snapshot.db)?.as_str().to_string(),
         );
     }
 
@@ -174,11 +262,11 @@ pub(crate) async fn load_authoring_project(
             )
         })
         .collect();
-    let static_paths = ctx
+    let static_paths = snapshot
         .static_files
         .keys()
         .filter_map(|path| {
-            static_source_path(content_dir, path.as_str())
+            static_source_path(&snapshot.content_dir, path.as_str())
                 .map(|source_path| (path.as_str().to_string(), source_path))
         })
         .collect();

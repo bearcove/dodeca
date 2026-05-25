@@ -1,8 +1,9 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use eyre::{Result, eyre};
+use facet::{Facet, NumericType, PrimitiveType, Type, UserType};
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::{
@@ -26,10 +27,10 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 use crate::authoring_model::{
     AuthoringDocumentOverlay, AuthoringPage, AuthoringPageKind, AuthoringProject,
-    load_authoring_project,
+    AuthoringWorkspace,
 };
 use crate::config::ResolvedConfig;
-use crate::queries::default_title_from_source_path;
+use crate::queries::{Frontmatter, default_title_from_source_path};
 use crate::types::SourcePath;
 
 const LIST_PAGES_COMMAND: &str = "dodeca.listPages";
@@ -41,6 +42,10 @@ pub async fn run(content: Option<String>, output: Option<String>) -> Result<()> 
         startup_args: LspStartupArgs { content, output },
         dirs: None,
         documents: HashMap::new(),
+        document_revision: 0,
+        workspace: None,
+        workspace_revision: None,
+        project_cache: None,
     }));
 
     let stdin = tokio::io::stdin();
@@ -60,11 +65,14 @@ struct Backend {
     state: Arc<Mutex<AuthoringState>>,
 }
 
-#[derive(Debug)]
 struct AuthoringState {
     startup_args: LspStartupArgs,
     dirs: Option<AuthoringDirs>,
     documents: HashMap<Url, String>,
+    document_revision: u64,
+    workspace: Option<AuthoringWorkspace>,
+    workspace_revision: Option<u64>,
+    project_cache: Option<CachedAuthoringProject>,
 }
 
 #[derive(Debug, Clone)]
@@ -74,6 +82,13 @@ struct LspStartupArgs {
 }
 
 #[derive(Debug, Clone)]
+struct CachedAuthoringProject {
+    content_dir: Utf8PathBuf,
+    document_revision: u64,
+    project: AuthoringProject,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct AuthoringDirs {
     content_dir: Utf8PathBuf,
 }
@@ -376,7 +391,13 @@ impl LanguageServer for Backend {
 
 impl Backend {
     fn set_dirs(&self, dirs: AuthoringDirs) {
-        self.state.lock().unwrap().dirs = Some(dirs);
+        let mut state = self.state.lock().unwrap();
+        if state.dirs.as_ref() != Some(&dirs) {
+            state.workspace = None;
+            state.workspace_revision = None;
+            state.project_cache = None;
+        }
+        state.dirs = Some(dirs);
     }
 
     fn resolve_dirs_from_initialize(
@@ -414,11 +435,17 @@ impl Backend {
     }
 
     fn set_document(&self, uri: Url, content: String) {
-        self.state.lock().unwrap().documents.insert(uri, content);
+        let mut state = self.state.lock().unwrap();
+        state.documents.insert(uri, content);
+        state.document_revision = state.document_revision.wrapping_add(1);
+        state.project_cache = None;
     }
 
     fn remove_document(&self, uri: &Url) {
-        self.state.lock().unwrap().documents.remove(uri);
+        let mut state = self.state.lock().unwrap();
+        state.documents.remove(uri);
+        state.document_revision = state.document_revision.wrapping_add(1);
+        state.project_cache = None;
     }
 
     fn document_content(&self, uri: &Url) -> Result<String> {
@@ -450,8 +477,67 @@ impl Backend {
     }
 
     async fn current_project(&self, dirs: &AuthoringDirs) -> Result<AuthoringProject> {
+        let cached = {
+            let state = self.state.lock().unwrap();
+            state
+                .project_cache
+                .as_ref()
+                .filter(|cached| {
+                    cached.content_dir == dirs.content_dir
+                        && cached.document_revision == state.document_revision
+                })
+                .map(|cached| cached.project.clone())
+        };
+        if let Some(project) = cached {
+            return Ok(project);
+        }
+
         let overlays = self.document_overlays(&dirs.content_dir);
-        load_authoring_project(&dirs.content_dir, &overlays).await
+        let (snapshot, snapshot_revision) = {
+            let mut state = self.state.lock().unwrap();
+            let revision = state.document_revision;
+            let needs_workspace = state
+                .workspace
+                .as_ref()
+                .is_none_or(|workspace| workspace.content_dir() != dirs.content_dir);
+
+            if needs_workspace {
+                state.workspace = Some(AuthoringWorkspace::new(&dirs.content_dir)?);
+                state.workspace_revision = None;
+                state.project_cache = None;
+            }
+
+            if state.workspace_revision != Some(revision) {
+                state
+                    .workspace
+                    .as_mut()
+                    .expect("authoring workspace initialized")
+                    .apply_overlays(&overlays)?;
+                state.workspace_revision = Some(revision);
+            }
+
+            (
+                state
+                    .workspace
+                    .as_ref()
+                    .expect("authoring workspace initialized")
+                    .snapshot(),
+                revision,
+            )
+        };
+
+        let project = snapshot.project().await?;
+
+        let mut state = self.state.lock().unwrap();
+        if state.document_revision == snapshot_revision {
+            state.project_cache = Some(CachedAuthoringProject {
+                content_dir: dirs.content_dir.clone(),
+                document_revision: snapshot_revision,
+                project: project.clone(),
+            });
+        }
+
+        Ok(project)
     }
 
     async fn code_actions(&self, params: CodeActionParams) -> Result<CodeActionResponse> {
@@ -488,7 +574,9 @@ impl Backend {
                     &diagnostic,
                     &lsp_diagnostics,
                 )),
-                AuthoringDiagnosticKind::Source | AuthoringDiagnosticKind::StaticAsset => {}
+                AuthoringDiagnosticKind::Source
+                | AuthoringDiagnosticKind::StaticAsset
+                | AuthoringDiagnosticKind::Frontmatter => {}
             }
         }
 
@@ -500,6 +588,12 @@ impl Backend {
         let position = params.text_document_position.position;
         let dirs = self.dirs_for_uri(&uri)?;
         let content = self.document_content(&uri)?;
+        if let Some(context) = frontmatter_completion_context(&content, position) {
+            let path = lsp_file_uri_to_utf8_path(&uri)?;
+            let source_file = source_file_for_path(&dirs.content_dir, &path)?;
+            return Ok(completion_items_for_frontmatter(&source_file, &context));
+        }
+
         let Some(context) = markdown_target_context_at_position(&content, position) else {
             return Ok(Vec::new());
         };
@@ -711,7 +805,15 @@ impl Backend {
                 self.client
                     .log_message(MessageType::ERROR, err.to_string())
                     .await;
-                self.client.publish_diagnostics(uri, Vec::new(), None).await;
+                let diagnostics =
+                    best_effort_frontmatter_diagnostics_for_uri(&dirs.content_dir, &uri, &content)
+                        .unwrap_or_default()
+                        .iter()
+                        .map(authoring_diagnostic_to_lsp)
+                        .collect::<Vec<_>>();
+                self.client
+                    .publish_diagnostics(uri, diagnostics, None)
+                    .await;
                 return;
             }
         };
@@ -922,6 +1024,7 @@ enum AuthoringDiagnosticKind {
     Anchor,
     Source,
     StaticAsset,
+    Frontmatter,
 }
 
 impl AuthoringDiagnostic {
@@ -983,10 +1086,131 @@ fn diagnostics_for_page(
     page: &AuthoringPage,
     content: &str,
 ) -> Vec<AuthoringDiagnostic> {
-    markdown_references(content)
+    let mut diagnostics =
+        frontmatter_diagnostics_for_source(&page.source_file, &page.route, content);
+    diagnostics.extend(
+        markdown_references(content)
+            .into_iter()
+            .filter_map(|reference| diagnostic_for_reference(project, page, content, reference)),
+    );
+    diagnostics
+}
+
+fn best_effort_frontmatter_diagnostics_for_uri(
+    content_dir: &Utf8Path,
+    uri: &Url,
+    content: &str,
+) -> Result<Vec<AuthoringDiagnostic>> {
+    let path = lsp_file_uri_to_utf8_path(uri)?;
+    let source_file = source_file_for_path(content_dir, &path)?;
+    let route = SourcePath::new(source_file.clone()).to_route().to_string();
+    Ok(frontmatter_diagnostics_for_source(
+        &source_file,
+        &route,
+        content,
+    ))
+}
+
+fn frontmatter_diagnostics_for_source(
+    source_file: &str,
+    route: &str,
+    content: &str,
+) -> Vec<AuthoringDiagnostic> {
+    let known_fields = frontmatter_field_specs()
         .into_iter()
-        .filter_map(|reference| diagnostic_for_reference(project, page, content, reference))
-        .collect()
+        .map(|spec| (spec.name, spec))
+        .collect::<HashMap<_, _>>();
+    let mut seen = HashSet::new();
+    let mut diagnostics = Vec::new();
+
+    for entry in frontmatter_entries(content) {
+        if entry.table.as_deref().is_some_and(|table| table != "extra") {
+            continue;
+        }
+        if entry.table.is_some() {
+            continue;
+        }
+
+        let Some(spec) = known_fields.get(entry.key.as_str()) else {
+            diagnostics.push(frontmatter_diagnostic(
+                source_file,
+                route,
+                content,
+                &entry.key,
+                format!("unknown Dodeca frontmatter field '{}'", entry.key),
+                entry.key_start,
+                entry.key_end,
+            ));
+            continue;
+        };
+
+        if !seen.insert(entry.key.clone()) {
+            diagnostics.push(frontmatter_diagnostic(
+                source_file,
+                route,
+                content,
+                &entry.key,
+                format!("duplicate Dodeca frontmatter field '{}'", entry.key),
+                entry.key_start,
+                entry.key_end,
+            ));
+        }
+
+        if spec.kind == FrontmatterFieldKind::Table {
+            diagnostics.push(frontmatter_diagnostic(
+                source_file,
+                route,
+                content,
+                &entry.key,
+                "frontmatter custom fields belong under an [extra] table".to_string(),
+                entry.key_start,
+                entry.key_end,
+            ));
+        } else if !frontmatter_value_matches_kind(&entry.value, spec.kind) {
+            diagnostics.push(frontmatter_diagnostic(
+                source_file,
+                route,
+                content,
+                &entry.key,
+                format!(
+                    "frontmatter field '{}' expects {}",
+                    entry.key,
+                    spec.kind.description()
+                ),
+                entry.value_start,
+                entry.value_end,
+            ));
+        }
+    }
+
+    diagnostics
+}
+
+fn frontmatter_diagnostic(
+    source_file: &str,
+    route: &str,
+    content: &str,
+    target: &str,
+    message: String,
+    byte_start: usize,
+    byte_end: usize,
+) -> AuthoringDiagnostic {
+    let (line, column) = byte_to_line_column(content, byte_start);
+    let (line_end, column_end) = byte_to_line_column(content, byte_end);
+    AuthoringDiagnostic {
+        source_file: source_file.to_string(),
+        route: route.to_string(),
+        kind: AuthoringDiagnosticKind::Frontmatter,
+        target: target.to_string(),
+        resolved_route: None,
+        message,
+        line,
+        column,
+        line_end,
+        column_end,
+        byte_start,
+        byte_end,
+    }
 }
 
 fn diagnostic_for_reference(
@@ -3259,6 +3483,411 @@ fn frontmatter_lsp_range(content: &str) -> Option<Range> {
     })
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FrontmatterFieldKind {
+    String,
+    Integer,
+    Table,
+}
+
+impl FrontmatterFieldKind {
+    fn description(self) -> &'static str {
+        match self {
+            FrontmatterFieldKind::String => "a string",
+            FrontmatterFieldKind::Integer => "an integer",
+            FrontmatterFieldKind::Table => "a table",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct FrontmatterFieldSpec {
+    name: &'static str,
+    kind: FrontmatterFieldKind,
+}
+
+#[derive(Debug, Clone)]
+struct FrontmatterEntry {
+    key: String,
+    key_start: usize,
+    key_end: usize,
+    value: String,
+    value_start: usize,
+    value_end: usize,
+    table: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct FrontmatterCompletionContext {
+    replace_range: Range,
+    present_fields: HashSet<String>,
+    current_table: Option<String>,
+}
+
+fn frontmatter_field_specs() -> Vec<FrontmatterFieldSpec> {
+    let fields = match <Frontmatter as Facet>::SHAPE.ty {
+        Type::User(UserType::Struct(struct_type)) => struct_type.fields,
+        _ => return Vec::new(),
+    };
+
+    fields
+        .iter()
+        .filter_map(|field| {
+            let name = field.rename.unwrap_or(field.name);
+            frontmatter_field_kind(name, field.shape.get())
+                .map(|kind| FrontmatterFieldSpec { name, kind })
+        })
+        .collect()
+}
+
+fn frontmatter_field_kind(
+    name: &'static str,
+    shape: &'static facet::Shape,
+) -> Option<FrontmatterFieldKind> {
+    if name == "extra" {
+        return Some(FrontmatterFieldKind::Table);
+    }
+
+    let shape = if shape.type_identifier == "Option" {
+        shape.inner.unwrap_or(shape)
+    } else {
+        shape
+    };
+
+    if shape.type_identifier == "String" {
+        return Some(FrontmatterFieldKind::String);
+    }
+
+    match shape.ty {
+        Type::Primitive(PrimitiveType::Textual(_)) => Some(FrontmatterFieldKind::String),
+        Type::Primitive(PrimitiveType::Numeric(NumericType::Integer { .. })) => {
+            Some(FrontmatterFieldKind::Integer)
+        }
+        _ => None,
+    }
+}
+
+fn frontmatter_entries(content: &str) -> Vec<FrontmatterEntry> {
+    let Some(block) = frontmatter_content_byte_range(content) else {
+        return Vec::new();
+    };
+    let mut entries = Vec::new();
+    let mut table = None;
+    let mut line_start = block.start;
+
+    while line_start < block.end {
+        let line_end = content[line_start..block.end]
+            .find('\n')
+            .map(|offset| line_start + offset)
+            .unwrap_or(block.end);
+        let line = &content[line_start..line_end];
+        let trimmed = line.trim();
+
+        if let Some(table_name) = frontmatter_table_name(trimmed) {
+            table = Some(table_name);
+        } else if !trimmed.is_empty()
+            && !trimmed.starts_with('#')
+            && let Some(entry) =
+                frontmatter_entry_for_line(content, line_start, line, table.clone())
+        {
+            entries.push(entry);
+        }
+
+        line_start = line_end.saturating_add(1);
+    }
+
+    entries
+}
+
+fn frontmatter_entry_for_line(
+    content: &str,
+    line_start: usize,
+    line: &str,
+    table: Option<String>,
+) -> Option<FrontmatterEntry> {
+    let key_start_in_line = line.find(|c: char| !c.is_whitespace())?;
+    let key_tail = &line[key_start_in_line..];
+    let key_len = key_tail
+        .find(|c: char| !is_frontmatter_key_char(c))
+        .unwrap_or(key_tail.len());
+    if key_len == 0 {
+        return None;
+    }
+
+    let after_key = key_start_in_line + key_len;
+    let equals_offset = line[after_key..].find('=')? + after_key;
+    if !line[after_key..equals_offset]
+        .chars()
+        .all(char::is_whitespace)
+    {
+        return None;
+    }
+
+    let key_start = line_start + key_start_in_line;
+    let key_end = key_start + key_len;
+    let value_start_in_line =
+        equals_offset + 1 + leading_whitespace_len(&line[equals_offset + 1..]);
+    let value_end_in_line = line_comment_start(&line[value_start_in_line..])
+        .map(|offset| value_start_in_line + offset)
+        .unwrap_or(line.len());
+    let value_end_in_line = value_end_in_line - trailing_whitespace_len(&line[..value_end_in_line]);
+    let value_start = line_start + value_start_in_line;
+    let value_end = line_start + value_end_in_line.max(value_start_in_line);
+
+    Some(FrontmatterEntry {
+        key: content[key_start..key_end].to_string(),
+        key_start,
+        key_end,
+        value: content[value_start..value_end].to_string(),
+        value_start,
+        value_end,
+        table,
+    })
+}
+
+fn frontmatter_completion_context(
+    content: &str,
+    position: Position,
+) -> Option<FrontmatterCompletionContext> {
+    let block = frontmatter_content_byte_range(content)?;
+    let offset = position_to_byte_offset(content, position)?;
+    if offset < block.start || offset > block.end {
+        return None;
+    }
+
+    let (line_start, line_end) = line_bounds_at_offset(content, offset);
+    let replace_start = scan_frontmatter_key_start(content, line_start, offset);
+    let replace_end = scan_frontmatter_key_end(content, offset, line_end);
+    let current_table = frontmatter_table_at_offset(content, offset);
+    let mut present_fields = frontmatter_entries(content)
+        .into_iter()
+        .filter(|entry| entry.table.is_none())
+        .map(|entry| entry.key)
+        .collect::<HashSet<_>>();
+
+    if frontmatter_has_extra_table(content) {
+        present_fields.insert("extra".to_string());
+    }
+
+    Some(FrontmatterCompletionContext {
+        replace_range: byte_range_to_lsp_range(content, replace_start, replace_end),
+        present_fields,
+        current_table,
+    })
+}
+
+fn completion_items_for_frontmatter(
+    source_file: &str,
+    context: &FrontmatterCompletionContext,
+) -> Vec<CompletionItem> {
+    if context.current_table.is_some() {
+        return Vec::new();
+    }
+
+    frontmatter_field_specs()
+        .into_iter()
+        .filter(|spec| !context.present_fields.contains(spec.name))
+        .map(|spec| CompletionItem {
+            label: frontmatter_completion_label(spec).to_string(),
+            kind: Some(match spec.kind {
+                FrontmatterFieldKind::Table => CompletionItemKind::STRUCT,
+                _ => CompletionItemKind::FIELD,
+            }),
+            detail: Some(format!("Dodeca frontmatter {}", spec.kind.description())),
+            text_edit: Some(CompletionTextEdit::Edit(TextEdit::new(
+                context.replace_range,
+                frontmatter_completion_text(source_file, spec),
+            ))),
+            ..CompletionItem::default()
+        })
+        .collect()
+}
+
+fn frontmatter_completion_label(spec: FrontmatterFieldSpec) -> &'static str {
+    match spec.kind {
+        FrontmatterFieldKind::Table => "[extra]",
+        _ => spec.name,
+    }
+}
+
+fn frontmatter_completion_text(source_file: &str, spec: FrontmatterFieldSpec) -> String {
+    match (spec.name, spec.kind) {
+        ("title", FrontmatterFieldKind::String) => {
+            format!(
+                "title = \"{}\"",
+                toml_basic_string_escape(&default_title_from_source_path(source_file))
+            )
+        }
+        ("description", FrontmatterFieldKind::String) => "description = \"\"".to_string(),
+        ("template", FrontmatterFieldKind::String) => {
+            let default_template = if SourcePath::new(source_file.to_string()).is_section_index() {
+                "section.html"
+            } else {
+                "page.html"
+            };
+            format!("template = \"{default_template}\"")
+        }
+        ("weight", FrontmatterFieldKind::Integer) => "weight = 0".to_string(),
+        ("extra", FrontmatterFieldKind::Table) => "[extra]\n".to_string(),
+        _ => spec.name.to_string(),
+    }
+}
+
+fn frontmatter_value_matches_kind(value: &str, kind: FrontmatterFieldKind) -> bool {
+    let value = value.trim();
+    match kind {
+        FrontmatterFieldKind::String => value.starts_with('"') || value.starts_with('\''),
+        FrontmatterFieldKind::Integer => frontmatter_value_is_integer(value),
+        FrontmatterFieldKind::Table => true,
+    }
+}
+
+fn frontmatter_value_is_integer(value: &str) -> bool {
+    let value = value.strip_prefix(['+', '-']).unwrap_or(value);
+    let mut previous_underscore = false;
+    let mut saw_digit = false;
+
+    for ch in value.chars() {
+        match ch {
+            '_' if saw_digit && !previous_underscore => previous_underscore = true,
+            '0'..='9' => {
+                saw_digit = true;
+                previous_underscore = false;
+            }
+            _ => return false,
+        }
+    }
+
+    saw_digit && !previous_underscore
+}
+
+#[derive(Debug, Clone, Copy)]
+struct FrontmatterContentByteRange {
+    start: usize,
+    end: usize,
+}
+
+fn frontmatter_content_byte_range(content: &str) -> Option<FrontmatterContentByteRange> {
+    content.strip_prefix("+++\n")?;
+    let closing_start = content[4..].find("\n+++")? + 4;
+    Some(FrontmatterContentByteRange {
+        start: 4,
+        end: closing_start,
+    })
+}
+
+fn frontmatter_table_name(trimmed_line: &str) -> Option<String> {
+    let inner = trimmed_line.strip_prefix('[')?.strip_suffix(']')?.trim();
+    (!inner.is_empty()).then(|| inner.to_string())
+}
+
+fn frontmatter_table_at_offset(content: &str, offset: usize) -> Option<String> {
+    let block = frontmatter_content_byte_range(content)?;
+    let mut table = None;
+    let mut line_start = block.start;
+    let limit = offset.min(block.end);
+
+    while line_start < limit {
+        let line_end = content[line_start..limit]
+            .find('\n')
+            .map(|line_end| line_start + line_end)
+            .unwrap_or(limit);
+        if let Some(table_name) = frontmatter_table_name(content[line_start..line_end].trim()) {
+            table = Some(table_name);
+        }
+        line_start = line_end.saturating_add(1);
+    }
+
+    table
+}
+
+fn frontmatter_has_extra_table(content: &str) -> bool {
+    let Some(block) = frontmatter_content_byte_range(content) else {
+        return false;
+    };
+    content[block.start..block.end]
+        .lines()
+        .filter_map(|line| frontmatter_table_name(line.trim()))
+        .any(|table| table == "extra")
+}
+
+fn is_frontmatter_key_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '_' || ch == '-'
+}
+
+fn leading_whitespace_len(input: &str) -> usize {
+    input
+        .char_indices()
+        .find(|(_, ch)| !ch.is_whitespace())
+        .map(|(idx, _)| idx)
+        .unwrap_or(input.len())
+}
+
+fn trailing_whitespace_len(input: &str) -> usize {
+    input.len() - input.trim_end_matches(char::is_whitespace).len()
+}
+
+fn line_comment_start(input: &str) -> Option<usize> {
+    let mut in_string = false;
+    let mut quote = '\0';
+    let mut escaped = false;
+
+    for (idx, ch) in input.char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' && quote == '"' {
+                escaped = true;
+            } else if ch == quote {
+                in_string = false;
+            }
+        } else if ch == '"' || ch == '\'' {
+            in_string = true;
+            quote = ch;
+        } else if ch == '#' {
+            return Some(idx);
+        }
+    }
+
+    None
+}
+
+fn line_bounds_at_offset(content: &str, offset: usize) -> (usize, usize) {
+    let start = content[..offset]
+        .rfind('\n')
+        .map(|idx| idx + 1)
+        .unwrap_or(0);
+    let end = content[offset..]
+        .find('\n')
+        .map(|idx| offset + idx)
+        .unwrap_or(content.len());
+    (start, end)
+}
+
+fn scan_frontmatter_key_start(content: &str, line_start: usize, offset: usize) -> usize {
+    let mut start = offset;
+    while start > line_start {
+        let previous = content.as_bytes()[start - 1] as char;
+        if !is_frontmatter_key_char(previous) {
+            break;
+        }
+        start -= 1;
+    }
+    start
+}
+
+fn scan_frontmatter_key_end(content: &str, offset: usize, line_end: usize) -> usize {
+    let mut end = offset;
+    while end < line_end {
+        let next = content.as_bytes()[end] as char;
+        if !is_frontmatter_key_char(next) {
+            break;
+        }
+        end += 1;
+    }
+    end
+}
+
 fn source_file_for_path(content_dir: &Utf8Path, path: &Utf8Path) -> Result<String> {
     Ok(path
         .strip_prefix(content_dir)
@@ -3544,12 +4173,14 @@ fn diagnostic_kind_name(kind: AuthoringDiagnosticKind) -> &'static str {
         AuthoringDiagnosticKind::Anchor => "missingAnchor",
         AuthoringDiagnosticKind::Source => "missingSource",
         AuthoringDiagnosticKind::StaticAsset => "missingStaticAsset",
+        AuthoringDiagnosticKind::Frontmatter => "frontmatter",
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::authoring_model::load_authoring_project;
     use std::time::{SystemTime, UNIX_EPOCH};
     use tower_lsp::lsp_types::{ClientCapabilities, WorkspaceFolder};
 
@@ -3653,6 +4284,51 @@ mod tests {
             &range,
             position_for(content, "Body")
         ));
+    }
+
+    #[test]
+    fn validates_frontmatter_against_typed_fields() {
+        let content = "+++\ntitl = \"Typo\"\ntitle = \"Guide\"\ntitle = \"Duplicate\"\nweight = \"heavy\"\ntemplate = 42\n[extra]\ncustom = true\n+++\n";
+        let diagnostics = frontmatter_diagnostics_for_source("guide.md", "/guide", content);
+        let messages = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(messages.contains(&"unknown Dodeca frontmatter field 'titl'"));
+        assert!(messages.contains(&"duplicate Dodeca frontmatter field 'title'"));
+        assert!(messages.contains(&"frontmatter field 'weight' expects an integer"));
+        assert!(messages.contains(&"frontmatter field 'template' expects a string"));
+        assert!(!messages.iter().any(|message| message.contains("custom")));
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.kind == AuthoringDiagnosticKind::Frontmatter)
+        );
+    }
+
+    #[test]
+    fn completes_missing_frontmatter_fields_from_schema() {
+        let content = "+++\ntitle = \"Guide\"\n\n+++\n";
+        let context =
+            frontmatter_completion_context(content, Position::new(2, 0)).expect("context");
+        let items = completion_items_for_frontmatter("guide.md", &context);
+        let labels = items
+            .iter()
+            .map(|item| item.label.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(!labels.contains(&"title"));
+        assert!(labels.contains(&"description"));
+        assert!(labels.contains(&"weight"));
+        assert!(labels.contains(&"template"));
+        assert!(labels.contains(&"[extra]"));
+        assert!(items.iter().any(|item| {
+            item.text_edit.as_ref().is_some_and(|edit| match edit {
+                CompletionTextEdit::Edit(edit) => edit.new_text == "template = \"page.html\"",
+                CompletionTextEdit::InsertAndReplace(_) => false,
+            })
+        }));
     }
 
     #[test]
@@ -4627,6 +5303,51 @@ title = \"Source\"
         assert_eq!(
             overlay_project.source_file_for_route("/draft"),
             Some("draft.md")
+        );
+
+        std::fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[tokio::test]
+    async fn authoring_workspace_updates_open_document_overlays() {
+        let dir = temp_dir("workspace-overlays");
+        let content_dir = dir.join("content");
+        std::fs::create_dir_all(&content_dir).expect("create content dir");
+        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
+
+        let mut workspace = AuthoringWorkspace::new(&content_dir).expect("workspace");
+        assert!(
+            !workspace
+                .snapshot()
+                .project()
+                .await
+                .expect("project")
+                .route_exists("/draft")
+        );
+
+        workspace
+            .apply_overlays(&[AuthoringDocumentOverlay {
+                source_file: "draft.md".to_string(),
+                content: "+++\ntitle = \"Draft\"\n+++\n".to_string(),
+            }])
+            .expect("apply overlay");
+        assert!(
+            workspace
+                .snapshot()
+                .project()
+                .await
+                .expect("project")
+                .route_exists("/draft")
+        );
+
+        workspace.apply_overlays(&[]).expect("clear overlay");
+        assert!(
+            !workspace
+                .snapshot()
+                .project()
+                .await
+                .expect("project")
+                .route_exists("/draft")
         );
 
         std::fs::remove_dir_all(&dir).expect("remove temp dir");
