@@ -11,6 +11,7 @@
 
 use std::future::Future;
 use std::pin::Pin;
+#[cfg(feature = "highlight")]
 use std::sync::Arc;
 
 use crate::Result;
@@ -476,7 +477,6 @@ impl CodeBlockHandler for PikruHandler {
             // Render to SVG
             let options = pikru::render::RenderOptions {
                 css_variables: self.css_variables,
-                ..Default::default()
             };
             match pikru::render::render_with_options(&program, &options) {
                 Ok(svg) => Ok(svg.into()),
@@ -587,6 +587,7 @@ document.addEventListener('hotmeal:opaque-changed', async (e) => {
 }
 
 /// A parsed section from a compare block.
+#[cfg(feature = "highlight")]
 #[derive(Debug, Clone)]
 pub struct CompareSection {
     /// Language identifier for syntax highlighting

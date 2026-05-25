@@ -1,10 +1,14 @@
 //! Main rendering pipeline.
 
 use std::collections::{BTreeMap, HashMap};
+use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
 
-use pulldown_cmark::{CodeBlockKind, Event, MetadataBlockKind, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{
+    Alignment, BlockQuoteKind, CodeBlockKind, Event, MetadataBlockKind, Options, Parser, Tag,
+    TagEnd,
+};
 
 use crate::Result;
 use crate::frontmatter::{Frontmatter, FrontmatterFormat};
@@ -100,11 +104,35 @@ pub enum DocElement {
     Paragraph(Paragraph),
 }
 
+#[derive(Default)]
+struct HtmlRenderState {
+    table_alignments: Vec<Alignment>,
+    table_in_head: bool,
+    table_cell_index: usize,
+    blockquote_stack: Vec<Option<SourceId>>,
+    list_stack: Vec<Option<SourceId>>,
+    list_item_stack: Vec<Option<SourceId>>,
+    definition_list_stack: Vec<Option<SourceId>>,
+    definition_title: Option<SourceId>,
+    definition_definition: Option<SourceId>,
+    table: Option<SourceId>,
+    table_head: Option<SourceId>,
+    table_row: Option<SourceId>,
+    table_cell: Option<SourceId>,
+}
+
 /// Options for rendering markdown.
 #[derive(Default)]
 pub struct RenderOptions {
-    /// Source file path (for relative link resolution)
+    /// Source file path for relative link resolution.
     pub source_path: Option<String>,
+
+    /// Whether to build a source map and emit `data-sid` attributes in HTML.
+    ///
+    /// This is useful for development tooling that maps rendered HTML elements
+    /// back to markdown source, but production builds can leave it disabled to
+    /// keep the rendered HTML clean.
+    pub source_map: bool,
 
     /// Code block handlers keyed by language
     pub code_handlers: HashMap<String, BoxedHandler>,
@@ -154,9 +182,15 @@ impl RenderOptions {
         self
     }
 
-    /// Set the source file path for link resolution and paragraph source attributes.
+    /// Set the source file path for link resolution.
     pub fn with_source_path(mut self, path: &str) -> Self {
         self.source_path = Some(path.to_string());
+        self
+    }
+
+    /// Configure whether rendered elements include source IDs and source-map entries.
+    pub fn with_source_map(mut self, enabled: bool) -> Self {
+        self.source_map = enabled;
         self
     }
 
@@ -173,6 +207,110 @@ impl RenderOptions {
     ) -> Self {
         self.link_resolver = Some(Arc::new(resolver));
         self
+    }
+}
+
+/// Opaque ID for a rendered HTML element that has a source-map entry.
+///
+/// Source IDs are scoped to one rendered [`Document`]. They are derived from
+/// the markdown construct and source slice, so unrelated insertions elsewhere
+/// in the document do not renumber every following element.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SourceId(String);
+
+impl SourceId {
+    /// Return the ID emitted in `data-sid`.
+    pub fn get(&self) -> &str {
+        &self.0
+    }
+
+    /// Return the ID emitted in `data-sid`.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for SourceId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+/// The markdown construct represented by a source-map entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceKind {
+    Heading,
+    Paragraph,
+    BlockQuote,
+    List,
+    ListItem,
+    DefinitionList,
+    DefinitionListTitle,
+    DefinitionListDefinition,
+    ThematicBreak,
+    Table,
+    TableHead,
+    TableRow,
+    TableCell,
+    Image,
+}
+
+impl SourceKind {
+    fn stable_tag(self) -> &'static str {
+        match self {
+            SourceKind::Heading => "heading",
+            SourceKind::Paragraph => "paragraph",
+            SourceKind::BlockQuote => "blockquote",
+            SourceKind::List => "list",
+            SourceKind::ListItem => "list-item",
+            SourceKind::DefinitionList => "definition-list",
+            SourceKind::DefinitionListTitle => "definition-list-title",
+            SourceKind::DefinitionListDefinition => "definition-list-definition",
+            SourceKind::ThematicBreak => "thematic-break",
+            SourceKind::Table => "table",
+            SourceKind::TableHead => "table-head",
+            SourceKind::TableRow => "table-row",
+            SourceKind::TableCell => "table-cell",
+            SourceKind::Image => "image",
+        }
+    }
+}
+
+/// Source information for one rendered HTML element.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceMapEntry {
+    /// ID emitted as `data-sid`.
+    pub id: SourceId,
+    /// Markdown construct represented by this entry.
+    pub kind: SourceKind,
+    /// Inclusive 1-indexed starting line.
+    pub line_start: usize,
+    /// Inclusive 1-indexed ending line.
+    pub line_end: usize,
+    /// Inclusive starting byte offset in the source markdown.
+    pub byte_start: usize,
+    /// Exclusive ending byte offset in the source markdown.
+    pub byte_end: usize,
+}
+
+/// Sidecar map from rendered `data-sid` attributes back to markdown spans.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SourceMap {
+    /// Source path for all entries, when provided in [`RenderOptions`].
+    pub source_path: Option<String>,
+    /// Entries in render order.
+    pub entries: Vec<SourceMapEntry>,
+}
+
+impl SourceMap {
+    /// Look up one source-map entry by ID.
+    pub fn get(&self, id: &SourceId) -> Option<&SourceMapEntry> {
+        self.entries.iter().find(|entry| &entry.id == id)
+    }
+
+    /// Look up one source-map entry by the value read from a `data-sid` attribute.
+    pub fn get_by_sid(&self, sid: &str) -> Option<&SourceMapEntry> {
+        self.entries.iter().find(|entry| entry.id.as_str() == sid)
     }
 }
 
@@ -249,11 +387,183 @@ pub struct Document {
     /// All inline code spans (backtick-delimited) found in the document.
     /// Spans include byte offsets covering the backtick delimiters.
     pub inline_code_spans: Vec<InlineCodeSpan>,
+
+    /// Source map for rendered elements with `data-sid` attributes.
+    pub source_map: SourceMap,
 }
 
 /// Convert a byte offset to a 1-indexed line number.
 fn offset_to_line(content: &str, offset: usize) -> usize {
     content[..offset.min(content.len())].matches('\n').count() + 1
+}
+
+fn offset_to_end_line(content: &str, end_offset: usize) -> usize {
+    if end_offset == 0 {
+        1
+    } else {
+        offset_to_line(content, end_offset.saturating_sub(1))
+    }
+}
+
+struct SourceMapBuilder {
+    enabled: bool,
+    map: SourceMap,
+    seen_ids: BTreeMap<String, usize>,
+    next_placeholder: usize,
+    replacements: Vec<(SourceId, SourceId)>,
+}
+
+impl SourceMapBuilder {
+    fn new(options: &RenderOptions) -> Self {
+        Self {
+            enabled: options.source_map,
+            map: SourceMap {
+                source_path: options
+                    .source_map
+                    .then(|| options.source_path.clone())
+                    .flatten(),
+                entries: Vec::new(),
+            },
+            seen_ids: BTreeMap::new(),
+            next_placeholder: 1,
+            replacements: Vec::new(),
+        }
+    }
+
+    fn finish(self, html: &mut String) -> SourceMap {
+        for (placeholder, id) in &self.replacements {
+            let from = format!("data-sid=\"{}\"", placeholder);
+            let to = format!("data-sid=\"{}\"", id);
+            *html = html.replace(&from, &to);
+        }
+        self.map
+    }
+
+    fn span_attr(&mut self, kind: SourceKind, range: Range<usize>, markdown: &str) -> String {
+        let Some(id) = self.push_entry(kind, range, markdown) else {
+            return String::new();
+        };
+        format!(" data-sid=\"{}\"", id)
+    }
+
+    fn open_attr(
+        &mut self,
+        kind: SourceKind,
+        range: &Range<usize>,
+        markdown: &str,
+    ) -> (Option<SourceId>, String) {
+        let Some(id) = self.push_open_entry(kind, range.clone(), markdown) else {
+            return (None, String::new());
+        };
+        let attrs = format!(" data-sid=\"{}\"", id);
+        (Some(id), attrs)
+    }
+
+    fn close(&mut self, id: Option<SourceId>, range: &Range<usize>, markdown: &str) {
+        let Some(id) = id else {
+            return;
+        };
+        let Some(index) = self.map.entry_index(&id) else {
+            return;
+        };
+        let kind = self.map.entries[index].kind;
+        let source_range = self.map.entries[index].byte_start..range.end;
+        let final_id = self.source_id(kind, &source_range, markdown);
+        let placeholder = std::mem::replace(&mut self.map.entries[index].id, final_id.clone());
+        self.replacements.push((placeholder, final_id));
+
+        let entry = &mut self.map.entries[index];
+        entry.byte_end = range.end;
+        entry.line_end = offset_to_end_line(markdown, range.end);
+    }
+
+    fn push_entry(
+        &mut self,
+        kind: SourceKind,
+        range: Range<usize>,
+        markdown: &str,
+    ) -> Option<SourceId> {
+        if !self.enabled {
+            return None;
+        }
+
+        let id = self.source_id(kind, &range, markdown);
+        self.map.entries.push(SourceMapEntry {
+            id: id.clone(),
+            kind,
+            line_start: offset_to_line(markdown, range.start),
+            line_end: offset_to_end_line(markdown, range.end),
+            byte_start: range.start,
+            byte_end: range.end,
+        });
+        Some(id)
+    }
+
+    fn push_open_entry(
+        &mut self,
+        kind: SourceKind,
+        range: Range<usize>,
+        markdown: &str,
+    ) -> Option<SourceId> {
+        if !self.enabled {
+            return None;
+        }
+
+        let id = self.placeholder_id();
+        self.map.entries.push(SourceMapEntry {
+            id: id.clone(),
+            kind,
+            line_start: offset_to_line(markdown, range.start),
+            line_end: offset_to_end_line(markdown, range.end),
+            byte_start: range.start,
+            byte_end: range.end,
+        });
+        Some(id)
+    }
+
+    fn source_id(&mut self, kind: SourceKind, range: &Range<usize>, markdown: &str) -> SourceId {
+        let source = &markdown[range.start..range.end];
+        let base = stable_source_id(kind, source);
+        let count = self.seen_ids.entry(base.clone()).or_default();
+        *count += 1;
+        if *count == 1 {
+            SourceId(base)
+        } else {
+            SourceId(format!("{base}-{}", *count))
+        }
+    }
+
+    fn placeholder_id(&mut self) -> SourceId {
+        let id = SourceId(format!("__marq-source-{}__", self.next_placeholder));
+        self.next_placeholder += 1;
+        id
+    }
+}
+
+impl SourceMap {
+    fn entry_index(&self, id: &SourceId) -> Option<usize> {
+        self.entries.iter().position(|entry| &entry.id == id)
+    }
+}
+
+fn stable_source_id(kind: SourceKind, source: &str) -> String {
+    const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+    const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+
+    let mut hash = FNV_OFFSET;
+    for byte in kind
+        .stable_tag()
+        .as_bytes()
+        .iter()
+        .copied()
+        .chain([0])
+        .chain(source.as_bytes().iter().copied())
+    {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+
+    format!("s{hash:016x}")
 }
 
 /// Render markdown to HTML.
@@ -294,6 +604,8 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
     let mut code_samples: Vec<CodeSample> = Vec::new();
     let mut inline_code_spans: Vec<InlineCodeSpan> = Vec::new();
     let mut head_injection_map: BTreeMap<String, String> = BTreeMap::new();
+    let mut html_state = HtmlRenderState::default();
+    let mut source_map = SourceMapBuilder::new(options);
 
     // Output HTML - built directly as we process
     let mut html = String::new();
@@ -433,7 +745,14 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                                 parent_events.append(&mut events);
                             }
                         } else {
-                            render_events_to_html(&mut html, &events, options, None).await;
+                            render_events_to_html(
+                                &mut html,
+                                &events,
+                                options,
+                                markdown,
+                                &mut source_map,
+                            )
+                            .await;
                         }
                     }
                     continue;
@@ -547,10 +866,12 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                     elements.push(DocElement::Heading(heading));
 
                     // Emit the heading HTML
+                    let source_range = start_offset..range.end;
                     html.push_str(&format!(
-                        "<h{} id=\"{}\">{}</h{}>",
+                        "<h{} id=\"{}\"{}>{}</h{}>",
                         current_level,
                         html_escape(&id),
+                        source_map.span_attr(SourceKind::Heading, source_range, markdown),
                         html_escape(&heading_text),
                         current_level
                     ));
@@ -618,7 +939,7 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                         line,
                         offset: start_offset,
                     }));
-                    render_events_to_html(&mut html, &events, options, Some(SourceInfo { line }))
+                    render_events_to_html(&mut html, &events, options, markdown, &mut source_map)
                         .await;
                 }
             }
@@ -786,7 +1107,16 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                     events.push((event, range));
                 } else if !stack_contains(&context_stack, |c| c.is_metadata()) {
                     // Render directly using pulldown_cmark for other events
-                    pulldown_cmark::html::push_html(&mut html, std::iter::once(event.clone()));
+                    if !render_source_block_event(
+                        &mut html,
+                        &event,
+                        &range,
+                        markdown,
+                        &mut html_state,
+                        &mut source_map,
+                    ) {
+                        pulldown_cmark::html::push_html(&mut html, std::iter::once(event.clone()));
+                    }
                 }
             }
         }
@@ -799,6 +1129,8 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
         _ => None,
     };
 
+    let source_map = source_map.finish(&mut html);
+
     Ok(Document {
         raw_metadata,
         metadata_format,
@@ -810,6 +1142,7 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
         elements,
         head_injections: head_injection_map.into_values().collect(),
         inline_code_spans,
+        source_map,
     })
 }
 
@@ -818,21 +1151,19 @@ async fn render_events_to_html(
     html: &mut String,
     events: &[(Event<'_>, Range<usize>)],
     options: &RenderOptions,
-    source_info: Option<SourceInfo>,
+    markdown: &str,
+    source_map: &mut SourceMapBuilder,
 ) {
+    let mut html_state = HtmlRenderState::default();
     let mut i = 0;
     while i < events.len() {
-        let (event, _range) = &events[i];
+        let (event, range) = &events[i];
         match event {
             Event::Start(Tag::Paragraph) => {
-                // Custom paragraph rendering with source location attributes
-                let mut attrs = String::new();
-                if let Some(ref info) = source_info {
-                    attrs.push_str(&format!(" data-source-line=\"{}\"", info.line));
-                    if let Some(ref file) = options.source_path {
-                        attrs.push_str(&format!(" data-source-file=\"{}\"", html_escape(file)));
-                    }
-                }
+                let source_range = matching_end_range(events, i, TagEnd::Paragraph)
+                    .map(|end_range| range.start..end_range.end)
+                    .unwrap_or_else(|| range.clone());
+                let attrs = source_map.span_attr(SourceKind::Paragraph, source_range, markdown);
                 html.push_str(&format!("<p{}>", attrs));
             }
             Event::End(TagEnd::Paragraph) => {
@@ -841,12 +1172,16 @@ async fn render_events_to_html(
             Event::Start(Tag::Image {
                 dest_url, title, ..
             }) => {
-                // Collect alt text from events until End(TagEnd::Image)
+                let source_start = range.start;
+                let mut source_end = range.end;
                 let mut alt_text = String::new();
                 i += 1;
                 while i < events.len() {
                     match &events[i].0 {
-                        Event::End(TagEnd::Image) => break,
+                        Event::End(TagEnd::Image) => {
+                            source_end = events[i].1.end;
+                            break;
+                        }
                         Event::Text(t) => alt_text.push_str(t),
                         Event::Code(c) => alt_text.push_str(c),
                         Event::SoftBreak | Event::HardBreak => alt_text.push(' '),
@@ -859,8 +1194,11 @@ async fn render_events_to_html(
                 } else {
                     format!(" title=\"{}\"", html_escape(title))
                 };
+                let attrs =
+                    source_map.span_attr(SourceKind::Image, source_start..source_end, markdown);
                 html.push_str(&format!(
-                    "<img src=\"{}\" alt=\"{}\"{} />",
+                    "<img{} src=\"{}\" alt=\"{}\"{} />",
+                    attrs,
                     html_escape(dest_url),
                     html_escape(&alt_text),
                     title_attr
@@ -899,15 +1237,244 @@ async fn render_events_to_html(
                 ));
             }
             _ => {
-                pulldown_cmark::html::push_html(html, std::iter::once(event.clone()));
+                if !render_source_block_event(
+                    html,
+                    event,
+                    range,
+                    markdown,
+                    &mut html_state,
+                    source_map,
+                ) {
+                    pulldown_cmark::html::push_html(html, std::iter::once(event.clone()));
+                }
             }
         }
         i += 1;
     }
 }
-/// Source location information for rendered elements
-struct SourceInfo {
-    line: usize,
+
+fn matching_end_range<'a>(
+    events: &'a [(Event<'_>, Range<usize>)],
+    start: usize,
+    end: TagEnd,
+) -> Option<&'a Range<usize>> {
+    events
+        .iter()
+        .skip(start + 1)
+        .find_map(|(event, range)| match event {
+            Event::End(tag) if *tag == end => Some(range),
+            _ => None,
+        })
+}
+
+fn render_source_block_event(
+    html: &mut String,
+    event: &Event<'_>,
+    range: &Range<usize>,
+    markdown: &str,
+    state: &mut HtmlRenderState,
+    source_map: &mut SourceMapBuilder,
+) -> bool {
+    match event {
+        Event::Start(Tag::BlockQuote(kind)) => {
+            ensure_block_boundary(html);
+            let (sid, attrs) = source_map.open_attr(SourceKind::BlockQuote, range, markdown);
+            state.blockquote_stack.push(sid);
+            let class_attr = blockquote_class_attr(*kind);
+            html.push_str(&format!("<blockquote{}{}>\n", class_attr, attrs));
+            true
+        }
+        Event::End(TagEnd::BlockQuote(_)) => {
+            let sid = state.blockquote_stack.pop().flatten();
+            source_map.close(sid, range, markdown);
+            html.push_str("</blockquote>\n");
+            true
+        }
+        Event::Start(Tag::List(Some(1))) => {
+            ensure_block_boundary(html);
+            let (sid, attrs) = source_map.open_attr(SourceKind::List, range, markdown);
+            state.list_stack.push(sid);
+            html.push_str(&format!("<ol{}>\n", attrs));
+            true
+        }
+        Event::Start(Tag::List(Some(start))) => {
+            ensure_block_boundary(html);
+            let (sid, attrs) = source_map.open_attr(SourceKind::List, range, markdown);
+            state.list_stack.push(sid);
+            html.push_str(&format!("<ol start=\"{}\"{}>\n", start, attrs));
+            true
+        }
+        Event::Start(Tag::List(None)) => {
+            ensure_block_boundary(html);
+            let (sid, attrs) = source_map.open_attr(SourceKind::List, range, markdown);
+            state.list_stack.push(sid);
+            html.push_str(&format!("<ul{}>\n", attrs));
+            true
+        }
+        Event::End(TagEnd::List(true)) => {
+            let sid = state.list_stack.pop().flatten();
+            source_map.close(sid, range, markdown);
+            html.push_str("</ol>\n");
+            true
+        }
+        Event::End(TagEnd::List(false)) => {
+            let sid = state.list_stack.pop().flatten();
+            source_map.close(sid, range, markdown);
+            html.push_str("</ul>\n");
+            true
+        }
+        Event::Start(Tag::Item) => {
+            if !html.ends_with('\n') {
+                html.push('\n');
+            }
+            let (sid, attrs) = source_map.open_attr(SourceKind::ListItem, range, markdown);
+            state.list_item_stack.push(sid);
+            html.push_str(&format!("<li{}>", attrs));
+            true
+        }
+        Event::End(TagEnd::Item) => {
+            let sid = state.list_item_stack.pop().flatten();
+            source_map.close(sid, range, markdown);
+            html.push_str("</li>\n");
+            true
+        }
+        Event::Start(Tag::DefinitionList) => {
+            ensure_block_boundary(html);
+            let (sid, attrs) = source_map.open_attr(SourceKind::DefinitionList, range, markdown);
+            state.definition_list_stack.push(sid);
+            html.push_str(&format!("<dl{}>\n", attrs));
+            true
+        }
+        Event::End(TagEnd::DefinitionList) => {
+            let sid = state.definition_list_stack.pop().flatten();
+            source_map.close(sid, range, markdown);
+            html.push_str("</dl>\n");
+            true
+        }
+        Event::Start(Tag::DefinitionListTitle) => {
+            if !html.ends_with('\n') {
+                html.push('\n');
+            }
+            let (sid, attrs) =
+                source_map.open_attr(SourceKind::DefinitionListTitle, range, markdown);
+            state.definition_title = sid;
+            html.push_str(&format!("<dt{}>", attrs));
+            true
+        }
+        Event::End(TagEnd::DefinitionListTitle) => {
+            source_map.close(state.definition_title.take(), range, markdown);
+            html.push_str("</dt>\n");
+            true
+        }
+        Event::Start(Tag::DefinitionListDefinition) => {
+            if !html.ends_with('\n') {
+                html.push('\n');
+            }
+            let (sid, attrs) =
+                source_map.open_attr(SourceKind::DefinitionListDefinition, range, markdown);
+            state.definition_definition = sid;
+            html.push_str(&format!("<dd{}>", attrs));
+            true
+        }
+        Event::End(TagEnd::DefinitionListDefinition) => {
+            source_map.close(state.definition_definition.take(), range, markdown);
+            html.push_str("</dd>\n");
+            true
+        }
+        Event::Rule => {
+            ensure_block_boundary(html);
+            let attrs = source_map.span_attr(SourceKind::ThematicBreak, range.clone(), markdown);
+            html.push_str(&format!("<hr{} />\n", attrs));
+            true
+        }
+        Event::Start(Tag::Table(alignments)) => {
+            state.table_alignments.clone_from(alignments);
+            state.table_in_head = true;
+            state.table_cell_index = 0;
+            let (sid, attrs) = source_map.open_attr(SourceKind::Table, range, markdown);
+            state.table = sid;
+            ensure_block_boundary(html);
+            html.push_str(&format!("<table{}>", attrs));
+            true
+        }
+        Event::End(TagEnd::Table) => {
+            source_map.close(state.table.take(), range, markdown);
+            html.push_str("</tbody></table>\n");
+            state.table_alignments.clear();
+            state.table_in_head = false;
+            state.table_cell_index = 0;
+            true
+        }
+        Event::Start(Tag::TableHead) => {
+            state.table_in_head = true;
+            state.table_cell_index = 0;
+            let (sid, attrs) = source_map.open_attr(SourceKind::TableHead, range, markdown);
+            state.table_head = sid;
+            html.push_str(&format!("<thead{}><tr{}>", attrs, attrs));
+            true
+        }
+        Event::End(TagEnd::TableHead) => {
+            source_map.close(state.table_head.take(), range, markdown);
+            html.push_str("</tr></thead><tbody>\n");
+            state.table_in_head = false;
+            true
+        }
+        Event::Start(Tag::TableRow) => {
+            state.table_cell_index = 0;
+            let (sid, attrs) = source_map.open_attr(SourceKind::TableRow, range, markdown);
+            state.table_row = sid;
+            html.push_str(&format!("<tr{}>", attrs));
+            true
+        }
+        Event::End(TagEnd::TableRow) => {
+            source_map.close(state.table_row.take(), range, markdown);
+            html.push_str("</tr>\n");
+            true
+        }
+        Event::Start(Tag::TableCell) => {
+            let tag = if state.table_in_head { "th" } else { "td" };
+            let (sid, attrs) = source_map.open_attr(SourceKind::TableCell, range, markdown);
+            state.table_cell = sid;
+            html.push_str(&format!("<{}{}>", tag, table_cell_attrs(state, attrs)));
+            true
+        }
+        Event::End(TagEnd::TableCell) => {
+            let tag = if state.table_in_head { "th" } else { "td" };
+            source_map.close(state.table_cell.take(), range, markdown);
+            html.push_str(&format!("</{}>", tag));
+            state.table_cell_index += 1;
+            true
+        }
+        _ => false,
+    }
+}
+
+fn ensure_block_boundary(html: &mut String) {
+    if !html.is_empty() && !html.ends_with('\n') {
+        html.push('\n');
+    }
+}
+
+fn blockquote_class_attr(kind: Option<BlockQuoteKind>) -> &'static str {
+    match kind {
+        None => "",
+        Some(BlockQuoteKind::Note) => " class=\"markdown-alert-note\"",
+        Some(BlockQuoteKind::Tip) => " class=\"markdown-alert-tip\"",
+        Some(BlockQuoteKind::Important) => " class=\"markdown-alert-important\"",
+        Some(BlockQuoteKind::Warning) => " class=\"markdown-alert-warning\"",
+        Some(BlockQuoteKind::Caution) => " class=\"markdown-alert-caution\"",
+    }
+}
+
+fn table_cell_attrs(state: &HtmlRenderState, mut attrs: String) -> String {
+    match state.table_alignments.get(state.table_cell_index) {
+        Some(Alignment::Left) => attrs.push_str(" style=\"text-align: left\""),
+        Some(Alignment::Center) => attrs.push_str(" style=\"text-align: center\""),
+        Some(Alignment::Right) => attrs.push_str(" style=\"text-align: right\""),
+        Some(Alignment::None) | None => {}
+    }
+
+    attrs
 }
 
 /// Regex to match req markers
@@ -1358,6 +1925,14 @@ fn parse_req_leading_marker(text: &str) -> Option<(&str, &str, usize)> {
 mod tests {
     use super::*;
 
+    fn source_text<'a>(markdown: &'a str, entry: &SourceMapEntry) -> &'a str {
+        &markdown[entry.byte_start..entry.byte_end]
+    }
+
+    fn sid_attr(entry: &SourceMapEntry) -> String {
+        format!(r#"data-sid="{}""#, entry.id)
+    }
+
     #[tokio::test]
     async fn test_render_simple() {
         let md = "# Hello\n\nWorld.";
@@ -1762,7 +2337,7 @@ r[req.two] Second.
 
         assert_eq!(doc.reqs.len(), 0);
         assert!(
-            doc.html.contains("<blockquote>"),
+            doc.html.contains("<blockquote"),
             "Regular blockquote should be preserved: {}",
             doc.html
         );
@@ -1892,36 +2467,76 @@ Another paragraph.
     }
 
     #[tokio::test]
-    async fn test_paragraph_html_has_source_line_attribute() {
+    async fn test_paragraph_html_has_source_id_attributes() {
         let md = r#"First paragraph.
 
 Second paragraph.
 
 Third paragraph.
 "#;
-        let doc = render(md, &RenderOptions::default()).await.unwrap();
+        let opts = RenderOptions::default().with_source_map(true);
+        let doc = render(md, &opts).await.unwrap();
 
-        // Check that paragraphs have data-source-line attributes
-        assert!(
-            doc.html.contains(r#"<p data-source-line="1">"#),
-            "First paragraph should have data-source-line=\"1\": {}",
-            doc.html
+        let entries = &doc.source_map.entries;
+        assert_eq!(entries.len(), 3);
+
+        for entry in entries {
+            let expected = format!(r#"<p {}>"#, sid_attr(entry));
+            assert!(
+                doc.html.contains(&expected),
+                "expected {expected:?} in HTML:\n{}",
+                doc.html
+            );
+        }
+
+        assert_eq!(entries[0].kind, SourceKind::Paragraph);
+        assert_eq!(entries[0].line_start, 1);
+        assert_eq!(entries[0].line_end, 1);
+        assert_eq!(
+            doc.source_map
+                .get(&entries[0].id)
+                .map(|entry| entry.byte_start),
+            Some(entries[0].byte_start)
         );
-        assert!(
-            doc.html.contains(r#"<p data-source-line="3">"#),
-            "Second paragraph should have data-source-line=\"3\": {}",
-            doc.html
+        assert_eq!(
+            doc.source_map
+                .get_by_sid(entries[0].id.as_str())
+                .map(|entry| entry.byte_start),
+            Some(entries[0].byte_start)
         );
-        assert!(
-            doc.html.contains(r#"<p data-source-line="5">"#),
-            "Third paragraph should have data-source-line=\"5\": {}",
-            doc.html
-        );
+        assert_eq!(source_text(md, &entries[0]), "First paragraph.\n");
+        assert_eq!(entries[1].line_start, 3);
+        assert_eq!(entries[1].line_end, 3);
+        assert_eq!(source_text(md, &entries[1]), "Second paragraph.\n");
+        assert_eq!(entries[2].line_start, 5);
+        assert_eq!(entries[2].line_end, 5);
+        assert_eq!(source_text(md, &entries[2]), "Third paragraph.\n");
     }
 
     #[tokio::test]
-    async fn test_paragraph_html_has_source_file_attribute() {
+    async fn test_source_map_has_source_path() {
         let md = "A paragraph with source file info.";
+        let opts = RenderOptions {
+            source_path: Some("docs/test.md".to_string()),
+            source_map: true,
+            ..Default::default()
+        };
+        let doc = render(md, &opts).await.unwrap();
+
+        assert!(
+            doc.html.contains("data-sid"),
+            "Should have source ID attribute: {}",
+            doc.html
+        );
+        assert_eq!(doc.source_map.source_path.as_deref(), Some("docs/test.md"));
+        assert_eq!(doc.source_map.entries.len(), 1);
+        assert_eq!(doc.source_map.entries[0].line_start, 1);
+        assert_eq!(source_text(md, &doc.source_map.entries[0]), md);
+    }
+
+    #[tokio::test]
+    async fn test_source_map_is_opt_in() {
+        let md = "# Title\n\nA paragraph with [a link](other.md).";
         let opts = RenderOptions {
             source_path: Some("docs/test.md".to_string()),
             ..Default::default()
@@ -1929,14 +2544,226 @@ Third paragraph.
         let doc = render(md, &opts).await.unwrap();
 
         assert!(
-            doc.html.contains(r#"data-source-line="1""#),
-            "Should have line attribute: {}",
+            doc.html.contains(r#"href="/docs/other/""#),
+            "source_path should still resolve links: {}",
             doc.html
         );
         assert!(
-            doc.html.contains(r#"data-source-file="docs/test.md""#),
-            "Should have file attribute: {}",
+            !doc.html.contains("data-sid"),
+            "source map should be disabled by default: {}",
             doc.html
+        );
+        assert!(doc.source_map.entries.is_empty());
+        assert_eq!(doc.source_map.source_path, None);
+    }
+
+    #[tokio::test]
+    async fn test_block_elements_have_source_ids_and_source_map_entries() {
+        let md = r#"# Title
+
+- first
+- second
+
+1. one
+2. two
+
+> quoted
+
+![Alt](pic.png)
+
+---
+
+| A | B |
+| - | -: |
+| x | y |
+"#;
+        let opts = RenderOptions {
+            source_path: Some("docs/test.md".to_string()),
+            source_map: true,
+            ..Default::default()
+        };
+        let doc = render(md, &opts).await.unwrap();
+
+        let entries = &doc.source_map.entries;
+        for expected in [
+            format!(r#"<h1 id="title" {}>Title</h1>"#, sid_attr(&entries[0])),
+            format!(r#"<ul {}>"#, sid_attr(&entries[1])),
+            format!(r#"<li {}>"#, sid_attr(&entries[2])),
+            format!(r#"<li {}>"#, sid_attr(&entries[3])),
+            format!(r#"<ol {}>"#, sid_attr(&entries[4])),
+            format!(r#"<li {}>"#, sid_attr(&entries[5])),
+            format!(r#"<li {}>"#, sid_attr(&entries[6])),
+            format!(r#"<blockquote {}>"#, sid_attr(&entries[7])),
+            format!(r#"<p {}>"#, sid_attr(&entries[8])),
+            format!(
+                r#"<p {}><img {}"#,
+                sid_attr(&entries[9]),
+                sid_attr(&entries[10])
+            ),
+            format!(r#"<hr {} />"#, sid_attr(&entries[11])),
+            format!(r#"<table {}>"#, sid_attr(&entries[12])),
+            format!(
+                r#"<thead {}><tr {}>"#,
+                sid_attr(&entries[13]),
+                sid_attr(&entries[13])
+            ),
+            format!(r#"<th {}>"#, sid_attr(&entries[14])),
+            format!(
+                r#"<th {} style="text-align: right">"#,
+                sid_attr(&entries[15])
+            ),
+            format!(r#"<tr {}>"#, sid_attr(&entries[16])),
+            format!(r#"<td {}>"#, sid_attr(&entries[17])),
+            format!(
+                r#"<td {} style="text-align: right">"#,
+                sid_attr(&entries[18])
+            ),
+        ] {
+            assert!(
+                doc.html.contains(&expected),
+                "expected {expected:?} in HTML:\n{}",
+                doc.html
+            );
+        }
+
+        let kinds: Vec<SourceKind> = entries.iter().map(|entry| entry.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                SourceKind::Heading,
+                SourceKind::List,
+                SourceKind::ListItem,
+                SourceKind::ListItem,
+                SourceKind::List,
+                SourceKind::ListItem,
+                SourceKind::ListItem,
+                SourceKind::BlockQuote,
+                SourceKind::Paragraph,
+                SourceKind::Paragraph,
+                SourceKind::Image,
+                SourceKind::ThematicBreak,
+                SourceKind::Table,
+                SourceKind::TableHead,
+                SourceKind::TableCell,
+                SourceKind::TableCell,
+                SourceKind::TableRow,
+                SourceKind::TableCell,
+                SourceKind::TableCell,
+            ]
+        );
+        assert_eq!(doc.source_map.source_path.as_deref(), Some("docs/test.md"));
+        assert_eq!(source_text(md, &entries[0]), "# Title\n");
+        assert_eq!(source_text(md, &entries[10]), "![Alt](pic.png)");
+        assert_eq!(entries[1].line_start, 3);
+        assert_eq!(entries[4].line_start, 6);
+        assert_eq!(entries[7].line_start, 9);
+        assert_eq!(entries[11].line_start, 13);
+        assert_eq!(entries[12].line_start, 15);
+    }
+
+    #[tokio::test]
+    async fn test_source_ids_are_stable_after_unrelated_insertion() {
+        let before = "First paragraph.\n\nSecond paragraph.\n\nThird paragraph.\n";
+        let after =
+            "Inserted paragraph.\n\nFirst paragraph.\n\nSecond paragraph.\n\nThird paragraph.\n";
+        let opts = RenderOptions::default().with_source_map(true);
+
+        let before_doc = render(before, &opts).await.unwrap();
+        let after_doc = render(after, &opts).await.unwrap();
+
+        for source in [
+            "First paragraph.\n",
+            "Second paragraph.\n",
+            "Third paragraph.\n",
+        ] {
+            let before_id = before_doc
+                .source_map
+                .entries
+                .iter()
+                .find(|entry| source_text(before, entry) == source)
+                .map(|entry| entry.id.clone())
+                .unwrap();
+            let after_id = after_doc
+                .source_map
+                .entries
+                .iter()
+                .find(|entry| source_text(after, entry) == source)
+                .map(|entry| entry.id.clone())
+                .unwrap();
+
+            assert_eq!(before_id, after_id, "source ID changed for {source:?}");
+        }
+
+        assert!(!before_doc.html.contains("__marq-source"));
+        assert!(!after_doc.html.contains("__marq-source"));
+    }
+
+    #[tokio::test]
+    async fn test_block_source_ids_use_full_source_span() {
+        let before = "- alpha\n- beta\n\nTail paragraph.\n";
+        let after = "Intro paragraph.\n\n- alpha\n- beta\n\nTail paragraph.\n";
+        let opts = RenderOptions::default().with_source_map(true);
+
+        let before_doc = render(before, &opts).await.unwrap();
+        let after_doc = render(after, &opts).await.unwrap();
+
+        for (kind, source) in [
+            (SourceKind::List, "- alpha\n- beta\n\n"),
+            (SourceKind::ListItem, "- alpha\n"),
+            (SourceKind::ListItem, "- beta\n\n"),
+            (SourceKind::Paragraph, "Tail paragraph.\n"),
+        ] {
+            let before_entries: Vec<_> = before_doc
+                .source_map
+                .entries
+                .iter()
+                .map(|entry| (entry.kind, source_text(before, entry).to_string()))
+                .collect();
+            let after_entries: Vec<_> = after_doc
+                .source_map
+                .entries
+                .iter()
+                .map(|entry| (entry.kind, source_text(after, entry).to_string()))
+                .collect();
+            let before_id = before_doc
+                .source_map
+                .entries
+                .iter()
+                .find(|entry| entry.kind == kind && source_text(before, entry) == source)
+                .map(|entry| entry.id.clone())
+                .unwrap_or_else(|| {
+                    panic!("missing before {kind:?} {source:?}; entries: {before_entries:?}")
+                });
+            let after_id = after_doc
+                .source_map
+                .entries
+                .iter()
+                .find(|entry| entry.kind == kind && source_text(after, entry) == source)
+                .map(|entry| entry.id.clone())
+                .unwrap_or_else(|| {
+                    panic!("missing after {kind:?} {source:?}; entries: {after_entries:?}")
+                });
+
+            assert_eq!(
+                before_id, after_id,
+                "source ID changed for {kind:?} {source:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_duplicate_source_ids_get_document_scoped_suffixes() {
+        let md = "Same paragraph.\n\nSame paragraph.\n";
+        let opts = RenderOptions::default().with_source_map(true);
+        let doc = render(md, &opts).await.unwrap();
+
+        let entries = &doc.source_map.entries;
+        assert_eq!(entries.len(), 2);
+        assert_ne!(entries[0].id, entries[1].id);
+        assert!(
+            entries[1].id.as_str().ends_with("-2"),
+            "expected duplicate suffix in {:?}",
+            entries[1].id
         );
     }
 

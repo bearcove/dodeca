@@ -39,7 +39,10 @@ pub use handler::{
 };
 pub use headings::{Heading, slugify};
 pub use links::resolve_link;
-pub use render::{DocElement, Document, Paragraph, RenderOptions, render};
+pub use render::{
+    DocElement, Document, Paragraph, RenderOptions, SourceId, SourceKind, SourceMap,
+    SourceMapEntry, render,
+};
 pub use reqs::{
     ExtractedReqs, InlineCodeSpan, ReqDefinition, ReqLevel, ReqMetadata, ReqStatus, ReqWarning,
     ReqWarningKind, Rfc2119Keyword, RuleId, SourceSpan, detect_rfc2119_keywords, parse_rule_id,
