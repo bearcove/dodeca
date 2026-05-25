@@ -14,9 +14,10 @@ use tower_lsp::lsp_types::{
     DocumentSymbolResponse, ExecuteCommandOptions, ExecuteCommandParams, GotoDefinitionParams,
     GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability,
     InitializeParams, InitializeResult, InitializedParams, Location, MarkupContent, MarkupKind,
-    MessageType, NumberOrString, OneOf, Position, Range, ReferenceParams, ServerCapabilities,
-    ServerInfo, ShowDocumentParams, SymbolInformation, SymbolKind, TextDocumentSyncCapability,
-    TextDocumentSyncKind, TextEdit, Url, WorkspaceSymbolParams,
+    MessageType, NumberOrString, OneOf, Position, PrepareRenameResponse, Range, ReferenceParams,
+    RenameOptions, RenameParams, ServerCapabilities, ServerInfo, ShowDocumentParams,
+    SymbolInformation, SymbolKind, TextDocumentPositionParams, TextDocumentSyncCapability,
+    TextDocumentSyncKind, TextEdit, Url, WorkspaceEdit, WorkspaceSymbolParams,
 };
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
@@ -107,6 +108,10 @@ impl LanguageServer for Backend {
                 }),
                 definition_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
+                rename_provider: Some(OneOf::Right(RenameOptions {
+                    prepare_provider: Some(true),
+                    work_done_progress_options: Default::default(),
+                })),
                 code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 document_symbol_provider: Some(OneOf::Left(true)),
@@ -318,6 +323,43 @@ impl LanguageServer for Backend {
             .await
         {
             Ok(locations) => Ok(Some(locations)),
+            Err(err) => {
+                self.client
+                    .log_message(MessageType::ERROR, err.to_string())
+                    .await;
+                Ok(None)
+            }
+        }
+    }
+
+    async fn prepare_rename(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> LspResult<Option<PrepareRenameResponse>> {
+        match self
+            .prepare_rename_for_position(&params.text_document.uri, params.position)
+            .await
+        {
+            Ok(response) => Ok(response),
+            Err(err) => {
+                self.client
+                    .log_message(MessageType::ERROR, err.to_string())
+                    .await;
+                Ok(None)
+            }
+        }
+    }
+
+    async fn rename(&self, params: RenameParams) -> LspResult<Option<WorkspaceEdit>> {
+        match self
+            .rename_for_position(
+                &params.text_document_position.text_document.uri,
+                params.text_document_position.position,
+                &params.new_name,
+            )
+            .await
+        {
+            Ok(edit) => Ok(edit),
             Err(err) => {
                 self.client
                     .log_message(MessageType::ERROR, err.to_string())
@@ -583,6 +625,60 @@ impl Backend {
         }
 
         Ok(Vec::new())
+    }
+
+    async fn prepare_rename_for_position(
+        &self,
+        uri: &Url,
+        position: Position,
+    ) -> Result<Option<PrepareRenameResponse>> {
+        let dirs = self.dirs_for_uri(uri)?;
+        let content = self.document_content(uri)?;
+        let path = lsp_file_uri_to_utf8_path(uri)?;
+        let source_file = source_file_for_path(&dirs.content_dir, &path)?;
+        let project = self.current_project(&dirs).await?;
+        let page = project
+            .page_for_source_file(&source_file)
+            .ok_or_else(|| eyre!("missing authoring page for {source_file}"))?;
+
+        let Some(target) = heading_rename_target_at_position(page, &content, position) else {
+            return Ok(None);
+        };
+
+        Ok(Some(PrepareRenameResponse::RangeWithPlaceholder {
+            range: target.title_range,
+            placeholder: target.title,
+        }))
+    }
+
+    async fn rename_for_position(
+        &self,
+        uri: &Url,
+        position: Position,
+        new_name: &str,
+    ) -> Result<Option<WorkspaceEdit>> {
+        let dirs = self.dirs_for_uri(uri)?;
+        let content = self.document_content(uri)?;
+        let path = lsp_file_uri_to_utf8_path(uri)?;
+        let source_file = source_file_for_path(&dirs.content_dir, &path)?;
+        let project = self.current_project(&dirs).await?;
+        let page = project
+            .page_for_source_file(&source_file)
+            .ok_or_else(|| eyre!("missing authoring page for {source_file}"))?;
+
+        let Some(target) = heading_rename_target_at_position(page, &content, position) else {
+            return Ok(None);
+        };
+
+        rename_heading_workspace_edit(
+            &dirs.content_dir,
+            &project,
+            page,
+            &source_file,
+            &content,
+            &target,
+            new_name,
+        )
     }
 
     async fn publish_document_diagnostics(&self, uri: Url, content: String) {
@@ -1388,6 +1484,121 @@ fn references_to_heading(
     Ok(locations)
 }
 
+fn rename_heading_workspace_edit(
+    content_dir: &Utf8Path,
+    project: &AuthoringProject,
+    target_page: &AuthoringPage,
+    target_source_file: &str,
+    target_content: &str,
+    target: &HeadingRenameTarget,
+    new_name: &str,
+) -> Result<Option<WorkspaceEdit>> {
+    let new_name = new_name.trim();
+    if new_name.is_empty() || new_name.contains('\n') || new_name.contains('\r') {
+        return Ok(None);
+    }
+
+    let Some(new_heading_id) = heading_id_after_rename(target_content, target, new_name) else {
+        return Ok(None);
+    };
+    if new_heading_id == target.heading_id && new_name == target.title {
+        return Ok(None);
+    }
+
+    let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
+    let target_uri = Url::from_file_path(content_dir.join(target_source_file))
+        .map_err(|_| eyre!("could not convert source file to URI: {target_source_file}"))?;
+    changes
+        .entry(target_uri)
+        .or_default()
+        .push(TextEdit::new(target.title_range, new_name.to_string()));
+
+    for page in &project.pages {
+        let Some(content) = project.source_contents.get(&page.source_file) else {
+            continue;
+        };
+        let Some(uri) = Url::from_file_path(content_dir.join(&page.source_file)).ok() else {
+            continue;
+        };
+
+        for context in markdown_target_contexts(content) {
+            let reference = MarkdownReference {
+                kind: context.kind,
+                target: context.target.clone(),
+                byte_start: context.byte_start,
+                byte_end: context.byte_end,
+            };
+            let Some(target_route) = reference_target_route(project, page, &reference) else {
+                continue;
+            };
+            if !project.routes_refer_to_same_page(&target_route, &target_page.route) {
+                continue;
+            }
+
+            let (_, fragment) = split_fragment(&context.target);
+            if fragment != Some(target.heading_id.as_str()) {
+                continue;
+            }
+
+            let Some(range) =
+                fragment_range_for_target_context(content, &context, &target.heading_id)
+            else {
+                continue;
+            };
+            changes
+                .entry(uri.clone())
+                .or_default()
+                .push(TextEdit::new(range, new_heading_id.clone()));
+        }
+    }
+
+    for edits in changes.values_mut() {
+        edits.sort_by(|a, b| {
+            position_cmp(a.range.start, b.range.start)
+                .then_with(|| position_cmp(a.range.end, b.range.end))
+        });
+    }
+
+    Ok(Some(WorkspaceEdit::new(changes)))
+}
+
+fn heading_id_after_rename(
+    content: &str,
+    target: &HeadingRenameTarget,
+    new_name: &str,
+) -> Option<String> {
+    let start = lsp_position_to_byte_offset(content, target.title_range.start)?;
+    let end = lsp_position_to_byte_offset(content, target.title_range.end)?;
+    let mut renamed = content.to_string();
+    renamed.replace_range(start..end, new_name);
+
+    markdown_headings(&renamed)
+        .into_iter()
+        .find(|heading| heading.line == target.line)
+        .map(|heading| heading.id)
+}
+
+fn fragment_range_for_target_context(
+    content: &str,
+    context: &MarkdownTargetContext,
+    expected_fragment: &str,
+) -> Option<Range> {
+    let fragment_start_in_target = context.target.find('#')? + 1;
+    let fragment_end_in_target = context.target[fragment_start_in_target..]
+        .find('?')
+        .map(|idx| fragment_start_in_target + idx)
+        .unwrap_or(context.target.len());
+    if &context.target[fragment_start_in_target..fragment_end_in_target] != expected_fragment {
+        return None;
+    }
+
+    Some(byte_range_to_lsp_range(
+        content,
+        context.byte_start + fragment_start_in_target,
+        context.byte_start + fragment_end_in_target,
+    ))
+}
+
 fn reference_target_route(
     project: &AuthoringProject,
     page: &AuthoringPage,
@@ -1629,6 +1840,8 @@ struct MarkdownTargetContext {
     kind: MarkdownReferenceKind,
     target: String,
     range: Range,
+    byte_start: usize,
+    byte_end: usize,
 }
 
 fn markdown_target_context_at_position(
@@ -1676,6 +1889,8 @@ fn markdown_target_contexts(content: &str) -> Vec<MarkdownTargetContext> {
                 kind,
                 target: target.to_string(),
                 range: byte_range_to_lsp_range(content, target_start, target_end),
+                byte_start: target_start,
+                byte_end: target_end,
             });
         }
 
@@ -1939,9 +2154,41 @@ fn heading_id_at_position(
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct HeadingRenameTarget {
+    heading_id: String,
+    title: String,
+    line: u32,
+    title_range: Range,
+}
+
+fn heading_rename_target_at_position(
+    page: &AuthoringPage,
+    content: &str,
+    position: Position,
+) -> Option<HeadingRenameTarget> {
+    markdown_headings(content)
+        .into_iter()
+        .find(|heading| {
+            range_contains_position(&heading.title_range, position)
+                && page
+                    .headings
+                    .iter()
+                    .any(|model_heading| model_heading.id == heading.id)
+        })
+        .map(|heading| HeadingRenameTarget {
+            heading_id: heading.id,
+            title: heading.title,
+            line: heading.line,
+            title_range: heading.title_range,
+        })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct MarkdownHeading {
     id: String,
+    title: String,
     line: u32,
+    title_range: Range,
 }
 
 fn markdown_headings(content: &str) -> Vec<MarkdownHeading> {
@@ -1984,7 +2231,14 @@ fn markdown_headings(content: &str) -> Vec<MarkdownHeading> {
 
                     heading_stack.push((current_level, slug));
                     let (line, _) = byte_to_line_column(content, byte_start);
-                    headings.push(MarkdownHeading { id, line });
+                    let title_range = heading_title_range(content, byte_start)
+                        .unwrap_or_else(|| one_line_range(line.saturating_sub(1)));
+                    headings.push(MarkdownHeading {
+                        id,
+                        title: heading_text,
+                        line,
+                        title_range,
+                    });
                 }
             }
             _ => {}
@@ -1992,6 +2246,73 @@ fn markdown_headings(content: &str) -> Vec<MarkdownHeading> {
     }
 
     headings
+}
+
+fn heading_title_range(content: &str, heading_byte_start: usize) -> Option<Range> {
+    let line_start = content[..heading_byte_start]
+        .rfind('\n')
+        .map(|idx| idx + 1)
+        .unwrap_or(0);
+    let line_end = content[heading_byte_start..]
+        .find('\n')
+        .map(|idx| heading_byte_start + idx)
+        .unwrap_or(content.len());
+    let line = &content[line_start..line_end];
+    let bytes = line.as_bytes();
+    let mut offset = 0;
+
+    while offset < bytes.len() && offset < 3 && bytes[offset] == b' ' {
+        offset += 1;
+    }
+
+    let marker_start = offset;
+    while offset < bytes.len() && bytes[offset] == b'#' {
+        offset += 1;
+    }
+    if offset == marker_start {
+        let title_start = marker_start;
+        let mut title_end = bytes.len();
+        while title_end > title_start && matches!(bytes[title_end - 1], b' ' | b'\t') {
+            title_end -= 1;
+        }
+        return Some(byte_range_to_lsp_range(
+            content,
+            line_start + title_start,
+            line_start + title_end,
+        ));
+    }
+
+    while offset < bytes.len() && matches!(bytes[offset], b' ' | b'\t') {
+        offset += 1;
+    }
+
+    let title_start = offset;
+    let mut title_end = bytes.len();
+    while title_end > title_start && matches!(bytes[title_end - 1], b' ' | b'\t') {
+        title_end -= 1;
+    }
+
+    let closing_start = title_end
+        - bytes[..title_end]
+            .iter()
+            .rev()
+            .take_while(|byte| **byte == b'#')
+            .count();
+    if closing_start < title_end
+        && closing_start > title_start
+        && matches!(bytes[closing_start - 1], b' ' | b'\t')
+    {
+        title_end = closing_start - 1;
+        while title_end > title_start && matches!(bytes[title_end - 1], b' ' | b'\t') {
+            title_end -= 1;
+        }
+    }
+
+    Some(byte_range_to_lsp_range(
+        content,
+        line_start + title_start,
+        line_start + title_end,
+    ))
 }
 
 fn frontmatter_lsp_range(content: &str) -> Option<Range> {
@@ -2805,6 +3126,92 @@ title = \"Target\"
                 "nested/source.md".to_string(),
             ]
         );
+
+        std::fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[tokio::test]
+    async fn renames_heading_and_exact_fragment_links() {
+        let dir = temp_dir("heading-rename");
+        let content_dir = dir.join("content");
+        std::fs::create_dir_all(content_dir.join("nested")).expect("create content dirs");
+        let target = "\
++++
+title = \"Target\"
++++
+
+# Target
+
+## Details
+";
+        std::fs::write(content_dir.join("target.md"), target).expect("write target");
+        let index = "\
+# Home
+
+[page](/target)
+[route heading](/target#target--details)
+[source heading](@/target.md#target--details)
+[wrong heading](/target#target)
+";
+        std::fs::write(content_dir.join("_index.md"), index).expect("write root");
+        let nested = "\
+# Source
+
+[relative heading](../target#target--details)
+";
+        std::fs::write(content_dir.join("nested/source.md"), nested).expect("write nested source");
+
+        let project = load_authoring_project(&content_dir, &[])
+            .await
+            .expect("load project");
+        let target_page = project
+            .page_for_source_file("target.md")
+            .expect("target page");
+        let target_position = position_for(target, "Details");
+        let target = heading_rename_target_at_position(target_page, target, target_position)
+            .expect("rename target");
+        assert_eq!(target.heading_id, "target--details");
+        assert_eq!(target.title, "Details");
+
+        let edit = rename_heading_workspace_edit(
+            &content_dir,
+            &project,
+            target_page,
+            "target.md",
+            project
+                .source_contents
+                .get("target.md")
+                .expect("target content"),
+            &target,
+            "Deep Details",
+        )
+        .expect("rename edit")
+        .expect("workspace edit");
+        let changes = edit.changes.expect("workspace changes");
+
+        let target_uri = Url::from_file_path(content_dir.join("target.md")).expect("target uri");
+        let index_uri = Url::from_file_path(content_dir.join("_index.md")).expect("index uri");
+        let nested_uri =
+            Url::from_file_path(content_dir.join("nested/source.md")).expect("nested uri");
+
+        let target_edits = changes.get(&target_uri).expect("target edits");
+        assert_eq!(target_edits.len(), 1);
+        assert_eq!(target_edits[0].new_text, "Deep Details");
+        assert_eq!(target_edits[0].range, target.title_range);
+
+        let index_edits = changes.get(&index_uri).expect("index edits");
+        assert_eq!(
+            index_edits
+                .iter()
+                .map(|edit| edit.new_text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["target--deep-details", "target--deep-details"]
+        );
+
+        let nested_edits = changes.get(&nested_uri).expect("nested edits");
+        assert_eq!(nested_edits.len(), 1);
+        assert_eq!(nested_edits[0].new_text, "target--deep-details");
+        assert_eq!(changes.len(), 3);
 
         std::fs::remove_dir_all(&dir).expect("remove temp dir");
     }
