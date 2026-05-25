@@ -54,7 +54,7 @@ use facet::Facet;
 use figue::{self as args, FigueBuiltins};
 use ignore::WalkBuilder;
 use owo_colors::OwoColorize;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::sync::Arc;
 
@@ -1366,6 +1366,16 @@ pub async fn build(
 
     // Write outputs to disk, only if changed
     let mut stats = BuildStats::default();
+    let expected_output_paths: HashSet<String> = site_output
+        .files
+        .iter()
+        .map(|output| match output {
+            OutputFile::Html { route, .. } => route_to_path(output_dir, route).to_string(),
+            OutputFile::Css { path, .. } | OutputFile::Static { path, .. } => {
+                output_dir.join(path.as_str()).to_string()
+            }
+        })
+        .collect();
 
     for output in &site_output.files {
         match output {
@@ -1409,6 +1419,8 @@ pub async fn build(
         }
     }
 
+    let stale_removed = store.remove_stale(&expected_output_paths)?;
+
     if let Some(ref p) = options.progress {
         p.update(|prog| {
             prog.render.finish();
@@ -1429,6 +1441,9 @@ pub async fn build(
         }
         if stats.css_written {
             parts.push("CSS".to_string());
+        }
+        if stale_removed > 0 {
+            parts.push(format!("{stale_removed} stale"));
         }
 
         if parts.is_empty() {
@@ -1948,6 +1963,34 @@ fn handle_file_removed(
     }
 }
 
+fn prune_missing_sources(config: &file_watcher::WatcherConfig, server: &serve::SiteServer) {
+    let db = &*server.db;
+    let sources = SourceRegistry::sources(db)
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    let before = sources.len();
+
+    let retained: Vec<SourceFile> = sources
+        .into_iter()
+        .filter(|source| {
+            let Ok(path) = source.path(db) else {
+                return false;
+            };
+            config.content_dir.join(path.as_str()).exists()
+        })
+        .collect();
+
+    if retained.len() != before {
+        let removed = before - retained.len();
+        tracing::debug!(
+            removed,
+            "prune_missing_sources: removing source files missing from disk"
+        );
+        SourceRegistry::set(db, retained).expect("failed to set sources");
+    }
+}
+
 type FileEventHandler = Arc<dyn Fn(&file_watcher::FileEvent) + Send + Sync>;
 
 async fn start_file_watcher(
@@ -2049,6 +2092,16 @@ async fn start_file_watcher(
                     }
                 }
 
+                let should_prune_sources = expanded.iter().any(|event| match event {
+                    file_watcher::FileEvent::Changed(path)
+                    | file_watcher::FileEvent::Removed(path) => {
+                        config_apply.categorize(path) == file_watcher::PathCategory::Content
+                    }
+                    file_watcher::FileEvent::DirectoryCreated(path) => {
+                        config_apply.categorize(path) == file_watcher::PathCategory::Content
+                    }
+                });
+
                 for file_event in expanded {
                     match file_event {
                         file_watcher::FileEvent::Changed(path) => {
@@ -2059,6 +2112,10 @@ async fn start_file_watcher(
                         }
                         file_watcher::FileEvent::DirectoryCreated(_) => {}
                     }
+                }
+
+                if should_prune_sources {
+                    prune_missing_sources(&config_apply, &server_apply);
                 }
 
                 (server_apply, after_apply)

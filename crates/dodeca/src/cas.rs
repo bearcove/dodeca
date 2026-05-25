@@ -13,7 +13,7 @@ pub const CAS_VERSION: u32 = 5;
 use crate::db::ProcessedImages;
 use camino::Utf8Path;
 use rapidhash::fast::RapidHasher;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::hash::Hasher;
 use std::path::{Path, PathBuf};
@@ -91,6 +91,32 @@ impl ContentStore {
         self.store.hashes.insert(path_key, hash);
 
         Ok(true)
+    }
+
+    /// Remove files this store previously wrote but the current build no longer emits.
+    pub fn remove_stale(&mut self, expected_paths: &HashSet<String>) -> eyre::Result<usize> {
+        let stale_paths: Vec<String> = self
+            .store
+            .hashes
+            .keys()
+            .filter(|path| !expected_paths.contains(*path))
+            .cloned()
+            .collect();
+
+        let mut removed = 0;
+        for path in stale_paths {
+            self.store.hashes.remove(&path);
+            let path = Utf8Path::new(&path);
+            match fs::remove_file(path) {
+                Ok(()) => {
+                    removed += 1;
+                }
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                Err(err) => return Err(err.into()),
+            }
+        }
+
+        Ok(removed)
     }
 }
 
@@ -384,4 +410,47 @@ pub fn font_content_hash(data: &[u8]) -> InputHash {
     result[24..32].copy_from_slice(&h4.to_le_bytes());
 
     InputHash(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use camino::Utf8PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_dir(name: &str) -> Utf8PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "dodeca-cas-test-{name}-{}-{nonce}",
+            std::process::id()
+        ));
+        Utf8PathBuf::from_path_buf(path).expect("utf8 temp path")
+    }
+
+    #[test]
+    fn remove_stale_deletes_previously_written_outputs() {
+        let dir = temp_dir("remove-stale");
+        fs::create_dir_all(&dir).expect("create temp dir");
+        let store_path = dir.join("cas.db");
+        let keep = dir.join("public/keep/index.html");
+        let stale = dir.join("public/stale/index.html");
+
+        let mut store = ContentStore::open(&store_path).expect("open store");
+        store.write_if_changed(&keep, b"keep").expect("write keep");
+        store
+            .write_if_changed(&stale, b"stale")
+            .expect("write stale");
+
+        let expected = HashSet::from([keep.to_string()]);
+        let removed = store.remove_stale(&expected).expect("remove stale");
+
+        assert_eq!(removed, 1);
+        assert!(keep.exists());
+        assert!(!stale.exists());
+
+        fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
 }

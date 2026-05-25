@@ -1302,6 +1302,31 @@ impl InlineSite {
     pub fn build(&self) -> BuildResult {
         build_site_from_source_sync(&self.fixture_dir)
     }
+
+    pub fn build_in_place(&self) -> BuildResult {
+        fs::create_dir_all(self.fixture_dir.join("public")).expect("create output dir");
+
+        let fixture_str = self.fixture_dir.to_string_lossy().to_string();
+        let ddc = ddc_binary();
+        let mut cmd = StdCommand::new(&ddc);
+        cmd.args(["build", &fixture_str]);
+
+        if let Some(cell_dir) = cell_path() {
+            cmd.env("DODECA_CELL_PATH", &cell_dir);
+        }
+
+        let code_exec_target_dir = self.fixture_dir.join(".cache/code-exec-target");
+        let _ = fs::create_dir_all(&code_exec_target_dir);
+        cmd.env("DDC_CODE_EXEC_TARGET_DIR", &code_exec_target_dir);
+
+        let output = cmd.output().expect("run build");
+
+        BuildResult {
+            success: output.status.success(),
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        }
+    }
 }
 
 /// Build a site from an arbitrary source directory (sync version)

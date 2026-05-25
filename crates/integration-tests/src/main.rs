@@ -582,6 +582,18 @@ fn collect_tests() -> Vec<Test> {
             func: livereload::test_css_livereload,
             ignored: false,
         },
+        Test {
+            name: "dev_server_rename_prunes_old_content_route",
+            module: "renames",
+            func: renames::dev_server_rename_prunes_old_content_route,
+            ignored: false,
+        },
+        Test {
+            name: "build_rename_removes_old_content_output",
+            module: "renames",
+            func: renames::build_rename_removes_old_content_output,
+            ignored: false,
+        },
         // section_pages tests
         Test {
             name: "adding_page_updates_section_pages_list",

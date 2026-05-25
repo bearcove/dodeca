@@ -14,6 +14,7 @@ pub mod internal_links;
 pub mod livereload;
 pub mod mermaid;
 pub mod picante_cache;
+pub mod renames;
 pub mod sass;
 pub mod search;
 pub mod section_pages;
