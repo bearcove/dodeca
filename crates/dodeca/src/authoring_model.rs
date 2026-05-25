@@ -163,6 +163,11 @@ impl AuthoringProject {
             .find(|page| page.source_file == source_file)
     }
 
+    pub(crate) fn page_for_route(&self, target_route: &str) -> Option<&AuthoringPage> {
+        let source_file = self.source_file_for_route(target_route)?;
+        self.page_for_source_file(source_file)
+    }
+
     pub(crate) fn source_file_for_route(&self, target_route: &str) -> Option<&str> {
         self.route_to_source
             .get(target_route)

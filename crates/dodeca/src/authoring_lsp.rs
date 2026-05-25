@@ -7,12 +7,14 @@ use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::{
     CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionParams,
-    CodeActionProviderCapability, CodeActionResponse, Command, Diagnostic, DiagnosticSeverity,
-    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, ExecuteCommandOptions, ExecuteCommandParams, GotoDefinitionParams,
-    GotoDefinitionResponse, InitializeParams, InitializeResult, InitializedParams, Location,
-    MessageType, NumberOrString, OneOf, Position, Range, ReferenceParams, ServerCapabilities,
-    ServerInfo, ShowDocumentParams, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
+    CodeActionProviderCapability, CodeActionResponse, Command, CompletionItem, CompletionItemKind,
+    CompletionOptions, CompletionParams, CompletionResponse, CompletionTextEdit, Diagnostic,
+    DiagnosticSeverity, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, DidSaveTextDocumentParams, ExecuteCommandOptions,
+    ExecuteCommandParams, GotoDefinitionParams, GotoDefinitionResponse, InitializeParams,
+    InitializeResult, InitializedParams, Location, MessageType, NumberOrString, OneOf, Position,
+    Range, ReferenceParams, ServerCapabilities, ServerInfo, ShowDocumentParams,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url,
 };
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
@@ -104,6 +106,17 @@ impl LanguageServer for Backend {
                 definition_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
                 code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+                completion_provider: Some(CompletionOptions {
+                    resolve_provider: Some(false),
+                    trigger_characters: Some(vec![
+                        "(".to_string(),
+                        "/".to_string(),
+                        "@".to_string(),
+                        "#".to_string(),
+                        ".".to_string(),
+                    ]),
+                    ..CompletionOptions::default()
+                }),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -200,6 +213,18 @@ impl LanguageServer for Backend {
     async fn code_action(&self, params: CodeActionParams) -> LspResult<Option<CodeActionResponse>> {
         match self.code_actions(params).await {
             Ok(actions) => Ok(Some(actions)),
+            Err(err) => {
+                self.client
+                    .log_message(MessageType::ERROR, err.to_string())
+                    .await;
+                Ok(None)
+            }
+        }
+    }
+
+    async fn completion(&self, params: CompletionParams) -> LspResult<Option<CompletionResponse>> {
+        match self.completions(params).await {
+            Ok(items) => Ok(Some(CompletionResponse::Array(items))),
             Err(err) => {
                 self.client
                     .log_message(MessageType::ERROR, err.to_string())
@@ -375,6 +400,27 @@ impl Backend {
             .collect();
 
         Ok(actions)
+    }
+
+    async fn completions(&self, params: CompletionParams) -> Result<Vec<CompletionItem>> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        let dirs = self.dirs_for_uri(&uri)?;
+        let content = self.document_content(&uri)?;
+        let Some(context) = markdown_target_context_at_position(&content, position) else {
+            return Ok(Vec::new());
+        };
+
+        let path = lsp_file_uri_to_utf8_path(&uri)?;
+        let source_file = source_file_for_path(&dirs.content_dir, &path)?;
+        let project = self.current_project(&dirs).await?;
+        let page = project
+            .page_for_source_file(&source_file)
+            .ok_or_else(|| eyre!("missing authoring page for {source_file}"))?;
+
+        Ok(completion_items_for_markdown_target(
+            &project, page, &context,
+        ))
     }
 
     async fn definition_for_position(
@@ -1096,6 +1142,308 @@ fn reference_at_position(content: &str, position: Position) -> Option<MarkdownRe
     markdown_references(content)
         .into_iter()
         .find(|reference| reference.byte_start <= byte_offset && byte_offset <= reference.byte_end)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MarkdownTargetContext {
+    kind: MarkdownReferenceKind,
+    target: String,
+    range: Range,
+}
+
+fn markdown_target_context_at_position(
+    content: &str,
+    position: Position,
+) -> Option<MarkdownTargetContext> {
+    let byte_offset = position_to_byte_offset(content, position)?;
+    markdown_target_contexts(content)
+        .into_iter()
+        .find(|context| {
+            let start = lsp_position_to_byte_offset(content, context.range.start);
+            let end = lsp_position_to_byte_offset(content, context.range.end);
+            match (start, end) {
+                (Some(start), Some(end)) => start <= byte_offset && byte_offset <= end,
+                _ => false,
+            }
+        })
+}
+
+fn markdown_target_contexts(content: &str) -> Vec<MarkdownTargetContext> {
+    let mut contexts = Vec::new();
+    let bytes = content.as_bytes();
+    let mut cursor = 0;
+
+    while cursor + 1 < bytes.len() {
+        if bytes[cursor] != b']' || bytes[cursor + 1] != b'(' {
+            cursor += 1;
+            continue;
+        }
+
+        let target_start = cursor + 2;
+        let mut target_end = target_start;
+        while target_end < bytes.len() {
+            match bytes[target_end] {
+                b')' if target_end == target_start || bytes[target_end - 1] != b'\\' => break,
+                b'\n' => break,
+                _ => target_end += 1,
+            }
+        }
+
+        if target_end <= bytes.len() {
+            let target = &content[target_start..target_end];
+            let kind = markdown_reference_kind_before_link_close(content, cursor);
+            contexts.push(MarkdownTargetContext {
+                kind,
+                target: target.to_string(),
+                range: byte_range_to_lsp_range(content, target_start, target_end),
+            });
+        }
+
+        cursor = target_end.saturating_add(1);
+    }
+
+    contexts
+}
+
+fn markdown_reference_kind_before_link_close(
+    content: &str,
+    link_close_byte: usize,
+) -> MarkdownReferenceKind {
+    let line_start = content[..link_close_byte]
+        .rfind('\n')
+        .map(|idx| idx + 1)
+        .unwrap_or(0);
+    let Some(open_bracket) = content[line_start..link_close_byte].rfind('[') else {
+        return MarkdownReferenceKind::Link;
+    };
+    let open_bracket = line_start + open_bracket;
+
+    if open_bracket > 0 && content.as_bytes()[open_bracket - 1] == b'!' {
+        MarkdownReferenceKind::Image
+    } else {
+        MarkdownReferenceKind::Link
+    }
+}
+
+fn completion_items_for_markdown_target(
+    project: &AuthoringProject,
+    page: &AuthoringPage,
+    context: &MarkdownTargetContext,
+) -> Vec<CompletionItem> {
+    let target = context.target.as_str();
+    if is_special_target(target) {
+        return Vec::new();
+    }
+
+    if target.starts_with('#') || target.contains('#') {
+        return heading_completion_items(project, page, context);
+    }
+
+    if target.starts_with('@') {
+        return source_completion_items(project, context);
+    }
+
+    if context.kind == MarkdownReferenceKind::Image {
+        return static_completion_items(project, context);
+    }
+
+    let mut items = route_completion_items(project, page, context);
+    if target.starts_with('/') || is_likely_static_file(target) {
+        items.extend(static_completion_items(project, context));
+    }
+    items
+}
+
+fn route_completion_items(
+    project: &AuthoringProject,
+    page: &AuthoringPage,
+    context: &MarkdownTargetContext,
+) -> Vec<CompletionItem> {
+    project
+        .pages
+        .iter()
+        .map(|candidate| {
+            let insert_text = route_completion_text(page, &context.target, &candidate.route);
+            completion_item(
+                insert_text,
+                CompletionItemKind::REFERENCE,
+                format!("{} ({})", candidate.title, candidate.source_file),
+                context.range,
+            )
+        })
+        .collect()
+}
+
+fn source_completion_items(
+    project: &AuthoringProject,
+    context: &MarkdownTargetContext,
+) -> Vec<CompletionItem> {
+    let mut sources = project.source_to_route.keys().collect::<Vec<_>>();
+    sources.sort();
+
+    sources
+        .into_iter()
+        .map(|source_file| {
+            let route = project
+                .source_to_route
+                .get(source_file)
+                .map(String::as_str)
+                .unwrap_or("");
+            completion_item(
+                format!("@/{source_file}"),
+                CompletionItemKind::FILE,
+                format!("Dodeca source route {route}"),
+                context.range,
+            )
+        })
+        .collect()
+}
+
+fn static_completion_items(
+    project: &AuthoringProject,
+    context: &MarkdownTargetContext,
+) -> Vec<CompletionItem> {
+    let mut paths = project.static_paths.keys().collect::<Vec<_>>();
+    paths.sort();
+
+    paths
+        .into_iter()
+        .map(|path| {
+            completion_item(
+                format!("/{path}"),
+                CompletionItemKind::FILE,
+                "Dodeca static asset".to_string(),
+                context.range,
+            )
+        })
+        .collect()
+}
+
+fn heading_completion_items(
+    project: &AuthoringProject,
+    page: &AuthoringPage,
+    context: &MarkdownTargetContext,
+) -> Vec<CompletionItem> {
+    let (target_without_fragment, _) = split_fragment(&context.target);
+    let target_route = if let Some(source_target) = target_without_fragment.strip_prefix("@/") {
+        project.source_to_route.get(source_target).cloned()
+    } else {
+        Some(route_for_link_target(
+            project,
+            page,
+            target_without_fragment,
+        ))
+    };
+    let Some(target_route) = target_route else {
+        return Vec::new();
+    };
+    let Some(target_page) = project.page_for_route(&target_route) else {
+        return Vec::new();
+    };
+
+    let prefix = if context.target.starts_with('#') {
+        String::new()
+    } else {
+        target_without_fragment.to_string()
+    };
+
+    target_page
+        .heading_ids
+        .iter()
+        .map(|heading_id| {
+            let insert_text = format!("{prefix}#{heading_id}");
+            completion_item(
+                insert_text,
+                CompletionItemKind::REFERENCE,
+                format!("Heading on {}", target_page.route),
+                context.range,
+            )
+        })
+        .collect()
+}
+
+fn completion_item(
+    insert_text: String,
+    kind: CompletionItemKind,
+    detail: String,
+    range: Range,
+) -> CompletionItem {
+    CompletionItem {
+        label: insert_text.clone(),
+        kind: Some(kind),
+        detail: Some(detail),
+        filter_text: Some(insert_text.clone()),
+        text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+            range,
+            new_text: insert_text,
+        })),
+        ..CompletionItem::default()
+    }
+}
+
+fn route_completion_text(page: &AuthoringPage, current_target: &str, target_route: &str) -> String {
+    if current_target.starts_with('/') {
+        target_route.to_string()
+    } else {
+        relative_route_from_base(&page.link_base_route, target_route)
+    }
+}
+
+fn relative_route_from_base(base_route: &str, target_route: &str) -> String {
+    if target_route == "/" {
+        return "/".to_string();
+    }
+
+    let base_parts = route_segments(base_route);
+    let target_parts = route_segments(target_route);
+    let shared = base_parts
+        .iter()
+        .zip(target_parts.iter())
+        .take_while(|(left, right)| left == right)
+        .count();
+
+    let mut parts = Vec::new();
+    for _ in shared..base_parts.len() {
+        parts.push("..".to_string());
+    }
+    parts.extend(
+        target_parts[shared..]
+            .iter()
+            .map(|part| (*part).to_string()),
+    );
+
+    if parts.is_empty() {
+        ".".to_string()
+    } else {
+        parts.join("/")
+    }
+}
+
+fn route_segments(route: &str) -> Vec<&str> {
+    route
+        .trim_matches('/')
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect()
+}
+
+fn byte_range_to_lsp_range(content: &str, byte_start: usize, byte_end: usize) -> Range {
+    let (line, column) = byte_to_line_column(content, byte_start);
+    let (line_end, column_end) = byte_to_line_column(content, byte_end);
+    Range {
+        start: Position {
+            line: line.saturating_sub(1),
+            character: column.saturating_sub(1),
+        },
+        end: Position {
+            line: line_end.saturating_sub(1),
+            character: column_end.saturating_sub(1),
+        },
+    }
+}
+
+fn lsp_position_to_byte_offset(content: &str, position: Position) -> Option<usize> {
+    position_to_byte_offset(content, position)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1872,6 +2220,72 @@ mod tests {
         );
 
         std::fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[tokio::test]
+    async fn completes_routes_sources_static_assets_and_headings_from_authoring_project() {
+        let dir = temp_dir("completions");
+        let content_dir = dir.join("content");
+        let static_dir = dir.join("static");
+        std::fs::create_dir_all(content_dir.join("guide")).expect("create content dirs");
+        std::fs::create_dir_all(&static_dir).expect("create static dir");
+        std::fs::write(static_dir.join("logo.png"), b"png").expect("write static");
+        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
+        std::fs::write(content_dir.join("guide/_index.md"), "# Guide\n").expect("write section");
+        std::fs::write(
+            content_dir.join("guide/intro.md"),
+            "# Intro\n\n## Details\n",
+        )
+        .expect("write intro");
+        let source = "\
+# Source
+
+[absolute](/)
+[source](@/)
+[relative]()
+[heading](/guide/intro#)
+[local](#)
+![image](/)
+";
+        std::fs::write(content_dir.join("guide/source.md"), source).expect("write source");
+
+        let project = load_authoring_project(&content_dir, &[])
+            .await
+            .expect("load project");
+        let page = project
+            .page_for_source_file("guide/source.md")
+            .expect("source page");
+        let contexts = markdown_target_contexts(source);
+
+        assert!(
+            completion_new_texts(&project, page, &contexts[0]).contains(&"/guide/intro".into())
+        );
+        assert!(
+            completion_new_texts(&project, page, &contexts[1]).contains(&"@/guide/intro.md".into())
+        );
+        assert!(completion_new_texts(&project, page, &contexts[2]).contains(&"intro".into()));
+        assert!(
+            completion_new_texts(&project, page, &contexts[3])
+                .contains(&"/guide/intro#intro--details".into())
+        );
+        assert!(completion_new_texts(&project, page, &contexts[4]).contains(&"#source".into()));
+        assert!(completion_new_texts(&project, page, &contexts[5]).contains(&"/logo.png".into()));
+
+        std::fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    fn completion_new_texts(
+        project: &AuthoringProject,
+        page: &AuthoringPage,
+        context: &MarkdownTargetContext,
+    ) -> Vec<String> {
+        completion_items_for_markdown_target(project, page, context)
+            .into_iter()
+            .filter_map(|item| match item.text_edit {
+                Some(CompletionTextEdit::Edit(edit)) => Some(edit.new_text),
+                _ => None,
+            })
+            .collect()
     }
 
     #[tokio::test]

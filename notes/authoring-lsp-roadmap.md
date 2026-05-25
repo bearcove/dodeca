@@ -29,7 +29,7 @@ Status values:
 | `lsp-001` | `done` | Missing page quick fix | Broken route diagnostics offer a quick fix that creates and opens the new page. | Creates frontmatter only; no duplicate body title. |
 | `lsp-002` | `done` | Project-wide link diagnostics | Editors receive warnings for broken links across the whole project, not just the open file. | Current diagnostic kinds cover missing routes, anchors, source files, and static assets. |
 | `lsp-003` | `done` | Page backlinks | Find All References on page frontmatter returns every Markdown link resolving to that page. | Covers route links, `@/source.md`, anchors, and relative links. |
-| `lsp-004` | `todo` | Link completions | Complete routes, source files, static assets, and heading fragments inside Markdown links. | Should use current page context for relative links and route context for `#fragment`. |
+| `lsp-004` | `done` | Link completions | Complete routes, source files, static assets, and heading fragments inside Markdown links. | Uses the shared authoring model for candidates and LSP edit spans only for replacement ranges. |
 | `lsp-005` | `todo` | Link hover | Hovering a Markdown link explains the resolved target page, route, source file, heading, or static asset. | Broken links should expose the same reason as diagnostics. |
 | `lsp-006` | `todo` | Frontmatter hover | Hovering frontmatter shows canonical route, source file, title, template, output path, and backlink count. | Backlink count can share the references implementation. |
 | `lsp-007` | `todo` | Page workspace symbols | Editor symbol search lists pages by title, route, source file, and headings. | Lets users jump around the site graph without knowing filenames. |
