@@ -10,14 +10,16 @@ use tower_lsp::lsp_types::{
     CodeActionProviderCapability, CodeActionResponse, Command, CompletionItem, CompletionItemKind,
     CompletionOptions, CompletionParams, CompletionResponse, CompletionTextEdit, Diagnostic,
     DiagnosticSeverity, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentSymbol, DocumentSymbolParams,
-    DocumentSymbolResponse, ExecuteCommandOptions, ExecuteCommandParams, GotoDefinitionParams,
-    GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability,
-    InitializeParams, InitializeResult, InitializedParams, Location, MarkupContent, MarkupKind,
-    MessageType, NumberOrString, OneOf, Position, PrepareRenameResponse, Range, ReferenceParams,
-    RenameOptions, RenameParams, ServerCapabilities, ServerInfo, ShowDocumentParams,
-    SymbolInformation, SymbolKind, TextDocumentPositionParams, TextDocumentSyncCapability,
-    TextDocumentSyncKind, TextEdit, Url, WorkspaceEdit, WorkspaceSymbolParams,
+    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentChangeOperation, DocumentChanges,
+    DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, ExecuteCommandOptions,
+    ExecuteCommandParams, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents,
+    HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams,
+    Location, MarkupContent, MarkupKind, MessageType, NumberOrString, OneOf,
+    OptionalVersionedTextDocumentIdentifier, Position, PrepareRenameResponse, Range,
+    ReferenceParams, RenameFile, RenameFileOptions, RenameOptions, RenameParams, ResourceOp,
+    ServerCapabilities, ServerInfo, ShowDocumentParams, SymbolInformation, SymbolKind,
+    TextDocumentEdit, TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind,
+    TextEdit, Url, WorkspaceEdit, WorkspaceSymbolParams,
 };
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
@@ -27,6 +29,7 @@ use crate::authoring_model::{
 };
 use crate::config::ResolvedConfig;
 use crate::queries::default_title_from_source_path;
+use crate::types::SourcePath;
 
 const LIST_PAGES_COMMAND: &str = "dodeca.listPages";
 const DIAGNOSTICS_COMMAND: &str = "dodeca.authoringDiagnostics";
@@ -641,6 +644,15 @@ impl Backend {
             .page_for_source_file(&source_file)
             .ok_or_else(|| eyre!("missing authoring page for {source_file}"))?;
 
+        if let Some(frontmatter_range) = frontmatter_lsp_range(&content)
+            && range_contains_position(&frontmatter_range, position)
+        {
+            return Ok(Some(PrepareRenameResponse::RangeWithPlaceholder {
+                range: frontmatter_range,
+                placeholder: page.route.clone(),
+            }));
+        }
+
         let Some(target) = heading_rename_target_at_position(page, &content, position) else {
             return Ok(None);
         };
@@ -665,6 +677,12 @@ impl Backend {
         let page = project
             .page_for_source_file(&source_file)
             .ok_or_else(|| eyre!("missing authoring page for {source_file}"))?;
+
+        if let Some(frontmatter_range) = frontmatter_lsp_range(&content)
+            && range_contains_position(&frontmatter_range, position)
+        {
+            return rename_page_route_workspace_edit(&dirs.content_dir, &project, page, new_name);
+        }
 
         let Some(target) = heading_rename_target_at_position(page, &content, position) else {
             return Ok(None);
@@ -1597,6 +1615,346 @@ fn fragment_range_for_target_context(
         context.byte_start + fragment_start_in_target,
         context.byte_start + fragment_end_in_target,
     ))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PageRouteRenamePlan {
+    old_route: String,
+    new_route: String,
+    old_source_file: String,
+    new_source_file: String,
+    text_edits: Vec<PageRouteTextEdit>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PageRouteTextEdit {
+    source_file: String,
+    range: Range,
+    new_target: String,
+}
+
+fn rename_page_route_workspace_edit(
+    content_dir: &Utf8Path,
+    project: &AuthoringProject,
+    target_page: &AuthoringPage,
+    new_name: &str,
+) -> Result<Option<WorkspaceEdit>> {
+    let Some(plan) = page_route_rename_plan(content_dir, project, target_page, new_name)? else {
+        return Ok(None);
+    };
+    Ok(Some(workspace_edit_for_page_route_rename(
+        content_dir,
+        &plan,
+    )?))
+}
+
+fn page_route_rename_plan(
+    content_dir: &Utf8Path,
+    project: &AuthoringProject,
+    target_page: &AuthoringPage,
+    new_name: &str,
+) -> Result<Option<PageRouteRenamePlan>> {
+    let Some(target) = page_route_rename_target(target_page, new_name) else {
+        return Ok(None);
+    };
+    if target.route == target_page.route && target.source_file == target_page.source_file {
+        return Ok(None);
+    }
+    if project
+        .source_file_for_route(&target.route)
+        .is_some_and(|source_file| source_file != target_page.source_file)
+    {
+        return Ok(None);
+    }
+    if project.source_to_route.contains_key(&target.source_file)
+        && target.source_file != target_page.source_file
+    {
+        return Ok(None);
+    }
+    if content_dir.join(&target.source_file).exists()
+        && target.source_file != target_page.source_file
+    {
+        return Ok(None);
+    }
+
+    let mut text_edits = Vec::new();
+    for page in &project.pages {
+        let Some(content) = project.source_contents.get(&page.source_file) else {
+            continue;
+        };
+
+        for context in markdown_target_contexts(content) {
+            if let Some(edit) = page_route_link_edit(project, page, target_page, &target, context) {
+                text_edits.push(edit);
+            }
+        }
+    }
+
+    text_edits.sort_by(|a, b| {
+        a.source_file
+            .cmp(&b.source_file)
+            .then_with(|| position_cmp(a.range.start, b.range.start))
+            .then_with(|| position_cmp(a.range.end, b.range.end))
+    });
+
+    Ok(Some(PageRouteRenamePlan {
+        old_route: target_page.route.clone(),
+        new_route: target.route,
+        old_source_file: target_page.source_file.clone(),
+        new_source_file: target.source_file,
+        text_edits,
+    }))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PageRouteRenameTarget {
+    route: String,
+    source_file: String,
+}
+
+fn page_route_rename_target(page: &AuthoringPage, new_name: &str) -> Option<PageRouteRenameTarget> {
+    let new_name = new_name.trim();
+    if new_name.is_empty() || new_name.contains('\n') || new_name.contains('\r') {
+        return None;
+    }
+
+    if let Some(source_file) = new_name
+        .strip_prefix("@/")
+        .or_else(|| new_name.ends_with(".md").then_some(new_name))
+    {
+        let source_file = normalize_relative_path(Utf8Path::new(source_file));
+        validate_markdown_source_file(&source_file)?;
+        let source_path = SourcePath::new(source_file.clone());
+        if source_path.is_section_index() != (page.kind == AuthoringPageKind::Section) {
+            return None;
+        }
+        let route = source_path.to_route().to_string();
+        return Some(PageRouteRenameTarget { route, source_file });
+    }
+
+    let route = normalize_route(new_name);
+    let source_file = source_file_for_page_route(&route, page.kind)?;
+    Some(PageRouteRenameTarget { route, source_file })
+}
+
+fn page_route_link_edit(
+    project: &AuthoringProject,
+    page: &AuthoringPage,
+    target_page: &AuthoringPage,
+    target: &PageRouteRenameTarget,
+    context: MarkdownTargetContext,
+) -> Option<PageRouteTextEdit> {
+    let reference = MarkdownReference {
+        kind: context.kind,
+        target: context.target.clone(),
+        byte_start: context.byte_start,
+        byte_end: context.byte_end,
+    };
+    let target_route = reference_target_route(project, page, &reference)?;
+    if !project.routes_refer_to_same_page(&target_route, &target_page.route) {
+        return None;
+    }
+
+    let (base, suffix) = target_base_and_suffix(&context.target);
+    if base.is_empty() {
+        return None;
+    }
+
+    let effective_source_file = if page.source_file == target_page.source_file {
+        target.source_file.as_str()
+    } else {
+        page.source_file.as_str()
+    };
+    let effective_link_base_route = if page.source_file == target_page.source_file {
+        link_base_route_for_route(&target.route, page.kind)
+    } else {
+        page.link_base_route.clone()
+    };
+
+    let new_base = if base.starts_with("@/") {
+        format!("@/{}", target.source_file)
+    } else if base.ends_with(".md") {
+        relative_source_path_from_source(effective_source_file, &target.source_file)
+    } else if base.starts_with('/') {
+        target.route.clone()
+    } else {
+        relative_route_from_base(&effective_link_base_route, &target.route)
+    };
+    let new_target = format!("{new_base}{suffix}");
+    if new_target == context.target {
+        return None;
+    }
+
+    Some(PageRouteTextEdit {
+        source_file: if page.source_file == target_page.source_file {
+            target.source_file.clone()
+        } else {
+            page.source_file.clone()
+        },
+        range: context.range,
+        new_target,
+    })
+}
+
+fn workspace_edit_for_page_route_rename(
+    content_dir: &Utf8Path,
+    plan: &PageRouteRenamePlan,
+) -> Result<WorkspaceEdit> {
+    let old_uri = source_file_uri(content_dir, &plan.old_source_file)?;
+    let new_uri = source_file_uri(content_dir, &plan.new_source_file)?;
+    let mut operations = vec![DocumentChangeOperation::Op(ResourceOp::Rename(
+        RenameFile {
+            old_uri: old_uri.clone(),
+            new_uri: new_uri.clone(),
+            options: Some(RenameFileOptions {
+                overwrite: Some(false),
+                ignore_if_exists: Some(false),
+            }),
+            annotation_id: None,
+        },
+    ))];
+
+    let mut edits_by_source: HashMap<String, Vec<TextEdit>> = HashMap::new();
+    for edit in &plan.text_edits {
+        edits_by_source
+            .entry(edit.source_file.clone())
+            .or_default()
+            .push(TextEdit::new(edit.range, edit.new_target.clone()));
+    }
+
+    let mut source_files = edits_by_source.keys().cloned().collect::<Vec<_>>();
+    source_files.sort();
+    for source_file in source_files {
+        let uri = if source_file == plan.new_source_file {
+            new_uri.clone()
+        } else {
+            source_file_uri(content_dir, &source_file)?
+        };
+        let mut edits = edits_by_source.remove(&source_file).unwrap_or_default();
+        edits.sort_by(|a, b| {
+            position_cmp(a.range.start, b.range.start)
+                .then_with(|| position_cmp(a.range.end, b.range.end))
+        });
+        operations.push(DocumentChangeOperation::Edit(TextDocumentEdit {
+            text_document: OptionalVersionedTextDocumentIdentifier { uri, version: None },
+            edits: edits.into_iter().map(OneOf::Left).collect(),
+        }));
+    }
+
+    Ok(WorkspaceEdit {
+        changes: None,
+        document_changes: Some(DocumentChanges::Operations(operations)),
+        change_annotations: None,
+    })
+}
+
+fn source_file_uri(content_dir: &Utf8Path, source_file: &str) -> Result<Url> {
+    Url::from_file_path(content_dir.join(source_file))
+        .map_err(|_| eyre!("could not convert source file to URI: {source_file}"))
+}
+
+fn target_base_and_suffix(target: &str) -> (&str, &str) {
+    let suffix_start = [target.find('#'), target.find('?')]
+        .into_iter()
+        .flatten()
+        .min()
+        .unwrap_or(target.len());
+    (&target[..suffix_start], &target[suffix_start..])
+}
+
+fn source_file_for_page_route(route: &str, kind: AuthoringPageKind) -> Option<String> {
+    match kind {
+        AuthoringPageKind::Page => source_file_for_new_route(route),
+        AuthoringPageKind::Section => source_file_for_new_section_route(route),
+    }
+}
+
+fn source_file_for_new_section_route(route: &str) -> Option<String> {
+    let route = normalize_route(route);
+    let relative = route.strip_prefix('/')?;
+    if relative.is_empty() {
+        return None;
+    }
+    validate_route_relative_path(relative)?;
+    Some(format!("{relative}/_index.md"))
+}
+
+fn validate_markdown_source_file(source_file: &str) -> Option<()> {
+    source_file.ends_with(".md").then_some(())?;
+    if source_file.starts_with('/') {
+        return None;
+    }
+    validate_route_relative_path(source_file.strip_suffix(".md").unwrap_or(source_file))
+}
+
+fn validate_route_relative_path(relative: &str) -> Option<()> {
+    if relative.is_empty() {
+        return None;
+    }
+    for segment in relative.split('/') {
+        if segment.is_empty()
+            || segment == "."
+            || segment == ".."
+            || segment.contains('\\')
+            || segment.contains(':')
+        {
+            return None;
+        }
+    }
+    Some(())
+}
+
+fn link_base_route_for_route(route: &str, kind: AuthoringPageKind) -> String {
+    match kind {
+        AuthoringPageKind::Page => route_parent(route),
+        AuthoringPageKind::Section => normalize_route(route),
+    }
+}
+
+fn route_parent(route: &str) -> String {
+    let route = normalize_route(route);
+    let parts = route_segments(&route);
+    if parts.len() <= 1 {
+        "/".to_string()
+    } else {
+        format!("/{}", parts[..parts.len() - 1].join("/"))
+    }
+}
+
+fn relative_source_path_from_source(source_file: &str, target_source_file: &str) -> String {
+    let source_parent = Utf8Path::new(source_file)
+        .parent()
+        .unwrap_or_else(|| Utf8Path::new(""));
+    let source_parts = source_parent
+        .as_str()
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    let target_parts = target_source_file
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    let shared = source_parts
+        .iter()
+        .zip(target_parts.iter())
+        .take_while(|(left, right)| left == right)
+        .count();
+
+    let mut parts = Vec::new();
+    for _ in shared..source_parts.len() {
+        parts.push("..".to_string());
+    }
+    parts.extend(
+        target_parts[shared..]
+            .iter()
+            .map(|part| (*part).to_string()),
+    );
+
+    if parts.is_empty() {
+        ".".to_string()
+    } else {
+        parts.join("/")
+    }
 }
 
 fn reference_target_route(
@@ -3212,6 +3570,109 @@ title = \"Target\"
         assert_eq!(nested_edits.len(), 1);
         assert_eq!(nested_edits[0].new_text, "target--deep-details");
         assert_eq!(changes.len(), 3);
+
+        std::fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[tokio::test]
+    async fn renames_page_route_source_file_and_resolved_links() {
+        let dir = temp_dir("page-route-rename");
+        let content_dir = dir.join("content");
+        std::fs::create_dir_all(content_dir.join("guide")).expect("create guide dir");
+        std::fs::create_dir_all(content_dir.join("nested")).expect("create nested dir");
+        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
+        std::fs::write(content_dir.join("guide/_index.md"), "# Guide\n").expect("write guide");
+        std::fs::write(content_dir.join("nested/_index.md"), "# Nested\n").expect("write nested");
+        std::fs::write(
+            content_dir.join("guide/intro.md"),
+            "\
++++
+title = \"Intro\"
++++
+
+# Intro
+
+[local](#intro)
+[absolute self](/guide/intro#intro)
+[source self](@/guide/intro.md#intro)
+",
+        )
+        .expect("write target");
+        std::fs::write(
+            content_dir.join("guide/source.md"),
+            "\
+# Source
+
+[relative route](intro#intro)
+[relative source](intro.md#intro)
+[wrong](/guide/other)
+",
+        )
+        .expect("write guide source");
+        std::fs::write(
+            content_dir.join("nested/source.md"),
+            "\
+# Source
+
+[absolute](/guide/intro#intro)
+[absolute source](@/guide/intro.md#intro)
+[relative route](../guide/intro#intro)
+[relative source](../guide/intro.md#intro)
+",
+        )
+        .expect("write nested source");
+
+        let project = load_authoring_project(&content_dir, &[])
+            .await
+            .expect("load project");
+        let target_page = project
+            .page_for_source_file("guide/intro.md")
+            .expect("target page");
+        let plan = page_route_rename_plan(&content_dir, &project, target_page, "/manual/setup")
+            .expect("rename plan")
+            .expect("page route rename");
+
+        assert_eq!(plan.old_route, "/guide/intro");
+        assert_eq!(plan.new_route, "/manual/setup");
+        assert_eq!(plan.old_source_file, "guide/intro.md");
+        assert_eq!(plan.new_source_file, "manual/setup.md");
+        assert_eq!(
+            plan.text_edits
+                .iter()
+                .map(|edit| (edit.source_file.as_str(), edit.new_target.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("guide/source.md", "../manual/setup#intro"),
+                ("guide/source.md", "../manual/setup.md#intro"),
+                ("manual/setup.md", "/manual/setup#intro"),
+                ("manual/setup.md", "@/manual/setup.md#intro"),
+                ("nested/source.md", "/manual/setup#intro"),
+                ("nested/source.md", "@/manual/setup.md#intro"),
+                ("nested/source.md", "../manual/setup#intro"),
+                ("nested/source.md", "../manual/setup.md#intro"),
+            ]
+        );
+
+        let workspace_edit =
+            workspace_edit_for_page_route_rename(&content_dir, &plan).expect("workspace edit");
+        let operations = match workspace_edit.document_changes.expect("document changes") {
+            DocumentChanges::Operations(operations) => operations,
+            DocumentChanges::Edits(_) => panic!("expected document change operations"),
+        };
+        match &operations[0] {
+            DocumentChangeOperation::Op(ResourceOp::Rename(rename)) => {
+                assert_eq!(
+                    rename.old_uri,
+                    Url::from_file_path(content_dir.join("guide/intro.md")).expect("old uri")
+                );
+                assert_eq!(
+                    rename.new_uri,
+                    Url::from_file_path(content_dir.join("manual/setup.md")).expect("new uri")
+                );
+            }
+            _ => panic!("expected file rename operation"),
+        }
+        assert_eq!(operations.len(), 4);
 
         std::fs::remove_dir_all(&dir).expect("remove temp dir");
     }
