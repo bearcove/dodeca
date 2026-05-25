@@ -41,7 +41,9 @@ pub fn find_cell_path() -> Result<std::path::PathBuf> {
 // HostDevtoolsService - vox RPC implementation of DevtoolsService
 // ============================================================================
 
-use dodeca_protocol::{DevtoolsEvent, DevtoolsService, EvalResult, OpenSourceResult, ScopeEntry};
+use dodeca_protocol::{
+    DeadLinkTarget, DevtoolsEvent, DevtoolsService, EvalResult, OpenSourceResult, ScopeEntry,
+};
 
 /// Host-side implementation of DevtoolsService for direct vox RPC.
 ///
@@ -193,6 +195,42 @@ impl DevtoolsService for HostDevtoolsService {
                 sid = %sid,
                 error = %err,
                 "devtools open_source_id RPC failed"
+            ),
+        }
+
+        result
+    }
+
+    async fn open_dead_link(&self, route: String, target: DeadLinkTarget) -> OpenSourceResult {
+        tracing::debug!(
+            browser_id = self.browser_id,
+            route = %route,
+            target = ?target,
+            "devtools open_dead_link RPC received"
+        );
+
+        let result = match self
+            .server
+            .open_dead_link_in_editor(&route, target.clone())
+            .await
+        {
+            Ok(()) => OpenSourceResult::Ok,
+            Err(err) => OpenSourceResult::Err(err.to_string()),
+        };
+
+        match &result {
+            OpenSourceResult::Ok => tracing::debug!(
+                browser_id = self.browser_id,
+                route = %route,
+                target = ?target,
+                "devtools open_dead_link RPC succeeded"
+            ),
+            OpenSourceResult::Err(err) => tracing::debug!(
+                browser_id = self.browser_id,
+                route = %route,
+                target = ?target,
+                error = %err,
+                "devtools open_dead_link RPC failed"
             ),
         }
 

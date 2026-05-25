@@ -11,6 +11,7 @@ use eyre::{Result, bail, eyre};
 use hotmeal_server::LiveReloadServer;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
+use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use tokio::sync::{broadcast, watch};
 
@@ -25,7 +26,7 @@ use crate::render::{RenderOptions, inject_livereload_with_build_info};
 use crate::types::Route;
 use std::collections::HashSet;
 
-use dodeca_protocol::{ScopeEntry, ScopeValue};
+use dodeca_protocol::{DeadLinkTarget, ScopeEntry, ScopeValue};
 use facet_value::DestructuredRef;
 
 // ============================================================================
@@ -408,6 +409,75 @@ impl SiteServer {
         );
 
         self.open_source_in_editor(&source_file, line).await
+    }
+
+    pub async fn open_dead_link_in_editor(
+        &self,
+        route_path: &str,
+        target: DeadLinkTarget,
+    ) -> Result<()> {
+        tracing::debug!(
+            route = %route_path,
+            target = ?target,
+            "open_dead_link_in_editor: resolving dead link target"
+        );
+
+        let stub = dead_link_stub_for_target(&target)?;
+        self.create_dead_link_stub(&stub).await?;
+        self.open_source_in_editor(stub.source_file.as_str(), 1)
+            .await
+    }
+
+    async fn create_dead_link_stub(&self, stub: &DeadLinkStub) -> Result<()> {
+        let source_root = self
+            .source_root
+            .as_ref()
+            .ok_or_else(|| eyre!("source root is not available in this server mode"))?;
+
+        if stub.source_file.is_absolute()
+            || stub
+                .source_file
+                .components()
+                .any(|component| matches!(component, Utf8Component::ParentDir))
+        {
+            bail!(
+                "refusing to create source path outside the content directory: {}",
+                stub.source_file
+            );
+        }
+
+        let disk_path = source_root.join(&stub.source_file);
+        if let Some(parent) = disk_path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+
+        let content = dead_link_stub_content(&stub.title);
+        match tokio::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&disk_path)
+            .await
+        {
+            Ok(mut file) => {
+                file.write_all(content.as_bytes()).await?;
+                tracing::info!(
+                    source_file = %stub.source_file,
+                    disk_path = %disk_path,
+                    title = %stub.title,
+                    "created dead link source stub"
+                );
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                tracing::debug!(
+                    source_file = %stub.source_file,
+                    disk_path = %disk_path,
+                    "dead link source stub already exists"
+                );
+            }
+            Err(err) => return Err(err.into()),
+        }
+
+        Ok(())
     }
 
     /// Register a browser connection for receiving devtools events.
@@ -1684,6 +1754,158 @@ impl SiteServer {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct DeadLinkStub {
+    source_file: Utf8PathBuf,
+    title: String,
+}
+
+fn dead_link_stub_for_target(target: &DeadLinkTarget) -> Result<DeadLinkStub> {
+    match target {
+        DeadLinkTarget::Wiki { key, title } => {
+            let slug = path_segment_slug(key)
+                .or_else(|| path_segment_slug(title))
+                .ok_or_else(|| eyre!("dead wiki link target has no usable slug"))?;
+            let title = useful_title(title).unwrap_or_else(|| title_from_slug(&slug));
+            Ok(DeadLinkStub {
+                source_file: Utf8PathBuf::from(format!("{slug}.md")),
+                title,
+            })
+        }
+        DeadLinkTarget::Internal { href, title } => {
+            let route = internal_href_route(href)?;
+            let source_path = source_path_for_route(&route)?;
+            let fallback_slug = route
+                .trim_matches('/')
+                .rsplit('/')
+                .next()
+                .filter(|segment| !segment.is_empty())
+                .unwrap_or("untitled");
+            let title = useful_title(title).unwrap_or_else(|| title_from_slug(fallback_slug));
+            Ok(DeadLinkStub {
+                source_file: Utf8PathBuf::from(source_path),
+                title,
+            })
+        }
+    }
+}
+
+fn internal_href_route(href: &str) -> Result<String> {
+    if !href.starts_with('/') || href.starts_with("//") || href.starts_with("/__") {
+        bail!("dead internal link is not authorable: {href}");
+    }
+
+    let path = href
+        .split(['#', '?'])
+        .next()
+        .filter(|path| !path.is_empty())
+        .ok_or_else(|| eyre!("dead internal link has no route: {href}"))?;
+    let route = normalize_route(path);
+    if route == "/" {
+        bail!("refusing to create a stub for the content root");
+    }
+
+    Ok(route)
+}
+
+fn source_path_for_route(route: &str) -> Result<String> {
+    let mut parts = Vec::new();
+    for segment in route.trim_matches('/').split('/') {
+        if segment.is_empty() || segment == "." || segment == ".." || segment.contains('\\') {
+            bail!("dead internal link route contains an unsafe segment: {route}");
+        }
+        parts.push(segment);
+    }
+
+    if parts.is_empty() {
+        bail!("dead internal link route has no path segments: {route}");
+    }
+
+    Ok(format!("{}.md", parts.join("/")))
+}
+
+fn dead_link_stub_content(title: &str) -> String {
+    format!(
+        "+++\ntitle = \"{}\"\n+++\n\n# {}\n",
+        toml_basic_string_escape(title),
+        title
+    )
+}
+
+fn useful_title(title: &str) -> Option<String> {
+    let title = title.trim();
+    if title.is_empty() {
+        None
+    } else {
+        Some(title.to_string())
+    }
+}
+
+fn path_segment_slug(input: &str) -> Option<String> {
+    let mut slug = String::new();
+    let mut last_was_dash = true;
+
+    for c in input.chars() {
+        if c.is_alphanumeric() {
+            for lower in c.to_lowercase() {
+                slug.push(lower);
+            }
+            last_was_dash = false;
+        } else if (c == '-' || c == '_' || c.is_whitespace()) && !last_was_dash {
+            slug.push('-');
+            last_was_dash = true;
+        }
+    }
+
+    while slug.ends_with('-') {
+        slug.pop();
+    }
+
+    if slug.is_empty() { None } else { Some(slug) }
+}
+
+fn title_from_slug(slug: &str) -> String {
+    let mut title = String::new();
+    let mut capitalize_next = true;
+    for c in slug.chars() {
+        if c == '-' || c == '_' {
+            if !title.ends_with(' ') && !title.is_empty() {
+                title.push(' ');
+            }
+            capitalize_next = true;
+        } else if capitalize_next {
+            for upper in c.to_uppercase() {
+                title.push(upper);
+            }
+            capitalize_next = false;
+        } else {
+            title.push(c);
+        }
+    }
+
+    if title.is_empty() {
+        "Untitled".to_string()
+    } else {
+        title
+    }
+}
+
+fn toml_basic_string_escape(input: &str) -> String {
+    let mut escaped = String::new();
+    for c in input.chars() {
+        match c {
+            '"' => escaped.push_str("\\\""),
+            '\\' => escaped.push_str("\\\\"),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            c if c.is_control() => escaped.push(' '),
+            c => escaped.push(c),
+        }
+    }
+    escaped
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct AssociatedApp {
     path: Utf8PathBuf,
     bundle_id: Option<String>,
@@ -2248,5 +2470,52 @@ mod tests {
             line_aware_editor_command(Some(&app), Utf8Path::new("/site/content/page.md"), 42)
                 .is_none()
         );
+    }
+
+    #[test]
+    fn wiki_dead_link_stub_uses_wiki_key_and_title() {
+        let stub = dead_link_stub_for_target(&DeadLinkTarget::Wiki {
+            key: "missing-page".to_string(),
+            title: "Missing Page".to_string(),
+        })
+        .expect("stub");
+
+        assert_eq!(stub.source_file, Utf8PathBuf::from("missing-page.md"));
+        assert_eq!(stub.title, "Missing Page");
+        assert_eq!(
+            dead_link_stub_content(&stub.title),
+            "+++\ntitle = \"Missing Page\"\n+++\n\n# Missing Page\n"
+        );
+    }
+
+    #[test]
+    fn internal_dead_link_stub_maps_route_to_markdown_file() {
+        let stub = dead_link_stub_for_target(&DeadLinkTarget::Internal {
+            href: "/guide/new-page/#intro".to_string(),
+            title: String::new(),
+        })
+        .expect("stub");
+
+        assert_eq!(stub.source_file, Utf8PathBuf::from("guide/new-page.md"));
+        assert_eq!(stub.title, "New Page");
+    }
+
+    #[test]
+    fn dead_link_stub_escapes_toml_title() {
+        assert_eq!(
+            dead_link_stub_content("A \"quoted\" title"),
+            "+++\ntitle = \"A \\\"quoted\\\" title\"\n+++\n\n# A \"quoted\" title\n"
+        );
+    }
+
+    #[test]
+    fn internal_dead_link_stub_rejects_root() {
+        let err = dead_link_stub_for_target(&DeadLinkTarget::Internal {
+            href: "/".to_string(),
+            title: String::new(),
+        })
+        .expect_err("root should not be authorable");
+
+        assert!(err.to_string().contains("content root"));
     }
 }

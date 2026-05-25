@@ -73,6 +73,9 @@ pub trait DevtoolsService {
 
     /// Open a rendered markdown element by route and `data-sid`.
     async fn open_source_id(&self, route: String, sid: String) -> OpenSourceResult;
+
+    /// Create a source stub for a dead link target, then open it in the editor.
+    async fn open_dead_link(&self, route: String, target: DeadLinkTarget) -> OpenSourceResult;
 }
 
 /// Events pushed from server to browser devtools.
@@ -100,6 +103,13 @@ pub enum DevtoolsEvent {
 pub enum OpenSourceResult {
     Ok,
     Err(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Facet)]
+#[repr(u8)]
+pub enum DeadLinkTarget {
+    Wiki { key: String, title: String },
+    Internal { href: String, title: String },
 }
 
 // ============================================================================

@@ -11,6 +11,7 @@
 use sycamore::prelude::*;
 use wasm_bindgen::prelude::*;
 
+mod dead_links;
 mod open_in_editor;
 mod protocol;
 mod state;
@@ -34,6 +35,7 @@ pub fn mount_devtools() {
             DevtoolsApp {}
         }
     });
+    dead_links::install();
     open_in_editor::install();
 }
 

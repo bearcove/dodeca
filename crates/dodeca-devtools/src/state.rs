@@ -6,8 +6,8 @@ use sycamore::prelude::*;
 use wasm_bindgen::JsCast;
 
 use crate::protocol::{
-    BrowserService, BrowserServiceDispatcher, DevtoolsEvent, DevtoolsServiceClient, ErrorInfo,
-    OpenSourceResult, ScopeEntry, ScopeValue,
+    BrowserService, BrowserServiceDispatcher, DeadLinkTarget, DevtoolsEvent, DevtoolsServiceClient,
+    ErrorInfo, OpenSourceResult, ScopeEntry, ScopeValue,
 };
 use vox::FromVoxSession;
 use vox_websocket::WsLink;
@@ -519,6 +519,38 @@ pub fn open_source_id(sid: String) {
             }
             Err(err) => {
                 tracing::error!(route, sid, ?err, "[devtools] open_source_id RPC failed");
+            }
+        }
+    });
+}
+
+/// Create a source stub for a dead link target and open it in the host editor.
+pub fn open_dead_link(target: DeadLinkTarget) {
+    let route = current_route();
+    tracing::debug!(
+        route = %route,
+        target = ?target,
+        "[devtools] requesting open_dead_link RPC"
+    );
+
+    let Some(client) = get_client() else {
+        tracing::warn!(
+            route,
+            "[devtools] open_dead_link requested before RPC client was ready"
+        );
+        return;
+    };
+
+    wasm_bindgen_futures::spawn_local(async move {
+        match client.open_dead_link(route.clone(), target.clone()).await {
+            Ok(OpenSourceResult::Ok) => {
+                tracing::info!(route, target = ?target, "[devtools] open_dead_link succeeded");
+            }
+            Ok(OpenSourceResult::Err(err)) => {
+                tracing::warn!(route, target = ?target, err, "[devtools] open_dead_link failed");
+            }
+            Err(err) => {
+                tracing::error!(route, target = ?target, ?err, "[devtools] open_dead_link RPC failed");
             }
         }
     });
