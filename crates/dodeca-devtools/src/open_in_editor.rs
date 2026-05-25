@@ -7,8 +7,7 @@ use web_sys::{Document, Element, HtmlElement, KeyboardEvent, MouseEvent};
 #[derive(Clone)]
 struct SourceTarget {
     element: Element,
-    source_file: String,
-    line: u32,
+    sid: String,
 }
 
 struct PickerState {
@@ -126,7 +125,13 @@ pub fn install() {
         };
 
         if let Some(target) = target {
-            crate::state::open_source(target.source_file, target.line);
+            tracing::debug!(
+                sid = %target.sid,
+                "[devtools] source picker target clicked"
+            );
+            crate::state::open_source_id(target.sid);
+        } else {
+            tracing::debug!("[devtools] source picker clicked without a source target");
         }
     }));
     let _ = document.add_event_listener_with_callback("click", on_click.as_ref().unchecked_ref());
@@ -164,22 +169,10 @@ fn find_source_target(document: &Document, x: f64, y: f64) -> Option<SourceTarge
         return None;
     }
 
-    let element = element
-        .closest("[data-source-file][data-source-line]")
-        .ok()
-        .flatten()?;
-    let source_file = element.get_attribute("data-source-file")?;
-    let line = element
-        .get_attribute("data-source-line")?
-        .parse::<u32>()
-        .ok()
-        .filter(|line| *line > 0)?;
+    let element = element.closest("[data-sid]").ok().flatten()?;
+    let sid = element.get_attribute("data-sid")?;
 
-    Some(SourceTarget {
-        element,
-        source_file,
-        line,
-    })
+    Some(SourceTarget { element, sid })
 }
 
 fn show_highlight(highlight: &HtmlElement, element: &Element) {

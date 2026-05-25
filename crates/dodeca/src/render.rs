@@ -47,6 +47,8 @@ pub struct RenderOptions {
     pub livereload: bool,
     /// Development mode - show error pages instead of failing
     pub dev_mode: bool,
+    /// Whether markdown rendering should emit `data-sid` attributes and source maps.
+    pub source_maps: bool,
 }
 
 /// CSS for dead link highlighting in dev mode (subtle overline)

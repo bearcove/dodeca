@@ -612,12 +612,13 @@ pub async fn highlight_code_cell(lang: &str, code: &str) -> Result<String, eyre:
 pub async fn parse_and_render_markdown_cell(
     source_path: &str,
     content: &str,
+    source_map: bool,
 ) -> Result<cell_markdown_proto::ParseResult, MarkdownParseError> {
     let client = markdown_cell().await.ok_or_else(|| MarkdownParseError {
         message: "Markdown cell not available".to_string(),
     })?;
     client
-        .parse_and_render(source_path.to_string(), content.to_string())
+        .parse_and_render(source_path.to_string(), content.to_string(), source_map)
         .await
         .map_err(|e| MarkdownParseError {
             message: format!("RPC error: {:?}", e),

@@ -38,8 +38,9 @@ mod vite;
 
 use crate::config::{LinkCheckMode, ResolvedConfig};
 use crate::db::{
-    DataFile, DataRegistry, Database, OutputFile, QueryStats, SassFile, SassRegistry, SourceFile,
-    SourceRegistry, StaticFile, StaticRegistry, TemplateFile, TemplateRegistry,
+    DataFile, DataRegistry, Database, MarkdownRenderSettings, OutputFile, QueryStats, SassFile,
+    SassRegistry, SourceFile, SourceRegistry, StaticFile, StaticRegistry, TemplateFile,
+    TemplateRegistry,
 };
 use crate::queries::build_site;
 use crate::tui::LogEvent;
@@ -370,6 +371,7 @@ async fn async_main(command: Command) -> Result<()> {
                 render_options: render::RenderOptions {
                     livereload: false,
                     dev_mode: false,
+                    source_maps: false,
                 },
                 progress: None,
                 link_check,
@@ -1215,6 +1217,7 @@ pub async fn build(
     // Load picante cache from disk (for font subsetting, image processing, etc.)
     let picante_cache_path = cache_dir.join("dodeca.bin");
     load_picante_cache(&ctx.db, &picante_cache_path).await;
+    MarkdownRenderSettings::set(&*ctx.db, render_options.source_maps)?;
 
     // Phase 1: Load everything into picante
     ctx.load_sources()?;
@@ -2196,6 +2199,7 @@ async fn serve_plain(
     let render_options = render::RenderOptions {
         livereload: true, // Enable live reload in plain mode too
         dev_mode: true,
+        source_maps: true,
     };
 
     // Create the site server
@@ -2590,6 +2594,7 @@ async fn serve_with_tui(
     let render_options = render::RenderOptions {
         livereload: true,
         dev_mode: true,
+        source_maps: true,
     };
 
     // Create the site server - serves directly from picante, no disk I/O

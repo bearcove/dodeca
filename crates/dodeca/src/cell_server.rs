@@ -136,10 +136,67 @@ impl DevtoolsService for HostDevtoolsService {
     }
 
     async fn open_source(&self, source_file: String, line: u32) -> OpenSourceResult {
-        match self.server.open_source_in_editor(&source_file, line).await {
+        tracing::debug!(
+            browser_id = self.browser_id,
+            source_file = %source_file,
+            line,
+            "devtools open_source RPC received"
+        );
+
+        let result = match self.server.open_source_in_editor(&source_file, line).await {
             Ok(()) => OpenSourceResult::Ok,
             Err(err) => OpenSourceResult::Err(err.to_string()),
+        };
+
+        match &result {
+            OpenSourceResult::Ok => tracing::debug!(
+                browser_id = self.browser_id,
+                source_file = %source_file,
+                line,
+                "devtools open_source RPC succeeded"
+            ),
+            OpenSourceResult::Err(err) => tracing::debug!(
+                browser_id = self.browser_id,
+                source_file = %source_file,
+                line,
+                error = %err,
+                "devtools open_source RPC failed"
+            ),
         }
+
+        result
+    }
+
+    async fn open_source_id(&self, route: String, sid: String) -> OpenSourceResult {
+        tracing::debug!(
+            browser_id = self.browser_id,
+            route = %route,
+            sid = %sid,
+            "devtools open_source_id RPC received"
+        );
+
+        let result = match self.server.open_source_id_in_editor(&route, &sid).await {
+            Ok(()) => OpenSourceResult::Ok,
+            Err(err) => OpenSourceResult::Err(err.to_string()),
+        };
+
+        match &result {
+            OpenSourceResult::Ok => tracing::debug!(
+                browser_id = self.browser_id,
+                route = %route,
+                sid = %sid,
+                "devtools open_source_id RPC succeeded"
+            ),
+            OpenSourceResult::Err(err) => tracing::debug!(
+                browser_id = self.browser_id,
+                route = %route,
+                sid = %sid,
+                error = %err,
+                "devtools open_source_id RPC failed"
+            ),
+        }
+
+        result
     }
 }
 

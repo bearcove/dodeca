@@ -1741,6 +1741,7 @@ dependencies = [
  "cell-markdown-proto",
  "dodeca-cell-runtime",
  "marq",
+ "pikru",
 ]
 
 [[package]]
@@ -5108,9 +5109,9 @@ dependencies = [
 
 [[package]]
 name = "marq"
-version = "2.2.2"
+version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1318e643433688d5be06f48f422055a1661e6eee35c44c5322ba4354919f7537"
+checksum = "908cd24fdedda12112c778995e3d9de10151a0fa0587208b6700af8bc86e320f"
 dependencies = [
  "aasvg",
  "arborium",
@@ -5118,7 +5119,6 @@ dependencies = [
  "facet-toml",
  "facet-value",
  "facet-yaml",
- "pikru",
  "pulldown-cmark",
  "regex",
  "thiserror 2.0.18",

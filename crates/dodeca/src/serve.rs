@@ -4,7 +4,7 @@
 //! This enables instant incremental rebuilds with zero disk I/O.
 
 /// Picante cache version - bump this when making incompatible changes to picante inputs/queries
-pub const PICANTE_CACHE_VERSION: u32 = 5;
+pub const PICANTE_CACHE_VERSION: u32 = 6;
 
 use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
 use eyre::{Result, bail, eyre};
@@ -15,8 +15,9 @@ use tokio::process::Command;
 use tokio::sync::{broadcast, watch};
 
 use crate::db::{
-    DataFile, DataRegistry, Database, DatabaseSnapshot, SassFile, SassRegistry, SourceFile,
-    SourceRegistry, StaticFile, StaticRegistry, TemplateFile, TemplateRegistry,
+    DataFile, DataRegistry, Database, DatabaseSnapshot, MarkdownRenderSettings, SassFile,
+    SassRegistry, SourceFile, SourceRegistry, StaticFile, StaticRegistry, TemplateFile,
+    TemplateRegistry,
 };
 use crate::image::{InputFormat, OutputFormat, add_width_suffix};
 use crate::queries::{build_tree, css_output, process_image, serve_html, static_file_output};
@@ -268,8 +269,12 @@ impl SiteServer {
             started_at: None,
         });
 
+        let db = Arc::new(db);
+        MarkdownRenderSettings::set(&*db, render_options.source_maps)
+            .expect("failed to initialize markdown render settings");
+
         Self {
-            db: Arc::new(db),
+            db,
             livereload_tx,
             render_options,
             source_root,
@@ -284,10 +289,22 @@ impl SiteServer {
     }
 
     pub async fn open_source_in_editor(&self, source_file: &str, line: u32) -> Result<()> {
+        tracing::debug!(
+            source_file,
+            line,
+            "open_source_in_editor: resolving source location"
+        );
+
         let source_root = self
             .source_root
             .as_ref()
             .ok_or_else(|| eyre!("source root is not available in this server mode"))?;
+        tracing::debug!(
+            source_root = %source_root,
+            source_file,
+            "open_source_in_editor: using source root"
+        );
+
         let source_path = Utf8Path::new(source_file);
         if source_path.is_absolute()
             || source_path
@@ -298,26 +315,99 @@ impl SiteServer {
         }
 
         let disk_path = source_root.join(source_path);
+        let disk_path = if disk_path.is_absolute() {
+            disk_path
+        } else {
+            Utf8PathBuf::from_path_buf(std::env::current_dir()?.join(disk_path.as_std_path()))
+                .map_err(|path| eyre!("source path is not UTF-8: {}", path.display()))?
+        };
         let line = line.max(1);
-        let line_arg = format!("{disk_path}:{line}");
-        let editor = std::env::var("DODECA_EDITOR")
-            .or_else(|_| std::env::var("EDITOR"))
-            .unwrap_or_else(|_| "zed".to_string());
-
-        tracing::info!(
-            editor = %editor,
+        tracing::debug!(
             source_file,
             disk_path = %disk_path,
             line,
-            "opening source in editor"
+            "open_source_in_editor: resolved disk path"
         );
 
-        Command::new(&editor)
-            .arg(&line_arg)
-            .spawn()
-            .map_err(|err| eyre!("failed to spawn editor {editor}: {err}"))?;
+        let associated_app = associated_app_for_file(&disk_path).await;
+        tracing::debug!(
+            source_file,
+            disk_path = %disk_path,
+            line,
+            associated_app = ?associated_app,
+            "open_source_in_editor: resolved associated app"
+        );
+
+        if let Some(command) = line_aware_editor_command(associated_app.as_ref(), &disk_path, line)
+        {
+            tracing::info!(
+                editor = command.editor,
+                program = %command.program,
+                args = ?command.args,
+                source_file,
+                disk_path = %disk_path,
+                line,
+                "opening source in associated editor"
+            );
+
+            spawn_source_opener(command.program, command.args, "line-aware editor")?;
+        } else {
+            tracing::debug!(
+                source_file,
+                disk_path = %disk_path,
+                line,
+                associated_app = ?associated_app,
+                "open_source_in_editor: associated app is not a known line-aware editor"
+            );
+            open_plain_source(&disk_path, associated_app.as_ref()).await?;
+        }
 
         Ok(())
+    }
+
+    pub async fn open_source_id_in_editor(&self, route_path: &str, sid: &str) -> Result<()> {
+        tracing::debug!(
+            route = %route_path,
+            sid,
+            "open_source_id_in_editor: resolving source ID"
+        );
+
+        let snapshot = DatabaseSnapshot::from_database(&self.db).await;
+        let site_tree = build_tree(&snapshot)
+            .await?
+            .map_err(|errors| eyre!("source parse errors while resolving source ID: {errors:?}"))?;
+        let route = Route::new(normalize_route(route_path));
+
+        let source_map = if let Some(section) = site_tree.sections.get(&route) {
+            &section.source_map
+        } else if let Some(page) = site_tree.pages.get(&route) {
+            &page.source_map
+        } else {
+            bail!("route is not available for source lookup: {route}");
+        };
+
+        let entry = source_map
+            .get_by_sid(sid)
+            .ok_or_else(|| eyre!("source ID {sid:?} is not available for route {route}"))?;
+        let source_file = source_map
+            .source_path
+            .as_deref()
+            .ok_or_else(|| eyre!("source map for route {route} has no source path"))?
+            .to_string();
+        let line = entry.line_start.max(1);
+
+        tracing::debug!(
+            route = %route,
+            sid,
+            source_file = %source_file,
+            line,
+            kind = ?entry.kind,
+            byte_start = entry.byte_start,
+            byte_end = entry.byte_end,
+            "open_source_id_in_editor: source ID resolved"
+        );
+
+        self.open_source_in_editor(&source_file, line).await
     }
 
     /// Register a browser connection for receiving devtools events.
@@ -764,6 +854,7 @@ impl SiteServer {
                 tracing::warn!("Failed to load cache: {:?}", e);
             }
         }
+        MarkdownRenderSettings::set(&*self.db, self.render_options.source_maps)?;
         Ok(())
     }
 
@@ -1567,6 +1658,307 @@ impl SiteServer {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AssociatedApp {
+    path: Utf8PathBuf,
+    bundle_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct EditorCommand {
+    editor: &'static str,
+    program: String,
+    args: Vec<String>,
+}
+
+#[cfg(target_os = "macos")]
+async fn associated_app_for_file(path: &Utf8Path) -> Option<AssociatedApp> {
+    tracing::debug!(
+        path = %path,
+        "associated_app_for_file: querying LaunchServices"
+    );
+
+    let script = r#"ObjC.import("AppKit");
+function run(argv) {
+    const url = $.NSURL.fileURLWithPath(argv[0]);
+    const app = $.NSWorkspace.sharedWorkspace.URLForApplicationToOpenURL(url);
+    if (!app) return "";
+    const bundle = $.NSBundle.bundleWithURL(app);
+    const bundleId = bundle ? bundle.bundleIdentifier.js : "";
+    return app.path.js + "\n" + bundleId;
+}"#;
+
+    let output = Command::new("/usr/bin/osascript")
+        .args(["-l", "JavaScript", "-e", script, path.as_str()])
+        .output()
+        .await
+        .map_err(|err| {
+            tracing::debug!(
+                path = %path,
+                error = %err,
+                "associated_app_for_file: failed to spawn osascript"
+            );
+            err
+        })
+        .ok()?;
+
+    if !output.status.success() {
+        tracing::warn!(
+            status = %output.status,
+            stderr = %String::from_utf8_lossy(&output.stderr),
+            path = %path,
+            "failed to query associated application"
+        );
+        return None;
+    }
+
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|err| {
+            tracing::debug!(
+                path = %path,
+                error = %err,
+                "associated_app_for_file: osascript output was not UTF-8"
+            );
+            err
+        })
+        .ok()?;
+    let associated_app = associated_app_from_osascript_output(&stdout);
+    tracing::debug!(
+        path = %path,
+        raw_output = %stdout.trim_end(),
+        associated_app = ?associated_app,
+        "associated_app_for_file: LaunchServices query completed"
+    );
+    associated_app
+}
+
+#[cfg(not(target_os = "macos"))]
+async fn associated_app_for_file(_path: &Utf8Path) -> Option<AssociatedApp> {
+    None
+}
+
+fn associated_app_from_osascript_output(output: &str) -> Option<AssociatedApp> {
+    let mut lines = output.lines();
+    let path = lines.next()?.trim();
+    if path.is_empty() {
+        return None;
+    }
+    let bundle_id = lines
+        .next()
+        .map(str::trim)
+        .filter(|bundle_id| !bundle_id.is_empty())
+        .map(ToOwned::to_owned);
+
+    Some(AssociatedApp {
+        path: Utf8PathBuf::from(path),
+        bundle_id,
+    })
+}
+
+fn line_aware_editor_command(
+    app: Option<&AssociatedApp>,
+    disk_path: &Utf8Path,
+    line: u32,
+) -> Option<EditorCommand> {
+    let Some(app) = app else {
+        tracing::debug!(
+            disk_path = %disk_path,
+            line,
+            "line_aware_editor_command: no associated app"
+        );
+        return None;
+    };
+    let bundle_id = app.bundle_id.as_deref().unwrap_or_default();
+    let app_name = app
+        .path
+        .file_stem()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let path_line = format!("{disk_path}:{line}");
+    tracing::debug!(
+        app_path = %app.path,
+        bundle_id,
+        app_name,
+        disk_path = %disk_path,
+        line,
+        "line_aware_editor_command: checking associated app"
+    );
+
+    if bundle_id == "dev.zed.Zed" || app_name == "zed" {
+        return Some(EditorCommand {
+            editor: "Zed",
+            program: app_cli_or_name(&app.path, "Contents/MacOS/cli", "zed"),
+            args: vec![path_line],
+        });
+    }
+
+    if bundle_id == "com.microsoft.VSCode"
+        || bundle_id == "com.vscodium"
+        || app_name == "visual studio code"
+        || app_name == "vscodium"
+    {
+        return Some(EditorCommand {
+            editor: "Visual Studio Code",
+            program: app_cli_or_name(&app.path, "Contents/Resources/app/bin/code", "code"),
+            args: vec!["--goto".to_string(), path_line],
+        });
+    }
+
+    if app_name == "cursor" {
+        return Some(EditorCommand {
+            editor: "Cursor",
+            program: app_cli_or_name(&app.path, "Contents/Resources/app/bin/cursor", "cursor"),
+            args: vec!["--goto".to_string(), path_line],
+        });
+    }
+
+    if bundle_id.starts_with("com.sublimetext.") || app_name == "sublime text" {
+        return Some(EditorCommand {
+            editor: "Sublime Text",
+            program: app_cli_or_name(&app.path, "Contents/SharedSupport/bin/subl", "subl"),
+            args: vec![path_line],
+        });
+    }
+
+    if bundle_id == "com.macromates.TextMate" || app_name == "textmate" {
+        return Some(EditorCommand {
+            editor: "TextMate",
+            program: app_cli_or_name(&app.path, "Contents/Resources/mate", "mate"),
+            args: vec!["-l".to_string(), line.to_string(), disk_path.to_string()],
+        });
+    }
+
+    if bundle_id == "com.barebones.bbedit" || app_name == "bbedit" {
+        return Some(EditorCommand {
+            editor: "BBEdit",
+            program: "bbedit".to_string(),
+            args: vec![format!("+{line}"), disk_path.to_string()],
+        });
+    }
+
+    if bundle_id == "org.vim.MacVim" || app_name == "macvim" {
+        return Some(EditorCommand {
+            editor: "MacVim",
+            program: app_cli_or_name(&app.path, "Contents/bin/mvim", "mvim"),
+            args: vec![format!("+{line}"), disk_path.to_string()],
+        });
+    }
+
+    tracing::debug!(
+        app_path = %app.path,
+        bundle_id,
+        app_name,
+        disk_path = %disk_path,
+        line,
+        "line_aware_editor_command: no line-aware mapping for associated app"
+    );
+
+    None
+}
+
+fn app_cli_or_name(app_path: &Utf8Path, cli_relative_path: &str, fallback_name: &str) -> String {
+    let candidate = app_path.join(cli_relative_path);
+    if candidate.exists() {
+        tracing::debug!(
+            app_path = %app_path,
+            cli = %candidate,
+            fallback_name,
+            "app_cli_or_name: using bundled editor CLI"
+        );
+        candidate.to_string()
+    } else {
+        tracing::debug!(
+            app_path = %app_path,
+            cli = %candidate,
+            fallback_name,
+            "app_cli_or_name: bundled editor CLI missing, using PATH fallback"
+        );
+        fallback_name.to_string()
+    }
+}
+
+#[cfg(target_os = "macos")]
+async fn open_plain_source(path: &Utf8Path, app: Option<&AssociatedApp>) -> Result<()> {
+    let mut args = Vec::new();
+    if let Some(bundle_id) = app.and_then(|app| app.bundle_id.as_deref()) {
+        args.extend(["-b".to_string(), bundle_id.to_string()]);
+    } else if let Some(app) = app {
+        args.extend(["-a".to_string(), app.path.to_string()]);
+    }
+    args.push(path.to_string());
+
+    tracing::info!(
+        app = ?app,
+        program = "/usr/bin/open",
+        args = ?args,
+        path = %path,
+        "opening source with associated application"
+    );
+
+    spawn_source_opener("/usr/bin/open".to_string(), args, "associated application")
+}
+
+#[cfg(not(target_os = "macos"))]
+async fn open_plain_source(path: &Utf8Path, _app: Option<&AssociatedApp>) -> Result<()> {
+    tracing::info!(path = %path, "opening source with platform default application");
+    open::that_detached(path.as_str())
+        .map_err(|err| eyre!("failed to open source file {path}: {err}"))?;
+    Ok(())
+}
+
+fn spawn_source_opener(program: String, args: Vec<String>, kind: &'static str) -> Result<()> {
+    let mut child = Command::new(&program)
+        .args(&args)
+        .spawn()
+        .map_err(|err| eyre!("failed to spawn source opener {program}: {err}"))?;
+    let pid = child.id();
+
+    tracing::debug!(
+        program = %program,
+        args = ?args,
+        pid,
+        kind,
+        "spawned source opener"
+    );
+
+    crate::spawn::spawn(async move {
+        match child.wait().await {
+            Ok(status) if status.success() => {
+                tracing::debug!(
+                    program = %program,
+                    args = ?args,
+                    pid,
+                    status = %status,
+                    kind,
+                    "source opener exited successfully"
+                );
+            }
+            Ok(status) => {
+                tracing::warn!(
+                    program = %program,
+                    args = ?args,
+                    pid,
+                    status = %status,
+                    kind,
+                    "source opener exited with non-zero status"
+                );
+            }
+            Err(err) => {
+                tracing::warn!(
+                    program = %program,
+                    args = ?args,
+                    pid,
+                    error = %err,
+                    kind,
+                    "failed to wait for source opener"
+                );
+            }
+        }
+    });
+
+    Ok(())
+}
+
 /// Calculate similarity score between requested path and a route
 fn similarity_score(requested: &str, requested_parts: &[&str], route: &str) -> usize {
     let mut score = 0;
@@ -1776,5 +2168,60 @@ pub fn mime_from_extension(path: &str) -> &'static str {
         // Pagefind-specific extensions
         Some("pf_index") | Some("pf_meta") | Some("pagefind") => "application/octet-stream",
         _ => "application/octet-stream",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_associated_app_output() {
+        let app = associated_app_from_osascript_output(
+            "/Applications/Visual Studio Code.app\ncom.microsoft.VSCode\n",
+        )
+        .expect("app");
+
+        assert_eq!(
+            app,
+            AssociatedApp {
+                path: Utf8PathBuf::from("/Applications/Visual Studio Code.app"),
+                bundle_id: Some("com.microsoft.VSCode".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn vscode_uses_goto_path_line() {
+        let app = AssociatedApp {
+            path: Utf8PathBuf::from("/tmp/NoSuchApp/Visual Studio Code.app"),
+            bundle_id: Some("com.microsoft.VSCode".to_string()),
+        };
+
+        let command =
+            line_aware_editor_command(Some(&app), Utf8Path::new("/site/content/page.md"), 42)
+                .expect("known editor command");
+
+        assert_eq!(
+            command,
+            EditorCommand {
+                editor: "Visual Studio Code",
+                program: "code".to_string(),
+                args: vec!["--goto".to_string(), "/site/content/page.md:42".to_string()],
+            }
+        );
+    }
+
+    #[test]
+    fn unknown_associated_app_falls_back_to_plain_open() {
+        let app = AssociatedApp {
+            path: Utf8PathBuf::from("/Applications/Warp.app"),
+            bundle_id: Some("dev.warp.Warp-Stable".to_string()),
+        };
+
+        assert!(
+            line_aware_editor_command(Some(&app), Utf8Path::new("/site/content/page.md"), 42)
+                .is_none()
+        );
     }
 }

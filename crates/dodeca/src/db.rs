@@ -126,6 +126,13 @@ pub struct SourceRegistry {
     pub sources: Vec<SourceFile>,
 }
 
+/// Markdown rendering settings that affect parsed HTML output.
+#[picante::input]
+pub struct MarkdownRenderSettings {
+    /// Whether markdown rendering should emit `data-sid` attributes and source maps.
+    pub source_maps: bool,
+}
+
 /// Interned character set for font subsetting
 /// Using a sorted Vec<char> for deterministic hashing
 #[picante::interned]
@@ -157,6 +164,58 @@ pub struct ReqDefinition {
     pub anchor_id: String,
 }
 
+/// Markdown construct represented by a source-map entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, facet::Facet)]
+#[repr(u8)]
+pub enum SourceKind {
+    Heading,
+    Paragraph,
+    BlockQuote,
+    List,
+    ListItem,
+    DefinitionList,
+    DefinitionListTitle,
+    DefinitionListDefinition,
+    ThematicBreak,
+    Table,
+    TableHead,
+    TableRow,
+    TableCell,
+    Image,
+}
+
+/// Source information for one rendered HTML element.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, facet::Facet)]
+pub struct SourceMapEntry {
+    /// ID emitted as `data-sid`.
+    pub id: String,
+    /// Markdown construct represented by this entry.
+    pub kind: SourceKind,
+    /// Inclusive 1-indexed starting line.
+    pub line_start: u32,
+    /// Inclusive 1-indexed ending line.
+    pub line_end: u32,
+    /// Inclusive starting byte offset in the source markdown.
+    pub byte_start: u64,
+    /// Exclusive ending byte offset in the source markdown.
+    pub byte_end: u64,
+}
+
+/// Sidecar map from rendered `data-sid` attributes back to markdown spans.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, facet::Facet)]
+pub struct SourceMap {
+    /// Source path for all entries.
+    pub source_path: Option<String>,
+    /// Entries in render order.
+    pub entries: Vec<SourceMapEntry>,
+}
+
+impl SourceMap {
+    pub fn get_by_sid(&self, sid: &str) -> Option<&SourceMapEntry> {
+        self.entries.iter().find(|entry| entry.id == sid)
+    }
+}
+
 /// A section in the site tree (corresponds to _index.md files)
 #[derive(Debug, Clone, PartialEq, Eq, Hash, facet::Facet)]
 pub struct Section {
@@ -169,6 +228,8 @@ pub struct Section {
     pub headings: Vec<Heading>,
     /// Requirement definitions for specification traceability
     pub reqs: Vec<ReqDefinition>,
+    /// Source map for rendered elements with `data-sid` attributes.
+    pub source_map: SourceMap,
     /// HTML snippets to inject into the page's `<head>` (e.g., Mermaid.js CDN script)
     pub head_injections: Vec<String>,
     /// Last modification time as Unix timestamp (seconds since epoch)
@@ -191,6 +252,8 @@ pub struct Page {
     pub headings: Vec<Heading>,
     /// Rule definitions for specification traceability
     pub rules: Vec<ReqDefinition>,
+    /// Source map for rendered elements with `data-sid` attributes.
+    pub source_map: SourceMap,
     /// HTML snippets to inject into the page's `<head>` (e.g., Mermaid.js CDN script)
     pub head_injections: Vec<String>,
     /// Last modification time as Unix timestamp (seconds since epoch)
@@ -240,6 +303,8 @@ pub struct ParsedData {
     pub headings: Vec<Heading>,
     /// Rule definitions for specification traceability
     pub reqs: Vec<ReqDefinition>,
+    /// Source map for rendered elements with `data-sid` attributes.
+    pub source_map: SourceMap,
     /// HTML snippets to inject into the page's `<head>` (e.g., Mermaid.js CDN script)
     pub head_injections: Vec<String>,
     /// Last modification time as Unix timestamp (seconds since epoch)
@@ -453,6 +518,7 @@ pub struct AllRenderedHtml {
         StaticRegistry,
         DataRegistry,
         SourceRegistry,
+        MarkdownRenderSettings,
     ),
     interned(CharSet, crate::queries::DataValuePath,),
     tracked(

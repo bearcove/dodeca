@@ -81,6 +81,52 @@ pub struct ReqDefinition {
     pub anchor_id: String,
 }
 
+/// Markdown construct represented by a source-map entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Facet)]
+#[repr(u8)]
+pub enum SourceKind {
+    Heading,
+    Paragraph,
+    BlockQuote,
+    List,
+    ListItem,
+    DefinitionList,
+    DefinitionListTitle,
+    DefinitionListDefinition,
+    ThematicBreak,
+    Table,
+    TableHead,
+    TableRow,
+    TableCell,
+    Image,
+}
+
+/// Source information for one rendered HTML element.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Facet)]
+pub struct SourceMapEntry {
+    /// ID emitted as `data-sid`.
+    pub id: String,
+    /// Markdown construct represented by this entry.
+    pub kind: SourceKind,
+    /// Inclusive 1-indexed starting line.
+    pub line_start: u32,
+    /// Inclusive 1-indexed ending line.
+    pub line_end: u32,
+    /// Inclusive starting byte offset in the source markdown.
+    pub byte_start: u64,
+    /// Exclusive ending byte offset in the source markdown.
+    pub byte_end: u64,
+}
+
+/// Sidecar map from rendered `data-sid` attributes back to markdown spans.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Facet)]
+pub struct SourceMap {
+    /// Source path for all entries, when provided by marq.
+    pub source_path: Option<String>,
+    /// Entries in render order.
+    pub entries: Vec<SourceMapEntry>,
+}
+
 /// Parsed frontmatter fields
 #[derive(Debug, Clone, Default, Facet)]
 pub struct Frontmatter {
@@ -110,6 +156,8 @@ pub enum MarkdownResult {
         reqs: Vec<ReqDefinition>,
         /// HTML snippets to inject into the page's `<head>` (deduplicated by key)
         head_injections: Vec<String>,
+        /// Source map for rendered elements with `data-sid` attributes.
+        source_map: Box<SourceMap>,
     },
     /// Error during rendering
     Error { message: String },
@@ -152,6 +200,8 @@ pub enum ParseResult {
         reqs: Vec<ReqDefinition>,
         /// HTML snippets to inject into the page's `<head>` (deduplicated by key)
         head_injections: Vec<String>,
+        /// Source map for rendered elements with `data-sid` attributes.
+        source_map: Box<SourceMap>,
     },
     /// Error during parsing
     Error { message: String },
@@ -180,7 +230,13 @@ pub trait MarkdownProcessor {
     /// # Parameters
     /// - `source_path`: Path to the source file (e.g., "spec/_index.md") for resolving relative links
     /// - `markdown`: The markdown content to render
-    async fn render_markdown(&self, source_path: String, markdown: String) -> MarkdownResult;
+    /// - `source_map`: Whether to emit `data-sid` attributes and return a source map
+    async fn render_markdown(
+        &self,
+        source_path: String,
+        markdown: String,
+        source_map: bool,
+    ) -> MarkdownResult;
 
     /// Parse frontmatter and render markdown in one call.
     ///
@@ -189,7 +245,13 @@ pub trait MarkdownProcessor {
     /// # Parameters
     /// - `source_path`: Path to the source file (e.g., "spec/_index.md") for resolving relative links
     /// - `content`: The full content including frontmatter and markdown body
-    async fn parse_and_render(&self, source_path: String, content: String) -> ParseResult;
+    /// - `source_map`: Whether to emit `data-sid` attributes and return a source map
+    async fn parse_and_render(
+        &self,
+        source_path: String,
+        content: String,
+        source_map: bool,
+    ) -> ParseResult;
 
     /// Highlight a code snippet with syntax coloring.
     ///

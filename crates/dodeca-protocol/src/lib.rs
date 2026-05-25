@@ -70,6 +70,9 @@ pub trait DevtoolsService {
 
     /// Open a rendered source location in the developer's editor.
     async fn open_source(&self, source_file: String, line: u32) -> OpenSourceResult;
+
+    /// Open a rendered markdown element by route and `data-sid`.
+    async fn open_source_id(&self, route: String, sid: String) -> OpenSourceResult;
 }
 
 /// Events pushed from server to browser devtools.
