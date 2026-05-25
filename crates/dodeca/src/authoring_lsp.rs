@@ -122,6 +122,8 @@ impl LanguageServer for Backend {
             .await;
     }
 
+    // tower-lsp fixes execute-command responses to serde_json::Value at the protocol boundary.
+    #[allow(clippy::disallowed_types)]
     async fn execute_command(
         &self,
         params: ExecuteCommandParams,
@@ -223,10 +225,10 @@ struct AuthoringDiagnostic {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AuthoringDiagnosticKind {
-    MissingRoute,
-    MissingAnchor,
-    MissingSource,
-    MissingStaticAsset,
+    Route,
+    Anchor,
+    Source,
+    StaticAsset,
 }
 
 fn load_authoring_pages(content_dir: &Utf8Path) -> Result<Vec<AuthoringPage>> {
@@ -415,12 +417,12 @@ fn diagnostic_for_reference(
             return Some(reference.diagnostic(
                 page,
                 content,
-                AuthoringDiagnosticKind::MissingSource,
+                AuthoringDiagnosticKind::Source,
                 format!("source file '{source_target}' not found"),
             ));
         };
         match missing_anchor_message(site_index, route, fragment) {
-            Some(message) => (AuthoringDiagnosticKind::MissingAnchor, message),
+            Some(message) => (AuthoringDiagnosticKind::Anchor, message),
             None => return None,
         }
     } else if reference.kind == MarkdownReferenceKind::Image
@@ -435,7 +437,7 @@ fn diagnostic_for_reference(
             return None;
         }
         (
-            AuthoringDiagnosticKind::MissingStaticAsset,
+            AuthoringDiagnosticKind::StaticAsset,
             format!("static asset '{target_without_fragment}' not found"),
         )
     } else {
@@ -454,11 +456,11 @@ fn diagnostic_for_reference(
 
         if !route_exists(site_index, &target_route) {
             (
-                AuthoringDiagnosticKind::MissingRoute,
+                AuthoringDiagnosticKind::Route,
                 format!("route '{target_route}' not found"),
             )
         } else if let Some(message) = missing_anchor_message(site_index, &target_route, fragment) {
-            (AuthoringDiagnosticKind::MissingAnchor, message)
+            (AuthoringDiagnosticKind::Anchor, message)
         } else {
             return None;
         }
@@ -772,6 +774,8 @@ fn authoring_diagnostic_to_lsp(diagnostic: &AuthoringDiagnostic) -> Diagnostic {
     }
 }
 
+// tower-lsp command replies are JSON-RPC values; keep JSON use at this edge.
+#[allow(clippy::disallowed_types)]
 fn pages_to_json(pages: &[AuthoringPage]) -> serde_json::Value {
     serde_json::Value::Array(
         pages
@@ -796,6 +800,8 @@ fn pages_to_json(pages: &[AuthoringPage]) -> serde_json::Value {
     )
 }
 
+// tower-lsp command replies are JSON-RPC values; keep JSON use at this edge.
+#[allow(clippy::disallowed_types)]
 fn diagnostics_to_json(diagnostics: &[AuthoringDiagnostic]) -> serde_json::Value {
     serde_json::Value::Array(
         diagnostics
@@ -823,10 +829,10 @@ fn diagnostics_to_json(diagnostics: &[AuthoringDiagnostic]) -> serde_json::Value
 
 fn diagnostic_kind_name(kind: AuthoringDiagnosticKind) -> &'static str {
     match kind {
-        AuthoringDiagnosticKind::MissingRoute => "missingRoute",
-        AuthoringDiagnosticKind::MissingAnchor => "missingAnchor",
-        AuthoringDiagnosticKind::MissingSource => "missingSource",
-        AuthoringDiagnosticKind::MissingStaticAsset => "missingStaticAsset",
+        AuthoringDiagnosticKind::Route => "missingRoute",
+        AuthoringDiagnosticKind::Anchor => "missingAnchor",
+        AuthoringDiagnosticKind::Source => "missingSource",
+        AuthoringDiagnosticKind::StaticAsset => "missingStaticAsset",
     }
 }
 
@@ -923,10 +929,10 @@ mod tests {
         assert_eq!(
             kinds,
             vec![
-                AuthoringDiagnosticKind::MissingRoute,
-                AuthoringDiagnosticKind::MissingAnchor,
-                AuthoringDiagnosticKind::MissingSource,
-                AuthoringDiagnosticKind::MissingStaticAsset,
+                AuthoringDiagnosticKind::Route,
+                AuthoringDiagnosticKind::Anchor,
+                AuthoringDiagnosticKind::Source,
+                AuthoringDiagnosticKind::StaticAsset,
             ]
         );
         assert_eq!(diagnostics[0].source_file, "guide/source.md");
