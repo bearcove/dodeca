@@ -828,6 +828,10 @@ fn mark_dead_links_in_doc(doc: &mut Document, known_routes: &HashSet<String>) ->
         collect_anchors(doc, body_id, &mut anchors);
 
         for node_id in anchors {
+            if get_attr(doc, node_id, "data-dead").is_some() {
+                had_dead = true;
+            }
+
             if let Some(href) = get_attr(doc, node_id, "href")
                 && is_dead_link(&href, known_routes)
             {
@@ -979,6 +983,7 @@ fn resolve_wiki_links_in_doc(
                     set_attr(doc, node_id, "href", &ensure_trailing_slash(route));
                     remove_attr(doc, node_id, "data-wiki-target");
                 } else {
+                    set_attr(doc, node_id, "data-dead", "true");
                     unresolved.push(WikiLinkRef {
                         key: key.to_string(),
                         target: get_attr(doc, node_id, "data-wiki-target")

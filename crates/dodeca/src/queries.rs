@@ -1615,7 +1615,7 @@ pub async fn all_rendered_html<DB: Db>(
     // This creates dependencies on all source files via parse_file
     let source_route_map = source_to_route_map(db).await?;
     let wiki_link_index = WikiLinkIndex::build(&site_tree);
-    let mut wiki_link_errors = Vec::new();
+    let mut unresolved_wiki_links = Vec::new();
 
     let mut pages = HashMap::new();
 
@@ -1635,7 +1635,7 @@ pub async fn all_rendered_html<DB: Db>(
         let html = resolve_internal_links(&html, &source_route_map).await;
         let resolved = resolve_wiki_links(&html, &wiki_link_index.resolved).await;
         collect_wiki_link_errors(
-            &mut wiki_link_errors,
+            &mut unresolved_wiki_links,
             route,
             &resolved.unresolved_wiki_links,
             &wiki_link_index,
@@ -1660,7 +1660,7 @@ pub async fn all_rendered_html<DB: Db>(
         let html = resolve_internal_links(&html, &source_route_map).await;
         let resolved = resolve_wiki_links(&html, &wiki_link_index.resolved).await;
         collect_wiki_link_errors(
-            &mut wiki_link_errors,
+            &mut unresolved_wiki_links,
             route,
             &resolved.unresolved_wiki_links,
             &wiki_link_index,
@@ -1669,11 +1669,13 @@ pub async fn all_rendered_html<DB: Db>(
         pages.insert(route.clone(), html);
     }
 
-    if !wiki_link_errors.is_empty() {
-        return Ok(Err(WikiLinkBuildError {
-            errors: wiki_link_errors,
-        }
-        .into()));
+    if !unresolved_wiki_links.is_empty() {
+        tracing::warn!(
+            "{}",
+            WikiLinkBuildError {
+                errors: unresolved_wiki_links
+            }
+        );
     }
 
     Ok(Ok(AllRenderedHtml { pages }))

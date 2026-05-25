@@ -229,10 +229,32 @@ See [[Company]] and [[Repository Map|repo map]].
     html.assert_contains(">repo map</a>");
 }
 
-/// Test that missing wiki links fail the build with a link diagnostic
-pub fn missing_wiki_link_fails_build() {
+/// Test that missing wiki links render as dead links instead of failing the build.
+pub fn missing_wiki_link_renders_dead_link() {
+    let site = TestSite::with_files(
+        "sample-site",
+        &[(
+            "content/missing-wiki-link.md",
+            r#"---
+title: Missing Wiki Link
+---
+
+See [[Missing Page]].
+"#,
+        )],
+    );
+
+    let html = site.get("/missing-wiki-link/");
+    html.assert_ok();
+    html.assert_contains(r#"href="dodeca-wiki:missing-page""#);
+    html.assert_contains(r#"data-wiki-target="Missing Page""#);
+    html.assert_contains(r#"data-dead="true""#);
+}
+
+/// Test that missing wiki links do not fail static builds.
+pub fn missing_wiki_link_builds_successfully() {
     let site = InlineSite::new(&[(
-        "index.md",
+        "_index.md",
         r#"---
 title: Home
 ---
@@ -241,17 +263,56 @@ See [[Missing Page]].
 "#,
     )]);
 
-    site.build()
-        .assert_failure()
-        .assert_output_contains("Failed to resolve 1 wiki link")
-        .assert_output_contains("[[Missing Page]] target not found");
+    site.build().assert_success();
 }
 
-/// Test that ambiguous wiki links fail the build with candidate routes
-pub fn ambiguous_wiki_link_fails_build() {
+/// Test that ambiguous wiki links render as dead links instead of failing the build.
+pub fn ambiguous_wiki_link_renders_dead_link() {
+    let site = TestSite::with_files(
+        "sample-site",
+        &[
+            (
+                "content/wiki-ambiguous.md",
+                r#"---
+title: Wiki Ambiguous
+---
+
+See [[Shared]].
+"#,
+            ),
+            (
+                "content/wiki-a.md",
+                r#"---
+title: Shared
+---
+
+A.
+"#,
+            ),
+            (
+                "content/wiki-b.md",
+                r#"---
+title: Shared
+---
+
+B.
+"#,
+            ),
+        ],
+    );
+
+    let html = site.get("/wiki-ambiguous/");
+    html.assert_ok();
+    html.assert_contains(r#"href="dodeca-wiki:shared""#);
+    html.assert_contains(r#"data-wiki-target="Shared""#);
+    html.assert_contains(r#"data-dead="true""#);
+}
+
+/// Test that ambiguous wiki links do not fail static builds.
+pub fn ambiguous_wiki_link_builds_successfully() {
     let site = InlineSite::new(&[
         (
-            "index.md",
+            "_index.md",
             r#"---
 title: Home
 ---
@@ -279,9 +340,5 @@ B.
         ),
     ]);
 
-    site.build()
-        .assert_failure()
-        .assert_output_contains("[[Shared]] is ambiguous")
-        .assert_output_contains("/a/")
-        .assert_output_contains("/b/");
+    site.build().assert_success();
 }

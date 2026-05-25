@@ -280,6 +280,10 @@ fn check_internal_link(
     known_routes: &HashSet<String>,
     element_ids: &HashMap<String, HashSet<String>>,
 ) -> Option<String> {
+    if let Some(key) = href.strip_prefix("dodeca-wiki:") {
+        return Some(format!("wiki target '{key}' not resolved"));
+    }
+
     // Split href into path and fragment
     let (path, fragment) = match href.find('#') {
         Some(idx) => (&href[..idx], Some(&href[idx + 1..])),
