@@ -27,15 +27,13 @@ pub async fn run(
     content: Option<String>,
     output: Option<String>,
 ) -> Result<()> {
-    let cfg = crate::resolve_dirs(path, content, output)?;
-    let static_dir = cfg
-        .content_dir
-        .parent()
-        .unwrap_or(&cfg.content_dir)
-        .join("static");
     let state = Arc::new(Mutex::new(AuthoringState {
-        content_dir: cfg.content_dir,
-        static_dir,
+        startup_args: LspStartupArgs {
+            path,
+            content,
+            output,
+        },
+        dirs: None,
         documents: HashMap::new(),
     }));
 
@@ -58,9 +56,16 @@ struct Backend {
 
 #[derive(Debug)]
 struct AuthoringState {
-    content_dir: Utf8PathBuf,
-    static_dir: Utf8PathBuf,
+    startup_args: LspStartupArgs,
+    dirs: Option<AuthoringDirs>,
     documents: HashMap<Url, String>,
+}
+
+#[derive(Debug, Clone)]
+struct LspStartupArgs {
+    path: Option<String>,
+    content: Option<String>,
+    output: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -71,7 +76,15 @@ struct AuthoringDirs {
 
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
-    async fn initialize(&self, _params: InitializeParams) -> LspResult<InitializeResult> {
+    async fn initialize(&self, params: InitializeParams) -> LspResult<InitializeResult> {
+        let dirs = match self.resolve_dirs_from_initialize(&params) {
+            Ok(dirs) => dirs,
+            Err(err) => {
+                return Err(tower_lsp::jsonrpc::Error::invalid_params(err.to_string()));
+            }
+        };
+        self.set_dirs(dirs);
+
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
@@ -185,21 +198,30 @@ impl LanguageServer for Backend {
 }
 
 impl Backend {
-    fn dirs(&self) -> AuthoringDirs {
+    fn set_dirs(&self, dirs: AuthoringDirs) {
+        self.state.lock().unwrap().dirs = Some(dirs);
+    }
+
+    fn resolve_dirs_from_initialize(&self, params: &InitializeParams) -> Result<AuthoringDirs> {
+        let startup_args = self.state.lock().unwrap().startup_args.clone();
+        resolve_authoring_dirs(&startup_args, params)
+    }
+
+    fn dirs(&self) -> Result<AuthoringDirs> {
         let state = self.state.lock().unwrap();
-        AuthoringDirs {
-            content_dir: state.content_dir.clone(),
-            static_dir: state.static_dir.clone(),
-        }
+        state
+            .dirs
+            .clone()
+            .ok_or_else(|| eyre!("dodeca authoring server has not been initialized"))
     }
 
     fn list_pages(&self) -> Result<Vec<AuthoringPage>> {
-        let dirs = self.dirs();
+        let dirs = self.dirs()?;
         load_authoring_pages(&dirs.content_dir)
     }
 
     fn authoring_diagnostics(&self) -> Result<Vec<AuthoringDiagnostic>> {
-        let dirs = self.dirs();
+        let dirs = self.dirs()?;
         load_authoring_diagnostics(&dirs.content_dir, &dirs.static_dir)
     }
 
@@ -223,7 +245,7 @@ impl Backend {
     }
 
     fn definition_for_position(&self, uri: &Url, position: Position) -> Result<Option<Location>> {
-        let dirs = self.dirs();
+        let dirs = self.dirs()?;
         let content = self.document_content(uri)?;
         let Some(reference) = reference_at_position(&content, position) else {
             return Ok(None);
@@ -243,7 +265,16 @@ impl Backend {
     }
 
     async fn publish_document_diagnostics(&self, uri: Url, content: String) {
-        let dirs = self.dirs();
+        let dirs = match self.dirs() {
+            Ok(dirs) => dirs,
+            Err(err) => {
+                self.client
+                    .log_message(MessageType::ERROR, err.to_string())
+                    .await;
+                self.client.publish_diagnostics(uri, Vec::new(), None).await;
+                return;
+            }
+        };
         let diagnostics =
             match diagnostics_for_uri(&dirs.content_dir, &dirs.static_dir, &uri, &content) {
                 Ok(diagnostics) => diagnostics
@@ -262,6 +293,65 @@ impl Backend {
             .publish_diagnostics(uri, diagnostics, None)
             .await;
     }
+}
+
+fn resolve_authoring_dirs(
+    startup_args: &LspStartupArgs,
+    params: &InitializeParams,
+) -> Result<AuthoringDirs> {
+    let complete_dir_override = startup_args.content.is_some() && startup_args.output.is_some();
+    let path = startup_args
+        .path
+        .clone()
+        .map(Ok)
+        .or_else(|| project_path_from_initialize(params).transpose())
+        .transpose()?;
+
+    if !complete_dir_override && path.is_none() {
+        return Err(eyre!(
+            "LSP initialize did not include a file workspace folder or root URI"
+        ));
+    }
+
+    let cfg = crate::resolve_dirs(
+        path,
+        startup_args.content.clone(),
+        startup_args.output.clone(),
+    )?;
+    Ok(authoring_dirs_from_config(cfg.content_dir))
+}
+
+fn authoring_dirs_from_config(content_dir: Utf8PathBuf) -> AuthoringDirs {
+    let static_dir = content_dir.parent().unwrap_or(&content_dir).join("static");
+    AuthoringDirs {
+        content_dir,
+        static_dir,
+    }
+}
+
+#[allow(deprecated)]
+fn project_path_from_initialize(params: &InitializeParams) -> Result<Option<String>> {
+    if let Some(folder) = params
+        .workspace_folders
+        .as_ref()
+        .and_then(|folders| folders.first())
+    {
+        return lsp_file_uri_to_utf8_path(&folder.uri).map(|path| Some(path.to_string()));
+    }
+
+    if let Some(uri) = &params.root_uri {
+        return lsp_file_uri_to_utf8_path(uri).map(|path| Some(path.to_string()));
+    }
+
+    Ok(params.root_path.clone())
+}
+
+fn lsp_file_uri_to_utf8_path(uri: &Url) -> Result<Utf8PathBuf> {
+    let path = uri
+        .to_file_path()
+        .map_err(|_| eyre!("LSP workspace URI is not a file URI: {uri}"))?;
+    Utf8PathBuf::from_path_buf(path)
+        .map_err(|path| eyre!("LSP workspace path is not UTF-8: {}", path.display()))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1110,6 +1200,7 @@ fn diagnostic_kind_name(kind: AuthoringDiagnosticKind) -> &'static str {
 mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
+    use tower_lsp::lsp_types::{ClientCapabilities, WorkspaceFolder};
 
     fn temp_dir(name: &str) -> Utf8PathBuf {
         let nonce = SystemTime::now()
@@ -1130,6 +1221,79 @@ mod tests {
             line: line - 1,
             character: column - 1,
         }
+    }
+
+    #[allow(deprecated)]
+    fn initialize_params_for_workspace(project_dir: &Utf8Path) -> InitializeParams {
+        let uri = Url::from_directory_path(project_dir.as_std_path()).expect("workspace uri");
+        InitializeParams {
+            process_id: None,
+            root_path: None,
+            root_uri: None,
+            initialization_options: None,
+            capabilities: ClientCapabilities::default(),
+            trace: None,
+            workspace_folders: Some(vec![WorkspaceFolder {
+                uri,
+                name: "dodeca-site".to_string(),
+            }]),
+            client_info: None,
+            locale: None,
+        }
+    }
+
+    #[allow(deprecated)]
+    fn empty_initialize_params() -> InitializeParams {
+        InitializeParams {
+            process_id: None,
+            root_path: None,
+            root_uri: None,
+            initialization_options: None,
+            capabilities: ClientCapabilities::default(),
+            trace: None,
+            workspace_folders: None,
+            client_info: None,
+            locale: None,
+        }
+    }
+
+    fn default_startup_args() -> LspStartupArgs {
+        LspStartupArgs {
+            path: None,
+            content: None,
+            output: None,
+        }
+    }
+
+    #[test]
+    fn resolves_authoring_dirs_from_lsp_workspace_folder() {
+        let dir = temp_dir("initialize-root");
+        std::fs::create_dir_all(dir.join(".config")).expect("create config dir");
+        std::fs::create_dir_all(dir.join("content")).expect("create content dir");
+        std::fs::write(
+            dir.join(".config/dodeca.styx"),
+            "content content\noutput public\n",
+        )
+        .expect("write config");
+
+        let params = initialize_params_for_workspace(&dir);
+        let dirs = resolve_authoring_dirs(&default_startup_args(), &params).expect("resolve dirs");
+
+        assert_eq!(dirs.content_dir, dir.join("content"));
+        assert_eq!(dirs.static_dir, dir.join("static"));
+
+        std::fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[test]
+    fn refuses_cwd_discovery_without_lsp_workspace() {
+        let err = resolve_authoring_dirs(&default_startup_args(), &empty_initialize_params())
+            .expect_err("missing initialize workspace should fail");
+
+        assert!(
+            err.to_string()
+                .contains("LSP initialize did not include a file workspace folder or root URI")
+        );
     }
 
     #[test]
