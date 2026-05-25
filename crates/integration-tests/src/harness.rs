@@ -36,6 +36,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::net::UnixListener;
 use tracing::{debug, error, info};
 
+const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
+
 // Thread-local storage for the active test id (used to route logs).
 thread_local! {
     static CURRENT_TEST_ID: Cell<u64> = const { Cell::new(0) };
@@ -702,7 +704,7 @@ impl TestSite {
         }
 
         let request_start = Instant::now();
-        match ureq::get(&url).call() {
+        match harness_http_agent().get(&url).call() {
             Ok(resp) => {
                 let status = resp.status().as_u16();
                 let elapsed_ms = request_start.elapsed().as_millis();
@@ -741,7 +743,13 @@ impl TestSite {
                 let elapsed_ms = request_start.elapsed().as_millis();
                 error!("✗ GET {} failed after {} ms: {}", path, elapsed_ms, e);
                 error!(%url, error = ?e, "GET failed (no retries)");
-                panic!("GET {} failed:\n{:?}\n{}", url, e, format_error_chain(&e));
+                panic!(
+                    "GET {} failed after {:?}:\n{:?}\n{}",
+                    url,
+                    HTTP_TIMEOUT,
+                    e,
+                    format_error_chain(&e)
+                );
             }
         }
     }
@@ -752,7 +760,7 @@ impl TestSite {
     pub fn get_bytes(&self, path: &str) -> Vec<u8> {
         let url = format!("http://127.0.0.1:{}{}", self.port, path);
         debug!("→ GET (bytes) {}", path);
-        match ureq::get(&url).call() {
+        match harness_http_agent().get(&url).call() {
             Ok(resp) => {
                 let status = resp.status().as_u16();
                 assert_eq!(status, 200, "GET {path}: expected 200, got {status}");
@@ -983,6 +991,13 @@ impl Drop for TestSite {
         // Logs are now handled by the tracing system via push_test_log
         // No need to copy from self.logs since it's no longer used
     }
+}
+
+fn harness_http_agent() -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .timeout_global(Some(HTTP_TIMEOUT))
+        .build()
+        .new_agent()
 }
 
 fn render_logs(mut lines: Vec<LogLine>) -> Vec<String> {

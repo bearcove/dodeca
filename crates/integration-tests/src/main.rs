@@ -18,6 +18,7 @@ use harness::{
     set_current_test_id,
 };
 use owo_colors::OwoColorize;
+use std::io::Write as _;
 use std::panic::{self, AssertUnwindSafe};
 use std::time::Instant;
 use tests::*;
@@ -185,6 +186,7 @@ fn run_tests(tests: Vec<Test>, filter: Option<&str>) -> (usize, usize, usize) {
         }
 
         print!("{} {} ... ", "test".bold(), full_name);
+        std::io::stdout().flush().expect("flush test name");
 
         let start = Instant::now();
 
