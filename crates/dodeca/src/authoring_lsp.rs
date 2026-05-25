@@ -10,12 +10,13 @@ use tower_lsp::lsp_types::{
     CodeActionProviderCapability, CodeActionResponse, Command, CompletionItem, CompletionItemKind,
     CompletionOptions, CompletionParams, CompletionResponse, CompletionTextEdit, Diagnostic,
     DiagnosticSeverity, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DidSaveTextDocumentParams, ExecuteCommandOptions,
-    ExecuteCommandParams, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents,
-    HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams,
-    Location, MarkupContent, MarkupKind, MessageType, NumberOrString, OneOf, Position, Range,
-    ReferenceParams, ServerCapabilities, ServerInfo, ShowDocumentParams,
-    TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url,
+    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentSymbol, DocumentSymbolParams,
+    DocumentSymbolResponse, ExecuteCommandOptions, ExecuteCommandParams, GotoDefinitionParams,
+    GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability,
+    InitializeParams, InitializeResult, InitializedParams, Location, MarkupContent, MarkupKind,
+    MessageType, NumberOrString, OneOf, Position, Range, ReferenceParams, ServerCapabilities,
+    ServerInfo, ShowDocumentParams, SymbolInformation, SymbolKind, TextDocumentSyncCapability,
+    TextDocumentSyncKind, TextEdit, Url, WorkspaceSymbolParams,
 };
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
@@ -108,6 +109,8 @@ impl LanguageServer for Backend {
                 references_provider: Some(OneOf::Left(true)),
                 code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
+                document_symbol_provider: Some(OneOf::Left(true)),
+                workspace_symbol_provider: Some(OneOf::Left(true)),
                 completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(false),
                     trigger_characters: Some(vec![
@@ -245,6 +248,36 @@ impl LanguageServer for Backend {
             .await
         {
             Ok(hover) => Ok(hover),
+            Err(err) => {
+                self.client
+                    .log_message(MessageType::ERROR, err.to_string())
+                    .await;
+                Ok(None)
+            }
+        }
+    }
+
+    async fn document_symbol(
+        &self,
+        params: DocumentSymbolParams,
+    ) -> LspResult<Option<DocumentSymbolResponse>> {
+        match self.document_symbols(params).await {
+            Ok(symbols) => Ok(Some(DocumentSymbolResponse::Nested(symbols))),
+            Err(err) => {
+                self.client
+                    .log_message(MessageType::ERROR, err.to_string())
+                    .await;
+                Ok(None)
+            }
+        }
+    }
+
+    async fn symbol(
+        &self,
+        params: WorkspaceSymbolParams,
+    ) -> LspResult<Option<Vec<SymbolInformation>>> {
+        match self.workspace_symbols(params).await {
+            Ok(symbols) => Ok(Some(symbols)),
             Err(err) => {
                 self.client
                     .log_message(MessageType::ERROR, err.to_string())
@@ -471,6 +504,33 @@ impl Backend {
             link_hover_markdown(&project, page, &content, &reference),
             range,
         )))
+    }
+
+    async fn document_symbols(&self, params: DocumentSymbolParams) -> Result<Vec<DocumentSymbol>> {
+        let uri = params.text_document.uri;
+        let dirs = self.dirs_for_uri(&uri)?;
+        let content = self.document_content(&uri)?;
+        let path = lsp_file_uri_to_utf8_path(&uri)?;
+        let source_file = source_file_for_path(&dirs.content_dir, &path)?;
+        let project = self.current_project(&dirs).await?;
+        let Some(page) = project.page_for_source_file(&source_file) else {
+            return Ok(Vec::new());
+        };
+
+        Ok(vec![document_symbol_for_page(page, &content)])
+    }
+
+    async fn workspace_symbols(
+        &self,
+        params: WorkspaceSymbolParams,
+    ) -> Result<Vec<SymbolInformation>> {
+        let dirs = self.dirs()?;
+        let project = self.current_project(&dirs).await?;
+        Ok(workspace_symbols_for_project(
+            &dirs.content_dir,
+            &project,
+            &params.query,
+        ))
     }
 
     async fn definition_for_position(
@@ -999,6 +1059,205 @@ fn markdown_hover(markdown: String, range: Range) -> Hover {
             value: markdown,
         }),
         range: Some(range),
+    }
+}
+
+#[allow(deprecated)]
+fn document_symbol_for_page(page: &AuthoringPage, content: &str) -> DocumentSymbol {
+    let range = full_document_range(content);
+    let selection_range = frontmatter_lsp_range(content).unwrap_or_else(|| one_line_range(0));
+    let heading_lines = markdown_headings(content);
+    let children = page
+        .headings
+        .iter()
+        .map(|heading| {
+            let line = heading_lines
+                .iter()
+                .find(|candidate| candidate.id == heading.id)
+                .map(|candidate| candidate.line.saturating_sub(1))
+                .unwrap_or(0);
+            DocumentSymbol {
+                name: heading.title.clone(),
+                detail: Some(format!("#{} on {}", heading.id, page.route)),
+                kind: SymbolKind::STRING,
+                tags: None,
+                deprecated: None,
+                range: one_line_range(line),
+                selection_range: one_line_range(line),
+                children: None,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    DocumentSymbol {
+        name: page.title.clone(),
+        detail: Some(format!("{} {}", page.route, page.source_file)),
+        kind: match page.kind {
+            AuthoringPageKind::Page => SymbolKind::FILE,
+            AuthoringPageKind::Section => SymbolKind::MODULE,
+        },
+        tags: None,
+        deprecated: None,
+        range,
+        selection_range,
+        children: (!children.is_empty()).then_some(children),
+    }
+}
+
+fn workspace_symbols_for_project(
+    content_dir: &Utf8Path,
+    project: &AuthoringProject,
+    query: &str,
+) -> Vec<SymbolInformation> {
+    let mut symbols = Vec::new();
+    for page in &project.pages {
+        if workspace_page_matches(page, query)
+            && let Some(symbol) = symbol_information_for_page(content_dir, project, page)
+        {
+            symbols.push(symbol);
+        }
+
+        for heading in &page.headings {
+            if workspace_heading_matches(page, heading, query)
+                && let Some(symbol) =
+                    symbol_information_for_heading(content_dir, project, page, &heading.id)
+            {
+                symbols.push(symbol);
+            }
+        }
+    }
+
+    symbols.sort_by(|a, b| {
+        a.name
+            .cmp(&b.name)
+            .then_with(|| a.location.uri.as_str().cmp(b.location.uri.as_str()))
+            .then_with(|| position_cmp(a.location.range.start, b.location.range.start))
+    });
+    symbols
+}
+
+fn workspace_page_matches(page: &AuthoringPage, query: &str) -> bool {
+    if query.trim().is_empty() {
+        return true;
+    }
+    let haystack = format!(
+        "{} {} {} {} {}",
+        page.title, page.route, page.source_file, page.template, page.output_path
+    );
+    fuzzy_contains(&haystack, query)
+}
+
+fn workspace_heading_matches(
+    page: &AuthoringPage,
+    heading: &crate::authoring_model::AuthoringHeading,
+    query: &str,
+) -> bool {
+    if query.trim().is_empty() {
+        return true;
+    }
+    let haystack = format!(
+        "{} {} {} {} {}",
+        heading.title, heading.id, page.title, page.route, page.source_file
+    );
+    fuzzy_contains(&haystack, query)
+}
+
+fn fuzzy_contains(haystack: &str, query: &str) -> bool {
+    let haystack = haystack.to_lowercase();
+    query
+        .split_whitespace()
+        .map(str::to_lowercase)
+        .all(|part| haystack.contains(&part))
+}
+
+#[allow(deprecated)]
+fn symbol_information_for_page(
+    content_dir: &Utf8Path,
+    project: &AuthoringProject,
+    page: &AuthoringPage,
+) -> Option<SymbolInformation> {
+    Some(SymbolInformation {
+        name: page.title.clone(),
+        kind: match page.kind {
+            AuthoringPageKind::Page => SymbolKind::FILE,
+            AuthoringPageKind::Section => SymbolKind::MODULE,
+        },
+        tags: None,
+        deprecated: None,
+        location: location_for_page(content_dir, project, page)?,
+        container_name: Some(format!("{} {}", page.route, page.source_file)),
+    })
+}
+
+#[allow(deprecated)]
+fn symbol_information_for_heading(
+    content_dir: &Utf8Path,
+    project: &AuthoringProject,
+    page: &AuthoringPage,
+    heading_id: &str,
+) -> Option<SymbolInformation> {
+    let heading = page
+        .headings
+        .iter()
+        .find(|heading| heading.id == heading_id)?;
+    Some(SymbolInformation {
+        name: heading.title.clone(),
+        kind: SymbolKind::STRING,
+        tags: None,
+        deprecated: None,
+        location: location_for_page_heading(content_dir, project, page, heading_id)?,
+        container_name: Some(format!("{} {}", page.title, page.route)),
+    })
+}
+
+fn location_for_page(
+    content_dir: &Utf8Path,
+    project: &AuthoringProject,
+    page: &AuthoringPage,
+) -> Option<Location> {
+    let uri = Url::from_file_path(content_dir.join(&page.source_file)).ok()?;
+    let content = project.source_contents.get(&page.source_file)?;
+    let range = frontmatter_lsp_range(content).unwrap_or_else(|| one_line_range(0));
+    Some(Location { uri, range })
+}
+
+fn location_for_page_heading(
+    content_dir: &Utf8Path,
+    project: &AuthoringProject,
+    page: &AuthoringPage,
+    heading_id: &str,
+) -> Option<Location> {
+    let uri = Url::from_file_path(content_dir.join(&page.source_file)).ok()?;
+    let content = project.source_contents.get(&page.source_file)?;
+    let line = markdown_headings(content)
+        .into_iter()
+        .find(|heading| heading.id == heading_id)
+        .map(|heading| heading.line.saturating_sub(1))
+        .unwrap_or(0);
+    Some(Location {
+        uri,
+        range: one_line_range(line),
+    })
+}
+
+fn full_document_range(content: &str) -> Range {
+    let (line, character) = byte_to_line_column(content, content.len());
+    Range {
+        start: Position {
+            line: 0,
+            character: 0,
+        },
+        end: Position {
+            line: line.saturating_sub(1),
+            character: character.saturating_sub(1),
+        },
+    }
+}
+
+fn one_line_range(line: u32) -> Range {
+    Range {
+        start: Position { line, character: 0 },
+        end: Position { line, character: 0 },
     }
 }
 
@@ -2540,6 +2799,66 @@ title = \"Source\"
         assert!(frontmatter_hover.contains("Route: `/guide/source`"));
         assert!(frontmatter_hover.contains("Template: `page.html`"));
         assert!(frontmatter_hover.contains("Backlinks: `3`"));
+
+        std::fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[tokio::test]
+    async fn symbols_list_pages_and_headings_from_authoring_project() {
+        let dir = temp_dir("symbols");
+        let content_dir = dir.join("content");
+        std::fs::create_dir_all(content_dir.join("guide")).expect("create content dirs");
+        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
+        std::fs::write(
+            content_dir.join("guide/intro.md"),
+            "+++\ntitle = \"Intro\"\n+++\n\n# Intro\n\n## Details\n",
+        )
+        .expect("write intro");
+        std::fs::write(content_dir.join("guide/source.md"), "# Source\n").expect("write source");
+
+        let project = load_authoring_project(
+            &content_dir,
+            &[AuthoringDocumentOverlay {
+                source_file: "guide/draft.md".to_string(),
+                content: "+++\ntitle = \"Draft\"\n+++\n\n# Draft\n".to_string(),
+            }],
+        )
+        .await
+        .expect("load project");
+        let intro = project
+            .page_for_source_file("guide/intro.md")
+            .expect("intro page");
+        let intro_content = project
+            .source_contents
+            .get("guide/intro.md")
+            .expect("intro content");
+
+        let document_symbols = document_symbol_for_page(intro, intro_content);
+        let children = document_symbols.children.expect("heading children");
+        assert_eq!(document_symbols.name, "Intro");
+        assert_eq!(
+            children
+                .iter()
+                .map(|symbol| symbol.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Intro", "Details"]
+        );
+
+        let route_symbols = workspace_symbols_for_project(&content_dir, &project, "/guide/intro");
+        assert!(route_symbols.iter().any(|symbol| symbol.name == "Intro"));
+
+        let source_symbols = workspace_symbols_for_project(&content_dir, &project, "draft.md");
+        assert!(source_symbols.iter().any(|symbol| symbol.name == "Draft"));
+
+        let heading_symbols =
+            workspace_symbols_for_project(&content_dir, &project, "intro--details");
+        assert!(heading_symbols.iter().any(|symbol| {
+            symbol.name == "Details"
+                && symbol
+                    .container_name
+                    .as_deref()
+                    .is_some_and(|container| container.contains("/guide/intro"))
+        }));
 
         std::fs::remove_dir_all(&dir).expect("remove temp dir");
     }

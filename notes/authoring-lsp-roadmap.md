@@ -32,7 +32,7 @@ Status values:
 | `lsp-004` | `done` | Link completions | Complete routes, source files, static assets, and heading fragments inside Markdown links. | Uses the shared authoring model for candidates and LSP edit spans only for replacement ranges. |
 | `lsp-005` | `done` | Link hover | Hovering a Markdown link explains the resolved target page, route, source file, heading, or static asset. | Broken links expose the same reason as diagnostics. |
 | `lsp-006` | `done` | Frontmatter hover | Hovering frontmatter shows canonical route, source file, title, template, output path, and backlink count. | Backlink count shares the references implementation. |
-| `lsp-007` | `todo` | Page workspace symbols | Editor symbol search lists pages by title, route, source file, and headings. | Lets users jump around the site graph without knowing filenames. |
+| `lsp-007` | `done` | Page workspace symbols | Editor symbol search lists pages by title, route, source file, and headings. | Also exposes per-document page/heading outline symbols. |
 | `lsp-008` | `todo` | Heading references | Find All References on a heading returns every link to that exact fragment. | Also supports route fragment links such as `/page#heading`. |
 | `lsp-009` | `todo` | Heading rename | Renaming a heading updates every fragment link that targets it. | Depends on heading references and slug generation parity. |
 | `lsp-010` | `todo` | Page route rename | Renaming or moving a page updates every route, relative, and source-file link that targets it. | Needs a typed edit plan before applying workspace edits. |
