@@ -310,6 +310,15 @@ impl TestSite {
         Self::from_source_with_files(&src, files)
     }
 
+    /// Create a new test site from a fixture with custom setup before server start.
+    pub fn with_setup<F>(fixture_name: &str, setup: F) -> Self
+    where
+        F: FnOnce(&Path),
+    {
+        let src = fixture_source_dir(fixture_name);
+        Self::from_source_with_setup(&src, &[], setup)
+    }
+
     /// Create a new test site from an arbitrary source directory
     pub fn from_source(src: &Path) -> Self {
         Self::from_source_with_files(src, &[])
@@ -317,6 +326,13 @@ impl TestSite {
 
     /// Create a new test site from an arbitrary source directory with custom files
     pub fn from_source_with_files(src: &Path, files: &[(&str, &str)]) -> Self {
+        Self::from_source_with_setup(src, files, |_| {})
+    }
+
+    fn from_source_with_setup<F>(src: &Path, files: &[(&str, &str)], setup: F) -> Self
+    where
+        F: FnOnce(&Path),
+    {
         let setup_start = Instant::now();
         let test_id = CURRENT_TEST_ID.with(|cell| cell.get());
         // Create isolated temp directory
@@ -343,6 +359,8 @@ impl TestSite {
             fs::write(&path, content)
                 .unwrap_or_else(|e| panic!("write custom file {}: {e}", path.display()));
         }
+
+        setup(&fixture_dir);
 
         // Ensure .cache exists and is empty
         let cache_dir = fixture_dir.join(".cache");

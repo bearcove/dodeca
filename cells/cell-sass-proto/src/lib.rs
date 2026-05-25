@@ -23,7 +23,13 @@ pub enum SassResult {
 pub trait SassCompiler {
     /// Compile SASS/SCSS to CSS
     ///
-    /// Takes the entry point filename and a map of filename -> content pairs.
+    /// Takes the entry point filename, a map of filename -> content pairs, and
+    /// filesystem load paths for package imports.
     /// Returns compiled CSS, or an error if compilation fails.
-    async fn compile_sass(&self, entrypoint: String, files: HashMap<String, String>) -> SassResult;
+    async fn compile_sass(
+        &self,
+        entrypoint: String,
+        files: HashMap<String, String>,
+        load_paths: Vec<String>,
+    ) -> SassResult;
 }

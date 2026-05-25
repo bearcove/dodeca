@@ -27,6 +27,35 @@ pub fn scss_compiled_to_css() {
     css.assert_not_contains("$primary-color");
 }
 
+pub fn scss_can_import_from_node_modules() {
+    let site = TestSite::with_setup("sample-site", |fixture_dir| {
+        let package_dir = fixture_dir.join("node_modules/pico");
+        std::fs::create_dir_all(&package_dir).expect("create package dir");
+        std::fs::write(package_dir.join("_index.scss"), "$pico-color: #c0ffee;\n")
+            .expect("write package stylesheet");
+
+        std::fs::write(
+            fixture_dir.join("sass/main.scss"),
+            r#"@use "pico";
+
+.node-modules-import {
+    color: pico.$pico-color;
+}
+"#,
+        )
+        .expect("write main stylesheet");
+    });
+
+    let html = site.get("/");
+    let css_url = html
+        .css_link("/main.*.css")
+        .expect("SCSS should be compiled to /main.*.css");
+
+    let css = site.get(&css_url);
+    css.assert_ok();
+    css.assert_contains("#c0ffee");
+}
+
 pub fn scss_change_triggers_rebuild() {
     let site = TestSite::new("sample-site");
 
