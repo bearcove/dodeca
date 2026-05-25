@@ -8,11 +8,13 @@ use ignore::WalkBuilder;
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::{
-    Diagnostic, DiagnosticSeverity, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DidSaveTextDocumentParams, ExecuteCommandOptions,
-    ExecuteCommandParams, GotoDefinitionParams, GotoDefinitionResponse, InitializeParams,
-    InitializeResult, InitializedParams, Location, MessageType, NumberOrString, OneOf, Position,
-    Range, ServerCapabilities, ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
+    CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionParams,
+    CodeActionProviderCapability, CodeActionResponse, Command, Diagnostic, DiagnosticSeverity,
+    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+    DidSaveTextDocumentParams, ExecuteCommandOptions, ExecuteCommandParams, GotoDefinitionParams,
+    GotoDefinitionResponse, InitializeParams, InitializeResult, InitializedParams, Location,
+    MessageType, NumberOrString, OneOf, Position, Range, ServerCapabilities, ServerInfo,
+    ShowDocumentParams, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
 };
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
@@ -22,6 +24,7 @@ use crate::types::SourcePath;
 
 const LIST_PAGES_COMMAND: &str = "dodeca.listPages";
 const DIAGNOSTICS_COMMAND: &str = "dodeca.authoringDiagnostics";
+const CREATE_PAGE_COMMAND: &str = "dodeca.createPage";
 
 pub async fn run(content: Option<String>, output: Option<String>) -> Result<()> {
     let state = Arc::new(Mutex::new(AuthoringState {
@@ -94,10 +97,12 @@ impl LanguageServer for Backend {
                     commands: vec![
                         LIST_PAGES_COMMAND.to_string(),
                         DIAGNOSTICS_COMMAND.to_string(),
+                        CREATE_PAGE_COMMAND.to_string(),
                     ],
                     ..Default::default()
                 }),
                 definition_provider: Some(OneOf::Left(true)),
+                code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -111,6 +116,7 @@ impl LanguageServer for Backend {
         self.client
             .log_message(MessageType::INFO, "dodeca authoring server initialized")
             .await;
+        self.publish_workspace_diagnostics().await;
     }
 
     async fn shutdown(&self) -> LspResult<()> {
@@ -122,6 +128,7 @@ impl LanguageServer for Backend {
         let content = params.text_document.text;
         self.set_document(uri.clone(), content.clone());
         self.publish_document_diagnostics(uri, content).await;
+        self.publish_workspace_diagnostics().await;
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
@@ -139,6 +146,7 @@ impl LanguageServer for Backend {
         self.set_document(params.text_document.uri.clone(), text.clone());
         self.publish_document_diagnostics(params.text_document.uri, text)
             .await;
+        self.publish_workspace_diagnostics().await;
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
@@ -173,7 +181,28 @@ impl LanguageServer for Backend {
                     Err(tower_lsp::jsonrpc::Error::internal_error())
                 }
             },
+            CREATE_PAGE_COMMAND => match self.create_page_from_command(params.arguments).await {
+                Ok(value) => Ok(Some(value)),
+                Err(err) => {
+                    self.client
+                        .log_message(MessageType::ERROR, err.to_string())
+                        .await;
+                    Err(tower_lsp::jsonrpc::Error::internal_error())
+                }
+            },
             _ => Err(tower_lsp::jsonrpc::Error::invalid_request()),
+        }
+    }
+
+    async fn code_action(&self, params: CodeActionParams) -> LspResult<Option<CodeActionResponse>> {
+        match self.code_actions(params) {
+            Ok(actions) => Ok(Some(actions)),
+            Err(err) => {
+                self.client
+                    .log_message(MessageType::ERROR, err.to_string())
+                    .await;
+                Ok(None)
+            }
         }
     }
 
@@ -254,6 +283,52 @@ impl Backend {
         Ok(std::fs::read_to_string(path)?)
     }
 
+    fn code_actions(&self, params: CodeActionParams) -> Result<CodeActionResponse> {
+        let uri = params.text_document.uri;
+        let dirs = self.dirs_for_uri(&uri)?;
+        let content = self.document_content(&uri)?;
+        let diagnostics = diagnostics_for_uri(&dirs.content_dir, &dirs.static_dir, &uri, &content)?;
+        let lsp_diagnostics = diagnostics
+            .iter()
+            .map(authoring_diagnostic_to_lsp)
+            .collect::<Vec<_>>();
+
+        let actions = diagnostics
+            .into_iter()
+            .filter(|diagnostic| diagnostic.kind == AuthoringDiagnosticKind::Route)
+            .filter(|diagnostic| ranges_overlap(&diagnostic.range(), &params.range))
+            .filter_map(|diagnostic| {
+                let route = diagnostic.resolved_route.as_deref()?;
+                let source_file = source_file_for_new_route(route)?;
+                let title = format!("Create page '{}'", source_file);
+                let arguments = create_page_command_arguments(&uri, route);
+                let diagnostic_range = diagnostic.range();
+
+                Some(CodeActionOrCommand::CodeAction(CodeAction {
+                    title: title.clone(),
+                    kind: Some(CodeActionKind::QUICKFIX),
+                    diagnostics: Some(
+                        lsp_diagnostics
+                            .iter()
+                            .filter(|lsp_diagnostic| lsp_diagnostic.range == diagnostic_range)
+                            .cloned()
+                            .collect(),
+                    ),
+                    edit: None,
+                    command: Some(Command {
+                        title,
+                        command: CREATE_PAGE_COMMAND.to_string(),
+                        arguments: Some(arguments),
+                    }),
+                    is_preferred: Some(true),
+                    ..CodeAction::default()
+                }))
+            })
+            .collect();
+
+        Ok(actions)
+    }
+
     fn definition_for_position(&self, uri: &Url, position: Position) -> Result<Option<Location>> {
         let dirs = self.dirs_for_uri(uri)?;
         let content = self.document_content(uri)?;
@@ -302,6 +377,95 @@ impl Backend {
         self.client
             .publish_diagnostics(uri, diagnostics, None)
             .await;
+    }
+
+    async fn publish_workspace_diagnostics(&self) {
+        let dirs = match self.dirs() {
+            Ok(dirs) => dirs,
+            Err(_) => return,
+        };
+        let pages = match load_authoring_pages(&dirs.content_dir) {
+            Ok(pages) => pages,
+            Err(err) => {
+                self.client
+                    .log_message(MessageType::ERROR, err.to_string())
+                    .await;
+                return;
+            }
+        };
+        let diagnostics = match load_authoring_diagnostics(&dirs.content_dir, &dirs.static_dir) {
+            Ok(diagnostics) => diagnostics,
+            Err(err) => {
+                self.client
+                    .log_message(MessageType::ERROR, err.to_string())
+                    .await;
+                return;
+            }
+        };
+        let mut diagnostics_by_source: HashMap<String, Vec<Diagnostic>> = HashMap::new();
+        for diagnostic in diagnostics {
+            diagnostics_by_source
+                .entry(diagnostic.source_file.clone())
+                .or_default()
+                .push(authoring_diagnostic_to_lsp(&diagnostic));
+        }
+
+        for page in pages {
+            let path = dirs.content_dir.join(&page.source_file);
+            let Some(uri) = Url::from_file_path(path.as_std_path()).ok() else {
+                continue;
+            };
+            let diagnostics = diagnostics_by_source
+                .remove(&page.source_file)
+                .unwrap_or_default();
+            self.client
+                .publish_diagnostics(uri, diagnostics, None)
+                .await;
+        }
+    }
+
+    #[allow(clippy::disallowed_types)]
+    async fn create_page_from_command(
+        &self,
+        arguments: Vec<serde_json::Value>,
+    ) -> Result<serde_json::Value> {
+        let (source_uri, route) = parse_create_page_command_arguments(&arguments)?;
+        let dirs = self.dirs_for_uri(&source_uri)?;
+        let source_file = source_file_for_new_route(&route)
+            .ok_or_else(|| eyre!("cannot create page for route '{route}'"))?;
+        let path = dirs.content_dir.join(&source_file);
+
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        if !path.exists() {
+            let title = default_title_from_source_path(&source_file);
+            std::fs::write(&path, format!("# {title}\n"))?;
+        }
+
+        let uri = Url::from_file_path(path.as_std_path())
+            .map_err(|_| eyre!("created page path is not a file URI: {path}"))?;
+        let _ = self
+            .client
+            .show_document(ShowDocumentParams {
+                uri: uri.clone(),
+                external: Some(false),
+                take_focus: Some(true),
+                selection: Some(Range {
+                    start: Position {
+                        line: 0,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 0,
+                    },
+                }),
+            })
+            .await;
+        self.publish_workspace_diagnostics().await;
+
+        Ok(created_page_to_json(&source_file, &route, &uri))
     }
 }
 
@@ -415,6 +579,7 @@ struct AuthoringDiagnostic {
     route: String,
     kind: AuthoringDiagnosticKind,
     target: String,
+    resolved_route: Option<String>,
     message: String,
     line: u32,
     column: u32,
@@ -430,6 +595,21 @@ enum AuthoringDiagnosticKind {
     Anchor,
     Source,
     StaticAsset,
+}
+
+impl AuthoringDiagnostic {
+    fn range(&self) -> Range {
+        Range {
+            start: Position {
+                line: self.line.saturating_sub(1),
+                character: self.column.saturating_sub(1),
+            },
+            end: Position {
+                line: self.line_end.saturating_sub(1),
+                character: self.column_end.saturating_sub(1),
+            },
+        }
+    }
 }
 
 fn load_authoring_pages(content_dir: &Utf8Path) -> Result<Vec<AuthoringPage>> {
@@ -632,17 +812,24 @@ fn diagnostic_for_reference(
     }
 
     let (target_without_fragment, fragment) = split_fragment(target);
-    let (kind, message) = if let Some(source_target) = target_without_fragment.strip_prefix("@/") {
+    let (kind, resolved_route, message) = if let Some(source_target) =
+        target_without_fragment.strip_prefix("@/")
+    {
         let Some(route) = site_index.source_to_route.get(source_target) else {
             return Some(reference.diagnostic(
                 page,
                 content,
                 AuthoringDiagnosticKind::Source,
+                None,
                 format!("source file '{source_target}' not found"),
             ));
         };
         match missing_anchor_message(site_index, route, fragment) {
-            Some(message) => (AuthoringDiagnosticKind::Anchor, message),
+            Some(message) => (
+                AuthoringDiagnosticKind::Anchor,
+                Some(route.clone()),
+                message,
+            ),
             None => return None,
         }
     } else if reference.kind == MarkdownReferenceKind::Image
@@ -658,6 +845,7 @@ fn diagnostic_for_reference(
         }
         (
             AuthoringDiagnosticKind::StaticAsset,
+            None,
             format!("static asset '{target_without_fragment}' not found"),
         )
     } else {
@@ -672,16 +860,17 @@ fn diagnostic_for_reference(
         if !route_exists(site_index, &target_route) {
             (
                 AuthoringDiagnosticKind::Route,
+                Some(target_route.clone()),
                 format!("route '{target_route}' not found"),
             )
         } else if let Some(message) = missing_anchor_message(site_index, &target_route, fragment) {
-            (AuthoringDiagnosticKind::Anchor, message)
+            (AuthoringDiagnosticKind::Anchor, Some(target_route), message)
         } else {
             return None;
         }
     };
 
-    Some(reference.diagnostic(page, content, kind, message))
+    Some(reference.diagnostic(page, content, kind, resolved_route, message))
 }
 
 fn definition_for_reference(
@@ -826,6 +1015,7 @@ impl MarkdownReference {
         page: &AuthoringPage,
         content: &str,
         kind: AuthoringDiagnosticKind,
+        resolved_route: Option<String>,
         message: String,
     ) -> AuthoringDiagnostic {
         let (line, column) = byte_to_line_column(content, self.byte_start);
@@ -835,6 +1025,7 @@ impl MarkdownReference {
             route: page.route.clone(),
             kind,
             target: self.target.clone(),
+            resolved_route,
             message,
             line,
             column,
@@ -1152,18 +1343,8 @@ fn position_to_byte_offset(content: &str, position: Position) -> Option<usize> {
 }
 
 fn authoring_diagnostic_to_lsp(diagnostic: &AuthoringDiagnostic) -> Diagnostic {
-    let start = Position {
-        line: diagnostic.line.saturating_sub(1),
-        character: diagnostic.column.saturating_sub(1),
-    };
     Diagnostic {
-        range: Range {
-            start,
-            end: Position {
-                line: diagnostic.line_end.saturating_sub(1),
-                character: diagnostic.column_end.saturating_sub(1),
-            },
-        },
+        range: diagnostic.range(),
         severity: Some(DiagnosticSeverity::WARNING),
         code: Some(NumberOrString::String(
             diagnostic_kind_name(diagnostic.kind).to_string(),
@@ -1172,6 +1353,72 @@ fn authoring_diagnostic_to_lsp(diagnostic: &AuthoringDiagnostic) -> Diagnostic {
         message: diagnostic.message.clone(),
         ..Default::default()
     }
+}
+
+fn ranges_overlap(left: &Range, right: &Range) -> bool {
+    position_le(left.start, right.end) && position_le(right.start, left.end)
+}
+
+fn position_le(left: Position, right: Position) -> bool {
+    left.line < right.line || (left.line == right.line && left.character <= right.character)
+}
+
+fn source_file_for_new_route(route: &str) -> Option<String> {
+    let route = normalize_route(route);
+    let relative = route.strip_prefix('/')?;
+    if relative.is_empty() {
+        return None;
+    }
+
+    let mut segments = Vec::new();
+    for segment in relative.split('/') {
+        if segment.is_empty()
+            || segment == "."
+            || segment == ".."
+            || segment.contains('\\')
+            || segment.contains(':')
+        {
+            return None;
+        }
+        segments.push(segment);
+    }
+
+    Some(format!("{}.md", segments.join("/")))
+}
+
+// tower-lsp command arguments are JSON-RPC values; keep JSON use at this edge.
+#[allow(clippy::disallowed_types)]
+fn create_page_command_arguments(source_uri: &Url, route: &str) -> Vec<serde_json::Value> {
+    vec![serde_json::json!({
+        "sourceUri": source_uri.as_str(),
+        "route": route,
+    })]
+}
+
+#[allow(clippy::disallowed_types)]
+fn parse_create_page_command_arguments(arguments: &[serde_json::Value]) -> Result<(Url, String)> {
+    let argument = arguments
+        .first()
+        .ok_or_else(|| eyre!("missing create page command arguments"))?;
+    let source_uri = argument
+        .get("sourceUri")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| eyre!("missing sourceUri create page argument"))?;
+    let route = argument
+        .get("route")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| eyre!("missing route create page argument"))?;
+    Ok((Url::parse(source_uri)?, route.to_string()))
+}
+
+// tower-lsp command replies are JSON-RPC values; keep JSON use at this edge.
+#[allow(clippy::disallowed_types)]
+fn created_page_to_json(source_file: &str, route: &str, uri: &Url) -> serde_json::Value {
+    serde_json::json!({
+        "sourceFile": source_file,
+        "route": route,
+        "uri": uri.as_str(),
+    })
 }
 
 // tower-lsp command replies are JSON-RPC values; keep JSON use at this edge.
@@ -1212,6 +1459,7 @@ fn diagnostics_to_json(diagnostics: &[AuthoringDiagnostic]) -> serde_json::Value
                     "route": diagnostic.route,
                     "kind": diagnostic_kind_name(diagnostic.kind),
                     "target": diagnostic.target,
+                    "resolvedRoute": diagnostic.resolved_route.as_deref(),
                     "message": diagnostic.message,
                     "span": {
                         "lineStart": diagnostic.line,
@@ -1302,6 +1550,17 @@ mod tests {
             content: None,
             output: None,
         }
+    }
+
+    #[test]
+    fn maps_missing_route_to_new_page_source_file() {
+        assert_eq!(source_file_for_new_route("/ij"), Some("ij.md".to_string()));
+        assert_eq!(
+            source_file_for_new_route("/ops/deploy"),
+            Some("ops/deploy.md".to_string())
+        );
+        assert_eq!(source_file_for_new_route("/"), None);
+        assert_eq!(source_file_for_new_route("/bad:route"), None);
     }
 
     #[test]
@@ -1465,6 +1724,7 @@ mod tests {
             ]
         );
         assert_eq!(diagnostics[0].source_file, "guide/source.md");
+        assert_eq!(diagnostics[0].resolved_route.as_deref(), Some("/missing"));
 
         std::fs::remove_dir_all(&dir).expect("remove temp dir");
     }
