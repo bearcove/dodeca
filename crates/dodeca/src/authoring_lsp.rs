@@ -1,10 +1,8 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use eyre::{Result, eyre};
-use facet::Facet;
-use ignore::WalkBuilder;
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::{
@@ -18,9 +16,12 @@ use tower_lsp::lsp_types::{
 };
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
+use crate::authoring_model::{
+    AuthoringDocumentOverlay, AuthoringPage, AuthoringPageKind, AuthoringProject,
+    load_authoring_project,
+};
 use crate::config::ResolvedConfig;
 use crate::queries::default_title_from_source_path;
-use crate::types::SourcePath;
 
 const LIST_PAGES_COMMAND: &str = "dodeca.listPages";
 const DIAGNOSTICS_COMMAND: &str = "dodeca.authoringDiagnostics";
@@ -66,7 +67,6 @@ struct LspStartupArgs {
 #[derive(Debug, Clone)]
 struct AuthoringDirs {
     content_dir: Utf8PathBuf,
-    static_dir: Utf8PathBuf,
 }
 
 #[tower_lsp::async_trait]
@@ -137,6 +137,7 @@ impl LanguageServer for Backend {
             let uri = params.text_document.uri;
             self.set_document(uri.clone(), change.text.clone());
             self.publish_document_diagnostics(uri, change.text).await;
+            self.publish_workspace_diagnostics().await;
         }
     }
 
@@ -155,6 +156,7 @@ impl LanguageServer for Backend {
         self.client
             .publish_diagnostics(params.text_document.uri, Vec::new(), None)
             .await;
+        self.publish_workspace_diagnostics().await;
     }
 
     // tower-lsp fixes execute-command responses to serde_json::Value at the protocol boundary.
@@ -164,7 +166,7 @@ impl LanguageServer for Backend {
         params: ExecuteCommandParams,
     ) -> LspResult<Option<serde_json::Value>> {
         match params.command.as_str() {
-            LIST_PAGES_COMMAND => match self.list_pages() {
+            LIST_PAGES_COMMAND => match self.list_pages().await {
                 Ok(pages) => Ok(Some(pages_to_json(&pages))),
                 Err(err) => {
                     self.client
@@ -173,7 +175,7 @@ impl LanguageServer for Backend {
                     Err(tower_lsp::jsonrpc::Error::internal_error())
                 }
             },
-            DIAGNOSTICS_COMMAND => match self.authoring_diagnostics() {
+            DIAGNOSTICS_COMMAND => match self.authoring_diagnostics().await {
                 Ok(diagnostics) => Ok(Some(diagnostics_to_json(&diagnostics))),
                 Err(err) => {
                     self.client
@@ -196,7 +198,7 @@ impl LanguageServer for Backend {
     }
 
     async fn code_action(&self, params: CodeActionParams) -> LspResult<Option<CodeActionResponse>> {
-        match self.code_actions(params) {
+        match self.code_actions(params).await {
             Ok(actions) => Ok(Some(actions)),
             Err(err) => {
                 self.client
@@ -211,10 +213,13 @@ impl LanguageServer for Backend {
         &self,
         params: GotoDefinitionParams,
     ) -> LspResult<Option<GotoDefinitionResponse>> {
-        match self.definition_for_position(
-            &params.text_document_position_params.text_document.uri,
-            params.text_document_position_params.position,
-        ) {
+        match self
+            .definition_for_position(
+                &params.text_document_position_params.text_document.uri,
+                params.text_document_position_params.position,
+            )
+            .await
+        {
             Ok(Some(location)) => Ok(Some(GotoDefinitionResponse::Scalar(location))),
             Ok(None) => Ok(None),
             Err(err) => {
@@ -227,10 +232,13 @@ impl LanguageServer for Backend {
     }
 
     async fn references(&self, params: ReferenceParams) -> LspResult<Option<Vec<Location>>> {
-        match self.references_for_position(
-            &params.text_document_position.text_document.uri,
-            params.text_document_position.position,
-        ) {
+        match self
+            .references_for_position(
+                &params.text_document_position.text_document.uri,
+                params.text_document_position.position,
+            )
+            .await
+        {
             Ok(locations) => Ok(Some(locations)),
             Err(err) => {
                 self.client
@@ -270,14 +278,15 @@ impl Backend {
         Ok(dirs)
     }
 
-    fn list_pages(&self) -> Result<Vec<AuthoringPage>> {
+    async fn list_pages(&self) -> Result<Vec<AuthoringPage>> {
         let dirs = self.dirs()?;
-        load_authoring_pages(&dirs.content_dir)
+        Ok(self.current_project(&dirs).await?.pages)
     }
 
-    fn authoring_diagnostics(&self) -> Result<Vec<AuthoringDiagnostic>> {
+    async fn authoring_diagnostics(&self) -> Result<Vec<AuthoringDiagnostic>> {
         let dirs = self.dirs()?;
-        load_authoring_diagnostics(&dirs.content_dir, &dirs.static_dir)
+        let project = self.current_project(&dirs).await?;
+        Ok(load_authoring_diagnostics(&project))
     }
 
     fn set_document(&self, uri: Url, content: String) {
@@ -299,7 +308,7 @@ impl Backend {
         Ok(std::fs::read_to_string(path)?)
     }
 
-    fn document_overlays(&self, content_dir: &Utf8Path) -> HashMap<String, String> {
+    fn document_overlays(&self, content_dir: &Utf8Path) -> Vec<AuthoringDocumentOverlay> {
         self.state
             .lock()
             .unwrap()
@@ -308,16 +317,25 @@ impl Backend {
             .filter_map(|(uri, content)| {
                 let path = lsp_file_uri_to_utf8_path(uri).ok()?;
                 let source_file = source_file_for_path(content_dir, &path).ok()?;
-                Some((source_file, content.clone()))
+                Some(AuthoringDocumentOverlay {
+                    source_file,
+                    content: content.clone(),
+                })
             })
             .collect()
     }
 
-    fn code_actions(&self, params: CodeActionParams) -> Result<CodeActionResponse> {
+    async fn current_project(&self, dirs: &AuthoringDirs) -> Result<AuthoringProject> {
+        let overlays = self.document_overlays(&dirs.content_dir);
+        load_authoring_project(&dirs.content_dir, &overlays).await
+    }
+
+    async fn code_actions(&self, params: CodeActionParams) -> Result<CodeActionResponse> {
         let uri = params.text_document.uri;
         let dirs = self.dirs_for_uri(&uri)?;
         let content = self.document_content(&uri)?;
-        let diagnostics = diagnostics_for_uri(&dirs.content_dir, &dirs.static_dir, &uri, &content)?;
+        let project = self.current_project(&dirs).await?;
+        let diagnostics = diagnostics_for_uri(&dirs.content_dir, &project, &uri, &content)?;
         let lsp_diagnostics = diagnostics
             .iter()
             .map(authoring_diagnostic_to_lsp)
@@ -359,7 +377,11 @@ impl Backend {
         Ok(actions)
     }
 
-    fn definition_for_position(&self, uri: &Url, position: Position) -> Result<Option<Location>> {
+    async fn definition_for_position(
+        &self,
+        uri: &Url,
+        position: Position,
+    ) -> Result<Option<Location>> {
         let dirs = self.dirs_for_uri(uri)?;
         let content = self.document_content(uri)?;
         let Some(reference) = reference_at_position(&content, position) else {
@@ -372,14 +394,19 @@ impl Backend {
         )
         .map_err(|path| eyre!("LSP document path is not UTF-8: {}", path.display()))?;
         let source_file = source_file_for_path(&dirs.content_dir, &path)?;
-        let page = page_for_source_file(&source_file, &content);
-        let pages = load_authoring_pages_with_overlay(&dirs.content_dir, &source_file, &content)?;
-        let site_index = SiteAuthoringIndex::new(&pages);
+        let project = self.current_project(&dirs).await?;
+        let page = project
+            .page_for_source_file(&source_file)
+            .ok_or_else(|| eyre!("missing authoring page for {source_file}"))?;
 
-        definition_for_reference(&dirs, &site_index, &page, &reference)
+        definition_for_reference(&dirs, &project, page, &reference)
     }
 
-    fn references_for_position(&self, uri: &Url, position: Position) -> Result<Vec<Location>> {
+    async fn references_for_position(
+        &self,
+        uri: &Url,
+        position: Position,
+    ) -> Result<Vec<Location>> {
         let dirs = self.dirs_for_uri(uri)?;
         let content = self.document_content(uri)?;
         let Some(frontmatter_range) = frontmatter_lsp_range(&content) else {
@@ -391,16 +418,12 @@ impl Backend {
 
         let path = lsp_file_uri_to_utf8_path(uri)?;
         let source_file = source_file_for_path(&dirs.content_dir, &path)?;
-        let mut overlays = self.document_overlays(&dirs.content_dir);
-        overlays.insert(source_file.clone(), content);
-        let pages = load_authoring_pages_with_overlays(&dirs.content_dir, &overlays)?;
-        let site_index = SiteAuthoringIndex::new(&pages);
-        let page = pages
-            .iter()
-            .find(|page| page.source_file == source_file)
+        let project = self.current_project(&dirs).await?;
+        let page = project
+            .page_for_source_file(&source_file)
             .ok_or_else(|| eyre!("missing authoring page for {source_file}"))?;
 
-        references_to_page(&dirs.content_dir, &site_index, &pages, page, &overlays)
+        references_to_page(&dirs.content_dir, &project, page)
     }
 
     async fn publish_document_diagnostics(&self, uri: Url, content: String) {
@@ -414,19 +437,28 @@ impl Backend {
                 return;
             }
         };
-        let diagnostics =
-            match diagnostics_for_uri(&dirs.content_dir, &dirs.static_dir, &uri, &content) {
-                Ok(diagnostics) => diagnostics
-                    .iter()
-                    .map(authoring_diagnostic_to_lsp)
-                    .collect::<Vec<_>>(),
-                Err(err) => {
-                    self.client
-                        .log_message(MessageType::ERROR, err.to_string())
-                        .await;
-                    Vec::new()
-                }
-            };
+        let project = match self.current_project(&dirs).await {
+            Ok(project) => project,
+            Err(err) => {
+                self.client
+                    .log_message(MessageType::ERROR, err.to_string())
+                    .await;
+                self.client.publish_diagnostics(uri, Vec::new(), None).await;
+                return;
+            }
+        };
+        let diagnostics = match diagnostics_for_uri(&dirs.content_dir, &project, &uri, &content) {
+            Ok(diagnostics) => diagnostics
+                .iter()
+                .map(authoring_diagnostic_to_lsp)
+                .collect::<Vec<_>>(),
+            Err(err) => {
+                self.client
+                    .log_message(MessageType::ERROR, err.to_string())
+                    .await;
+                Vec::new()
+            }
+        };
 
         self.client
             .publish_diagnostics(uri, diagnostics, None)
@@ -438,8 +470,8 @@ impl Backend {
             Ok(dirs) => dirs,
             Err(_) => return,
         };
-        let pages = match load_authoring_pages(&dirs.content_dir) {
-            Ok(pages) => pages,
+        let project = match self.current_project(&dirs).await {
+            Ok(project) => project,
             Err(err) => {
                 self.client
                     .log_message(MessageType::ERROR, err.to_string())
@@ -447,15 +479,7 @@ impl Backend {
                 return;
             }
         };
-        let diagnostics = match load_authoring_diagnostics(&dirs.content_dir, &dirs.static_dir) {
-            Ok(diagnostics) => diagnostics,
-            Err(err) => {
-                self.client
-                    .log_message(MessageType::ERROR, err.to_string())
-                    .await;
-                return;
-            }
-        };
+        let diagnostics = load_authoring_diagnostics(&project);
         let mut diagnostics_by_source: HashMap<String, Vec<Diagnostic>> = HashMap::new();
         for diagnostic in diagnostics {
             diagnostics_by_source
@@ -464,7 +488,7 @@ impl Backend {
                 .push(authoring_diagnostic_to_lsp(&diagnostic));
         }
 
-        for page in pages {
+        for page in &project.pages {
             let path = dirs.content_dir.join(&page.source_file);
             let Some(uri) = Url::from_file_path(path.as_std_path()).ok() else {
                 continue;
@@ -580,11 +604,7 @@ fn authoring_dirs_from_resolved_config(
 }
 
 fn authoring_dirs_from_config(content_dir: Utf8PathBuf) -> AuthoringDirs {
-    let static_dir = content_dir.parent().unwrap_or(&content_dir).join("static");
-    AuthoringDirs {
-        content_dir,
-        static_dir,
-    }
+    AuthoringDirs { content_dir }
 }
 
 #[allow(deprecated)]
@@ -610,21 +630,6 @@ fn lsp_file_uri_to_utf8_path(uri: &Url) -> Result<Utf8PathBuf> {
         .map_err(|_| eyre!("LSP workspace URI is not a file URI: {uri}"))?;
     Utf8PathBuf::from_path_buf(path)
         .map_err(|path| eyre!("LSP workspace path is not UTF-8: {}", path.display()))
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct AuthoringPage {
-    kind: AuthoringPageKind,
-    route: String,
-    source_file: String,
-    title: String,
-    heading_ids: Vec<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AuthoringPageKind {
-    Page,
-    Section,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -666,57 +671,14 @@ impl AuthoringDiagnostic {
     }
 }
 
-fn load_authoring_pages(content_dir: &Utf8Path) -> Result<Vec<AuthoringPage>> {
-    let mut pages = Vec::new();
-
-    for path in markdown_files(content_dir)? {
-        let source_file = source_file_for_path(content_dir, &path)?;
-        let source_path = SourcePath::new(source_file.clone());
-        let content = std::fs::read_to_string(&path)?;
-        let title = frontmatter_title(&content)
-            .filter(|title| !title.trim().is_empty())
-            .unwrap_or_else(|| default_title_from_source_path(&source_file));
-        let heading_ids = markdown_heading_ids(&content);
-
-        pages.push(AuthoringPage {
-            kind: if source_path.is_section_index() {
-                AuthoringPageKind::Section
-            } else {
-                AuthoringPageKind::Page
-            },
-            route: source_path.to_route().to_string(),
-            source_file,
-            title,
-            heading_ids,
-        });
-    }
-
-    pages.sort_by(|a, b| {
-        a.route
-            .cmp(&b.route)
-            .then_with(|| a.source_file.cmp(&b.source_file))
-    });
-    Ok(pages)
-}
-
-fn load_authoring_diagnostics(
-    content_dir: &Utf8Path,
-    static_dir: &Utf8Path,
-) -> Result<Vec<AuthoringDiagnostic>> {
-    let pages = load_authoring_pages(content_dir)?;
-    let site_index = SiteAuthoringIndex::new(&pages);
+fn load_authoring_diagnostics(project: &AuthoringProject) -> Vec<AuthoringDiagnostic> {
     let mut diagnostics = Vec::new();
 
-    for page in pages {
-        let path = content_dir.join(&page.source_file);
-        let content = std::fs::read_to_string(path)?;
-        diagnostics.extend(diagnostics_for_page(
-            content_dir,
-            static_dir,
-            &site_index,
-            &page,
-            &content,
-        ));
+    for page in &project.pages {
+        let Some(content) = project.source_contents.get(&page.source_file) else {
+            continue;
+        };
+        diagnostics.extend(diagnostics_for_page(project, page, content));
     }
 
     diagnostics.sort_by(|a, b| {
@@ -725,12 +687,12 @@ fn load_authoring_diagnostics(
             .then_with(|| a.byte_start.cmp(&b.byte_start))
             .then_with(|| a.target.cmp(&b.target))
     });
-    Ok(diagnostics)
+    diagnostics
 }
 
 fn diagnostics_for_uri(
     content_dir: &Utf8Path,
-    static_dir: &Utf8Path,
+    project: &AuthoringProject,
     uri: &Url,
     content: &str,
 ) -> Result<Vec<AuthoringDiagnostic>> {
@@ -741,140 +703,26 @@ fn diagnostics_for_uri(
     .map_err(|path| eyre!("LSP document path is not UTF-8: {}", path.display()))?;
 
     let source_file = source_file_for_path(content_dir, &path)?;
-    let pages = load_authoring_pages_with_overlay(content_dir, &source_file, content)?;
-    let site_index = SiteAuthoringIndex::new(&pages);
-    let page = pages
-        .into_iter()
-        .find(|page| page.source_file == source_file)
+    let page = project
+        .page_for_source_file(&source_file)
         .ok_or_else(|| eyre!("missing authoring page for {source_file}"))?;
 
-    Ok(diagnostics_for_page(
-        content_dir,
-        static_dir,
-        &site_index,
-        &page,
-        content,
-    ))
-}
-
-fn load_authoring_pages_with_overlay(
-    content_dir: &Utf8Path,
-    source_file: &str,
-    content: &str,
-) -> Result<Vec<AuthoringPage>> {
-    load_authoring_pages_with_overlays(
-        content_dir,
-        &HashMap::from([(source_file.to_string(), content.to_string())]),
-    )
-}
-
-fn load_authoring_pages_with_overlays(
-    content_dir: &Utf8Path,
-    overlays: &HashMap<String, String>,
-) -> Result<Vec<AuthoringPage>> {
-    let mut pages = load_authoring_pages(content_dir)?;
-
-    for (source_file, content) in overlays {
-        let overlay = page_for_source_file(source_file, content);
-        if let Some(page) = pages
-            .iter_mut()
-            .find(|page| page.source_file == *source_file)
-        {
-            *page = overlay;
-        } else {
-            pages.push(overlay);
-        }
-    }
-
-    pages.sort_by(|a, b| {
-        a.route
-            .cmp(&b.route)
-            .then_with(|| a.source_file.cmp(&b.source_file))
-    });
-    Ok(pages)
-}
-
-fn page_for_source_file(source_file: &str, content: &str) -> AuthoringPage {
-    let source_path = SourcePath::new(source_file.to_string());
-    AuthoringPage {
-        kind: if source_path.is_section_index() {
-            AuthoringPageKind::Section
-        } else {
-            AuthoringPageKind::Page
-        },
-        route: source_path.to_route().to_string(),
-        source_file: source_file.to_string(),
-        title: frontmatter_title(content)
-            .filter(|title| !title.trim().is_empty())
-            .unwrap_or_else(|| default_title_from_source_path(source_file)),
-        heading_ids: markdown_heading_ids(content),
-    }
-}
-
-#[derive(Debug)]
-struct SiteAuthoringIndex {
-    known_routes: HashSet<String>,
-    headings_by_route: HashMap<String, HashSet<String>>,
-    source_to_route: HashMap<String, String>,
-    route_to_source: HashMap<String, String>,
-}
-
-impl SiteAuthoringIndex {
-    fn new(pages: &[AuthoringPage]) -> Self {
-        let known_routes = pages.iter().map(|page| page.route.clone()).collect();
-        let headings_by_route = pages
-            .iter()
-            .map(|page| {
-                (
-                    page.route.clone(),
-                    page.heading_ids.iter().cloned().collect::<HashSet<_>>(),
-                )
-            })
-            .collect();
-        let source_to_route = pages
-            .iter()
-            .map(|page| (page.source_file.clone(), page.route.clone()))
-            .collect();
-        let route_to_source = pages
-            .iter()
-            .map(|page| (page.route.clone(), page.source_file.clone()))
-            .collect();
-
-        Self {
-            known_routes,
-            headings_by_route,
-            source_to_route,
-            route_to_source,
-        }
-    }
+    Ok(diagnostics_for_page(project, page, content))
 }
 
 fn diagnostics_for_page(
-    content_dir: &Utf8Path,
-    static_dir: &Utf8Path,
-    site_index: &SiteAuthoringIndex,
+    project: &AuthoringProject,
     page: &AuthoringPage,
     content: &str,
 ) -> Vec<AuthoringDiagnostic> {
     markdown_references(content)
         .into_iter()
-        .filter_map(|reference| {
-            diagnostic_for_reference(
-                content_dir,
-                static_dir,
-                site_index,
-                page,
-                content,
-                reference,
-            )
-        })
+        .filter_map(|reference| diagnostic_for_reference(project, page, content, reference))
         .collect()
 }
 
 fn diagnostic_for_reference(
-    content_dir: &Utf8Path,
-    static_dir: &Utf8Path,
-    site_index: &SiteAuthoringIndex,
+    project: &AuthoringProject,
     page: &AuthoringPage,
     content: &str,
     reference: MarkdownReference,
@@ -885,70 +733,58 @@ fn diagnostic_for_reference(
     }
 
     let (target_without_fragment, fragment) = split_fragment(target);
-    let (kind, resolved_route, message) = if let Some(source_target) =
-        target_without_fragment.strip_prefix("@/")
-    {
-        let Some(route) = site_index.source_to_route.get(source_target) else {
-            return Some(reference.diagnostic(
-                page,
-                content,
-                AuthoringDiagnosticKind::Source,
-                None,
-                format!("source file '{source_target}' not found"),
-            ));
-        };
-        match missing_anchor_message(site_index, route, fragment) {
-            Some(message) => (
-                AuthoringDiagnosticKind::Anchor,
-                Some(route.clone()),
-                message,
-            ),
-            None => return None,
-        }
-    } else if reference.kind == MarkdownReferenceKind::Image
-        || is_likely_static_file(target_without_fragment)
-    {
-        if static_target_exists(
-            content_dir,
-            static_dir,
-            &page.source_file,
-            target_without_fragment,
-        ) {
-            return None;
-        }
-        (
-            AuthoringDiagnosticKind::StaticAsset,
-            None,
-            format!("static asset '{target_without_fragment}' not found"),
-        )
-    } else {
-        let target_route = if target_without_fragment.is_empty() {
-            page.route.clone()
-        } else if target_without_fragment.starts_with('/') {
-            normalize_route(target_without_fragment)
-        } else {
-            route_for_relative_target(page, target_without_fragment)
-        };
-
-        if !route_exists(site_index, &target_route) {
+    let (kind, resolved_route, message) =
+        if let Some(source_target) = target_without_fragment.strip_prefix("@/") {
+            let Some(route) = project.source_to_route.get(source_target) else {
+                return Some(reference.diagnostic(
+                    page,
+                    content,
+                    AuthoringDiagnosticKind::Source,
+                    None,
+                    format!("source file '{source_target}' not found"),
+                ));
+            };
+            match missing_anchor_message(project, route, fragment) {
+                Some(message) => (
+                    AuthoringDiagnosticKind::Anchor,
+                    Some(route.clone()),
+                    message,
+                ),
+                None => return None,
+            }
+        } else if reference.kind == MarkdownReferenceKind::Image
+            || is_likely_static_file(target_without_fragment)
+        {
+            if project.static_target_exists(&page.source_file, target_without_fragment) {
+                return None;
+            }
             (
-                AuthoringDiagnosticKind::Route,
-                Some(target_route.clone()),
-                format!("route '{target_route}' not found"),
+                AuthoringDiagnosticKind::StaticAsset,
+                None,
+                format!("static asset '{target_without_fragment}' not found"),
             )
-        } else if let Some(message) = missing_anchor_message(site_index, &target_route, fragment) {
-            (AuthoringDiagnosticKind::Anchor, Some(target_route), message)
         } else {
-            return None;
-        }
-    };
+            let target_route = route_for_link_target(project, page, target_without_fragment);
+
+            if !project.route_exists(&target_route) {
+                (
+                    AuthoringDiagnosticKind::Route,
+                    Some(target_route.clone()),
+                    format!("route '{target_route}' not found"),
+                )
+            } else if let Some(message) = missing_anchor_message(project, &target_route, fragment) {
+                (AuthoringDiagnosticKind::Anchor, Some(target_route), message)
+            } else {
+                return None;
+            }
+        };
 
     Some(reference.diagnostic(page, content, kind, resolved_route, message))
 }
 
 fn definition_for_reference(
     dirs: &AuthoringDirs,
-    site_index: &SiteAuthoringIndex,
+    project: &AuthoringProject,
     page: &AuthoringPage,
     reference: &MarkdownReference,
 ) -> Result<Option<Location>> {
@@ -959,31 +795,30 @@ fn definition_for_reference(
 
     let (target_without_fragment, fragment) = split_fragment(target);
     if let Some(source_target) = target_without_fragment.strip_prefix("@/") {
-        let path = dirs.content_dir.join(source_target);
+        let Some(source_file) = project
+            .source_to_route
+            .get(source_target)
+            .map(|_| source_target)
+        else {
+            return Ok(None);
+        };
+        let path = dirs.content_dir.join(source_file);
         return location_for_source_path(&path, fragment);
     }
 
     if reference.kind == MarkdownReferenceKind::Image
         || is_likely_static_file(target_without_fragment)
     {
-        return Ok(static_target_path(
-            &dirs.content_dir,
-            &dirs.static_dir,
+        return Ok(location_for_static_target(
+            project,
             &page.source_file,
             target_without_fragment,
-        )
-        .and_then(|path| location_for_path(&path, 1, 1)));
+        ));
     }
 
-    let target_route = if target_without_fragment.is_empty() {
-        page.route.clone()
-    } else if target_without_fragment.starts_with('/') {
-        normalize_route(target_without_fragment)
-    } else {
-        route_for_relative_target(page, target_without_fragment)
-    };
+    let target_route = route_for_link_target(project, page, target_without_fragment);
 
-    let Some(source_file) = source_file_for_route(site_index, &target_route) else {
+    let Some(source_file) = project.source_file_for_route(&target_route) else {
         return Ok(None);
     };
     let path = dirs.content_dir.join(source_file);
@@ -992,32 +827,26 @@ fn definition_for_reference(
 
 fn references_to_page(
     content_dir: &Utf8Path,
-    site_index: &SiteAuthoringIndex,
-    pages: &[AuthoringPage],
+    project: &AuthoringProject,
     target_page: &AuthoringPage,
-    overlays: &HashMap<String, String>,
 ) -> Result<Vec<Location>> {
     let mut locations = Vec::new();
 
-    for page in pages {
-        let content = match overlays.get(&page.source_file) {
-            Some(content) => content.clone(),
-            None => std::fs::read_to_string(content_dir.join(&page.source_file))?,
+    for page in &project.pages {
+        let Some(content) = project.source_contents.get(&page.source_file) else {
+            continue;
         };
 
-        for reference in markdown_references(&content) {
-            let Some(target_route) = reference_target_route(site_index, page, &reference) else {
+        for reference in markdown_references(content) {
+            let Some(target_route) = reference_target_route(project, page, &reference) else {
                 continue;
             };
-            if !routes_refer_to_same_page(site_index, &target_route, &target_page.route) {
+            if !project.routes_refer_to_same_page(&target_route, &target_page.route) {
                 continue;
             }
-            if let Some(location) = location_for_markdown_reference(
-                content_dir,
-                &page.source_file,
-                &content,
-                &reference,
-            ) {
+            if let Some(location) =
+                location_for_markdown_reference(content_dir, &page.source_file, content, &reference)
+            {
                 locations.push(location);
             }
         }
@@ -1034,7 +863,7 @@ fn references_to_page(
 }
 
 fn reference_target_route(
-    site_index: &SiteAuthoringIndex,
+    project: &AuthoringProject,
     page: &AuthoringPage,
     reference: &MarkdownReference,
 ) -> Option<String> {
@@ -1045,7 +874,7 @@ fn reference_target_route(
 
     let (target_without_fragment, _) = split_fragment(target);
     if let Some(source_target) = target_without_fragment.strip_prefix("@/") {
-        return site_index.source_to_route.get(source_target).cloned();
+        return project.source_to_route.get(source_target).cloned();
     }
 
     if reference.kind == MarkdownReferenceKind::Image
@@ -1054,27 +883,11 @@ fn reference_target_route(
         return None;
     }
 
-    Some(if target_without_fragment.is_empty() {
-        page.route.clone()
-    } else if target_without_fragment.starts_with('/') {
-        normalize_route(target_without_fragment)
-    } else {
-        route_for_relative_target(page, target_without_fragment)
-    })
-}
-
-fn routes_refer_to_same_page(
-    site_index: &SiteAuthoringIndex,
-    left_route: &str,
-    right_route: &str,
-) -> bool {
-    match (
-        source_file_for_route(site_index, left_route),
-        source_file_for_route(site_index, right_route),
-    ) {
-        (Some(left_source), Some(right_source)) => left_source == right_source,
-        _ => normalize_route(left_route) == normalize_route(right_route),
-    }
+    Some(route_for_link_target(
+        project,
+        page,
+        target_without_fragment,
+    ))
 }
 
 fn location_for_markdown_reference(
@@ -1133,42 +946,78 @@ fn location_for_path(path: &Utf8Path, line: u32, column: u32) -> Option<Location
     })
 }
 
-fn source_file_for_route<'a>(
-    site_index: &'a SiteAuthoringIndex,
-    target_route: &str,
-) -> Option<&'a str> {
-    site_index
-        .route_to_source
-        .get(target_route)
-        .or_else(|| {
-            site_index
-                .route_to_source
-                .get(target_route.trim_end_matches('/'))
-        })
-        .or_else(|| {
-            let with_slash = format!("{}/", target_route.trim_end_matches('/'));
-            site_index.route_to_source.get(&with_slash)
-        })
-        .map(|source_file| source_file.as_str())
+fn location_for_static_target(
+    project: &AuthoringProject,
+    source_file: &str,
+    target: &str,
+) -> Option<Location> {
+    let target = strip_query(target);
+    if target.starts_with('/') {
+        return project
+            .static_paths
+            .get(target.trim_start_matches('/'))
+            .and_then(|path| location_for_path(path, 1, 1));
+    }
+
+    let source_parent = Utf8Path::new(source_file)
+        .parent()
+        .unwrap_or_else(|| Utf8Path::new(""));
+    let content_relative = source_parent.join(target).to_string();
+    project
+        .static_paths
+        .get(&content_relative)
+        .or_else(|| project.static_paths.get(target))
+        .and_then(|path| location_for_path(path, 1, 1))
 }
 
-fn route_for_relative_target(page: &AuthoringPage, target: &str) -> String {
-    normalize_route(&format!("{}{target}", link_base_route(page)))
-}
+fn route_for_link_target(
+    project: &AuthoringProject,
+    page: &AuthoringPage,
+    target_without_fragment: &str,
+) -> String {
+    if target_without_fragment.is_empty() {
+        return page.route.clone();
+    }
 
-fn link_base_route(page: &AuthoringPage) -> String {
-    if page.kind == AuthoringPageKind::Section {
-        ensure_trailing_slash(&page.route)
+    if let Some(source_target) =
+        source_target_for_relative_markdown_link(page, target_without_fragment)
+        && let Some(route) = project.source_to_route.get(&source_target)
+    {
+        return route.clone();
+    }
+
+    if target_without_fragment.starts_with('/') {
+        normalize_route(target_without_fragment)
     } else {
-        let source_parent = Utf8Path::new(&page.source_file)
-            .parent()
-            .unwrap_or_else(|| Utf8Path::new(""));
-        if source_parent.as_str().is_empty() {
-            "/".to_string()
-        } else {
-            format!("/{}/", source_parent.as_str())
+        normalize_route(&format!(
+            "{}{target_without_fragment}",
+            ensure_trailing_slash(&page.link_base_route)
+        ))
+    }
+}
+
+fn source_target_for_relative_markdown_link(page: &AuthoringPage, target: &str) -> Option<String> {
+    if !target.ends_with(".md") {
+        return None;
+    }
+    let source_parent = Utf8Path::new(&page.source_file)
+        .parent()
+        .unwrap_or_else(|| Utf8Path::new(""));
+    Some(normalize_relative_path(&source_parent.join(target)))
+}
+
+fn normalize_relative_path(path: &Utf8Path) -> String {
+    let mut parts = Vec::new();
+    for segment in path.as_str().split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            segment => parts.push(segment),
         }
     }
+    parts.join("/")
 }
 
 fn ensure_trailing_slash(route: &str) -> String {
@@ -1255,13 +1104,6 @@ struct MarkdownHeading {
     line: u32,
 }
 
-fn markdown_heading_ids(content: &str) -> Vec<String> {
-    markdown_headings(content)
-        .into_iter()
-        .map(|heading| heading.id)
-        .collect()
-}
-
 fn markdown_headings(content: &str) -> Vec<MarkdownHeading> {
     let mut headings = Vec::new();
     let mut heading_stack: Vec<(u8, String)> = Vec::new();
@@ -1312,18 +1154,6 @@ fn markdown_headings(content: &str) -> Vec<MarkdownHeading> {
     headings
 }
 
-#[derive(Debug, Default, Facet)]
-struct AuthoringFrontmatter {
-    #[facet(default)]
-    title: Option<String>,
-}
-
-fn frontmatter_title(content: &str) -> Option<String> {
-    let frontmatter = fenced_frontmatter(content)?;
-    let frontmatter: AuthoringFrontmatter = facet_toml::from_str(frontmatter).ok()?;
-    frontmatter.title
-}
-
 fn frontmatter_lsp_range(content: &str) -> Option<Range> {
     content.strip_prefix("+++\n")?;
     let end = content[4..].find("\n+++")? + 4 + "\n+++".len();
@@ -1341,31 +1171,6 @@ fn frontmatter_lsp_range(content: &str) -> Option<Range> {
     })
 }
 
-fn fenced_frontmatter(content: &str) -> Option<&str> {
-    let content = content.strip_prefix("+++\n")?;
-    let end = content.find("\n+++")?;
-    Some(&content[..end])
-}
-
-fn markdown_files(content_dir: &Utf8Path) -> Result<Vec<Utf8PathBuf>> {
-    let mut files = Vec::new();
-    for entry in WalkBuilder::new(content_dir)
-        .build()
-        .filter_map(|entry| entry.ok())
-        .filter(|entry| entry.file_type().is_some_and(|ty| ty.is_file()))
-    {
-        if entry.path().extension().and_then(|ext| ext.to_str()) != Some("md") {
-            continue;
-        }
-
-        files.push(
-            Utf8PathBuf::from_path_buf(entry.into_path())
-                .map_err(|path| eyre!("content path is not UTF-8: {}", path.display()))?,
-        );
-    }
-    Ok(files)
-}
-
 fn source_file_for_path(content_dir: &Utf8Path, path: &Utf8Path) -> Result<String> {
     Ok(path
         .strip_prefix(content_dir)
@@ -1373,81 +1178,17 @@ fn source_file_for_path(content_dir: &Utf8Path, path: &Utf8Path) -> Result<Strin
         .to_string())
 }
 
-fn route_exists(site_index: &SiteAuthoringIndex, target_route: &str) -> bool {
-    site_index.known_routes.contains(target_route)
-        || {
-            let without_slash = target_route.trim_end_matches('/');
-            !without_slash.is_empty()
-                && without_slash != target_route
-                && site_index.known_routes.contains(without_slash)
-        }
-        || {
-            let with_slash = format!("{}/", target_route.trim_end_matches('/'));
-            site_index.known_routes.contains(&with_slash)
-        }
-}
-
 fn missing_anchor_message(
-    site_index: &SiteAuthoringIndex,
+    project: &AuthoringProject,
     target_route: &str,
     fragment: Option<&str>,
 ) -> Option<String> {
     let fragment = fragment.filter(|fragment| !fragment.is_empty())?;
-    let ids = site_index
-        .headings_by_route
-        .get(target_route)
-        .or_else(|| {
-            site_index
-                .headings_by_route
-                .get(target_route.trim_end_matches('/'))
-        })
-        .or_else(|| {
-            let with_slash = format!("{}/", target_route.trim_end_matches('/'));
-            site_index.headings_by_route.get(&with_slash)
-        })?;
-
-    if ids.contains(fragment) {
+    if project.heading_exists(target_route, fragment)? {
         None
     } else {
         Some(format!("anchor '#{fragment}' not found on target page"))
     }
-}
-
-fn static_target_exists(
-    content_dir: &Utf8Path,
-    static_dir: &Utf8Path,
-    source_file: &str,
-    target: &str,
-) -> bool {
-    static_target_path(content_dir, static_dir, source_file, target).is_some()
-}
-
-fn static_target_path(
-    content_dir: &Utf8Path,
-    static_dir: &Utf8Path,
-    source_file: &str,
-    target: &str,
-) -> Option<Utf8PathBuf> {
-    if target.is_empty() {
-        return None;
-    }
-
-    let target = strip_query(target);
-    if target.starts_with('/') {
-        let path = static_dir.join(target.trim_start_matches('/'));
-        return path.exists().then_some(path);
-    }
-
-    let source_parent = Utf8Path::new(source_file)
-        .parent()
-        .unwrap_or_else(|| Utf8Path::new(""));
-    let content_relative = content_dir.join(source_parent).join(target);
-    if content_relative.exists() {
-        return Some(content_relative);
-    }
-
-    let static_relative = static_dir.join(target);
-    static_relative.exists().then_some(static_relative)
 }
 
 fn is_special_target(target: &str) -> bool {
@@ -1837,7 +1578,6 @@ mod tests {
             .expect("workspace config");
 
         assert_eq!(dirs.content_dir, dir.join("content"));
-        assert_eq!(dirs.static_dir, dir.join("static"));
 
         std::fs::remove_dir_all(&dir).expect("remove temp dir");
     }
@@ -1869,7 +1609,6 @@ mod tests {
             .expect("workspace config");
 
         assert_eq!(dirs.content_dir, content_dir);
-        assert_eq!(dirs.static_dir, project.join("static"));
 
         std::fs::remove_dir_all(&project).expect("remove temp dir");
     }
@@ -1893,13 +1632,12 @@ mod tests {
             .expect("resolve document dirs");
 
         assert_eq!(dirs.content_dir, project.join("content"));
-        assert_eq!(dirs.static_dir, project.join("static"));
 
         std::fs::remove_dir_all(&workspace).expect("remove temp dir");
     }
 
-    #[test]
-    fn lists_pages_and_sections_from_content_dir() {
+    #[tokio::test]
+    async fn lists_pages_and_sections_from_content_dir() {
         let dir = temp_dir("list-pages");
         let content_dir = dir.join("content");
         std::fs::create_dir_all(content_dir.join("guide")).expect("create dirs");
@@ -1914,7 +1652,10 @@ mod tests {
         )
         .expect("write page");
 
-        let pages = load_authoring_pages(&content_dir).expect("load pages");
+        let pages = load_authoring_project(&content_dir, &[])
+            .await
+            .expect("load project")
+            .pages;
 
         assert_eq!(
             pages,
@@ -1925,6 +1666,7 @@ mod tests {
                     source_file: "_index.md".to_string(),
                     title: "Knowledge Base".to_string(),
                     heading_ids: vec!["home".to_string()],
+                    link_base_route: "/".to_string(),
                 },
                 AuthoringPage {
                     kind: AuthoringPageKind::Page,
@@ -1932,6 +1674,7 @@ mod tests {
                     source_file: "guide/intro.md".to_string(),
                     title: "Intro".to_string(),
                     heading_ids: vec!["intro".to_string(), "intro--details".to_string()],
+                    link_base_route: "/".to_string(),
                 },
             ]
         );
@@ -1939,8 +1682,8 @@ mod tests {
         std::fs::remove_dir_all(&dir).expect("remove temp dir");
     }
 
-    #[test]
-    fn reports_missing_routes_anchors_sources_and_static_assets() {
+    #[tokio::test]
+    async fn reports_missing_routes_anchors_sources_and_static_assets() {
         let dir = temp_dir("diagnostics");
         let content_dir = dir.join("content");
         let static_dir = dir.join("static");
@@ -1964,8 +1707,10 @@ mod tests {
         )
         .expect("write source");
 
-        let diagnostics =
-            load_authoring_diagnostics(&content_dir, &static_dir).expect("load diagnostics");
+        let project = load_authoring_project(&content_dir, &[])
+            .await
+            .expect("load project");
+        let diagnostics = load_authoring_diagnostics(&project);
         let kinds = diagnostics
             .iter()
             .map(|diagnostic| diagnostic.kind)
@@ -1986,8 +1731,8 @@ mod tests {
         std::fs::remove_dir_all(&dir).expect("remove temp dir");
     }
 
-    #[test]
-    fn resolves_definition_locations_for_links_and_static_assets() {
+    #[tokio::test]
+    async fn resolves_definition_locations_for_links_and_static_assets() {
         let dir = temp_dir("definition");
         let content_dir = dir.join("content");
         let static_dir = dir.join("static");
@@ -2000,6 +1745,7 @@ mod tests {
             "# Intro\n\n## Details\n",
         )
         .expect("write target");
+        std::fs::write(content_dir.join("guide/_index.md"), "# Guide\n").expect("write section");
         let source = "\
 # Source
 
@@ -2012,19 +1758,18 @@ mod tests {
 
         let dirs = AuthoringDirs {
             content_dir: content_dir.clone(),
-            static_dir: static_dir.clone(),
         };
-        let pages = load_authoring_pages(&content_dir).expect("load pages");
-        let site_index = SiteAuthoringIndex::new(&pages);
-        let page = pages
-            .iter()
-            .find(|page| page.source_file == "guide/source.md")
+        let project = load_authoring_project(&content_dir, &[])
+            .await
+            .expect("load project");
+        let page = project
+            .page_for_source_file("guide/source.md")
             .expect("source page");
 
         let route_reference =
             reference_at_position(source, position_for(source, "/guide/intro#intro--details"))
                 .expect("route reference");
-        let route_location = definition_for_reference(&dirs, &site_index, page, &route_reference)
+        let route_location = definition_for_reference(&dirs, &project, page, &route_reference)
             .expect("route definition")
             .expect("route location");
         assert_eq!(
@@ -2036,7 +1781,7 @@ mod tests {
         let source_reference =
             reference_at_position(source, position_for(source, "@/guide/intro.md#intro"))
                 .expect("source reference");
-        let source_location = definition_for_reference(&dirs, &site_index, page, &source_reference)
+        let source_location = definition_for_reference(&dirs, &project, page, &source_reference)
             .expect("source definition")
             .expect("source location");
         assert_eq!(source_location.range.start.line, 0);
@@ -2044,7 +1789,7 @@ mod tests {
         let relative_reference = reference_at_position(source, position_for(source, "[relative]"))
             .expect("relative reference");
         let relative_location =
-            definition_for_reference(&dirs, &site_index, page, &relative_reference)
+            definition_for_reference(&dirs, &project, page, &relative_reference)
                 .expect("relative definition")
                 .expect("relative location");
         assert_eq!(
@@ -2054,7 +1799,7 @@ mod tests {
 
         let static_reference = reference_at_position(source, position_for(source, "/logo.png"))
             .expect("image reference");
-        let static_location = definition_for_reference(&dirs, &site_index, page, &static_reference)
+        let static_location = definition_for_reference(&dirs, &project, page, &static_reference)
             .expect("static definition")
             .expect("static location");
         assert_eq!(
@@ -2065,8 +1810,8 @@ mod tests {
         std::fs::remove_dir_all(&dir).expect("remove temp dir");
     }
 
-    #[test]
-    fn finds_references_to_page_routes_and_source_links() {
+    #[tokio::test]
+    async fn finds_references_to_page_routes_and_source_links() {
         let dir = temp_dir("references");
         let content_dir = dir.join("content");
         std::fs::create_dir_all(content_dir.join("nested")).expect("create content dirs");
@@ -2097,20 +1842,14 @@ mod tests {
         )
         .expect("write nested source");
 
-        let pages = load_authoring_pages(&content_dir).expect("load pages");
-        let site_index = SiteAuthoringIndex::new(&pages);
-        let target_page = pages
-            .iter()
-            .find(|page| page.source_file == "target.md")
+        let project = load_authoring_project(&content_dir, &[])
+            .await
+            .expect("load project");
+        let target_page = project
+            .page_for_source_file("target.md")
             .expect("target page");
-        let references = references_to_page(
-            &content_dir,
-            &site_index,
-            &pages,
-            target_page,
-            &HashMap::new(),
-        )
-        .expect("references");
+        let references =
+            references_to_page(&content_dir, &project, target_page).expect("references");
 
         assert_eq!(references.len(), 4);
         assert_eq!(
@@ -2130,6 +1869,39 @@ mod tests {
                 "_index.md".to_string(),
                 "nested/source.md".to_string(),
             ]
+        );
+
+        std::fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[tokio::test]
+    async fn authoring_project_uses_open_document_overlays() {
+        let dir = temp_dir("overlays");
+        let content_dir = dir.join("content");
+        std::fs::create_dir_all(&content_dir).expect("create content dir");
+        std::fs::write(content_dir.join("_index.md"), "[target](/target)\n").expect("write root");
+        std::fs::write(content_dir.join("target.md"), "# Target\n").expect("write target");
+
+        let disk_project = load_authoring_project(&content_dir, &[])
+            .await
+            .expect("load disk project");
+        assert!(disk_project.route_exists("/target"));
+
+        let overlay_project = load_authoring_project(
+            &content_dir,
+            &[AuthoringDocumentOverlay {
+                source_file: "draft.md".to_string(),
+                content: "+++\ntitle = \"Draft\"\n+++\n".to_string(),
+            }],
+        )
+        .await
+        .expect("load overlay project");
+
+        assert!(overlay_project.route_exists("/target"));
+        assert!(overlay_project.route_exists("/draft"));
+        assert_eq!(
+            overlay_project.source_file_for_route("/draft"),
+            Some("draft.md")
         );
 
         std::fs::remove_dir_all(&dir).expect("remove temp dir");

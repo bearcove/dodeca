@@ -25,6 +25,7 @@ Status values:
 
 | ID | Status | Feature | User-facing behavior | Notes |
 | --- | --- | --- | --- | --- |
+| `lsp-000` | `done` | Shared authoring model | LSP page/link semantics come from the same database/build-tree path as Dodeca, with open editor buffers overlaid as source inputs. | This is the foundation for the rest of the roadmap; do not grow LSP-only route/frontmatter/heading semantics. |
 | `lsp-001` | `done` | Missing page quick fix | Broken route diagnostics offer a quick fix that creates and opens the new page. | Creates frontmatter only; no duplicate body title. |
 | `lsp-002` | `done` | Project-wide link diagnostics | Editors receive warnings for broken links across the whole project, not just the open file. | Current diagnostic kinds cover missing routes, anchors, source files, and static assets. |
 | `lsp-003` | `done` | Page backlinks | Find All References on page frontmatter returns every Markdown link resolving to that page. | Covers route links, `@/source.md`, anchors, and relative links. |
@@ -48,14 +49,15 @@ Status values:
 
 ## Suggested implementation order
 
-1. Completions for links and fragments.
-2. Hovers for links and frontmatter.
-3. Workspace symbols for pages and headings.
-4. Heading references and heading rename.
-5. Page route rename.
-6. Template navigation and diagnostics.
-7. Frontmatter schema/document links.
-8. Site graph diagnostics and build provenance.
+1. Keep expanding the shared authoring model when a feature needs more Dodeca semantics.
+2. Completions for links and fragments.
+3. Hovers for links and frontmatter.
+4. Workspace symbols for pages and headings.
+5. Heading references and heading rename.
+6. Page route rename.
+7. Template navigation and diagnostics.
+8. Frontmatter schema/document links.
+9. Site graph diagnostics and build provenance.
 
 ## Tracking policy
 

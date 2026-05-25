@@ -4,6 +4,7 @@
 styx_embed::embed_outdir_file!("schema.styx");
 
 mod authoring_lsp;
+mod authoring_model;
 mod boot_state;
 mod build_steps;
 mod cache_bust;
