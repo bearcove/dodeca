@@ -63,16 +63,19 @@ figue.workspace = true
 facet-json.workspace = true
 facet-postcard.workspace = true
 facet-styx.workspace = true
+facet-toml.workspace = true
 styx-embed.workspace = true
 facet-value.workspace = true
 futures-util.workspace = true
 if-addrs.workspace = true
 ignore.workspace = true
 include_dir.workspace = true
+marq.workspace = true
 notify.workspace = true
 open.workspace = true
 owo-colors.workspace = true
 picante.workspace = true
+pulldown-cmark.workspace = true
 vox = { workspace = true, features = ["transport-all", "transport-ffi"] }
 vox-ffi.workspace = true
 libloading.workspace = true
@@ -82,12 +85,14 @@ rapidhash.workspace = true
 arboard = { version = "3", default-features = false }
 strid.workspace = true
 tokio.workspace = true
+tower-lsp.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 ur-taking-me-with-you.workspace = true
 hotmeal-server.workspace = true
 html-escape.workspace = true
 ariadne.workspace = true
+serde_json.workspace = true
 
 [build-dependencies]
 dodeca-config = { path = "../dodeca-config" }
