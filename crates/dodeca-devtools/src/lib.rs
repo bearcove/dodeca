@@ -11,6 +11,7 @@
 use sycamore::prelude::*;
 use wasm_bindgen::prelude::*;
 
+mod open_in_editor;
 mod protocol;
 mod state;
 
@@ -33,6 +34,7 @@ pub fn mount_devtools() {
             DevtoolsApp {}
         }
     });
+    open_in_editor::install();
 }
 
 /// Main devtools application component

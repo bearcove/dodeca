@@ -6,10 +6,12 @@
 /// Picante cache version - bump this when making incompatible changes to picante inputs/queries
 pub const PICANTE_CACHE_VERSION: u32 = 5;
 
-use eyre::Result;
+use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
+use eyre::{Result, bail, eyre};
 use hotmeal_server::LiveReloadServer;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
+use tokio::process::Command;
 use tokio::sync::{broadcast, watch};
 
 use crate::db::{
@@ -203,6 +205,8 @@ pub struct SiteServer {
     pub livereload_tx: broadcast::Sender<LiveReloadMsg>,
     /// Render options (dev mode, etc.)
     pub render_options: RenderOptions,
+    /// Content directory used to resolve source paths from rendered HTML.
+    source_root: Option<Utf8PathBuf>,
     /// Live reload server: caches HTML + head injections per route, computes patches
     live_reload: Mutex<LiveReloadServer>,
     /// Cached CSS path (cache-busted) for detecting CSS-only changes
@@ -250,7 +254,11 @@ fn normalize_route(route: &str) -> String {
 }
 
 impl SiteServer {
-    pub fn new(render_options: RenderOptions, stable_assets: Vec<String>) -> Self {
+    pub fn new(
+        render_options: RenderOptions,
+        stable_assets: Vec<String>,
+        source_root: Option<Utf8PathBuf>,
+    ) -> Self {
         let (livereload_tx, _) = broadcast::channel(16);
         let db = Database::new(None);
         let (revision_tx, _) = watch::channel(crate::revision::RevisionState {
@@ -264,6 +272,7 @@ impl SiteServer {
             db: Arc::new(db),
             livereload_tx,
             render_options,
+            source_root,
             live_reload: Mutex::new(LiveReloadServer::new()),
             css_cache: RwLock::new(None),
             stable_assets,
@@ -272,6 +281,43 @@ impl SiteServer {
             revision_tx,
             browsers: std::sync::Mutex::new(BrowserRegistry::default()),
         }
+    }
+
+    pub async fn open_source_in_editor(&self, source_file: &str, line: u32) -> Result<()> {
+        let source_root = self
+            .source_root
+            .as_ref()
+            .ok_or_else(|| eyre!("source root is not available in this server mode"))?;
+        let source_path = Utf8Path::new(source_file);
+        if source_path.is_absolute()
+            || source_path
+                .components()
+                .any(|component| matches!(component, Utf8Component::ParentDir))
+        {
+            bail!("refusing to open source path outside the content directory: {source_file}");
+        }
+
+        let disk_path = source_root.join(source_path);
+        let line = line.max(1);
+        let line_arg = format!("{disk_path}:{line}");
+        let editor = std::env::var("DODECA_EDITOR")
+            .or_else(|_| std::env::var("EDITOR"))
+            .unwrap_or_else(|_| "zed".to_string());
+
+        tracing::info!(
+            editor = %editor,
+            source_file,
+            disk_path = %disk_path,
+            line,
+            "opening source in editor"
+        );
+
+        Command::new(&editor)
+            .arg(&line_arg)
+            .spawn()
+            .map_err(|err| eyre!("failed to spawn editor {editor}: {err}"))?;
+
+        Ok(())
     }
 
     /// Register a browser connection for receiving devtools events.

@@ -67,6 +67,9 @@ pub trait DevtoolsService {
     ///
     /// Called when the user acknowledges an error.
     async fn dismiss_error(&self, route: String);
+
+    /// Open a rendered source location in the developer's editor.
+    async fn open_source(&self, source_file: String, line: u32) -> OpenSourceResult;
 }
 
 /// Events pushed from server to browser devtools.
@@ -87,6 +90,13 @@ pub enum DevtoolsEvent {
 
     /// Error was resolved (template now renders successfully)
     ErrorResolved { route: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Facet)]
+#[repr(u8)]
+pub enum OpenSourceResult {
+    Ok,
+    Err(String),
 }
 
 // ============================================================================

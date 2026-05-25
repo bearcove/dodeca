@@ -2199,7 +2199,11 @@ async fn serve_plain(
     };
 
     // Create the site server
-    let server = Arc::new(serve::SiteServer::new(render_options, stable_assets));
+    let server = Arc::new(serve::SiteServer::new(
+        render_options,
+        stable_assets,
+        Some(content_dir.to_path_buf()),
+    ));
     let startup_revision = server.begin_revision("startup");
 
     // Use the requested port (or default to 4000)
@@ -2589,7 +2593,11 @@ async fn serve_with_tui(
     };
 
     // Create the site server - serves directly from picante, no disk I/O
-    let server = Arc::new(serve::SiteServer::new(render_options, stable_assets));
+    let server = Arc::new(serve::SiteServer::new(
+        render_options,
+        stable_assets,
+        Some(content_dir.to_path_buf()),
+    ));
     let startup_revision = server.begin_revision("startup");
 
     // Load cached query results (e.g., processed images) from disk

@@ -41,7 +41,7 @@ pub fn find_cell_path() -> Result<std::path::PathBuf> {
 // HostDevtoolsService - vox RPC implementation of DevtoolsService
 // ============================================================================
 
-use dodeca_protocol::{DevtoolsEvent, DevtoolsService, EvalResult, ScopeEntry};
+use dodeca_protocol::{DevtoolsEvent, DevtoolsService, EvalResult, OpenSourceResult, ScopeEntry};
 
 /// Host-side implementation of DevtoolsService for direct vox RPC.
 ///
@@ -133,6 +133,13 @@ impl DevtoolsService for HostDevtoolsService {
         tracing::debug!(route = %route, "Client dismissed error via RPC");
         // The existing implementation just logs this - errors are resolved
         // when the template successfully re-renders
+    }
+
+    async fn open_source(&self, source_file: String, line: u32) -> OpenSourceResult {
+        match self.server.open_source_in_editor(&source_file, line).await {
+            Ok(()) => OpenSourceResult::Ok,
+            Err(err) => OpenSourceResult::Err(err.to_string()),
+        }
     }
 }
 
