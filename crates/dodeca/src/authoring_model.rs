@@ -54,6 +54,7 @@ pub(crate) struct AuthoringProject {
     pub route_to_source: HashMap<String, String>,
     pub source_contents: HashMap<String, String>,
     pub template_paths: HashMap<String, Utf8PathBuf>,
+    pub template_contents: HashMap<String, String>,
     pub static_paths: HashMap<String, Utf8PathBuf>,
 }
 
@@ -576,6 +577,13 @@ async fn build_authoring_project_from_inputs(
             )
         })
         .collect();
+    let mut template_contents = HashMap::new();
+    for (template_path, template) in &inputs.templates {
+        template_contents.insert(
+            template_path.as_str().to_string(),
+            template.content(&*inputs.db)?.as_str().to_string(),
+        );
+    }
     let static_paths = inputs
         .static_files
         .keys()
@@ -593,6 +601,7 @@ async fn build_authoring_project_from_inputs(
         route_to_source,
         source_contents,
         template_paths,
+        template_contents,
         static_paths,
     })
 }

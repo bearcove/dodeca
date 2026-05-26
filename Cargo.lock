@@ -2836,6 +2836,7 @@ dependencies = [
  "facet-value",
  "figue",
  "futures-util",
+ "gingembre",
  "hotmeal-server",
  "html-escape",
  "if-addrs",

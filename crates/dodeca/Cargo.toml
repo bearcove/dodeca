@@ -67,6 +67,7 @@ facet-toml.workspace = true
 styx-embed.workspace = true
 facet-value.workspace = true
 futures-util.workspace = true
+gingembre = { path = "../gingembre" }
 if-addrs.workspace = true
 ignore.workspace = true
 include_dir.workspace = true

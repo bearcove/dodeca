@@ -4,6 +4,8 @@ use std::sync::{Arc, Mutex};
 use camino::{Utf8Path, Utf8PathBuf};
 use eyre::{Result, eyre};
 use facet::{Facet, NumericType, PrimitiveType, Type, UserType};
+use gingembre::ast::{Node, StringLit};
+use gingembre::parser::Parser as TemplateParser;
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::{
@@ -715,8 +717,20 @@ impl Backend {
         let dirs = self.dirs_for_uri(uri)?;
         let content = self.document_content(uri)?;
         let path = lsp_file_uri_to_utf8_path(uri)?;
-        let source_file = source_file_for_path(&dirs.content_dir, &path)?;
         let project = self.current_project(&dirs).await?;
+        if let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? {
+            if let Some(target) =
+                template_document_target_at_position(&project, &template_file, &content, position)?
+            {
+                return Ok(Some(markdown_hover(
+                    target.hover_markdown(),
+                    target.source_range,
+                )));
+            }
+            return Ok(None);
+        }
+
+        let source_file = source_file_for_path(&dirs.content_dir, &path)?;
         let page = project
             .page_for_source_file(&source_file)
             .ok_or_else(|| eyre!("missing authoring page for {source_file}"))?;
@@ -754,6 +768,21 @@ impl Backend {
         let dirs = self.dirs_for_uri(&uri)?;
         let content = self.document_content(&uri)?;
         let project = self.current_project(&dirs).await?;
+        let path = lsp_file_uri_to_utf8_path(&uri)?;
+
+        if let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? {
+            return template_document_targets(&project, &template_file, &content)?
+                .into_iter()
+                .map(|target| {
+                    Ok(DocumentLink {
+                        range: target.source_range,
+                        target: Some(target.target_uri()?),
+                        tooltip: Some(target.tooltip()),
+                        data: None,
+                    })
+                })
+                .collect();
+        }
 
         frontmatter_document_targets(&project, &content)?
             .into_iter()
@@ -773,6 +802,9 @@ impl Backend {
         let dirs = self.dirs_for_uri(&uri)?;
         let content = self.document_content(&uri)?;
         let path = lsp_file_uri_to_utf8_path(&uri)?;
+        if template_file_for_path(&dirs.content_dir, &path)?.is_some() {
+            return Ok(Vec::new());
+        }
         let source_file = source_file_for_path(&dirs.content_dir, &path)?;
         let project = self.current_project(&dirs).await?;
         let Some(page) = project.page_for_source_file(&source_file) else {
@@ -803,6 +835,20 @@ impl Backend {
         let dirs = self.dirs_for_uri(uri)?;
         let content = self.document_content(uri)?;
         let project = self.current_project(&dirs).await?;
+        let path = lsp_file_uri_to_utf8_path(uri)?;
+
+        if let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? {
+            if let Some(target) =
+                template_document_target_at_position(&project, &template_file, &content, position)?
+            {
+                return Ok(Some(Location {
+                    uri: target.target_uri()?,
+                    range: one_line_range(0),
+                }));
+            }
+            return Ok(None);
+        }
+
         if let Some(target) = frontmatter_document_target_at_position(&project, &content, position)?
         {
             return Ok(Some(Location {
@@ -815,11 +861,6 @@ impl Backend {
             return Ok(None);
         };
 
-        let path = Utf8PathBuf::from_path_buf(
-            uri.to_file_path()
-                .map_err(|_| eyre!("LSP document URI is not a file URI: {uri}"))?,
-        )
-        .map_err(|path| eyre!("LSP document path is not UTF-8: {}", path.display()))?;
         let source_file = source_file_for_path(&dirs.content_dir, &path)?;
         let page = project
             .page_for_source_file(&source_file)
@@ -3710,6 +3751,55 @@ impl FrontmatterDocumentTarget {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TemplateDocumentKind {
+    Extends,
+    Include,
+    Import,
+}
+
+impl TemplateDocumentKind {
+    fn label(self) -> &'static str {
+        match self {
+            TemplateDocumentKind::Extends => "extends",
+            TemplateDocumentKind::Include => "include",
+            TemplateDocumentKind::Import => "import",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct TemplateDocumentTarget {
+    kind: TemplateDocumentKind,
+    path: String,
+    target_path: Utf8PathBuf,
+    source_range: Range,
+}
+
+impl TemplateDocumentTarget {
+    fn target_uri(&self) -> Result<Url> {
+        Url::from_file_path(self.target_path.as_std_path()).map_err(|_| {
+            eyre!(
+                "could not convert template path to URI: {}",
+                self.target_path
+            )
+        })
+    }
+
+    fn tooltip(&self) -> String {
+        format!("Open Dodeca template {} `{}`", self.kind.label(), self.path)
+    }
+
+    fn hover_markdown(&self) -> String {
+        format!(
+            "**Dodeca template {}**\n\n`{}`\n\nSource: `{}`",
+            self.kind.label(),
+            self.path,
+            self.target_path
+        )
+    }
+}
+
 fn frontmatter_field_specs() -> Vec<FrontmatterFieldSpec> {
     let fields = match <Frontmatter as Facet>::SHAPE.ty {
         Type::User(UserType::Struct(struct_type)) => struct_type.fields,
@@ -3949,6 +4039,121 @@ fn frontmatter_string_value(content: &str, entry: &FrontmatterEntry) -> Option<(
     ))
 }
 
+fn template_document_target_at_position(
+    project: &AuthoringProject,
+    template_file: &str,
+    content: &str,
+    position: Position,
+) -> Result<Option<TemplateDocumentTarget>> {
+    Ok(template_document_targets(project, template_file, content)?
+        .into_iter()
+        .find(|target| range_contains_position(&target.source_range, position)))
+}
+
+fn template_document_targets(
+    project: &AuthoringProject,
+    template_file: &str,
+    content: &str,
+) -> Result<Vec<TemplateDocumentTarget>> {
+    if !project.template_contents.contains_key(template_file) {
+        return Ok(Vec::new());
+    }
+    let Ok(template) = TemplateParser::new(template_file, content).parse() else {
+        return Ok(Vec::new());
+    };
+
+    let mut targets = Vec::new();
+    collect_template_document_targets(project, content, &template.body, &mut targets);
+    Ok(targets)
+}
+
+fn collect_template_document_targets(
+    project: &AuthoringProject,
+    content: &str,
+    nodes: &[Node],
+    targets: &mut Vec<TemplateDocumentTarget>,
+) {
+    for node in nodes {
+        match node {
+            Node::Extends(node) => push_template_document_target(
+                project,
+                content,
+                TemplateDocumentKind::Extends,
+                &node.path,
+                targets,
+            ),
+            Node::Include(node) => push_template_document_target(
+                project,
+                content,
+                TemplateDocumentKind::Include,
+                &node.path,
+                targets,
+            ),
+            Node::Import(node) => push_template_document_target(
+                project,
+                content,
+                TemplateDocumentKind::Import,
+                &node.path,
+                targets,
+            ),
+            Node::If(node) => {
+                collect_template_document_targets(project, content, &node.then_body, targets);
+                for branch in &node.elif_branches {
+                    collect_template_document_targets(project, content, &branch.body, targets);
+                }
+                if let Some(body) = &node.else_body {
+                    collect_template_document_targets(project, content, body, targets);
+                }
+            }
+            Node::For(node) => {
+                collect_template_document_targets(project, content, &node.body, targets);
+                if let Some(body) = &node.else_body {
+                    collect_template_document_targets(project, content, body, targets);
+                }
+            }
+            Node::Block(node) => {
+                collect_template_document_targets(project, content, &node.body, targets);
+            }
+            Node::Macro(node) => {
+                collect_template_document_targets(project, content, &node.body, targets);
+            }
+            Node::Text(_)
+            | Node::Print(_)
+            | Node::Comment(_)
+            | Node::Set(_)
+            | Node::Continue(_)
+            | Node::Break(_)
+            | Node::CallBlock(_) => {}
+        }
+    }
+}
+
+fn push_template_document_target(
+    project: &AuthoringProject,
+    content: &str,
+    kind: TemplateDocumentKind,
+    path: &StringLit,
+    targets: &mut Vec<TemplateDocumentTarget>,
+) {
+    let Some(target_path) = project.template_paths.get(&path.value) else {
+        return;
+    };
+    targets.push(TemplateDocumentTarget {
+        kind,
+        path: path.value.clone(),
+        target_path: target_path.clone(),
+        source_range: template_string_range(content, path),
+    });
+}
+
+fn template_string_range(content: &str, string: &StringLit) -> Range {
+    byte_range_to_lsp_range(
+        content,
+        string.span.offset(),
+        string.span.offset() + string.span.len(),
+    )
+}
+
 fn frontmatter_completion_label(spec: FrontmatterFieldSpec) -> &'static str {
     match spec.kind {
         FrontmatterFieldKind::Table => "[extra]",
@@ -4139,6 +4344,15 @@ fn source_file_for_path(content_dir: &Utf8Path, path: &Utf8Path) -> Result<Strin
         .strip_prefix(content_dir)
         .map_err(|_| eyre!("content file is outside content root: {path}"))?
         .to_string())
+}
+
+fn template_file_for_path(content_dir: &Utf8Path, path: &Utf8Path) -> Result<Option<String>> {
+    let project_dir = content_dir.parent().unwrap_or(content_dir);
+    let templates_dir = project_dir.join("templates");
+    match path.strip_prefix(&templates_dir) {
+        Ok(relative) if path.extension() == Some("html") => Ok(Some(relative.to_string())),
+        Ok(_) | Err(_) => Ok(None),
+    }
 }
 
 fn is_content_markdown_document(content_dir: &Utf8Path, uri: &Url) -> bool {
@@ -4622,6 +4836,64 @@ mod tests {
         assert_eq!(
             target.target_uri().expect("target uri"),
             Url::from_file_path(templates_dir.join("custom.html").as_std_path())
+                .expect("expected uri")
+        );
+
+        std::fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[tokio::test]
+    async fn resolves_template_path_document_targets_from_authoring_model() {
+        let dir = temp_dir("template-path-links");
+        let content_dir = dir.join("content");
+        let templates_dir = dir.join("templates");
+        std::fs::create_dir_all(&content_dir).expect("create content dir");
+        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
+        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
+        std::fs::write(
+            templates_dir.join("base.html"),
+            "{% block content %}{% endblock %}",
+        )
+        .expect("write base");
+        std::fs::write(templates_dir.join("partial.html"), "<p>Partial</p>")
+            .expect("write partial");
+        std::fs::write(
+            templates_dir.join("macros.html"),
+            "{% macro card(title) %}{{ title }}{% endmacro %}",
+        )
+        .expect("write macros");
+
+        let child = "{% extends \"base.html\" %}\n{% include \"partial.html\" %}\n{% import \"macros.html\" as macros %}\n";
+        std::fs::write(templates_dir.join("child.html"), child).expect("write child");
+        let project = load_authoring_project(&content_dir, &[])
+            .await
+            .expect("load project");
+
+        let targets =
+            template_document_targets(&project, "child.html", child).expect("template targets");
+        assert_eq!(targets.len(), 3);
+        assert_eq!(targets[0].kind, TemplateDocumentKind::Extends);
+        assert_eq!(targets[0].path, "base.html");
+        assert_eq!(targets[0].target_path, templates_dir.join("base.html"));
+        assert_eq!(targets[1].kind, TemplateDocumentKind::Include);
+        assert_eq!(targets[1].path, "partial.html");
+        assert_eq!(targets[1].target_path, templates_dir.join("partial.html"));
+        assert_eq!(targets[2].kind, TemplateDocumentKind::Import);
+        assert_eq!(targets[2].path, "macros.html");
+        assert_eq!(targets[2].target_path, templates_dir.join("macros.html"));
+
+        let target = template_document_target_at_position(
+            &project,
+            "child.html",
+            child,
+            position_for(child, "partial.html"),
+        )
+        .expect("target lookup")
+        .expect("target");
+        assert_eq!(target.kind, TemplateDocumentKind::Include);
+        assert_eq!(
+            target.target_uri().expect("target uri"),
+            Url::from_file_path(templates_dir.join("partial.html").as_std_path())
                 .expect("expected uri")
         );
 
