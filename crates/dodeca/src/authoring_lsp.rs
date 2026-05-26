@@ -903,7 +903,7 @@ impl Backend {
                 )));
             }
             if let Some(reference) =
-                template_route_reference_at_position(project, &template_file, &content, position)
+                template_index.route_reference_at_position(&template_file, position)
                 && let Some(target_page) = project.page_for_route(&reference.target_route)
             {
                 let (_, fragment) = split_fragment(&reference.target);
@@ -971,7 +971,6 @@ impl Backend {
     async fn document_links(&self, params: DocumentLinkParams) -> Result<Vec<DocumentLink>> {
         let uri = params.text_document.uri;
         let dirs = self.dirs_for_uri(&uri)?;
-        let content = self.document_content(&uri)?;
         let world = self.current_world(&dirs).await?;
         let project = &world.project;
         let path = lsp_file_uri_to_utf8_path(&uri)?;
@@ -991,8 +990,10 @@ impl Backend {
                 })
                 .collect::<Result<Vec<_>>>()?;
             links.extend(
-                template_route_references(project, &template_file, &content)
-                    .into_iter()
+                world
+                    .template_index
+                    .route_references(&template_file)
+                    .iter()
                     .filter_map(|reference| {
                         let source_file = project.source_file_for_route(&reference.target_route)?;
                         Some(DocumentLink {
@@ -1108,7 +1109,7 @@ impl Backend {
                 }));
             }
             if let Some(reference) =
-                template_route_reference_at_position(project, &template_file, &content, position)
+                template_index.route_reference_at_position(&template_file, position)
             {
                 let (_, fragment) = split_fragment(&reference.target);
                 if let Some(source_file) = project.source_file_for_route(&reference.target_route) {
@@ -1201,7 +1202,7 @@ impl Backend {
                 );
             }
             if let Some(reference) =
-                template_route_reference_at_position(project, &template_file, &content, position)
+                template_index.route_reference_at_position(&template_file, position)
                 && let Some(target_page) = project.page_for_route(&reference.target_route)
             {
                 return references_to_page(&dirs.content_dir, project, target_page);
@@ -1714,6 +1715,7 @@ struct IndexedTemplate {
     path: Utf8PathBuf,
     extends: Option<String>,
     document_targets: Vec<TemplateDocumentTarget>,
+    route_references: Vec<TemplateRouteReference>,
     blocks: Vec<TemplateBlockOccurrence>,
     macros: Vec<TemplateMacroOccurrence>,
     macro_calls: Vec<TemplateMacroCallOccurrence>,
@@ -2088,17 +2090,6 @@ fn rendered_href_target_route(
 
     let target_route = route_for_link_target(project, source_page, target_without_fragment);
     project.route_exists(&target_route).then_some(target_route)
-}
-
-fn template_route_reference_at_position(
-    project: &AuthoringProject,
-    template_file: &str,
-    content: &str,
-    position: Position,
-) -> Option<TemplateRouteReference> {
-    template_route_references(project, template_file, content)
-        .into_iter()
-        .find(|reference| range_contains_position(&reference.source_range, position))
 }
 
 fn template_route_references(
@@ -7219,6 +7210,7 @@ impl TemplateAuthoringIndex {
                         content,
                         &template.body,
                     ),
+                    route_references: template_route_references(project, template_file, content),
                     blocks: template_block_occurrences(content, &template.body),
                     macros: template_macro_occurrences(content, &template.body),
                     macro_calls: template_macro_call_occurrences(
@@ -7281,6 +7273,24 @@ impl TemplateAuthoringIndex {
         self.document_targets(template_file)
             .iter()
             .find(|target| range_contains_position(&target.source_range, position))
+            .cloned()
+    }
+
+    fn route_references(&self, template_file: &str) -> &[TemplateRouteReference] {
+        self.templates
+            .get(template_file)
+            .map(|template| template.route_references.as_slice())
+            .unwrap_or_default()
+    }
+
+    fn route_reference_at_position(
+        &self,
+        template_file: &str,
+        position: Position,
+    ) -> Option<TemplateRouteReference> {
+        self.route_references(template_file)
+            .iter()
+            .find(|reference| range_contains_position(&reference.source_range, position))
             .cloned()
     }
 
@@ -11123,16 +11133,14 @@ template = \"section.html\"
         let project = load_authoring_project(&content_dir, &[])
             .await
             .expect("load project");
+        let world = AuthoringWorld::new(project.clone()).expect("authoring world");
         let target_page = project
             .page_for_source_file("target.md")
             .expect("target page");
-        let template_reference = template_route_reference_at_position(
-            &project,
-            "section.html",
-            section_template,
-            position_for(section_template, "/target"),
-        )
-        .expect("template route reference");
+        let template_reference = world
+            .template_index
+            .route_reference_at_position("section.html", position_for(section_template, "/target"))
+            .expect("template route reference");
         assert_eq!(template_reference.target_route, "/target");
         assert!(range_contains_position(
             &template_reference.source_range,
