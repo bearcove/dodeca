@@ -115,6 +115,87 @@ struct CachedAuthoringWorld {
 struct AuthoringWorld {
     project: AuthoringProject,
     template_index: TemplateAuthoringIndex,
+    source_document_targets: HashMap<String, Vec<FrontmatterDocumentTarget>>,
+}
+
+impl AuthoringWorld {
+    fn new(project: AuthoringProject) -> Result<Self> {
+        let template_index = TemplateAuthoringIndex::new(&project);
+        let mut source_document_targets = HashMap::new();
+        for (source_file, content) in &project.source_contents {
+            source_document_targets.insert(
+                source_file.clone(),
+                frontmatter_document_targets(&project, content)?,
+            );
+        }
+        Ok(Self {
+            project,
+            template_index,
+            source_document_targets,
+        })
+    }
+
+    fn source_document_targets(&self, source_file: &str) -> &[FrontmatterDocumentTarget] {
+        self.source_document_targets
+            .get(source_file)
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+    }
+
+    fn source_document_target_at_position(
+        &self,
+        source_file: &str,
+        position: Position,
+    ) -> Option<FrontmatterDocumentTarget> {
+        self.source_document_targets(source_file)
+            .iter()
+            .find(|target| range_contains_position(&target.source_range, position))
+            .cloned()
+    }
+
+    fn template_document_references(
+        &self,
+        content_dir: &Utf8Path,
+        target_path: &Utf8Path,
+    ) -> Result<Vec<Location>> {
+        let mut locations = Vec::new();
+        for target in self.template_index.document_reference_targets(target_path) {
+            locations.push(Location {
+                uri: Url::from_file_path(target.path.as_std_path()).map_err(|_| {
+                    eyre!(
+                        "could not convert template document reference path to URI: {}",
+                        target.path
+                    )
+                })?,
+                range: target.range,
+            });
+        }
+
+        for (source_file, targets) in &self.source_document_targets {
+            for target in targets {
+                if target.kind == FrontmatterDocumentKind::Template
+                    && target.target_path == target_path
+                {
+                    let path = content_dir.join(source_file);
+                    locations.push(Location {
+                        uri: Url::from_file_path(path.as_std_path())
+                            .map_err(|_| eyre!("could not convert source path to URI: {path}"))?,
+                        range: target.source_range,
+                    });
+                }
+            }
+        }
+
+        locations.sort_by(|a, b| {
+            a.uri
+                .as_str()
+                .cmp(b.uri.as_str())
+                .then_with(|| position_cmp(a.range.start, b.range.start))
+                .then_with(|| position_cmp(a.range.end, b.range.end))
+        });
+        locations.dedup_by(|left, right| left.uri == right.uri && left.range == right.range);
+        Ok(locations)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -703,10 +784,7 @@ impl Backend {
         };
 
         let project = inputs.project().await?;
-        let world = AuthoringWorld {
-            template_index: TemplateAuthoringIndex::new(&project),
-            project,
-        };
+        let world = AuthoringWorld::new(project)?;
 
         let mut state = self.state.lock().unwrap();
         if state.input_revision == inputs_revision {
@@ -835,7 +913,7 @@ impl Backend {
                 )));
             }
             if let Some(target) =
-                template_document_target_at_position(project, &template_file, &content, position)?
+                template_index.document_target_at_position(&template_file, position)
             {
                 return Ok(Some(markdown_hover(
                     target.hover_markdown(),
@@ -863,8 +941,7 @@ impl Backend {
             .page_for_source_file(&source_file)
             .ok_or_else(|| eyre!("missing authoring page for {source_file}"))?;
 
-        if let Some(target) = frontmatter_document_target_at_position(project, &content, position)?
-        {
+        if let Some(target) = world.source_document_target_at_position(&source_file, position) {
             return Ok(Some(markdown_hover(
                 target.hover_markdown(),
                 target.source_range,
@@ -895,12 +972,15 @@ impl Backend {
         let uri = params.text_document.uri;
         let dirs = self.dirs_for_uri(&uri)?;
         let content = self.document_content(&uri)?;
-        let project = self.current_project(&dirs).await?;
+        let world = self.current_world(&dirs).await?;
+        let project = &world.project;
         let path = lsp_file_uri_to_utf8_path(&uri)?;
 
         if let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? {
-            let mut links = template_document_targets(&project, &template_file, &content)?
-                .into_iter()
+            let mut links = world
+                .template_index
+                .document_targets(&template_file)
+                .iter()
                 .map(|target| {
                     Ok(DocumentLink {
                         range: target.source_range,
@@ -911,7 +991,7 @@ impl Backend {
                 })
                 .collect::<Result<Vec<_>>>()?;
             links.extend(
-                template_route_references(&project, &template_file, &content)
+                template_route_references(project, &template_file, &content)
                     .into_iter()
                     .filter_map(|reference| {
                         let source_file = project.source_file_for_route(&reference.target_route)?;
@@ -928,8 +1008,10 @@ impl Backend {
             return Ok(links);
         }
 
-        frontmatter_document_targets(&project, &content)?
-            .into_iter()
+        let source_file = source_file_for_path(&dirs.content_dir, &path)?;
+        world
+            .source_document_targets(&source_file)
+            .iter()
             .map(|target| {
                 Ok(DocumentLink {
                     range: target.source_range,
@@ -1035,7 +1117,7 @@ impl Backend {
                 }
             }
             if let Some(target) =
-                template_document_target_at_position(project, &template_file, &content, position)?
+                template_index.document_target_at_position(&template_file, position)
             {
                 return Ok(Some(Location {
                     uri: target.target_uri()?,
@@ -1069,8 +1151,9 @@ impl Backend {
             return Ok(None);
         }
 
-        if let Some(target) = frontmatter_document_target_at_position(project, &content, position)?
-        {
+        let source_file = source_file_for_path(&dirs.content_dir, &path)?;
+
+        if let Some(target) = world.source_document_target_at_position(&source_file, position) {
             return Ok(Some(Location {
                 uri: target.target_uri()?,
                 range: one_line_range(0),
@@ -1081,7 +1164,6 @@ impl Backend {
             return Ok(None);
         };
 
-        let source_file = source_file_for_path(&dirs.content_dir, &path)?;
         let page = project
             .page_for_source_file(&source_file)
             .ok_or_else(|| eyre!("missing authoring page for {source_file}"))?;
@@ -1107,13 +1189,9 @@ impl Backend {
                 return template_block_references(template_index, &template_file, &occurrence.name);
             }
             if let Some(target) =
-                template_document_target_at_position(project, &template_file, &content, position)?
+                template_index.document_target_at_position(&template_file, position)
             {
-                return template_document_references(
-                    &dirs.content_dir,
-                    project,
-                    &target.target_path,
-                );
+                return world.template_document_references(&dirs.content_dir, &target.target_path);
             }
             if let Some(query) = template_index.macro_reference_query(&template_file, position) {
                 return template_macro_references(
@@ -1142,10 +1220,10 @@ impl Backend {
             .page_for_source_file(&source_file)
             .ok_or_else(|| eyre!("missing authoring page for {source_file}"))?;
 
-        if let Some(target) = frontmatter_document_target_at_position(project, &content, position)?
+        if let Some(target) = world.source_document_target_at_position(&source_file, position)
             && target.kind == FrontmatterDocumentKind::Template
         {
-            return template_document_references(&dirs.content_dir, project, &target.target_path);
+            return world.template_document_references(&dirs.content_dir, &target.target_path);
         }
 
         if let Some(frontmatter_range) = frontmatter_lsp_range(&content)
@@ -1635,6 +1713,7 @@ struct TemplateAuthoringIndex {
 struct IndexedTemplate {
     path: Utf8PathBuf,
     extends: Option<String>,
+    document_targets: Vec<TemplateDocumentTarget>,
     blocks: Vec<TemplateBlockOccurrence>,
     macros: Vec<TemplateMacroOccurrence>,
     macro_calls: Vec<TemplateMacroCallOccurrence>,
@@ -1642,6 +1721,12 @@ struct IndexedTemplate {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct TemplateBlockReferenceTarget {
+    path: Utf8PathBuf,
+    range: Range,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TemplateDocumentReferenceTarget {
     path: Utf8PathBuf,
     range: Range,
 }
@@ -6779,16 +6864,6 @@ fn completion_items_for_frontmatter(
         .collect()
 }
 
-fn frontmatter_document_target_at_position(
-    project: &AuthoringProject,
-    content: &str,
-    position: Position,
-) -> Result<Option<FrontmatterDocumentTarget>> {
-    Ok(frontmatter_document_targets(project, content)?
-        .into_iter()
-        .find(|target| range_contains_position(&target.source_range, position)))
-}
-
 fn frontmatter_document_targets(
     project: &AuthoringProject,
     content: &str,
@@ -6854,53 +6929,6 @@ fn frontmatter_data_target_path<'a>(
         .or_else(|| project.data_paths.get(path))
 }
 
-fn template_document_references(
-    content_dir: &Utf8Path,
-    project: &AuthoringProject,
-    target_path: &Utf8Path,
-) -> Result<Vec<Location>> {
-    let mut locations = Vec::new();
-
-    for (template_file, content) in &project.template_contents {
-        for target in template_document_targets(project, template_file, content)? {
-            if target.target_path == target_path {
-                let Some(path) = project.template_paths.get(template_file) else {
-                    continue;
-                };
-                locations.push(Location {
-                    uri: Url::from_file_path(path.as_std_path())
-                        .map_err(|_| eyre!("could not convert template path to URI: {path}"))?,
-                    range: target.source_range,
-                });
-            }
-        }
-    }
-
-    for (source_file, content) in &project.source_contents {
-        for target in frontmatter_document_targets(project, content)? {
-            if target.kind == FrontmatterDocumentKind::Template && target.target_path == target_path
-            {
-                let path = content_dir.join(source_file);
-                locations.push(Location {
-                    uri: Url::from_file_path(path.as_std_path())
-                        .map_err(|_| eyre!("could not convert source path to URI: {path}"))?,
-                    range: target.source_range,
-                });
-            }
-        }
-    }
-
-    locations.sort_by(|a, b| {
-        a.uri
-            .as_str()
-            .cmp(b.uri.as_str())
-            .then_with(|| position_cmp(a.range.start, b.range.start))
-            .then_with(|| position_cmp(a.range.end, b.range.end))
-    });
-    locations.dedup_by(|left, right| left.uri == right.uri && left.range == right.range);
-    Ok(locations)
-}
-
 fn frontmatter_string_value(content: &str, entry: &FrontmatterEntry) -> Option<(String, Range)> {
     let value = entry.value.trim();
     let leading = entry.value.find(value)?;
@@ -6921,32 +6949,14 @@ fn frontmatter_string_value(content: &str, entry: &FrontmatterEntry) -> Option<(
     ))
 }
 
-fn template_document_target_at_position(
+fn template_document_targets_for_nodes(
     project: &AuthoringProject,
-    template_file: &str,
     content: &str,
-    position: Position,
-) -> Result<Option<TemplateDocumentTarget>> {
-    Ok(template_document_targets(project, template_file, content)?
-        .into_iter()
-        .find(|target| range_contains_position(&target.source_range, position)))
-}
-
-fn template_document_targets(
-    project: &AuthoringProject,
-    template_file: &str,
-    content: &str,
-) -> Result<Vec<TemplateDocumentTarget>> {
-    if !project.template_contents.contains_key(template_file) {
-        return Ok(Vec::new());
-    }
-    let Ok(template) = TemplateParser::new(template_file, content).parse() else {
-        return Ok(Vec::new());
-    };
-
+    nodes: &[Node],
+) -> Vec<TemplateDocumentTarget> {
     let mut targets = Vec::new();
-    collect_template_document_targets(project, content, &template.body, &mut targets);
-    Ok(targets)
+    collect_template_document_targets(project, content, nodes, &mut targets);
+    targets
 }
 
 fn collect_template_document_targets(
@@ -7204,6 +7214,11 @@ impl TemplateAuthoringIndex {
                 IndexedTemplate {
                     path: template_path.clone(),
                     extends: template_extends_path_from_nodes(&template.body),
+                    document_targets: template_document_targets_for_nodes(
+                        project,
+                        content,
+                        &template.body,
+                    ),
                     blocks: template_block_occurrences(content, &template.body),
                     macros: template_macro_occurrences(content, &template.body),
                     macro_calls: template_macro_call_occurrences(
@@ -7249,6 +7264,51 @@ impl TemplateAuthoringIndex {
             .iter()
             .find(|occurrence| range_contains_position(&occurrence.source_range, position))
             .cloned()
+    }
+
+    fn document_targets(&self, template_file: &str) -> &[TemplateDocumentTarget] {
+        self.templates
+            .get(template_file)
+            .map(|template| template.document_targets.as_slice())
+            .unwrap_or_default()
+    }
+
+    fn document_target_at_position(
+        &self,
+        template_file: &str,
+        position: Position,
+    ) -> Option<TemplateDocumentTarget> {
+        self.document_targets(template_file)
+            .iter()
+            .find(|target| range_contains_position(&target.source_range, position))
+            .cloned()
+    }
+
+    fn document_reference_targets(
+        &self,
+        target_path: &Utf8Path,
+    ) -> Vec<TemplateDocumentReferenceTarget> {
+        let mut targets = Vec::new();
+        for template in self.templates.values() {
+            targets.extend(
+                template
+                    .document_targets
+                    .iter()
+                    .filter(|target| target.target_path == target_path)
+                    .map(|target| TemplateDocumentReferenceTarget {
+                        path: template.path.clone(),
+                        range: target.source_range,
+                    }),
+            );
+        }
+        targets.sort_by(|a, b| {
+            a.path
+                .cmp(&b.path)
+                .then_with(|| position_cmp(a.range.start, b.range.start))
+                .then_with(|| position_cmp(a.range.end, b.range.end))
+        });
+        targets.dedup();
+        targets
     }
 
     fn block_definition_target(
@@ -9470,8 +9530,9 @@ mod tests {
         let project = load_authoring_project(&content_dir, &[])
             .await
             .expect("load project");
+        let world = AuthoringWorld::new(project).expect("authoring world");
 
-        let targets = frontmatter_document_targets(&project, content).expect("targets");
+        let targets = world.source_document_targets("guide.md");
         assert_eq!(targets.len(), 3);
 
         let template_target = targets
@@ -9510,13 +9571,9 @@ mod tests {
             position_for(content, "versions.toml")
         ));
 
-        let target = frontmatter_document_target_at_position(
-            &project,
-            content,
-            position_for(content, "custom.html"),
-        )
-        .expect("target lookup")
-        .expect("target");
+        let target = world
+            .source_document_target_at_position("guide.md", position_for(content, "custom.html"))
+            .expect("target");
         assert_eq!(target.kind, FrontmatterDocumentKind::Template);
         assert_eq!(
             target.target_uri().expect("target uri"),
@@ -9555,9 +9612,9 @@ mod tests {
         let project = load_authoring_project(&content_dir, &[])
             .await
             .expect("load project");
+        let world = AuthoringWorld::new(project).expect("authoring world");
 
-        let targets =
-            template_document_targets(&project, "child.html", child).expect("template targets");
+        let targets = world.template_index.document_targets("child.html");
         assert_eq!(targets.len(), 3);
         assert_eq!(targets[0].kind, TemplateDocumentKind::Extends);
         assert_eq!(targets[0].path, "base.html");
@@ -9568,9 +9625,9 @@ mod tests {
         assert_eq!(targets[2].kind, TemplateDocumentKind::Import);
         assert_eq!(targets[2].path, "macros.html");
         assert_eq!(targets[2].target_path, templates_dir.join("macros.html"));
-        let references =
-            template_document_references(&content_dir, &project, &targets[0].target_path)
-                .expect("template document references");
+        let references = world
+            .template_document_references(&content_dir, &targets[0].target_path)
+            .expect("template document references");
         assert_eq!(
             references
                 .iter()
@@ -9588,14 +9645,10 @@ mod tests {
             ]
         );
 
-        let target = template_document_target_at_position(
-            &project,
-            "child.html",
-            child,
-            position_for(child, "partial.html"),
-        )
-        .expect("target lookup")
-        .expect("target");
+        let target = world
+            .template_index
+            .document_target_at_position("child.html", position_for(child, "partial.html"))
+            .expect("target");
         assert_eq!(target.kind, TemplateDocumentKind::Include);
         assert_eq!(
             target.target_uri().expect("target uri"),
