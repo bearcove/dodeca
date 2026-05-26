@@ -542,20 +542,43 @@ fn event_color(kind: &EventKind) -> Color {
     }
 }
 
-/// Initialize terminal for TUI
-fn init_terminal() -> Result<DefaultTerminal> {
-    enable_raw_mode()?;
-    stdout().execute(EnterAlternateScreen)?;
-    let terminal = ratatui::init();
-    Ok(terminal)
+struct TerminalSession {
+    terminal: Option<DefaultTerminal>,
 }
 
-/// Restore terminal to normal state
-fn restore_terminal() -> Result<()> {
-    disable_raw_mode()?;
-    stdout().execute(LeaveAlternateScreen)?;
-    ratatui::restore();
-    Ok(())
+impl TerminalSession {
+    fn enter() -> Result<Self> {
+        enable_raw_mode()?;
+        stdout().execute(EnterAlternateScreen)?;
+        Ok(Self {
+            terminal: Some(ratatui::init()),
+        })
+    }
+
+    fn terminal_mut(&mut self) -> &mut DefaultTerminal {
+        self.terminal
+            .as_mut()
+            .expect("terminal should be active until restored")
+    }
+
+    fn restore(&mut self) -> Result<()> {
+        if self.terminal.take().is_some() {
+            disable_raw_mode()?;
+            stdout().execute(LeaveAlternateScreen)?;
+            ratatui::restore();
+        }
+        Ok(())
+    }
+}
+
+impl Drop for TerminalSession {
+    fn drop(&mut self) {
+        if self.terminal.take().is_some() {
+            let _ = disable_raw_mode();
+            let _ = stdout().execute(LeaveAlternateScreen);
+            ratatui::restore();
+        }
+    }
 }
 
 /// TuiDisplay implementation - receives updates from host
@@ -625,8 +648,7 @@ async fn run_tui_loop_inner(
     // Channel for key events (read on a blocking thread so we don't stall the RPC runtime)
     let (key_tx, mut key_rx) = mpsc::unbounded_channel::<KeyEvent>();
 
-    // Initialize terminal
-    let mut terminal = init_terminal()?;
+    let mut terminal_session = TerminalSession::enter()?;
 
     // Create app state
     let mut app = TuiApp::new(command_tx);
@@ -686,21 +708,21 @@ async fn run_tui_loop_inner(
         }
 
         // Draw after handling any update (including tick) so we stay responsive to keys
-        terminal.draw(|frame| app.draw(frame))?;
+        terminal_session
+            .terminal_mut()
+            .draw(|frame| app.draw(frame))?;
 
         if app.should_quit {
             // Send any pending commands before exiting
             while let Ok(cmd) = command_rx.try_recv() {
                 let _ = client.send_command(cmd).await;
             }
+            terminal_session.restore()?;
             // Tell the host to quit
             let _ = client.quit().await;
             break;
         }
     }
-
-    // Cleanup terminal before exiting TUI loop (cell keeps running)
-    restore_terminal()?;
 
     Ok(())
 }

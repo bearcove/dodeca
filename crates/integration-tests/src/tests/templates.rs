@@ -131,6 +131,29 @@ This is the getting started guide.
     html.assert_contains("Reading time: 5 min");
 }
 
+pub fn dodeca_html_templates_keep_html_logical_names() {
+    let site = TestSite::with_setup("sample-site", |fixture_dir| {
+        std::fs::remove_file(fixture_dir.join("templates/page.html"))
+            .expect("remove page template");
+        std::fs::write(
+            fixture_dir.join("templates/page.ddc.html"),
+            r#"<!DOCTYPE html>
+<html>
+<body>
+  <main data-template="dodeca-html">{{ page.content | safe }}</main>
+</body>
+</html>
+"#,
+        )
+        .expect("write dodeca html page template");
+    });
+
+    let html = site.get("/guide/getting-started/");
+    html.assert_ok();
+    html.assert_contains("data-template");
+    html.assert_contains("dodeca-html");
+}
+
 pub fn code_blocks_have_copy_button_script() {
     let site = TestSite::with_files(
         "sample-site",

@@ -294,7 +294,7 @@ async fn resolves_template_path_document_targets_from_authoring_model() {
     let source = "+++\ntitle = \"Uses Base\"\ntemplate = \"base.html\"\n+++\n\n# Uses Base\n";
     std::fs::write(content_dir.join("uses-base.md"), source).expect("write source");
     std::fs::write(
-        templates_dir.join("base.html"),
+        templates_dir.join("base.ddc.html"),
         "{% block content %}{% endblock %}",
     )
     .expect("write base");
@@ -316,7 +316,7 @@ async fn resolves_template_path_document_targets_from_authoring_model() {
     assert_eq!(targets.len(), 3);
     assert_eq!(targets[0].kind, TemplateDocumentKind::Extends);
     assert_eq!(targets[0].path, "base.html");
-    assert_eq!(targets[0].target_path, templates_dir.join("base.html"));
+    assert_eq!(targets[0].target_path, templates_dir.join("base.ddc.html"));
     assert_eq!(targets[1].kind, TemplateDocumentKind::Include);
     assert_eq!(targets[1].path, "partial.html");
     assert_eq!(targets[1].target_path, templates_dir.join("partial.html"));

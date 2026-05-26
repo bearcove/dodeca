@@ -44,6 +44,7 @@ use dodeca::authoring_model::{
 use dodeca::config::ResolvedConfig;
 use dodeca::queries::{Frontmatter, default_title_from_source_path};
 use dodeca::template_host::TEMPLATE_FUNCTION_NAMES;
+use dodeca::template_paths::{logical_template_path, physical_template_path};
 use dodeca::types::SourcePath;
 
 pub const LIST_PAGES_COMMAND: &str = "dodeca.listPages";
@@ -4156,11 +4157,7 @@ pub fn location_for_rendered_href_origin(
             project.source_contents.get(source_file)?,
         ),
         AuthoringInputPath::Template(template_file) => (
-            content_dir
-                .parent()
-                .unwrap_or(content_dir)
-                .join("templates")
-                .join(template_file),
+            project.template_paths.get(template_file)?.clone(),
             project.template_contents.get(template_file)?,
         ),
         AuthoringInputPath::Sass(_)
@@ -5022,14 +5019,9 @@ pub fn page_route_edit_uri(
             Ok(source_file_uri(content_dir, &plan.new_source_file)?)
         }
         AuthoringInputPath::Source(source_file) => source_file_uri(content_dir, source_file),
-        AuthoringInputPath::Template(template_file) => Url::from_file_path(
-            content_dir
-                .parent()
-                .unwrap_or(content_dir)
-                .join("templates")
-                .join(template_file),
-        )
-        .map_err(|_| eyre!("could not convert template file to URI: {template_file}")),
+        AuthoringInputPath::Template(template_file) => {
+            template_file_uri(content_dir, template_file)
+        }
         AuthoringInputPath::Sass(path)
         | AuthoringInputPath::Static(path)
         | AuthoringInputPath::Dist(path)
@@ -5046,8 +5038,11 @@ pub fn source_file_uri(content_dir: &Utf8Path, source_file: &str) -> Result<Url>
 
 pub fn template_file_uri(content_dir: &Utf8Path, template_file: &str) -> Result<Url> {
     let project_dir = content_dir.parent().unwrap_or(content_dir);
-    Url::from_file_path(project_dir.join("templates").join(template_file))
-        .map_err(|_| eyre!("could not convert template file to URI: {template_file}"))
+    Url::from_file_path(physical_template_path(
+        &project_dir.join("templates"),
+        template_file,
+    ))
+    .map_err(|_| eyre!("could not convert template file to URI: {template_file}"))
 }
 
 pub fn target_base_and_suffix(target: &str) -> (&str, &str) {
@@ -9254,8 +9249,8 @@ pub fn template_file_for_path(content_dir: &Utf8Path, path: &Utf8Path) -> Result
     let project_dir = content_dir.parent().unwrap_or(content_dir);
     let templates_dir = project_dir.join("templates");
     match path.strip_prefix(&templates_dir) {
-        Ok(relative) if path.extension() == Some("html") => Ok(Some(relative.to_string())),
-        Ok(_) | Err(_) => Ok(None),
+        Ok(relative) => Ok(logical_template_path(relative)),
+        Err(_) => Ok(None),
     }
 }
 

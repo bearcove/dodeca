@@ -16,6 +16,7 @@ use crate::db::{
 use crate::queries::{build_tree, load_all_templates, source_to_route_map};
 use crate::render::{Renderable, render_authoring_html};
 use crate::template_host::TEMPLATE_FUNCTION_NAMES;
+use crate::template_paths::{logical_template_path, physical_template_path};
 use crate::types::{
     DataContent, DataPath, Route, SassContent, SassPath, SourceContent, SourcePath, StaticPath,
     TemplateContent, TemplatePath,
@@ -298,7 +299,7 @@ impl AuthoringWorkspace {
     }
 
     fn update_template(&mut self, template_file: &str, content: Option<&str>) -> Result<()> {
-        let path = self.ctx.templates_dir().join(template_file);
+        let path = physical_template_path(&self.ctx.templates_dir(), template_file);
         let template_path = TemplatePath::new(template_file.to_string());
         let content = match content {
             Some(content) => content.to_string(),
@@ -457,8 +458,8 @@ fn input_path_for_absolute_path(
     }
 
     if let Ok(relative) = path.strip_prefix(ctx.templates_dir()) {
-        if path.extension() == Some("html") {
-            return Ok(Some(AuthoringInputPath::Template(relative.to_string())));
+        if let Some(path) = logical_template_path(relative) {
+            return Ok(Some(AuthoringInputPath::Template(path)));
         }
     }
 
@@ -600,7 +601,7 @@ async fn build_authoring_project_from_inputs(
         .map(|path| {
             (
                 path.as_str().to_string(),
-                project_dir.join("templates").join(path.as_str()),
+                physical_template_path(&project_dir.join("templates"), path.as_str()),
             )
         })
         .collect();

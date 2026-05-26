@@ -7,6 +7,7 @@ use eyre::{Result, eyre};
 use ignore::WalkBuilder;
 
 use crate::db::{DataFile, Database, QueryStats, SassFile, SourceFile, StaticFile, TemplateFile};
+use crate::template_paths::{logical_template_path, physical_template_path};
 use crate::types::{
     DataContent, DataPath, SassContent, SassPath, SassPathRef, SourceContent, SourcePath,
     SourcePathRef, StaticPath, TemplateContent, TemplatePath, TemplatePathRef,
@@ -155,10 +156,10 @@ impl BuildContext {
             .filter_map(|e| e.ok())
             .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
             .filter(|e| {
-                e.path()
-                    .extension()
-                    .map(|ext| ext == "html")
-                    .unwrap_or(false)
+                Utf8Path::from_path(e.path())
+                    .and_then(|path| path.strip_prefix(&templates_dir).ok())
+                    .and_then(logical_template_path)
+                    .is_some()
             })
             .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
             .collect();
@@ -167,8 +168,9 @@ impl BuildContext {
             let content = fs::read_to_string(&path)?;
             let relative = path
                 .strip_prefix(&templates_dir)
-                .map(|p| p.to_string())
-                .unwrap_or_else(|_| path.to_string());
+                .ok()
+                .and_then(logical_template_path)
+                .unwrap_or_else(|| path.to_string());
 
             let template_path = TemplatePath::new(relative);
             let template_content = TemplateContent::new(content);
@@ -376,7 +378,7 @@ impl BuildContext {
     /// Update a single template file for incremental rebuilds.
     pub fn update_template(&mut self, relative_path: &TemplatePathRef) -> Result<bool> {
         let templates_dir = self.templates_dir();
-        let full_path = templates_dir.join(relative_path.as_str());
+        let full_path = physical_template_path(&templates_dir, relative_path.as_str());
         if !full_path.exists() {
             self.templates.remove(relative_path);
             return Ok(true);

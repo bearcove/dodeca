@@ -472,6 +472,24 @@ fn collect_tests() -> Vec<Test> {
             func: frontmatter_schemas::typed_frontmatter_wrong_target_type_reports_error,
             ignored: false,
         },
+        Test {
+            name: "toml_scalar_status_validates_against_unit_enum",
+            module: "frontmatter_schemas",
+            func: frontmatter_schemas::toml_scalar_status_validates_against_unit_enum,
+            ignored: false,
+        },
+        Test {
+            name: "toml_scalar_status_rejects_unknown_enum_variant",
+            module: "frontmatter_schemas",
+            func: frontmatter_schemas::toml_scalar_status_rejects_unknown_enum_variant,
+            ignored: false,
+        },
+        Test {
+            name: "yaml_tagged_status_validates_against_unit_enum",
+            module: "frontmatter_schemas",
+            func: frontmatter_schemas::yaml_tagged_status_validates_against_unit_enum,
+            ignored: false,
+        },
         // rendered markdown tests
         Test {
             name: "rendered_markdown_route_returns_markdown",
@@ -539,6 +557,12 @@ fn collect_tests() -> Vec<Test> {
             name: "page_extra_frontmatter_accessible_in_templates",
             module: "templates",
             func: templates::page_extra_frontmatter_accessible_in_templates,
+            ignored: false,
+        },
+        Test {
+            name: "dodeca_html_templates_keep_html_logical_names",
+            module: "templates",
+            func: templates::dodeca_html_templates_keep_html_logical_names,
             ignored: false,
         },
         Test {

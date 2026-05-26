@@ -15,7 +15,7 @@ use dodeca::types::{
 };
 use dodeca::{
     BuildContext, cas, cell_server, cells, file_watcher, host, init, is_data_file_extension,
-    link_checker, logging, render, serve, tui_host, vite,
+    link_checker, logging, render, serve, template_paths, tui_host, vite,
 };
 use eyre::{Result, eyre};
 use facet::Facet;
@@ -1336,7 +1336,10 @@ fn handle_file_changed(
                     .ok()
                     .flatten()
                     .unwrap_or_default();
-                let relative_str = relative.to_string();
+                let relative_str = match template_paths::logical_template_path(&relative) {
+                    Some(path) => path,
+                    None => return,
+                };
                 let template_path = TemplatePath::new(relative_str.clone());
                 let template_content = TemplateContent::new(content);
 
@@ -1479,6 +1482,10 @@ fn handle_file_removed(
                 .ok()
                 .flatten()
                 .unwrap_or_default();
+            let relative_str = match template_paths::logical_template_path(&relative) {
+                Some(path) => path,
+                None => return,
+            };
             if let Some(pos) = templates.iter().position(|t| {
                 t.path(db)
                     .ok()
@@ -1931,10 +1938,10 @@ async fn serve_plain(
             .filter_map(|e| e.ok())
             .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
             .filter(|e| {
-                e.path()
-                    .extension()
-                    .map(|ext| ext == "html")
-                    .unwrap_or(false)
+                Utf8Path::from_path(e.path())
+                    .and_then(|path| path.strip_prefix(&templates_dir).ok())
+                    .and_then(template_paths::logical_template_path)
+                    .is_some()
             })
             .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
             .collect();
@@ -1946,8 +1953,9 @@ async fn serve_plain(
             let content = fs::read_to_string(path)?;
             let relative = path
                 .strip_prefix(&templates_dir)
-                .map(|p| p.to_string())
-                .unwrap_or_else(|_| path.to_string());
+                .ok()
+                .and_then(template_paths::logical_template_path)
+                .unwrap_or_else(|| path.to_string());
 
             let template_path = TemplatePath::new(relative);
             let template_content = TemplateContent::new(content);
@@ -2365,10 +2373,10 @@ async fn serve_with_tui(
             .filter_map(|e| e.ok())
             .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
             .filter(|e| {
-                e.path()
-                    .extension()
-                    .map(|ext| ext == "html")
-                    .unwrap_or(false)
+                Utf8Path::from_path(e.path())
+                    .and_then(|path| path.strip_prefix(&templates_dir).ok())
+                    .and_then(template_paths::logical_template_path)
+                    .is_some()
             })
             .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
             .collect();
@@ -2381,8 +2389,9 @@ async fn serve_with_tui(
             let content = fs::read_to_string(path)?;
             let relative = path
                 .strip_prefix(&templates_dir)
-                .map(|p| p.to_string())
-                .unwrap_or_else(|_| path.to_string());
+                .ok()
+                .and_then(template_paths::logical_template_path)
+                .unwrap_or_else(|| path.to_string());
 
             let template_path = TemplatePath::new(relative);
             let template_content = TemplateContent::new(content);

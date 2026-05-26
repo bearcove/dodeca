@@ -32,6 +32,7 @@ pub mod serve;
 pub mod spawn;
 pub mod svg;
 pub mod template_host;
+pub mod template_paths;
 pub mod theme_resolver;
 pub mod tui;
 pub mod tui_host;
