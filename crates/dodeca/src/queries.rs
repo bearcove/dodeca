@@ -302,6 +302,8 @@ pub struct Frontmatter {
     pub weight: i32,
     pub description: Option<String>,
     pub template: Option<String>,
+    pub asset: Option<String>,
+    pub data: Option<String>,
     /// Custom fields from the `[extra]` table in frontmatter
     #[facet(default)]
     pub extra: Value,

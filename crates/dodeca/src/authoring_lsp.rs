@@ -5153,12 +5153,16 @@ struct FrontmatterCompletionContext {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FrontmatterDocumentKind {
     Template,
+    StaticAsset,
+    DataFile,
 }
 
 impl FrontmatterDocumentKind {
     fn label(self) -> &'static str {
         match self {
             FrontmatterDocumentKind::Template => "template",
+            FrontmatterDocumentKind::StaticAsset => "static asset",
+            FrontmatterDocumentKind::DataFile => "data file",
         }
     }
 }
@@ -5496,6 +5500,10 @@ fn frontmatter_document_targets(
             let (path, source_range) = frontmatter_string_value(content, &entry)?;
             let target_path = match kind {
                 FrontmatterDocumentKind::Template => project.template_paths.get(&path)?,
+                FrontmatterDocumentKind::StaticAsset => {
+                    frontmatter_static_target_path(project, &path)?
+                }
+                FrontmatterDocumentKind::DataFile => frontmatter_data_target_path(project, &path)?,
             };
             Some(FrontmatterDocumentTarget {
                 kind,
@@ -5512,7 +5520,38 @@ fn frontmatter_document_targets(
 fn frontmatter_document_kind_for_entry(
     entry: &FrontmatterEntry,
 ) -> Option<FrontmatterDocumentKind> {
-    (entry.table.is_none() && entry.key == "template").then_some(FrontmatterDocumentKind::Template)
+    if entry.table.is_some() {
+        return None;
+    }
+
+    match entry.key.as_str() {
+        "template" => Some(FrontmatterDocumentKind::Template),
+        "asset" => Some(FrontmatterDocumentKind::StaticAsset),
+        "data" => Some(FrontmatterDocumentKind::DataFile),
+        _ => None,
+    }
+}
+
+fn frontmatter_static_target_path<'a>(
+    project: &'a AuthoringProject,
+    path: &str,
+) -> Option<&'a Utf8PathBuf> {
+    let trimmed = path.trim_start_matches('/');
+    project
+        .static_paths
+        .get(trimmed)
+        .or_else(|| project.static_paths.get(path))
+}
+
+fn frontmatter_data_target_path<'a>(
+    project: &'a AuthoringProject,
+    path: &str,
+) -> Option<&'a Utf8PathBuf> {
+    let trimmed = path.trim_start_matches('/');
+    project
+        .data_paths
+        .get(trimmed)
+        .or_else(|| project.data_paths.get(path))
 }
 
 fn frontmatter_string_value(content: &str, entry: &FrontmatterEntry) -> Option<(String, Range)> {
@@ -6455,6 +6494,8 @@ fn frontmatter_completion_text(source_file: &str, spec: FrontmatterFieldSpec) ->
             };
             format!("template = \"{default_template}\"")
         }
+        ("asset", FrontmatterFieldKind::String) => "asset = \"\"".to_string(),
+        ("data", FrontmatterFieldKind::String) => "data = \"\"".to_string(),
         ("weight", FrontmatterFieldKind::Integer) => "weight = 0".to_string(),
         ("extra", FrontmatterFieldKind::Table) => "[extra]\n".to_string(),
         _ => spec.name.to_string(),
@@ -7135,24 +7176,60 @@ mod tests {
         let dir = temp_dir("frontmatter-template-link");
         let content_dir = dir.join("content");
         let templates_dir = dir.join("templates");
+        let static_dir = dir.join("static");
+        let data_dir = dir.join("data");
         std::fs::create_dir_all(&content_dir).expect("create content dir");
         std::fs::create_dir_all(&templates_dir).expect("create templates dir");
+        std::fs::create_dir_all(&static_dir).expect("create static dir");
+        std::fs::create_dir_all(&data_dir).expect("create data dir");
         std::fs::write(templates_dir.join("custom.html"), "{{ page.content }}")
             .expect("write template");
+        std::fs::write(static_dir.join("logo.png"), "png").expect("write static asset");
+        std::fs::write(data_dir.join("versions.toml"), "stable = \"1.0\"").expect("write data");
 
-        let content = "+++\ntitle = \"Guide\"\ntemplate = \"custom.html\"\n+++\n";
+        let content = "+++\ntitle = \"Guide\"\ntemplate = \"custom.html\"\nasset = \"/logo.png\"\ndata = \"versions.toml\"\n+++\n";
         std::fs::write(content_dir.join("guide.md"), content).expect("write page");
         let project = load_authoring_project(&content_dir, &[])
             .await
             .expect("load project");
 
         let targets = frontmatter_document_targets(&project, content).expect("targets");
-        assert_eq!(targets.len(), 1);
-        assert_eq!(targets[0].path, "custom.html");
-        assert_eq!(targets[0].target_path, templates_dir.join("custom.html"));
+        assert_eq!(targets.len(), 3);
+
+        let template_target = targets
+            .iter()
+            .find(|target| target.kind == FrontmatterDocumentKind::Template)
+            .expect("template target");
+        assert_eq!(template_target.path, "custom.html");
+        assert_eq!(
+            template_target.target_path,
+            templates_dir.join("custom.html")
+        );
         assert!(range_contains_position(
-            &targets[0].source_range,
+            &template_target.source_range,
             position_for(content, "custom.html")
+        ));
+
+        let asset_target = targets
+            .iter()
+            .find(|target| target.kind == FrontmatterDocumentKind::StaticAsset)
+            .expect("asset target");
+        assert_eq!(asset_target.path, "/logo.png");
+        assert_eq!(asset_target.target_path, static_dir.join("logo.png"));
+        assert!(range_contains_position(
+            &asset_target.source_range,
+            position_for(content, "logo.png")
+        ));
+
+        let data_target = targets
+            .iter()
+            .find(|target| target.kind == FrontmatterDocumentKind::DataFile)
+            .expect("data target");
+        assert_eq!(data_target.path, "versions.toml");
+        assert_eq!(data_target.target_path, data_dir.join("versions.toml"));
+        assert!(range_contains_position(
+            &data_target.source_range,
+            position_for(content, "versions.toml")
         ));
 
         let target = frontmatter_document_target_at_position(
@@ -7162,6 +7239,7 @@ mod tests {
         )
         .expect("target lookup")
         .expect("target");
+        assert_eq!(target.kind, FrontmatterDocumentKind::Template);
         assert_eq!(
             target.target_uri().expect("target uri"),
             Url::from_file_path(templates_dir.join("custom.html").as_std_path())

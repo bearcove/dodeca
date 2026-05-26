@@ -57,6 +57,7 @@ pub(crate) struct AuthoringProject {
     pub template_paths: HashMap<String, Utf8PathBuf>,
     pub template_contents: HashMap<String, String>,
     pub static_paths: HashMap<String, Utf8PathBuf>,
+    pub data_paths: HashMap<String, Utf8PathBuf>,
     pub data_keys: Vec<String>,
 }
 
@@ -602,6 +603,16 @@ async fn build_authoring_project_from_inputs(
         .collect::<Vec<_>>();
     data_keys.sort();
     data_keys.dedup();
+    let data_paths = inputs
+        .data_files
+        .keys()
+        .map(|path| {
+            (
+                path.as_str().to_string(),
+                project_dir.join("data").join(path.as_str()),
+            )
+        })
+        .collect();
 
     Ok(AuthoringProject {
         pages,
@@ -613,6 +624,7 @@ async fn build_authoring_project_from_inputs(
         template_paths,
         template_contents,
         static_paths,
+        data_paths,
         data_keys,
     })
 }
