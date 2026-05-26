@@ -68,7 +68,7 @@ pub async fn run(content: Option<String>, output: Option<String>) -> Result<()> 
         input_revision: 0,
         workspace: None,
         applied_input_revision: None,
-        project_cache: None,
+        world_cache: None,
     }));
 
     let stdin = tokio::io::stdin();
@@ -95,7 +95,7 @@ struct AuthoringState {
     input_revision: u64,
     workspace: Option<AuthoringWorkspace>,
     applied_input_revision: Option<u64>,
-    project_cache: Option<CachedAuthoringProject>,
+    world_cache: Option<CachedAuthoringWorld>,
 }
 
 #[derive(Debug, Clone)]
@@ -105,10 +105,16 @@ struct LspStartupArgs {
 }
 
 #[derive(Debug, Clone)]
-struct CachedAuthoringProject {
+struct CachedAuthoringWorld {
     content_dir: Utf8PathBuf,
     input_revision: u64,
+    world: AuthoringWorld,
+}
+
+#[derive(Debug, Clone)]
+struct AuthoringWorld {
     project: AuthoringProject,
+    template_index: TemplateAuthoringIndex,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -485,7 +491,7 @@ impl Backend {
         if state.dirs.as_ref() != Some(&dirs) {
             state.workspace = None;
             state.applied_input_revision = None;
-            state.project_cache = None;
+            state.world_cache = None;
         }
         state.dirs = Some(dirs);
     }
@@ -549,7 +555,7 @@ impl Backend {
             if needs_workspace {
                 state.workspace = Some(AuthoringWorkspace::new(&dirs.content_dir)?);
                 state.applied_input_revision = None;
-                state.project_cache = None;
+                state.world_cache = None;
             }
 
             let open_documents = state.documents.keys().cloned().collect::<HashSet<_>>();
@@ -578,7 +584,7 @@ impl Backend {
             if changed {
                 state.input_revision = state.input_revision.wrapping_add(1);
                 state.applied_input_revision = Some(state.input_revision);
-                state.project_cache = None;
+                state.world_cache = None;
             }
         }
 
@@ -606,14 +612,14 @@ impl Backend {
         let mut state = self.state.lock().unwrap();
         state.documents.insert(uri, content);
         state.input_revision = state.input_revision.wrapping_add(1);
-        state.project_cache = None;
+        state.world_cache = None;
     }
 
     fn remove_document(&self, uri: &Url) {
         let mut state = self.state.lock().unwrap();
         state.documents.remove(uri);
         state.input_revision = state.input_revision.wrapping_add(1);
-        state.project_cache = None;
+        state.world_cache = None;
     }
 
     fn document_content(&self, uri: &Url) -> Result<String> {
@@ -628,19 +634,23 @@ impl Backend {
     }
 
     async fn current_project(&self, dirs: &AuthoringDirs) -> Result<AuthoringProject> {
+        Ok(self.current_world(dirs).await?.project)
+    }
+
+    async fn current_world(&self, dirs: &AuthoringDirs) -> Result<AuthoringWorld> {
         let cached = {
             let state = self.state.lock().unwrap();
             state
-                .project_cache
+                .world_cache
                 .as_ref()
                 .filter(|cached| {
                     cached.content_dir == dirs.content_dir
                         && cached.input_revision == state.input_revision
                 })
-                .map(|cached| cached.project.clone())
+                .map(|cached| cached.world.clone())
         };
-        if let Some(project) = cached {
-            return Ok(project);
+        if let Some(world) = cached {
+            return Ok(world);
         }
 
         let (inputs, inputs_revision) = {
@@ -654,7 +664,7 @@ impl Backend {
             if needs_workspace {
                 state.workspace = Some(AuthoringWorkspace::new(&dirs.content_dir)?);
                 state.applied_input_revision = None;
-                state.project_cache = None;
+                state.world_cache = None;
             }
 
             if state.applied_input_revision != Some(revision) {
@@ -693,17 +703,21 @@ impl Backend {
         };
 
         let project = inputs.project().await?;
+        let world = AuthoringWorld {
+            template_index: TemplateAuthoringIndex::new(&project),
+            project,
+        };
 
         let mut state = self.state.lock().unwrap();
         if state.input_revision == inputs_revision {
-            state.project_cache = Some(CachedAuthoringProject {
+            state.world_cache = Some(CachedAuthoringWorld {
                 content_dir: dirs.content_dir.clone(),
                 input_revision: inputs_revision,
-                project: project.clone(),
+                world: world.clone(),
             });
         }
 
-        Ok(project)
+        Ok(world)
     }
 
     async fn code_actions(&self, params: CodeActionParams) -> Result<CodeActionResponse> {
@@ -798,48 +812,46 @@ impl Backend {
         let dirs = self.dirs_for_uri(uri)?;
         let content = self.document_content(uri)?;
         let path = lsp_file_uri_to_utf8_path(uri)?;
-        let project = self.current_project(&dirs).await?;
+        let world = self.current_world(&dirs).await?;
+        let project = &world.project;
         if let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? {
-            let template_index = TemplateAuthoringIndex::new(&project, &template_file, &content);
+            let template_index = &world.template_index;
             if let Some(occurrence) =
                 template_index.block_occurrence_at_position(&template_file, position)
             {
                 return Ok(Some(markdown_hover(
-                    template_block_hover_markdown(&template_index, &template_file, &occurrence),
+                    template_block_hover_markdown(template_index, &template_file, &occurrence),
                     occurrence.source_range,
                 )));
             }
             if let Some(reference) =
-                template_route_reference_at_position(&project, &template_file, &content, position)
+                template_route_reference_at_position(project, &template_file, &content, position)
                 && let Some(target_page) = project.page_for_route(&reference.target_route)
             {
                 let (_, fragment) = split_fragment(&reference.target);
                 return Ok(Some(markdown_hover(
-                    page_link_hover_markdown(&project, target_page, fragment),
+                    page_link_hover_markdown(project, target_page, fragment),
                     reference.source_range,
                 )));
             }
             if let Some(target) =
-                template_document_target_at_position(&project, &template_file, &content, position)?
+                template_document_target_at_position(project, &template_file, &content, position)?
             {
                 return Ok(Some(markdown_hover(
                     target.hover_markdown(),
                     target.source_range,
                 )));
             }
-            if let Some(target) = template_definition_target_at_position(
-                &project,
-                &template_file,
-                &content,
-                position,
-            )? {
+            if let Some(target) =
+                template_definition_target_at_position(project, &template_file, &content, position)?
+            {
                 return Ok(Some(markdown_hover(
                     target.hover_markdown(),
                     target.source_range,
                 )));
             }
             if let Some(hover) =
-                template_semantic_hover(&project, &template_file, &content, position)
+                template_semantic_hover(project, &template_file, &content, position)
             {
                 return Ok(Some(hover));
             }
@@ -851,7 +863,7 @@ impl Backend {
             .page_for_source_file(&source_file)
             .ok_or_else(|| eyre!("missing authoring page for {source_file}"))?;
 
-        if let Some(target) = frontmatter_document_target_at_position(&project, &content, position)?
+        if let Some(target) = frontmatter_document_target_at_position(project, &content, position)?
         {
             return Ok(Some(markdown_hover(
                 target.hover_markdown(),
@@ -862,9 +874,9 @@ impl Backend {
         if let Some(frontmatter_range) = frontmatter_lsp_range(&content)
             && range_contains_position(&frontmatter_range, position)
         {
-            let backlink_count = references_to_page(&dirs.content_dir, &project, page)?.len();
+            let backlink_count = references_to_page(&dirs.content_dir, project, page)?.len();
             return Ok(Some(markdown_hover(
-                frontmatter_hover_markdown(&project, page, &content, backlink_count),
+                frontmatter_hover_markdown(project, page, &content, backlink_count),
                 frontmatter_range,
             )));
         }
@@ -874,7 +886,7 @@ impl Backend {
         };
         let range = byte_range_to_lsp_range(&content, reference.byte_start, reference.byte_end);
         Ok(Some(markdown_hover(
-            link_hover_markdown(&project, page, &content, &reference),
+            link_hover_markdown(project, page, &content, &reference),
             range,
         )))
     }
@@ -936,7 +948,7 @@ impl Backend {
         let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? else {
             return Ok(None);
         };
-        let project = self.current_project(&dirs).await?;
+        let project = self.current_world(&dirs).await?.project;
         let Some(index) = project.template_semantics.get(&template_file) else {
             return Ok(None);
         };
@@ -985,11 +997,12 @@ impl Backend {
     ) -> Result<Option<Location>> {
         let dirs = self.dirs_for_uri(uri)?;
         let content = self.document_content(uri)?;
-        let project = self.current_project(&dirs).await?;
+        let world = self.current_world(&dirs).await?;
+        let project = &world.project;
         let path = lsp_file_uri_to_utf8_path(uri)?;
 
         if let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? {
-            let template_index = TemplateAuthoringIndex::new(&project, &template_file, &content);
+            let template_index = &world.template_index;
             if let Some(occurrence) =
                 template_index.block_occurrence_at_position(&template_file, position)
             {
@@ -1013,7 +1026,7 @@ impl Backend {
                 }));
             }
             if let Some(reference) =
-                template_route_reference_at_position(&project, &template_file, &content, position)
+                template_route_reference_at_position(project, &template_file, &content, position)
             {
                 let (_, fragment) = split_fragment(&reference.target);
                 if let Some(source_file) = project.source_file_for_route(&reference.target_route) {
@@ -1022,30 +1035,27 @@ impl Backend {
                 }
             }
             if let Some(target) =
-                template_document_target_at_position(&project, &template_file, &content, position)?
+                template_document_target_at_position(project, &template_file, &content, position)?
             {
                 return Ok(Some(Location {
                     uri: target.target_uri()?,
                     range: one_line_range(0),
                 }));
             }
-            if let Some(target) = template_definition_target_at_position(
-                &project,
-                &template_file,
-                &content,
-                position,
-            )? {
+            if let Some(target) =
+                template_definition_target_at_position(project, &template_file, &content, position)?
+            {
                 return Ok(Some(target.location()?));
             }
             if let Some(location) =
-                template_semantic_definition(&dirs.content_dir, &project, &template_file, position)
+                template_semantic_definition(&dirs.content_dir, project, &template_file, position)
             {
                 return Ok(Some(location));
             }
             return Ok(None);
         }
 
-        if let Some(target) = frontmatter_document_target_at_position(&project, &content, position)?
+        if let Some(target) = frontmatter_document_target_at_position(project, &content, position)?
         {
             return Ok(Some(Location {
                 uri: target.target_uri()?,
@@ -1062,7 +1072,7 @@ impl Backend {
             .page_for_source_file(&source_file)
             .ok_or_else(|| eyre!("missing authoring page for {source_file}"))?;
 
-        definition_for_reference(&dirs, &project, page, &reference)
+        definition_for_reference(&dirs, project, page, &reference)
     }
 
     async fn references_for_position(
@@ -1073,27 +1083,24 @@ impl Backend {
         let dirs = self.dirs_for_uri(uri)?;
         let content = self.document_content(uri)?;
         let path = lsp_file_uri_to_utf8_path(uri)?;
-        let project = self.current_project(&dirs).await?;
+        let world = self.current_world(&dirs).await?;
+        let project = &world.project;
         if let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? {
-            let template_index = TemplateAuthoringIndex::new(&project, &template_file, &content);
+            let template_index = &world.template_index;
             if let Some(occurrence) =
                 template_index.block_occurrence_at_position(&template_file, position)
             {
-                return template_block_references(
-                    &template_index,
-                    &template_file,
-                    &occurrence.name,
-                );
+                return template_block_references(template_index, &template_file, &occurrence.name);
             }
             if let Some(reference) =
-                template_route_reference_at_position(&project, &template_file, &content, position)
+                template_route_reference_at_position(project, &template_file, &content, position)
                 && let Some(target_page) = project.page_for_route(&reference.target_route)
             {
-                return references_to_page(&dirs.content_dir, &project, target_page);
+                return references_to_page(&dirs.content_dir, project, target_page);
             }
             return Ok(template_semantic_references(
                 &dirs.content_dir,
-                &project,
+                project,
                 &template_file,
                 &content,
                 position,
@@ -1108,11 +1115,11 @@ impl Backend {
         if let Some(frontmatter_range) = frontmatter_lsp_range(&content)
             && range_contains_position(&frontmatter_range, position)
         {
-            return references_to_page(&dirs.content_dir, &project, page);
+            return references_to_page(&dirs.content_dir, project, page);
         }
 
         if let Some(heading_id) = heading_id_at_position(page, &content, position) {
-            return references_to_heading(&dirs.content_dir, &project, page, &heading_id);
+            return references_to_heading(&dirs.content_dir, project, page, &heading_id);
         }
 
         Ok(Vec::new())
@@ -7026,16 +7033,14 @@ fn collect_template_block_occurrences(
 }
 
 impl TemplateAuthoringIndex {
-    fn new(project: &AuthoringProject, current_file: &str, current_content: &str) -> Self {
+    fn new(project: &AuthoringProject) -> Self {
         let mut templates = HashMap::new();
 
         for (template_file, template_path) in &project.template_paths {
-            let Some(content) =
-                template_content(project, template_file, current_file, current_content)
-            else {
+            let Some(content) = project.template_contents.get(template_file) else {
                 continue;
             };
-            let Ok(template) = TemplateParser::new(template_file, &content).parse() else {
+            let Ok(template) = TemplateParser::new(template_file, content).parse() else {
                 continue;
             };
             templates.insert(
@@ -7043,7 +7048,7 @@ impl TemplateAuthoringIndex {
                 IndexedTemplate {
                     path: template_path.clone(),
                     extends: template_extends_path_from_nodes(&template.body),
-                    blocks: template_block_occurrences(&content, &template.body),
+                    blocks: template_block_occurrences(content, &template.body),
                 },
             );
         }
@@ -8895,7 +8900,7 @@ mod tests {
         let project = load_authoring_project(&content_dir, &[])
             .await
             .expect("load project");
-        let index = TemplateAuthoringIndex::new(&project, "child.html", child);
+        let index = TemplateAuthoringIndex::new(&project);
         let occurrence = index
             .block_occurrence_at_position("child.html", position_for(child, "breadcrumbs"))
             .expect("block occurrence");
@@ -8966,7 +8971,7 @@ mod tests {
         let project = load_authoring_project(&content_dir, &[])
             .await
             .expect("load project");
-        let index = TemplateAuthoringIndex::new(&project, "child.html", child);
+        let index = TemplateAuthoringIndex::new(&project);
 
         let child_occurrence = index
             .block_occurrence_at_position("child.html", position_for(child, "breadcrumbs"))
@@ -8996,7 +9001,7 @@ mod tests {
             ]
         );
 
-        let other_index = TemplateAuthoringIndex::new(&project, "other-child.html", other_child);
+        let other_index = TemplateAuthoringIndex::new(&project);
         let other_references =
             template_block_references(&other_index, "other-child.html", "breadcrumbs")
                 .expect("other references");
@@ -9040,10 +9045,16 @@ mod tests {
             .expect("write other base");
         std::fs::write(templates_dir.join("child.html"), disk_child).expect("write child");
 
-        let project = load_authoring_project(&content_dir, &[])
-            .await
-            .expect("load project");
-        let index = TemplateAuthoringIndex::new(&project, "child.html", live_child);
+        let project = load_authoring_project(
+            &content_dir,
+            &[AuthoringDocumentOverlay {
+                path: AuthoringInputPath::Template("child.html".to_string()),
+                content: live_child.to_string(),
+            }],
+        )
+        .await
+        .expect("load project");
+        let index = TemplateAuthoringIndex::new(&project);
         let references =
             template_block_references(&index, "child.html", "breadcrumbs").expect("references");
 
