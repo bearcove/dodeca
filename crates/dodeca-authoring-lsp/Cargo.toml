@@ -1,0 +1,34 @@
+[package]
+name = "dodeca-authoring-lsp"
+version = "0.6.1"
+edition = "2024"
+rust-version = "1.91"
+authors = ["Amos Wenger <amos@bearcove.eu>"]
+license = "MIT OR Apache-2.0"
+description = "Authoring language server for Dodeca"
+repository = "https://github.com/bearcove/dodeca"
+homepage = "https://dodeca.bearcove.eu/"
+keywords = ["static-site", "ssg", "lsp"]
+categories = ["development-tools"]
+
+[package.metadata.docs.rs]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+[lib]
+name = "dodeca_authoring_lsp"
+path = "src/lib.rs"
+
+[dependencies]
+camino.workspace = true
+dodeca = { path = "../dodeca" }
+eyre.workspace = true
+facet.workspace = true
+gingembre = { path = "../gingembre" }
+marq.workspace = true
+pulldown-cmark.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tower-lsp.workspace = true

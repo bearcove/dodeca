@@ -10,7 +10,10 @@ name = "integration-tests"
 path = "src/main.rs"
 
 [dependencies]
+dodeca-authoring-lsp = { path = "../dodeca-authoring-lsp" }
+dodeca = { path = "../dodeca" }
 dodeca-search-format = { path = "../dodeca-search-format" }
+camino.workspace = true
 facet-json.workspace = true
 facet-value.workspace = true
 hotmeal.workspace = true
@@ -24,6 +27,7 @@ tempfile.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+tower-lsp.workspace = true
 ureq.workspace = true
 ur-taking-me-with-you.workspace = true
 

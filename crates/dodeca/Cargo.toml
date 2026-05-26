@@ -10,17 +10,12 @@ repository = "https://github.com/bearcove/dodeca"
 homepage = "https://dodeca.bearcove.eu/"
 keywords = ["static-site", "ssg", "incremental"]
 categories = ["command-line-utilities", "web-programming"]
-default-run = "ddc"
 
 [package.metadata.docs.rs]
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [package.metadata."docs.rs"]
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
-
-[[bin]]
-name = "ddc"
-path = "src/main.rs"
 
 [dependencies]
 cell-code-execution-proto = { path = "../../cells/cell-code-execution-proto" }
@@ -63,7 +58,6 @@ figue.workspace = true
 facet-json.workspace = true
 facet-postcard.workspace = true
 facet-styx.workspace = true
-facet-toml.workspace = true
 styx-embed.workspace = true
 styx-tree.workspace = true
 facet-value.workspace = true
@@ -77,7 +71,6 @@ notify.workspace = true
 open.workspace = true
 owo-colors.workspace = true
 picante.workspace = true
-pulldown-cmark.workspace = true
 vox = { workspace = true, features = ["transport-all", "transport-ffi"] }
 vox-ffi.workspace = true
 libloading.workspace = true
@@ -87,7 +80,6 @@ rapidhash.workspace = true
 arboard = { version = "3", default-features = false }
 strid.workspace = true
 tokio.workspace = true
-tower-lsp.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 ur-taking-me-with-you.workspace = true
@@ -95,7 +87,6 @@ hotmeal.workspace = true
 hotmeal-server.workspace = true
 html-escape.workspace = true
 ariadne.workspace = true
-serde_json.workspace = true
 
 [build-dependencies]
 dodeca-config = { path = "../dodeca-config" }

@@ -3,32 +3,32 @@
 
 ---
 name: CI
-"on": 
-  push: 
-    tags: 
+"on":
+  push:
+    tags:
       - v*
-    branches: 
+    branches:
       - main
-  pull_request: 
-    branches: 
+  pull_request:
+    branches:
       - main
   workflow_dispatch: {}
-permissions: 
+permissions:
   contents: read
-env: 
+env:
   CARGO_TERM_COLOR: always
-jobs: 
-  check-ci: 
+jobs:
+  check-ci:
     name: Check CI up to date
-    runs-on: 
+    runs-on:
       - linux-amd64-metal
     timeout-minutes: 10
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -39,13 +39,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /home/amos/.cache/dodeca-ci/check-ci"
           fi
@@ -59,19 +59,19 @@ jobs:
           mkdir -p "$(dirname "/home/amos/.cache/dodeca-ci/check-ci")"
           rm -rf "/home/amos/.cache/dodeca-ci/check-ci" 2>/dev/null || true
           ctree target "/home/amos/.cache/dodeca-ci/check-ci" && echo "Cache saved via ctree to /home/amos/.cache/dodeca-ci/check-ci" || echo "ctree save failed (non-fatal)"
-  build-wasm: 
+  build-wasm:
     name: Build WASM
-    runs-on: 
+    runs-on:
       - linux-amd64-metal
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
           targets: wasm32-unknown-unknown
       - name: Restore cache (ctree)
@@ -83,13 +83,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /home/amos/.cache/dodeca-ci/wasm"
           fi
@@ -127,22 +127,22 @@ jobs:
         run: |-
           tar -czf /tmp/wasm.tar.gz crates/dodeca-devtools/pkg crates/dodeca-search-wasm/pkg
           ./scripts/cas-upload.ts /tmp/wasm.tar.gz "ci/${{ github.run_id }}/wasm.tar.gz"
-  clippy: 
+  clippy:
     name: Clippy
-    runs-on: 
+    runs-on:
       - linux-amd64-metal
     timeout-minutes: 30
-    needs: 
+    needs:
       - build-wasm
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
     continue-on-error: true
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
           components: clippy
           targets: wasm32-unknown-unknown
@@ -155,13 +155,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /home/amos/.cache/dodeca-ci/clippy"
           fi
@@ -199,21 +199,21 @@ jobs:
           else
             echo "No cache found at /home/amos/.cache/dodeca-ci/clippy to trim"
           fi
-  build-ddc-linux-x64: 
+  build-ddc-linux-x64:
     name: Build ddc (linux-x64)
-    runs-on: 
+    runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
-    needs: 
+    needs:
       - build-wasm
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -224,13 +224,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /home/amos/.cache/dodeca-ci/ddc-linux-x64"
           fi
@@ -270,7 +270,7 @@ jobs:
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
             export DODECA_RELEASE_VERSION="${GITHUB_REF_NAME}"
           fi
-          cargo build --release -p dodeca --verbose
+          cargo build --release --bin ddc --verbose
           actual="$(target/release/ddc --version)"
           echo "$actual"
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
@@ -302,23 +302,23 @@ jobs:
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
             export DODECA_RELEASE_VERSION="${GITHUB_REF_NAME}"
           fi
-          cargo test --release -p dodeca --bins
+          cargo test --release --bin ddc
         shell: bash
       - name: Upload ddc to CAS
         run: "./scripts/cas-upload.ts target/release/ddc \"ci/${{ github.run_id }}/ddc-linux-x64\""
-  build-cells-linux-x64-1: 
+  build-cells-linux-x64-1:
     name: Build cells (linux-x64) [cell-code-execution]
-    runs-on: 
+    runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -329,13 +329,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-1"
           fi
@@ -353,7 +353,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-1"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-1" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-code-execution --verbose
+        run: cargo build --release --package cell-code-execution --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -370,22 +370,22 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-1 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-code-execution
+        run: cargo test --release --package cell-code-execution
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-1\" target/release/libddc_cell_code_execution.so"
-  build-cells-linux-x64-2: 
+  build-cells-linux-x64-2:
     name: Build cells (linux-x64) [cell-css]
-    runs-on: 
+    runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -396,13 +396,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-2"
           fi
@@ -420,7 +420,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-2"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-2" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-css --verbose
+        run: cargo build --release --package cell-css --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -437,22 +437,22 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-2 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-css
+        run: cargo test --release --package cell-css
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-2\" target/release/libddc_cell_css.so"
-  build-cells-linux-x64-3: 
+  build-cells-linux-x64-3:
     name: Build cells (linux-x64) [cell-data]
-    runs-on: 
+    runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -463,13 +463,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-3"
           fi
@@ -487,7 +487,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-3"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-3" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-data --verbose
+        run: cargo build --release --package cell-data --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -504,22 +504,22 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-3 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-data
+        run: cargo test --release --package cell-data
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-3\" target/release/libddc_cell_data.so"
-  build-cells-linux-x64-4: 
+  build-cells-linux-x64-4:
     name: Build cells (linux-x64) [cell-dialoguer]
-    runs-on: 
+    runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -530,13 +530,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-4"
           fi
@@ -554,7 +554,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-4"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-4" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-dialoguer --verbose
+        run: cargo build --release --package cell-dialoguer --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -571,22 +571,22 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-4 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-dialoguer
+        run: cargo test --release --package cell-dialoguer
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-4\" target/release/libddc_cell_dialoguer.so"
-  build-cells-linux-x64-5: 
+  build-cells-linux-x64-5:
     name: Build cells (linux-x64) [cell-fonts]
-    runs-on: 
+    runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -597,13 +597,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-5"
           fi
@@ -621,7 +621,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-5"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-5" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-fonts --verbose
+        run: cargo build --release --package cell-fonts --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -638,22 +638,22 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-5 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-fonts
+        run: cargo test --release --package cell-fonts
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-5\" target/release/libddc_cell_fonts.so"
-  build-cells-linux-x64-6: 
+  build-cells-linux-x64-6:
     name: Build cells (linux-x64) [cell-gingembre]
-    runs-on: 
+    runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -664,13 +664,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-6"
           fi
@@ -688,7 +688,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-6"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-6" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-gingembre --verbose
+        run: cargo build --release --package cell-gingembre --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -705,22 +705,22 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-6 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-gingembre
+        run: cargo test --release --package cell-gingembre
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-6\" target/release/libddc_cell_gingembre.so"
-  build-cells-linux-x64-7: 
+  build-cells-linux-x64-7:
     name: Build cells (linux-x64) [cell-html]
-    runs-on: 
+    runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -731,13 +731,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-7"
           fi
@@ -755,7 +755,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-7"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-7" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-html --verbose
+        run: cargo build --release --package cell-html --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -772,22 +772,22 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-7 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-html
+        run: cargo test --release --package cell-html
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-7\" target/release/libddc_cell_html.so"
-  build-cells-linux-x64-8: 
+  build-cells-linux-x64-8:
     name: Build cells (linux-x64) [cell-html-diff]
-    runs-on: 
+    runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -798,13 +798,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-8"
           fi
@@ -822,7 +822,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-8"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-8" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-html-diff --verbose
+        run: cargo build --release --package cell-html-diff --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -839,22 +839,22 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-8 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-html-diff
+        run: cargo test --release --package cell-html-diff
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-8\" target/release/libddc_cell_html_diff.so"
-  build-cells-linux-x64-9: 
+  build-cells-linux-x64-9:
     name: Build cells (linux-x64) [cell-http]
-    runs-on: 
+    runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -865,13 +865,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-9"
           fi
@@ -889,7 +889,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-9"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-9" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-http --verbose
+        run: cargo build --release --package cell-http --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -906,22 +906,22 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-9 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-http
+        run: cargo test --release --package cell-http
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-9\" target/release/libddc_cell_http.so"
-  build-cells-linux-x64-10: 
+  build-cells-linux-x64-10:
     name: Build cells (linux-x64) [cell-image]
-    runs-on: 
+    runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -932,13 +932,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-10"
           fi
@@ -956,7 +956,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-10"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-10" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-image --verbose
+        run: cargo build --release --package cell-image --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -973,22 +973,22 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-10 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-image
+        run: cargo test --release --package cell-image
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-10\" target/release/libddc_cell_image.so"
-  build-cells-linux-x64-11: 
+  build-cells-linux-x64-11:
     name: Build cells (linux-x64) [cell-js]
-    runs-on: 
+    runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -999,13 +999,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-11"
           fi
@@ -1023,7 +1023,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-11"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-11" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-js --verbose
+        run: cargo build --release --package cell-js --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -1040,22 +1040,22 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-11 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-js
+        run: cargo test --release --package cell-js
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-11\" target/release/libddc_cell_js.so"
-  build-cells-linux-x64-12: 
+  build-cells-linux-x64-12:
     name: Build cells (linux-x64) [cell-jxl]
-    runs-on: 
+    runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -1066,13 +1066,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-12"
           fi
@@ -1090,7 +1090,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-12"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-12" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-jxl --verbose
+        run: cargo build --release --package cell-jxl --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -1107,22 +1107,22 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-12 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-jxl
+        run: cargo test --release --package cell-jxl
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-12\" target/release/libddc_cell_jxl.so"
-  build-cells-linux-x64-13: 
+  build-cells-linux-x64-13:
     name: Build cells (linux-x64) [cell-linkcheck]
-    runs-on: 
+    runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -1133,13 +1133,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-13"
           fi
@@ -1157,7 +1157,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-13"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-13" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-linkcheck --verbose
+        run: cargo build --release --package cell-linkcheck --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -1174,22 +1174,22 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-13 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-linkcheck
+        run: cargo test --release --package cell-linkcheck
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-13\" target/release/libddc_cell_linkcheck.so"
-  build-cells-linux-x64-14: 
+  build-cells-linux-x64-14:
     name: Build cells (linux-x64) [cell-markdown]
-    runs-on: 
+    runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -1200,13 +1200,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-14"
           fi
@@ -1224,7 +1224,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-14"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-14" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-markdown --verbose
+        run: cargo build --release --package cell-markdown --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -1241,22 +1241,22 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-14 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-markdown
+        run: cargo test --release --package cell-markdown
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-14\" target/release/libddc_cell_markdown.so"
-  build-cells-linux-x64-15: 
+  build-cells-linux-x64-15:
     name: Build cells (linux-x64) [cell-minify]
-    runs-on: 
+    runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -1267,13 +1267,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-15"
           fi
@@ -1291,7 +1291,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-15"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-15" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-minify --verbose
+        run: cargo build --release --package cell-minify --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -1308,22 +1308,22 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-15 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-minify
+        run: cargo test --release --package cell-minify
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-15\" target/release/libddc_cell_minify.so"
-  build-cells-linux-x64-16: 
+  build-cells-linux-x64-16:
     name: Build cells (linux-x64) [cell-sass]
-    runs-on: 
+    runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -1334,13 +1334,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-16"
           fi
@@ -1358,7 +1358,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-16"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-16" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-sass --verbose
+        run: cargo build --release --package cell-sass --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -1375,22 +1375,22 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-16 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-sass
+        run: cargo test --release --package cell-sass
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-16\" target/release/libddc_cell_sass.so"
-  build-cells-linux-x64-17: 
+  build-cells-linux-x64-17:
     name: Build cells (linux-x64) [cell-search]
-    runs-on: 
+    runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -1401,13 +1401,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-17"
           fi
@@ -1425,7 +1425,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-17"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-17" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-search --verbose
+        run: cargo build --release --package cell-search --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -1442,22 +1442,22 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-17 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-search
+        run: cargo test --release --package cell-search
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-17\" target/release/libddc_cell_search.so"
-  build-cells-linux-x64-18: 
+  build-cells-linux-x64-18:
     name: Build cells (linux-x64) [cell-svgo]
-    runs-on: 
+    runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -1468,13 +1468,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-18"
           fi
@@ -1492,7 +1492,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-18"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-18" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-svgo --verbose
+        run: cargo build --release --package cell-svgo --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -1509,22 +1509,22 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-18 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-svgo
+        run: cargo test --release --package cell-svgo
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-18\" target/release/libddc_cell_svgo.so"
-  build-cells-linux-x64-19: 
+  build-cells-linux-x64-19:
     name: Build cells (linux-x64) [cell-term]
-    runs-on: 
+    runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -1535,13 +1535,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-19"
           fi
@@ -1559,7 +1559,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-19"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-19" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-term --verbose
+        run: cargo build --release --package cell-term --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -1576,22 +1576,22 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-19 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-term
+        run: cargo test --release --package cell-term
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-19\" target/release/libddc_cell_term.so"
-  build-cells-linux-x64-20: 
+  build-cells-linux-x64-20:
     name: Build cells (linux-x64) [cell-tui]
-    runs-on: 
+    runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -1602,13 +1602,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-20"
           fi
@@ -1626,7 +1626,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-20"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-20" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-tui --verbose
+        run: cargo build --release --package cell-tui --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -1643,22 +1643,22 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-20 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-tui
+        run: cargo test --release --package cell-tui
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-20\" target/release/libddc_cell_tui.so"
-  build-cells-linux-x64-21: 
+  build-cells-linux-x64-21:
     name: Build cells (linux-x64) [cell-vite]
-    runs-on: 
+    runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -1669,13 +1669,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-21"
           fi
@@ -1693,7 +1693,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-21"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-21" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-vite --verbose
+        run: cargo build --release --package cell-vite --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -1710,22 +1710,22 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-21 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-vite
+        run: cargo test --release --package cell-vite
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-21\" target/release/libddc_cell_vite.so"
-  build-cells-linux-x64-22: 
+  build-cells-linux-x64-22:
     name: Build cells (linux-x64) [cell-webp]
-    runs-on: 
+    runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -1736,13 +1736,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-22"
           fi
@@ -1760,7 +1760,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-22"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-22" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-webp --verbose
+        run: cargo build --release --package cell-webp --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -1777,16 +1777,17 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-22 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-webp
+        run: cargo test --release --package cell-webp
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-22\" target/release/libddc_cell_webp.so"
-  integration-linux-x64: 
+  integration-linux-x64:
     name: Integration (linux-x64)
-    runs-on: 
+    runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
-    needs: 
+    needs:
       - build-ddc-linux-x64
+      - build-wasm
       - build-cells-linux-x64-1
       - build-cells-linux-x64-2
       - build-cells-linux-x64-3
@@ -1809,14 +1810,14 @@ jobs:
       - build-cells-linux-x64-20
       - build-cells-linux-x64-21
       - build-cells-linux-x64-22
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -1827,13 +1828,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /home/amos/.cache/dodeca-ci/integration-linux-x64"
           fi
@@ -1850,8 +1851,12 @@ jobs:
         run: |-
           mkdir -p "/home/amos/.cache/dodeca-ci/integration-linux-x64"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/integration-linux-x64" cargo sweep --stamp
+      - name: Download WASM from CAS
+        run: |-
+          ./scripts/cas-download.ts "ci/${{ github.run_id }}/wasm.tar.gz" /tmp/wasm.tar.gz
+          tar -xzf /tmp/wasm.tar.gz
       - name: Build integration-tests
-        run: cargo build -p integration-tests
+        run: cargo build --package integration-tests
       - name: Download ddc from CAS
         run: "./scripts/cas-download.ts \"ci/${{ github.run_id }}/ddc-linux-x64\" dist/ddc"
       - name: Download cells from CAS
@@ -1884,183 +1889,183 @@ jobs:
         run: |
           #!/bin/bash
           set -euo pipefail
-          
+
           echo 'Verifying all required artifacts exist in dist/'
           missing=0
-          
+
           if [[ ! -x dist/ddc ]]; then
             echo '❌ MISSING: ddc'
             missing=1
           else
             echo '✓ ddc'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_code_execution.so ]]; then
             echo '❌ MISSING: libddc_cell_code_execution.so'
             missing=1
           else
             echo '✓ libddc_cell_code_execution.so'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_css.so ]]; then
             echo '❌ MISSING: libddc_cell_css.so'
             missing=1
           else
             echo '✓ libddc_cell_css.so'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_data.so ]]; then
             echo '❌ MISSING: libddc_cell_data.so'
             missing=1
           else
             echo '✓ libddc_cell_data.so'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_dialoguer.so ]]; then
             echo '❌ MISSING: libddc_cell_dialoguer.so'
             missing=1
           else
             echo '✓ libddc_cell_dialoguer.so'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_fonts.so ]]; then
             echo '❌ MISSING: libddc_cell_fonts.so'
             missing=1
           else
             echo '✓ libddc_cell_fonts.so'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_gingembre.so ]]; then
             echo '❌ MISSING: libddc_cell_gingembre.so'
             missing=1
           else
             echo '✓ libddc_cell_gingembre.so'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_html.so ]]; then
             echo '❌ MISSING: libddc_cell_html.so'
             missing=1
           else
             echo '✓ libddc_cell_html.so'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_html_diff.so ]]; then
             echo '❌ MISSING: libddc_cell_html_diff.so'
             missing=1
           else
             echo '✓ libddc_cell_html_diff.so'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_http.so ]]; then
             echo '❌ MISSING: libddc_cell_http.so'
             missing=1
           else
             echo '✓ libddc_cell_http.so'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_image.so ]]; then
             echo '❌ MISSING: libddc_cell_image.so'
             missing=1
           else
             echo '✓ libddc_cell_image.so'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_js.so ]]; then
             echo '❌ MISSING: libddc_cell_js.so'
             missing=1
           else
             echo '✓ libddc_cell_js.so'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_jxl.so ]]; then
             echo '❌ MISSING: libddc_cell_jxl.so'
             missing=1
           else
             echo '✓ libddc_cell_jxl.so'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_linkcheck.so ]]; then
             echo '❌ MISSING: libddc_cell_linkcheck.so'
             missing=1
           else
             echo '✓ libddc_cell_linkcheck.so'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_markdown.so ]]; then
             echo '❌ MISSING: libddc_cell_markdown.so'
             missing=1
           else
             echo '✓ libddc_cell_markdown.so'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_minify.so ]]; then
             echo '❌ MISSING: libddc_cell_minify.so'
             missing=1
           else
             echo '✓ libddc_cell_minify.so'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_sass.so ]]; then
             echo '❌ MISSING: libddc_cell_sass.so'
             missing=1
           else
             echo '✓ libddc_cell_sass.so'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_search.so ]]; then
             echo '❌ MISSING: libddc_cell_search.so'
             missing=1
           else
             echo '✓ libddc_cell_search.so'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_svgo.so ]]; then
             echo '❌ MISSING: libddc_cell_svgo.so'
             missing=1
           else
             echo '✓ libddc_cell_svgo.so'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_term.so ]]; then
             echo '❌ MISSING: libddc_cell_term.so'
             missing=1
           else
             echo '✓ libddc_cell_term.so'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_tui.so ]]; then
             echo '❌ MISSING: libddc_cell_tui.so'
             missing=1
           else
             echo '✓ libddc_cell_tui.so'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_vite.so ]]; then
             echo '❌ MISSING: libddc_cell_vite.so'
             missing=1
           else
             echo '✓ libddc_cell_vite.so'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_webp.so ]]; then
             echo '❌ MISSING: libddc_cell_webp.so'
             missing=1
           else
             echo '✓ libddc_cell_webp.so'
           fi
-          
+
           if [[ $missing -eq 1 ]]; then
             echo ''
             echo 'ERROR: Some required binaries are missing!'
             echo 'This usually means a cell build job failed or artifact upload was incomplete.'
             exit 1
           fi
-          
+
           echo ''
           echo 'All 23 artifacts verified.'
       - name: Run integration tests
         run: cargo xtask integration --no-build
-        env: 
+        env:
           DODECA_BIN: ${{ github.workspace }}/dist/ddc
           DODECA_CELL_PATH: ${{ github.workspace }}/dist
           DODECA_TEST_FIXTURES_DIR: ${{ github.workspace }}/crates/integration-tests/fixtures
@@ -2079,17 +2084,17 @@ jobs:
           else
             echo "No cache found at /home/amos/.cache/dodeca-ci/integration-linux-x64 to trim"
           fi
-  assemble-linux-x64: 
+  assemble-linux-x64:
     name: Assemble (linux-x64)
-    runs-on: 
+    runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
-    needs: 
+    needs:
       - integration-linux-x64
       - build-wasm
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Download ddc from CAS
@@ -2130,21 +2135,21 @@ jobs:
         run: bash scripts/assemble-archive.sh x86_64-unknown-linux-gnu
       - name: Upload archive to CAS
         run: "./scripts/cas-upload.ts \"dodeca-x86_64-unknown-linux-gnu.tar.xz\" \"ci/${{ github.run_id }}/dodeca-x86_64-unknown-linux-gnu.tar.xz\""
-  build-ddc-macos-arm64: 
+  build-ddc-macos-arm64:
     name: Build ddc (macos-arm64)
-    runs-on: 
+    runs-on:
       - depot-macos-15
     timeout-minutes: 30
-    needs: 
+    needs:
       - build-wasm
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -2155,13 +2160,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /Users/amos/.cache/dodeca-ci/ddc-macos-arm64"
           fi
@@ -2201,7 +2206,7 @@ jobs:
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
             export DODECA_RELEASE_VERSION="${GITHUB_REF_NAME}"
           fi
-          cargo build --release -p dodeca --verbose
+          cargo build --release --bin ddc --verbose
           actual="$(target/release/ddc --version)"
           echo "$actual"
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
@@ -2233,23 +2238,23 @@ jobs:
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
             export DODECA_RELEASE_VERSION="${GITHUB_REF_NAME}"
           fi
-          cargo test --release -p dodeca --bins
+          cargo test --release --bin ddc
         shell: bash
       - name: Upload ddc to CAS
         run: "./scripts/cas-upload.ts target/release/ddc \"ci/${{ github.run_id }}/ddc-macos-arm64\""
-  build-cells-macos-arm64-1: 
+  build-cells-macos-arm64-1:
     name: Build cells (macos-arm64) [cell-code-execution]
-    runs-on: 
+    runs-on:
       - depot-macos-15
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -2260,13 +2265,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-1"
           fi
@@ -2284,7 +2289,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-1"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-1" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-code-execution --verbose
+        run: cargo build --release --package cell-code-execution --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -2301,22 +2306,22 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-1 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-code-execution
+        run: cargo test --release --package cell-code-execution
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-1\" target/release/libddc_cell_code_execution.dylib"
-  build-cells-macos-arm64-2: 
+  build-cells-macos-arm64-2:
     name: Build cells (macos-arm64) [cell-css]
-    runs-on: 
+    runs-on:
       - depot-macos-15
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -2327,13 +2332,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-2"
           fi
@@ -2351,7 +2356,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-2"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-2" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-css --verbose
+        run: cargo build --release --package cell-css --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -2368,22 +2373,22 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-2 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-css
+        run: cargo test --release --package cell-css
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-2\" target/release/libddc_cell_css.dylib"
-  build-cells-macos-arm64-3: 
+  build-cells-macos-arm64-3:
     name: Build cells (macos-arm64) [cell-data]
-    runs-on: 
+    runs-on:
       - depot-macos-15
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -2394,13 +2399,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-3"
           fi
@@ -2418,7 +2423,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-3"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-3" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-data --verbose
+        run: cargo build --release --package cell-data --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -2435,22 +2440,22 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-3 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-data
+        run: cargo test --release --package cell-data
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-3\" target/release/libddc_cell_data.dylib"
-  build-cells-macos-arm64-4: 
+  build-cells-macos-arm64-4:
     name: Build cells (macos-arm64) [cell-dialoguer]
-    runs-on: 
+    runs-on:
       - depot-macos-15
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -2461,13 +2466,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-4"
           fi
@@ -2485,7 +2490,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-4"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-4" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-dialoguer --verbose
+        run: cargo build --release --package cell-dialoguer --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -2502,22 +2507,22 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-4 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-dialoguer
+        run: cargo test --release --package cell-dialoguer
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-4\" target/release/libddc_cell_dialoguer.dylib"
-  build-cells-macos-arm64-5: 
+  build-cells-macos-arm64-5:
     name: Build cells (macos-arm64) [cell-fonts]
-    runs-on: 
+    runs-on:
       - depot-macos-15
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -2528,13 +2533,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-5"
           fi
@@ -2552,7 +2557,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-5"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-5" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-fonts --verbose
+        run: cargo build --release --package cell-fonts --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -2569,22 +2574,22 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-5 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-fonts
+        run: cargo test --release --package cell-fonts
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-5\" target/release/libddc_cell_fonts.dylib"
-  build-cells-macos-arm64-6: 
+  build-cells-macos-arm64-6:
     name: Build cells (macos-arm64) [cell-gingembre]
-    runs-on: 
+    runs-on:
       - depot-macos-15
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -2595,13 +2600,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-6"
           fi
@@ -2619,7 +2624,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-6"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-6" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-gingembre --verbose
+        run: cargo build --release --package cell-gingembre --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -2636,22 +2641,22 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-6 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-gingembre
+        run: cargo test --release --package cell-gingembre
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-6\" target/release/libddc_cell_gingembre.dylib"
-  build-cells-macos-arm64-7: 
+  build-cells-macos-arm64-7:
     name: Build cells (macos-arm64) [cell-html]
-    runs-on: 
+    runs-on:
       - depot-macos-15
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -2662,13 +2667,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-7"
           fi
@@ -2686,7 +2691,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-7"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-7" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-html --verbose
+        run: cargo build --release --package cell-html --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -2703,22 +2708,22 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-7 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-html
+        run: cargo test --release --package cell-html
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-7\" target/release/libddc_cell_html.dylib"
-  build-cells-macos-arm64-8: 
+  build-cells-macos-arm64-8:
     name: Build cells (macos-arm64) [cell-html-diff]
-    runs-on: 
+    runs-on:
       - depot-macos-15
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -2729,13 +2734,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-8"
           fi
@@ -2753,7 +2758,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-8"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-8" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-html-diff --verbose
+        run: cargo build --release --package cell-html-diff --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -2770,22 +2775,22 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-8 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-html-diff
+        run: cargo test --release --package cell-html-diff
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-8\" target/release/libddc_cell_html_diff.dylib"
-  build-cells-macos-arm64-9: 
+  build-cells-macos-arm64-9:
     name: Build cells (macos-arm64) [cell-http]
-    runs-on: 
+    runs-on:
       - depot-macos-15
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -2796,13 +2801,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-9"
           fi
@@ -2820,7 +2825,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-9"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-9" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-http --verbose
+        run: cargo build --release --package cell-http --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -2837,22 +2842,22 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-9 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-http
+        run: cargo test --release --package cell-http
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-9\" target/release/libddc_cell_http.dylib"
-  build-cells-macos-arm64-10: 
+  build-cells-macos-arm64-10:
     name: Build cells (macos-arm64) [cell-image]
-    runs-on: 
+    runs-on:
       - depot-macos-15
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -2863,13 +2868,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-10"
           fi
@@ -2887,7 +2892,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-10"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-10" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-image --verbose
+        run: cargo build --release --package cell-image --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -2904,22 +2909,22 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-10 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-image
+        run: cargo test --release --package cell-image
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-10\" target/release/libddc_cell_image.dylib"
-  build-cells-macos-arm64-11: 
+  build-cells-macos-arm64-11:
     name: Build cells (macos-arm64) [cell-js]
-    runs-on: 
+    runs-on:
       - depot-macos-15
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -2930,13 +2935,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-11"
           fi
@@ -2954,7 +2959,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-11"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-11" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-js --verbose
+        run: cargo build --release --package cell-js --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -2971,22 +2976,22 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-11 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-js
+        run: cargo test --release --package cell-js
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-11\" target/release/libddc_cell_js.dylib"
-  build-cells-macos-arm64-12: 
+  build-cells-macos-arm64-12:
     name: Build cells (macos-arm64) [cell-jxl]
-    runs-on: 
+    runs-on:
       - depot-macos-15
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -2997,13 +3002,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-12"
           fi
@@ -3021,7 +3026,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-12"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-12" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-jxl --verbose
+        run: cargo build --release --package cell-jxl --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -3038,22 +3043,22 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-12 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-jxl
+        run: cargo test --release --package cell-jxl
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-12\" target/release/libddc_cell_jxl.dylib"
-  build-cells-macos-arm64-13: 
+  build-cells-macos-arm64-13:
     name: Build cells (macos-arm64) [cell-linkcheck]
-    runs-on: 
+    runs-on:
       - depot-macos-15
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -3064,13 +3069,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-13"
           fi
@@ -3088,7 +3093,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-13"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-13" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-linkcheck --verbose
+        run: cargo build --release --package cell-linkcheck --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -3105,22 +3110,22 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-13 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-linkcheck
+        run: cargo test --release --package cell-linkcheck
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-13\" target/release/libddc_cell_linkcheck.dylib"
-  build-cells-macos-arm64-14: 
+  build-cells-macos-arm64-14:
     name: Build cells (macos-arm64) [cell-markdown]
-    runs-on: 
+    runs-on:
       - depot-macos-15
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -3131,13 +3136,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-14"
           fi
@@ -3155,7 +3160,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-14"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-14" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-markdown --verbose
+        run: cargo build --release --package cell-markdown --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -3172,22 +3177,22 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-14 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-markdown
+        run: cargo test --release --package cell-markdown
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-14\" target/release/libddc_cell_markdown.dylib"
-  build-cells-macos-arm64-15: 
+  build-cells-macos-arm64-15:
     name: Build cells (macos-arm64) [cell-minify]
-    runs-on: 
+    runs-on:
       - depot-macos-15
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -3198,13 +3203,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-15"
           fi
@@ -3222,7 +3227,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-15"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-15" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-minify --verbose
+        run: cargo build --release --package cell-minify --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -3239,22 +3244,22 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-15 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-minify
+        run: cargo test --release --package cell-minify
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-15\" target/release/libddc_cell_minify.dylib"
-  build-cells-macos-arm64-16: 
+  build-cells-macos-arm64-16:
     name: Build cells (macos-arm64) [cell-sass]
-    runs-on: 
+    runs-on:
       - depot-macos-15
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -3265,13 +3270,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-16"
           fi
@@ -3289,7 +3294,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-16"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-16" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-sass --verbose
+        run: cargo build --release --package cell-sass --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -3306,22 +3311,22 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-16 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-sass
+        run: cargo test --release --package cell-sass
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-16\" target/release/libddc_cell_sass.dylib"
-  build-cells-macos-arm64-17: 
+  build-cells-macos-arm64-17:
     name: Build cells (macos-arm64) [cell-search]
-    runs-on: 
+    runs-on:
       - depot-macos-15
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -3332,13 +3337,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-17"
           fi
@@ -3356,7 +3361,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-17"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-17" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-search --verbose
+        run: cargo build --release --package cell-search --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -3373,22 +3378,22 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-17 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-search
+        run: cargo test --release --package cell-search
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-17\" target/release/libddc_cell_search.dylib"
-  build-cells-macos-arm64-18: 
+  build-cells-macos-arm64-18:
     name: Build cells (macos-arm64) [cell-svgo]
-    runs-on: 
+    runs-on:
       - depot-macos-15
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -3399,13 +3404,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-18"
           fi
@@ -3423,7 +3428,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-18"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-18" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-svgo --verbose
+        run: cargo build --release --package cell-svgo --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -3440,22 +3445,22 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-18 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-svgo
+        run: cargo test --release --package cell-svgo
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-18\" target/release/libddc_cell_svgo.dylib"
-  build-cells-macos-arm64-19: 
+  build-cells-macos-arm64-19:
     name: Build cells (macos-arm64) [cell-term]
-    runs-on: 
+    runs-on:
       - depot-macos-15
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -3466,13 +3471,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-19"
           fi
@@ -3490,7 +3495,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-19"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-19" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-term --verbose
+        run: cargo build --release --package cell-term --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -3507,22 +3512,22 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-19 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-term
+        run: cargo test --release --package cell-term
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-19\" target/release/libddc_cell_term.dylib"
-  build-cells-macos-arm64-20: 
+  build-cells-macos-arm64-20:
     name: Build cells (macos-arm64) [cell-tui]
-    runs-on: 
+    runs-on:
       - depot-macos-15
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -3533,13 +3538,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-20"
           fi
@@ -3557,7 +3562,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-20"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-20" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-tui --verbose
+        run: cargo build --release --package cell-tui --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -3574,22 +3579,22 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-20 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-tui
+        run: cargo test --release --package cell-tui
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-20\" target/release/libddc_cell_tui.dylib"
-  build-cells-macos-arm64-21: 
+  build-cells-macos-arm64-21:
     name: Build cells (macos-arm64) [cell-vite]
-    runs-on: 
+    runs-on:
       - depot-macos-15
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -3600,13 +3605,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-21"
           fi
@@ -3624,7 +3629,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-21"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-21" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-vite --verbose
+        run: cargo build --release --package cell-vite --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -3641,22 +3646,22 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-21 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-vite
+        run: cargo test --release --package cell-vite
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-21\" target/release/libddc_cell_vite.dylib"
-  build-cells-macos-arm64-22: 
+  build-cells-macos-arm64-22:
     name: Build cells (macos-arm64) [cell-webp]
-    runs-on: 
+    runs-on:
       - depot-macos-15
     timeout-minutes: 30
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -3667,13 +3672,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-22"
           fi
@@ -3691,7 +3696,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-22"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-22" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-webp --verbose
+        run: cargo build --release --package cell-webp --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -3708,16 +3713,17 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-22 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-webp
+        run: cargo test --release --package cell-webp
       - name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-22\" target/release/libddc_cell_webp.dylib"
-  integration-macos-arm64: 
+  integration-macos-arm64:
     name: Integration (macos-arm64)
-    runs-on: 
+    runs-on:
       - depot-macos-15
     timeout-minutes: 30
-    needs: 
+    needs:
       - build-ddc-macos-arm64
+      - build-wasm
       - build-cells-macos-arm64-1
       - build-cells-macos-arm64-2
       - build-cells-macos-arm64-3
@@ -3740,14 +3746,14 @@ jobs:
       - build-cells-macos-arm64-20
       - build-cells-macos-arm64-21
       - build-cells-macos-arm64-22
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with: 
+        with:
           toolchain: 1.92.0
       - name: Restore cache (ctree)
         run: |-
@@ -3758,13 +3764,13 @@ jobs:
             du -sh target 2>/dev/null || true
             echo "=== Cache contents after restore ==="
             tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          
+
             # CMake build directories are not relocatable - they contain absolute paths.
             # Nuke them to force a fresh CMake configure on path changes.
             find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
             find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
             echo "Cleaned CMake caches (non-relocatable)"
-          
+
           else
             echo "No cache found at /Users/amos/.cache/dodeca-ci/integration-macos-arm64"
           fi
@@ -3781,8 +3787,12 @@ jobs:
         run: |-
           mkdir -p "/Users/amos/.cache/dodeca-ci/integration-macos-arm64"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/integration-macos-arm64" cargo sweep --stamp
+      - name: Download WASM from CAS
+        run: |-
+          ./scripts/cas-download.ts "ci/${{ github.run_id }}/wasm.tar.gz" /tmp/wasm.tar.gz
+          tar -xzf /tmp/wasm.tar.gz
       - name: Build integration-tests
-        run: cargo build -p integration-tests
+        run: cargo build --package integration-tests
       - name: Download ddc from CAS
         run: "./scripts/cas-download.ts \"ci/${{ github.run_id }}/ddc-macos-arm64\" dist/ddc"
       - name: Download cells from CAS
@@ -3815,183 +3825,183 @@ jobs:
         run: |
           #!/bin/bash
           set -euo pipefail
-          
+
           echo 'Verifying all required artifacts exist in dist/'
           missing=0
-          
+
           if [[ ! -x dist/ddc ]]; then
             echo '❌ MISSING: ddc'
             missing=1
           else
             echo '✓ ddc'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_code_execution.dylib ]]; then
             echo '❌ MISSING: libddc_cell_code_execution.dylib'
             missing=1
           else
             echo '✓ libddc_cell_code_execution.dylib'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_css.dylib ]]; then
             echo '❌ MISSING: libddc_cell_css.dylib'
             missing=1
           else
             echo '✓ libddc_cell_css.dylib'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_data.dylib ]]; then
             echo '❌ MISSING: libddc_cell_data.dylib'
             missing=1
           else
             echo '✓ libddc_cell_data.dylib'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_dialoguer.dylib ]]; then
             echo '❌ MISSING: libddc_cell_dialoguer.dylib'
             missing=1
           else
             echo '✓ libddc_cell_dialoguer.dylib'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_fonts.dylib ]]; then
             echo '❌ MISSING: libddc_cell_fonts.dylib'
             missing=1
           else
             echo '✓ libddc_cell_fonts.dylib'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_gingembre.dylib ]]; then
             echo '❌ MISSING: libddc_cell_gingembre.dylib'
             missing=1
           else
             echo '✓ libddc_cell_gingembre.dylib'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_html.dylib ]]; then
             echo '❌ MISSING: libddc_cell_html.dylib'
             missing=1
           else
             echo '✓ libddc_cell_html.dylib'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_html_diff.dylib ]]; then
             echo '❌ MISSING: libddc_cell_html_diff.dylib'
             missing=1
           else
             echo '✓ libddc_cell_html_diff.dylib'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_http.dylib ]]; then
             echo '❌ MISSING: libddc_cell_http.dylib'
             missing=1
           else
             echo '✓ libddc_cell_http.dylib'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_image.dylib ]]; then
             echo '❌ MISSING: libddc_cell_image.dylib'
             missing=1
           else
             echo '✓ libddc_cell_image.dylib'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_js.dylib ]]; then
             echo '❌ MISSING: libddc_cell_js.dylib'
             missing=1
           else
             echo '✓ libddc_cell_js.dylib'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_jxl.dylib ]]; then
             echo '❌ MISSING: libddc_cell_jxl.dylib'
             missing=1
           else
             echo '✓ libddc_cell_jxl.dylib'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_linkcheck.dylib ]]; then
             echo '❌ MISSING: libddc_cell_linkcheck.dylib'
             missing=1
           else
             echo '✓ libddc_cell_linkcheck.dylib'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_markdown.dylib ]]; then
             echo '❌ MISSING: libddc_cell_markdown.dylib'
             missing=1
           else
             echo '✓ libddc_cell_markdown.dylib'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_minify.dylib ]]; then
             echo '❌ MISSING: libddc_cell_minify.dylib'
             missing=1
           else
             echo '✓ libddc_cell_minify.dylib'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_sass.dylib ]]; then
             echo '❌ MISSING: libddc_cell_sass.dylib'
             missing=1
           else
             echo '✓ libddc_cell_sass.dylib'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_search.dylib ]]; then
             echo '❌ MISSING: libddc_cell_search.dylib'
             missing=1
           else
             echo '✓ libddc_cell_search.dylib'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_svgo.dylib ]]; then
             echo '❌ MISSING: libddc_cell_svgo.dylib'
             missing=1
           else
             echo '✓ libddc_cell_svgo.dylib'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_term.dylib ]]; then
             echo '❌ MISSING: libddc_cell_term.dylib'
             missing=1
           else
             echo '✓ libddc_cell_term.dylib'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_tui.dylib ]]; then
             echo '❌ MISSING: libddc_cell_tui.dylib'
             missing=1
           else
             echo '✓ libddc_cell_tui.dylib'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_vite.dylib ]]; then
             echo '❌ MISSING: libddc_cell_vite.dylib'
             missing=1
           else
             echo '✓ libddc_cell_vite.dylib'
           fi
-          
+
           if [[ ! -f dist/libddc_cell_webp.dylib ]]; then
             echo '❌ MISSING: libddc_cell_webp.dylib'
             missing=1
           else
             echo '✓ libddc_cell_webp.dylib'
           fi
-          
+
           if [[ $missing -eq 1 ]]; then
             echo ''
             echo 'ERROR: Some required binaries are missing!'
             echo 'This usually means a cell build job failed or artifact upload was incomplete.'
             exit 1
           fi
-          
+
           echo ''
           echo 'All 23 artifacts verified.'
       - name: Run integration tests
         run: cargo xtask integration --no-build
-        env: 
+        env:
           DODECA_BIN: ${{ github.workspace }}/dist/ddc
           DODECA_CELL_PATH: ${{ github.workspace }}/dist
           DODECA_TEST_FIXTURES_DIR: ${{ github.workspace }}/crates/integration-tests/fixtures
@@ -4010,17 +4020,17 @@ jobs:
           else
             echo "No cache found at /Users/amos/.cache/dodeca-ci/integration-macos-arm64 to trim"
           fi
-  assemble-macos-arm64: 
+  assemble-macos-arm64:
     name: Assemble (macos-arm64)
-    runs-on: 
+    runs-on:
       - depot-macos-15
     timeout-minutes: 30
-    needs: 
+    needs:
       - integration-macos-arm64
       - build-wasm
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Download ddc from CAS
@@ -4061,18 +4071,18 @@ jobs:
         run: bash scripts/assemble-archive.sh aarch64-apple-darwin
       - name: Upload archive to CAS
         run: "./scripts/cas-upload.ts \"dodeca-aarch64-apple-darwin.tar.xz\" \"ci/${{ github.run_id }}/dodeca-aarch64-apple-darwin.tar.xz\""
-  release: 
+  release:
     name: Release
-    runs-on: 
+    runs-on:
       - linux-amd64-metal
     timeout-minutes: 30
-    needs: 
+    needs:
       - assemble-linux-x64
       - assemble-macos-arm64
     if: "startsWith(github.ref, 'refs/tags/')"
-    env: 
+    env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps: 
+    steps:
       - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - name: Download archives from CAS

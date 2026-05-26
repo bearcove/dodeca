@@ -250,6 +250,12 @@ fn cell_library_path(cell_name: &str) -> Option<std::path::PathBuf> {
     if let Ok(exe) = std::env::current_exe() {
         if let Some(d) = exe.parent() {
             dirs.push(d.to_path_buf());
+            if d.file_name()
+                .is_some_and(|name| name == std::ffi::OsStr::new("deps"))
+                && let Some(parent) = d.parent()
+            {
+                dirs.push(parent.to_path_buf());
+            }
         }
     }
     let profile = if cfg!(debug_assertions) {

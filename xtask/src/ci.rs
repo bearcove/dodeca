@@ -700,7 +700,7 @@ const BUILD_DDC_COMMAND: &str = r#"set -euo pipefail
 if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
   export DODECA_RELEASE_VERSION="${GITHUB_REF_NAME}"
 fi
-cargo build --release -p dodeca --verbose
+cargo build --release --bin ddc --verbose
 actual="$(target/release/ddc --version)"
 echo "$actual"
 if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
@@ -715,7 +715,7 @@ const TEST_DDC_COMMAND: &str = r#"set -euo pipefail
 if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
   export DODECA_RELEASE_VERSION="${GITHUB_REF_NAME}"
 fi
-cargo test --release -p dodeca --bins"#;
+cargo test --release --bin ddc"#;
 
 pub mod common {
     use super::*;
@@ -1322,13 +1322,13 @@ pub fn build_ci_workflow(platform: CiPlatform, repo_root: &Utf8Path) -> Workflow
 
             let build_args: String = cells
                 .iter()
-                .map(|(pkg, _)| format!("-p {pkg}"))
+                .map(|(pkg, _)| format!("--package {pkg}"))
                 .collect::<Vec<_>>()
                 .join(" ");
 
             let test_args: String = cells
                 .iter()
-                .map(|(pkg, _)| format!("-p {pkg}"))
+                .map(|(pkg, _)| format!("--package {pkg}"))
                 .collect::<Vec<_>>()
                 .join(" ");
 
@@ -1383,9 +1383,9 @@ pub fn build_ci_workflow(platform: CiPlatform, repo_root: &Utf8Path) -> Workflow
 
         let cell_group_needs = cell_group_jobs.clone();
 
-        // Integration tests (no wasm dependency - runs before assemble)
+        // Integration tests compile dodeca, which embeds WASM bundles at compile time.
         let integration_job_id = format!("integration-{short}");
-        let mut integration_needs = vec![ddc_job_id.clone()];
+        let mut integration_needs = vec![ddc_job_id.clone(), wasm_job_id.clone()];
         integration_needs.extend(cell_group_needs.clone());
 
         // Use platform-specific workspace variable
@@ -1410,10 +1410,20 @@ pub fn build_ci_workflow(platform: CiPlatform, repo_root: &Utf8Path) -> Workflow
                     } else {
                         rust_cache_with_targets(platform, false, target)
                     },
+                    // Download WASM bundles embedded at compile time via include_bytes!.
+                    Step::uses("Download WASM", platform.download_artifact_action()).with_inputs([
+                        ("name", devtools_wasm_artifact.clone()),
+                        ("path", "crates/dodeca-devtools/pkg".into()),
+                    ]),
+                    Step::uses("Download search WASM", platform.download_artifact_action())
+                        .with_inputs([
+                            ("name", search_wasm_artifact.clone()),
+                            ("path", "crates/dodeca-search-wasm/pkg".into()),
+                        ]),
                     // Build integration-tests binary (xtask will be built in debug, so build integration-tests in debug too)
                     Step::run(
                         "Build integration-tests",
-                        "cargo build -p integration-tests",
+                        "cargo build --package integration-tests",
                     ),
                     Step::uses("Download ddc", platform.download_artifact_action())
                         .with_inputs([("name", format!("ddc-{short}")), ("path", "dist".into())]),
@@ -1825,13 +1835,13 @@ fi"#,
 
             let build_args: String = cells
                 .iter()
-                .map(|(pkg, _)| format!("-p {pkg}"))
+                .map(|(pkg, _)| format!("--package {pkg}"))
                 .collect::<Vec<_>>()
                 .join(" ");
 
             let test_args: String = cells
                 .iter()
-                .map(|(pkg, _)| format!("-p {pkg}"))
+                .map(|(pkg, _)| format!("--package {pkg}"))
                 .collect::<Vec<_>>()
                 .join(" ");
 
@@ -1882,9 +1892,9 @@ fi"#,
             cell_group_jobs.push(group_job_id);
         }
 
-        // Integration tests
+        // Integration tests compile dodeca, which embeds WASM bundles at compile time.
         let integration_job_id = format!("integration-{short}");
-        let mut integration_needs = vec![ddc_job_id.clone()];
+        let mut integration_needs = vec![ddc_job_id.clone(), wasm_job_id.clone()];
         integration_needs.extend(cell_group_jobs.clone());
 
         let workspace_var = platform.context_var("workspace");
@@ -1903,10 +1913,18 @@ fi"#,
                     timelord_cache_info(cache_base, "before sync"),
                     timelord_restore(cache_base),
                     cargo_sweep_cache_stamp(&format!("integration-{short}"), cache_base),
+                    // Download WASM bundles from CAS before compiling integration-tests.
+                    Step::run(
+                        "Download WASM from CAS",
+                        format!(
+                            r#"./scripts/cas-download.ts "ci/{run_id}/wasm.tar.gz" /tmp/wasm.tar.gz
+tar -xzf /tmp/wasm.tar.gz"#
+                        ),
+                    ),
                     // Build integration-tests binary (xtask will be built in debug, so build integration-tests in debug too)
                     Step::run(
                         "Build integration-tests",
-                        "cargo build -p integration-tests",
+                        "cargo build --package integration-tests",
                     ),
                     // Download ddc from CAS
                     Step::run(
@@ -2299,12 +2317,15 @@ Main
 
 /// Helper to serialize a workflow to YAML with the generated header.
 fn workflow_to_yaml(workflow: &Workflow) -> Result<String> {
-    Ok(format!(
-        "{}{}",
-        GENERATED_HEADER,
-        facet_yaml::to_string(workflow)
-            .map_err(|e| eyre::eyre!("failed to serialize workflow: {}", e))?
-    ))
+    let yaml = facet_yaml::to_string(workflow)
+        .map_err(|e| eyre::eyre!("failed to serialize workflow: {}", e))?;
+    let yaml = yaml
+        .lines()
+        .map(str::trim_end)
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    Ok(format!("{GENERATED_HEADER}{yaml}\n"))
 }
 
 /// Check or write a generated file.
@@ -2315,7 +2336,7 @@ fn check_or_write(path: &Utf8Path, content: &str, check: bool) -> Result<()> {
 
         if existing != content {
             return Err(eyre::eyre!(
-                "{} is out of date. Run `cargo xtask ci` to update.",
+                "{} is out of date. Run `cargo xtask ci-github` and `cargo xtask ci-forgejo` to update.",
                 path.file_name().unwrap_or("file")
             ));
         }

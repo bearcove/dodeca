@@ -30,14 +30,14 @@ fi
 
 # Build ddc
 echo "Building ddc..."
-cargo build --release --target "$TARGET" -p dodeca
+cargo build --release --target "$TARGET" --bin ddc
 
 # Build cell cdylibs if any
 if [[ ${#CELL_PACKAGES[@]} -gt 0 ]]; then
     echo "Building cell cdylibs..."
     CELL_ARGS=""
     for cell in "${CELL_PACKAGES[@]}"; do
-        CELL_ARGS="$CELL_ARGS -p $cell"
+        CELL_ARGS="$CELL_ARGS --package $cell"
     done
     cargo build --release --target "$TARGET" $CELL_ARGS
 fi

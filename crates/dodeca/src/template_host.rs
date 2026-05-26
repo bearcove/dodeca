@@ -25,7 +25,7 @@ use crate::db::{Database, SiteTree};
 use crate::queries::{DataValuePath, data_keys_at_path, resolve_data_value};
 use crate::render::{get_base_url, path_to_route, section_to_value};
 
-pub(crate) const TEMPLATE_FUNCTION_NAMES: &[&str] = &[
+pub const TEMPLATE_FUNCTION_NAMES: &[&str] = &[
     "get_url",
     "get_section",
     "now",

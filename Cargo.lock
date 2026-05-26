@@ -2660,6 +2660,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "ddc"
+version = "0.6.1"
+dependencies = [
+ "arboard",
+ "camino",
+ "cell-http-proto",
+ "cell-term-proto",
+ "cell-tui-proto",
+ "chrono",
+ "dodeca",
+ "dodeca-authoring-lsp",
+ "dodeca-debug",
+ "eyre",
+ "facet",
+ "figue",
+ "if-addrs",
+ "ignore",
+ "open",
+ "owo-colors",
+ "tokio",
+ "tracing",
+ "ur-taking-me-with-you",
+ "vox-fdpass",
+ "vox-stream",
+]
+
+[[package]]
 name = "deltae"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2832,7 +2859,6 @@ dependencies = [
  "facet-json",
  "facet-postcard",
  "facet-styx",
- "facet-toml",
  "facet-value",
  "figue",
  "futures-util",
@@ -2849,14 +2875,11 @@ dependencies = [
  "open",
  "owo-colors",
  "picante",
- "pulldown-cmark",
  "rapidhash 4.4.1",
- "serde_json",
  "strid",
  "styx-embed",
  "styx-tree",
  "tokio",
- "tower-lsp",
  "tracing",
  "tracing-subscriber",
  "ur-taking-me-with-you",
@@ -2864,6 +2887,22 @@ dependencies = [
  "vox-fdpass",
  "vox-ffi",
  "vox-stream",
+]
+
+[[package]]
+name = "dodeca-authoring-lsp"
+version = "0.6.1"
+dependencies = [
+ "camino",
+ "dodeca",
+ "eyre",
+ "facet",
+ "gingembre",
+ "marq",
+ "pulldown-cmark",
+ "serde_json",
+ "tokio",
+ "tower-lsp",
 ]
 
 [[package]]
@@ -4649,6 +4688,9 @@ dependencies = [
 name = "integration-tests"
 version = "0.6.1"
 dependencies = [
+ "camino",
+ "dodeca",
+ "dodeca-authoring-lsp",
  "dodeca-search-format",
  "facet-json",
  "facet-value",
@@ -4659,6 +4701,7 @@ dependencies = [
  "regex",
  "tempfile",
  "tokio",
+ "tower-lsp",
  "tracing",
  "tracing-subscriber",
  "ur-taking-me-with-you",

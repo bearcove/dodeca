@@ -22,18 +22,18 @@ use crate::types::{
 };
 
 #[derive(Debug, Clone)]
-pub(crate) struct AuthoringDocumentOverlay {
+pub struct AuthoringDocumentOverlay {
     pub path: AuthoringInputPath,
     pub content: String,
 }
 
-pub(crate) struct AuthoringWorkspace {
+pub struct AuthoringWorkspace {
     ctx: BuildContext,
     overlay_inputs: HashSet<AuthoringInputPath>,
 }
 
 #[derive(Clone)]
-pub(crate) struct AuthoringWorkspaceInputs {
+pub struct AuthoringWorkspaceInputs {
     db: std::sync::Arc<Database>,
     content_dir: Utf8PathBuf,
     sources: std::collections::BTreeMap<SourcePath, SourceFile>,
@@ -43,7 +43,7 @@ pub(crate) struct AuthoringWorkspaceInputs {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) enum AuthoringInputPath {
+pub enum AuthoringInputPath {
     Source(String),
     Template(String),
     Sass(String),
@@ -53,7 +53,7 @@ pub(crate) enum AuthoringInputPath {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct AuthoringProject {
+pub struct AuthoringProject {
     pub pages: Vec<AuthoringPage>,
     pub known_routes: HashSet<String>,
     pub headings_by_route: HashMap<String, HashSet<String>>,
@@ -73,7 +73,7 @@ const TEMPLATE_CONTEXT_ROOTS: &[&str] =
     &["config", "page", "section", "current_path", "root", "data"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct AuthoringPage {
+pub struct AuthoringPage {
     pub kind: AuthoringPageKind,
     pub route: String,
     pub source_file: String,
@@ -87,33 +87,32 @@ pub(crate) struct AuthoringPage {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct AuthoringHeading {
+pub struct AuthoringHeading {
     pub id: String,
     pub title: String,
     pub level: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum AuthoringPageKind {
+pub enum AuthoringPageKind {
     Page,
     Section,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RenderedHref {
+pub struct RenderedHref {
     pub href: String,
     pub origin: Option<RenderedHrefOrigin>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RenderedHrefOrigin {
+pub struct RenderedHrefOrigin {
     pub path: AuthoringInputPath,
     pub byte_start: usize,
     pub byte_end: usize,
 }
 
-#[cfg(test)]
-pub(crate) async fn load_authoring_project(
+pub async fn load_authoring_project(
     content_dir: &Utf8Path,
     overlays: &[AuthoringDocumentOverlay],
 ) -> Result<AuthoringProject> {
@@ -123,7 +122,7 @@ pub(crate) async fn load_authoring_project(
 }
 
 impl AuthoringWorkspace {
-    pub(crate) fn new(content_dir: &Utf8Path) -> Result<Self> {
+    pub fn new(content_dir: &Utf8Path) -> Result<Self> {
         let output_dir = content_dir.parent().unwrap_or(content_dir).join("public");
         let mut ctx = BuildContext::new(content_dir, &output_dir);
         MarkdownRenderSettings::set(&*ctx.db, false)?;
@@ -140,18 +139,18 @@ impl AuthoringWorkspace {
         })
     }
 
-    pub(crate) fn content_dir(&self) -> &Utf8Path {
+    pub fn content_dir(&self) -> &Utf8Path {
         &self.ctx.content_dir
     }
 
-    pub(crate) fn input_path_for_absolute_path(
+    pub fn input_path_for_absolute_path(
         &self,
         path: &Utf8Path,
     ) -> Result<Option<AuthoringInputPath>> {
         input_path_for_absolute_path(&self.ctx, path)
     }
 
-    pub(crate) fn apply_file_change(
+    pub fn apply_file_change(
         &mut self,
         input_path: &AuthoringInputPath,
         content: Option<&str>,
@@ -181,7 +180,7 @@ impl AuthoringWorkspace {
         Ok(())
     }
 
-    pub(crate) fn apply_overlays(&mut self, overlays: &[AuthoringDocumentOverlay]) -> Result<()> {
+    pub fn apply_overlays(&mut self, overlays: &[AuthoringDocumentOverlay]) -> Result<()> {
         let incoming = overlays
             .iter()
             .map(|overlay| overlay.path.clone())
@@ -206,7 +205,7 @@ impl AuthoringWorkspace {
         Ok(())
     }
 
-    pub(crate) fn inputs(&self) -> AuthoringWorkspaceInputs {
+    pub fn inputs(&self) -> AuthoringWorkspaceInputs {
         AuthoringWorkspaceInputs {
             db: self.ctx.db.clone(),
             content_dir: self.ctx.content_dir.clone(),
@@ -487,7 +486,7 @@ fn input_path_for_absolute_path(
 }
 
 impl AuthoringWorkspaceInputs {
-    pub(crate) async fn project(self) -> Result<AuthoringProject> {
+    pub async fn project(self) -> Result<AuthoringProject> {
         build_authoring_project_from_inputs(self).await
     }
 }
@@ -705,18 +704,18 @@ async fn build_authoring_project_from_inputs(
 }
 
 impl AuthoringProject {
-    pub(crate) fn page_for_source_file(&self, source_file: &str) -> Option<&AuthoringPage> {
+    pub fn page_for_source_file(&self, source_file: &str) -> Option<&AuthoringPage> {
         self.pages
             .iter()
             .find(|page| page.source_file == source_file)
     }
 
-    pub(crate) fn page_for_route(&self, target_route: &str) -> Option<&AuthoringPage> {
+    pub fn page_for_route(&self, target_route: &str) -> Option<&AuthoringPage> {
         let source_file = self.source_file_for_route(target_route)?;
         self.page_for_source_file(source_file)
     }
 
-    pub(crate) fn source_file_for_route(&self, target_route: &str) -> Option<&str> {
+    pub fn source_file_for_route(&self, target_route: &str) -> Option<&str> {
         self.route_to_source
             .get(target_route)
             .or_else(|| self.route_to_source.get(target_route.trim_end_matches('/')))
@@ -727,7 +726,7 @@ impl AuthoringProject {
             .map(|source_file| source_file.as_str())
     }
 
-    pub(crate) fn route_exists(&self, target_route: &str) -> bool {
+    pub fn route_exists(&self, target_route: &str) -> bool {
         self.known_routes.contains(target_route)
             || {
                 let without_slash = target_route.trim_end_matches('/');
@@ -741,12 +740,12 @@ impl AuthoringProject {
             }
     }
 
-    pub(crate) fn heading_exists(&self, target_route: &str, heading_id: &str) -> Option<bool> {
+    pub fn heading_exists(&self, target_route: &str, heading_id: &str) -> Option<bool> {
         self.heading_ids_for_route(target_route)
             .map(|ids| ids.contains(heading_id))
     }
 
-    pub(crate) fn heading_for_route(
+    pub fn heading_for_route(
         &self,
         target_route: &str,
         heading_id: &str,
@@ -770,7 +769,7 @@ impl AuthoringProject {
             })
     }
 
-    pub(crate) fn routes_refer_to_same_page(&self, left_route: &str, right_route: &str) -> bool {
+    pub fn routes_refer_to_same_page(&self, left_route: &str, right_route: &str) -> bool {
         match (
             self.source_file_for_route(left_route),
             self.source_file_for_route(right_route),
@@ -780,11 +779,11 @@ impl AuthoringProject {
         }
     }
 
-    pub(crate) fn static_target_exists(&self, source_file: &str, target: &str) -> bool {
+    pub fn static_target_exists(&self, source_file: &str, target: &str) -> bool {
         self.static_target_path(source_file, target).is_some()
     }
 
-    pub(crate) fn static_target_path(&self, source_file: &str, target: &str) -> Option<&str> {
+    pub fn static_target_path(&self, source_file: &str, target: &str) -> Option<&str> {
         let target = strip_query(target);
         if target.is_empty() {
             return None;
