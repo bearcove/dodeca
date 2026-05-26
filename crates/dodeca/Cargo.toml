@@ -65,6 +65,7 @@ facet-postcard.workspace = true
 facet-styx.workspace = true
 facet-toml.workspace = true
 styx-embed.workspace = true
+styx-tree.workspace = true
 facet-value.workspace = true
 futures-util.workspace = true
 gingembre = { path = "../gingembre" }
