@@ -886,7 +886,11 @@ impl Backend {
             return Ok(actions);
         }
 
-        let diagnostics = diagnostics_for_uri(&dirs.content_dir, project, &uri, &content)?;
+        let source_file = source_file_for_path(&dirs.content_dir, &path)?;
+        let page = project
+            .page_for_source_file(&source_file)
+            .ok_or_else(|| eyre!("missing authoring page for {source_file}"))?;
+        let diagnostics = diagnostics_for_page(project, page, &content);
         let lsp_diagnostics = diagnostics
             .iter()
             .map(authoring_diagnostic_to_lsp)
@@ -896,6 +900,9 @@ impl Backend {
         if let Some(action) =
             extract_page_code_action(&dirs.content_dir, project, &uri, &content, params.range)?
         {
+            actions.push(action);
+        }
+        if let Some(action) = create_frontmatter_code_action(&uri, page, &content, params.range) {
             actions.push(action);
         }
         for diagnostic in diagnostics
@@ -3088,6 +3095,39 @@ fn is_creatable_template_path(path: &str) -> bool {
         && path.ends_with(".html")
         && !path.starts_with('/')
         && !path.split('/').any(|part| part.is_empty() || part == "..")
+}
+
+fn create_frontmatter_code_action(
+    uri: &Url,
+    page: &AuthoringPage,
+    content: &str,
+    range: Range,
+) -> Option<CodeActionOrCommand> {
+    if frontmatter_lsp_range(content).is_some() || range.start.line > 1 {
+        return None;
+    }
+    let mut new_text = page_frontmatter(&page.title);
+    if !content.is_empty() {
+        new_text.push('\n');
+    }
+    Some(CodeActionOrCommand::CodeAction(CodeAction {
+        title: "Create frontmatter".to_string(),
+        kind: Some(CodeActionKind::QUICKFIX),
+        diagnostics: None,
+        edit: Some(WorkspaceEdit::new(HashMap::from([(
+            uri.clone(),
+            vec![TextEdit::new(
+                Range {
+                    start: Position::new(0, 0),
+                    end: Position::new(0, 0),
+                },
+                new_text,
+            )],
+        )]))),
+        command: None,
+        is_preferred: Some(false),
+        ..CodeAction::default()
+    }))
 }
 
 fn missing_anchor_code_actions(
@@ -9648,6 +9688,45 @@ mod tests {
             page_frontmatter("New \"Page\""),
             "+++\ntitle = \"New \\\"Page\\\"\"\n+++\n"
         );
+    }
+
+    #[test]
+    fn code_action_creates_frontmatter_without_duplicate_markup_title() {
+        let uri = Url::from_file_path("/tmp/dodeca/content/guide.md").expect("source uri");
+        let page = AuthoringPage {
+            kind: AuthoringPageKind::Page,
+            route: "/guide".to_string(),
+            source_file: "guide.md".to_string(),
+            title: "Guide".to_string(),
+            description: None,
+            template: "page.html".to_string(),
+            output_path: "guide/index.html".to_string(),
+            headings: Vec::new(),
+            heading_ids: Vec::new(),
+            link_base_route: "/".to_string(),
+        };
+        let action = create_frontmatter_code_action(
+            &uri,
+            &page,
+            "# Guide\n\nBody\n",
+            Range {
+                start: Position::new(0, 0),
+                end: Position::new(0, 0),
+            },
+        )
+        .expect("frontmatter action");
+        let CodeActionOrCommand::CodeAction(action) = action else {
+            panic!("expected code action");
+        };
+        let edit = action.edit.expect("workspace edit");
+        let edits = edit
+            .changes
+            .expect("changes")
+            .remove(&uri)
+            .expect("source edits");
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].new_text, "+++\ntitle = \"Guide\"\n+++\n\n");
+        assert!(!edits[0].new_text.contains("# Guide"));
     }
 
     #[test]
