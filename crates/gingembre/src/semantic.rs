@@ -170,6 +170,27 @@ impl TemplateSemanticIndex {
             .collect()
     }
 
+    pub fn references_to_symbol_with_access(
+        &self,
+        symbol_id: usize,
+        access: TemplateReferenceAccess,
+    ) -> Vec<&TemplateReference> {
+        self.references
+            .iter()
+            .filter(|reference| {
+                reference.symbol_id == Some(symbol_id) && reference.access == access
+            })
+            .collect()
+    }
+
+    pub fn read_references_to_symbol(&self, symbol_id: usize) -> Vec<&TemplateReference> {
+        self.references_to_symbol_with_access(symbol_id, TemplateReferenceAccess::Read)
+    }
+
+    pub fn write_references_to_symbol(&self, symbol_id: usize) -> Vec<&TemplateReference> {
+        self.references_to_symbol_with_access(symbol_id, TemplateReferenceAccess::Write)
+    }
+
     pub fn visible_symbols_at_offset(&self, offset: usize) -> Vec<&TemplateSymbol> {
         let mut scope_ids = self
             .scopes
@@ -801,6 +822,8 @@ mod tests {
             .symbol_for_offset(offsets[0])
             .expect("first set binding");
         let references = index.references_to_symbol(symbol.id);
+        assert_eq!(index.write_references_to_symbol(symbol.id).len(), 1);
+        assert_eq!(index.read_references_to_symbol(symbol.id).len(), 1);
         assert_eq!(
             references
                 .iter()

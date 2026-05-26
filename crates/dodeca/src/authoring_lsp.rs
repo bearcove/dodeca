@@ -7,8 +7,8 @@ use facet::{Facet, NumericType, PrimitiveType, Type, UserType};
 use gingembre::ast::{Expr, Ident, Node, StringLit};
 use gingembre::parser::Parser as TemplateParser;
 use gingembre::semantic::{
-    TemplateReferenceKind, TemplateSemanticIndex, TemplateSemanticTokenKind, TemplateSymbol,
-    TemplateSymbolKind, TemplateSymbolOrigin,
+    TemplateReferenceAccess, TemplateReferenceKind, TemplateSemanticIndex,
+    TemplateSemanticTokenKind, TemplateSymbol, TemplateSymbolKind, TemplateSymbolOrigin,
 };
 use gingembre::{BUILTIN_FILTERS, BUILTIN_TESTS, BuiltinItemInfo, builtin_filter, builtin_test};
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
@@ -3456,7 +3456,7 @@ fn template_semantic_hover(
             | TemplateReferenceKind::Function
             | TemplateReferenceKind::MacroNamespace => {
                 let symbol = reference.symbol_id.and_then(|id| index.symbols.get(id))?;
-                template_symbol_hover_markdown(symbol)
+                template_symbol_reference_hover_markdown(index, symbol, reference.access)
             }
         };
         return Some(markdown_hover(
@@ -3648,6 +3648,24 @@ fn template_symbol_hover_markdown(symbol: &TemplateSymbol) -> String {
     format!(
         "**{}** `{}`\n\n{}",
         info.detail, symbol.name, info.documentation
+    )
+}
+
+fn template_symbol_reference_hover_markdown(
+    index: &TemplateSemanticIndex,
+    symbol: &TemplateSymbol,
+    access: TemplateReferenceAccess,
+) -> String {
+    let info = template_symbol_info(symbol);
+    let read_count = index.read_references_to_symbol(symbol.id).len();
+    let write_count = index.write_references_to_symbol(symbol.id).len();
+    let access_label = match access {
+        TemplateReferenceAccess::Read => "Read",
+        TemplateReferenceAccess::Write => "Write",
+    };
+    format!(
+        "**{}** `{}`\n\n{}\n\n{} reference. {read_count} read reference(s), {write_count} write reference(s).",
+        info.detail, symbol.name, info.documentation, access_label
     )
 }
 
@@ -10164,6 +10182,20 @@ mod tests {
         };
         assert!(markup.value.contains("Section pages"));
         assert!(markup.value.contains("nearest parent section"));
+
+        let local_hover = template_semantic_hover(
+            &project,
+            "page.html",
+            template,
+            position_for_nth(template, "local_route", 1),
+        )
+        .expect("local variable hover");
+        let HoverContents::Markup(markup) = local_hover.contents else {
+            panic!("expected local variable markdown hover");
+        };
+        assert!(markup.value.contains("Read reference"));
+        assert!(markup.value.contains("1 read reference"));
+        assert!(markup.value.contains("0 write reference"));
 
         let definition = template_semantic_definition(
             &content_dir,
