@@ -679,8 +679,8 @@ impl Backend {
 
     async fn authoring_diagnostics(&self) -> Result<Vec<AuthoringDiagnostic>> {
         let dirs = self.dirs()?;
-        let project = self.current_project(&dirs).await?;
-        Ok(load_authoring_diagnostics(&project))
+        let world = self.current_world(&dirs).await?;
+        Ok(load_authoring_diagnostics_for_world(&world))
     }
 
     async fn authoring_route_graph(&self) -> Result<Vec<RouteGraphNode>> {
@@ -806,7 +806,7 @@ impl Backend {
         let project = &world.project;
         let path = lsp_file_uri_to_utf8_path(&uri)?;
         if let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? {
-            let diagnostics = diagnostics_for_template(project, &template_file, &content);
+            let diagnostics = world.template_index.diagnostics(&template_file).to_vec();
             let lsp_diagnostics = diagnostics
                 .iter()
                 .map(authoring_diagnostic_to_lsp)
@@ -1413,8 +1413,8 @@ impl Backend {
                 return;
             }
         };
-        let project = match self.current_project(&dirs).await {
-            Ok(project) => project,
+        let world = match self.current_world(&dirs).await {
+            Ok(world) => world,
             Err(err) => {
                 self.client
                     .log_message(MessageType::ERROR, err.to_string())
@@ -1431,6 +1431,7 @@ impl Backend {
                 return;
             }
         };
+        let project = &world.project;
         let path = match lsp_file_uri_to_utf8_path(&uri) {
             Ok(path) => path,
             Err(err) => {
@@ -1444,7 +1445,9 @@ impl Backend {
         if let Some(template_file) =
             template_file_for_path(&dirs.content_dir, &path).unwrap_or(None)
         {
-            let diagnostics = diagnostics_for_template(&project, &template_file, &content)
+            let diagnostics = world
+                .template_index
+                .diagnostics(&template_file)
                 .iter()
                 .map(authoring_diagnostic_to_lsp)
                 .collect::<Vec<_>>();
@@ -1457,7 +1460,7 @@ impl Backend {
             self.client.publish_diagnostics(uri, Vec::new(), None).await;
             return;
         }
-        let diagnostics = match diagnostics_for_uri(&dirs.content_dir, &project, &uri, &content) {
+        let diagnostics = match diagnostics_for_uri(&dirs.content_dir, project, &uri, &content) {
             Ok(diagnostics) => diagnostics
                 .iter()
                 .map(authoring_diagnostic_to_lsp)
@@ -1480,8 +1483,8 @@ impl Backend {
             Ok(dirs) => dirs,
             Err(_) => return,
         };
-        let project = match self.current_project(&dirs).await {
-            Ok(project) => project,
+        let world = match self.current_world(&dirs).await {
+            Ok(world) => world,
             Err(err) => {
                 self.client
                     .log_message(MessageType::ERROR, err.to_string())
@@ -1489,7 +1492,8 @@ impl Backend {
                 return;
             }
         };
-        let diagnostics = load_authoring_diagnostics(&project);
+        let project = &world.project;
+        let diagnostics = load_authoring_diagnostics_for_world(&world);
         let mut diagnostics_by_source: HashMap<String, Vec<Diagnostic>> = HashMap::new();
         for diagnostic in diagnostics {
             diagnostics_by_source
@@ -1746,6 +1750,7 @@ struct IndexedTemplate {
     semantic: Option<TemplateSemanticIndex>,
     extends: Option<String>,
     dependencies: Vec<String>,
+    diagnostics: Vec<AuthoringDiagnostic>,
     document_targets: Vec<TemplateDocumentTarget>,
     route_references: Vec<TemplateRouteReference>,
     blocks: Vec<TemplateBlockOccurrence>,
@@ -1811,7 +1816,8 @@ impl AuthoringDiagnostic {
     }
 }
 
-fn load_authoring_diagnostics(project: &AuthoringProject) -> Vec<AuthoringDiagnostic> {
+fn load_authoring_diagnostics_for_world(world: &AuthoringWorld) -> Vec<AuthoringDiagnostic> {
+    let project = &world.project;
     let mut diagnostics = Vec::new();
 
     for page in &project.pages {
@@ -1821,9 +1827,7 @@ fn load_authoring_diagnostics(project: &AuthoringProject) -> Vec<AuthoringDiagno
         diagnostics.extend(diagnostics_for_page(project, page, content));
     }
 
-    for (template_file, content) in &project.template_contents {
-        diagnostics.extend(diagnostics_for_template(project, template_file, content));
-    }
+    diagnostics.extend(world.template_index.all_diagnostics());
     diagnostics.extend(site_graph_diagnostics(project));
 
     diagnostics.sort_by(|a, b| {
@@ -1870,6 +1874,7 @@ fn diagnostics_for_page(
     diagnostics
 }
 
+#[cfg(test)]
 fn diagnostics_for_template(
     project: &AuthoringProject,
     template_file: &str,
@@ -1879,15 +1884,24 @@ fn diagnostics_for_template(
         return Vec::new();
     };
 
+    diagnostics_for_template_nodes(project, template_file, content, &template.body)
+}
+
+fn diagnostics_for_template_nodes(
+    project: &AuthoringProject,
+    template_file: &str,
+    content: &str,
+    nodes: &[Node],
+) -> Vec<AuthoringDiagnostic> {
     let mut diagnostics = Vec::new();
-    let imports = template_import_aliases(project, &template.body);
-    let parent_file = template_extends_path(template_file, content, &mut HashSet::new())
+    let imports = template_import_aliases(project, nodes);
+    let parent_file = template_extends_path_from_nodes(nodes)
         .filter(|path| project.template_paths.contains_key(path));
     collect_template_diagnostics(
         project,
         template_file,
         content,
-        &template.body,
+        nodes,
         parent_file.as_deref(),
         &imports,
         &mut diagnostics,
@@ -7216,6 +7230,12 @@ impl TemplateAuthoringIndex {
                     semantic: project.template_semantics.get(template_file).cloned(),
                     extends: template_extends_path_from_nodes(&template.body),
                     dependencies: template_path_dependencies(&template.body),
+                    diagnostics: diagnostics_for_template_nodes(
+                        project,
+                        template_file,
+                        content,
+                        &template.body,
+                    ),
                     document_targets: template_document_targets_for_nodes(
                         project,
                         content,
@@ -7303,6 +7323,28 @@ impl TemplateAuthoringIndex {
             .iter()
             .find(|reference| range_contains_position(&reference.source_range, position))
             .cloned()
+    }
+
+    fn diagnostics(&self, template_file: &str) -> &[AuthoringDiagnostic] {
+        self.templates
+            .get(template_file)
+            .map(|template| template.diagnostics.as_slice())
+            .unwrap_or_default()
+    }
+
+    fn all_diagnostics(&self) -> Vec<AuthoringDiagnostic> {
+        let mut diagnostics = self
+            .templates
+            .values()
+            .flat_map(|template| template.diagnostics.iter().cloned())
+            .collect::<Vec<_>>();
+        diagnostics.sort_by(|a, b| {
+            a.source_file
+                .cmp(&b.source_file)
+                .then_with(|| a.byte_start.cmp(&b.byte_start))
+                .then_with(|| a.target.cmp(&b.target))
+        });
+        diagnostics
     }
 
     fn document_reference_targets(
