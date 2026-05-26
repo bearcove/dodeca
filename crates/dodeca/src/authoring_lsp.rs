@@ -1101,6 +1101,11 @@ impl Backend {
                     &target.target_path,
                 );
             }
+            if let Some((target_file, macro_name)) =
+                template_macro_reference_query(project, &template_file, &content, position)?
+            {
+                return template_macro_references(project, &target_file, &macro_name);
+            }
             if let Some(reference) =
                 template_route_reference_at_position(project, &template_file, &content, position)
                 && let Some(target_page) = project.page_for_route(&reference.target_route)
@@ -7307,6 +7312,565 @@ fn template_block_references(
     Ok(locations)
 }
 
+fn template_macro_reference_query(
+    project: &AuthoringProject,
+    template_file: &str,
+    content: &str,
+    position: Position,
+) -> Result<Option<(String, String)>> {
+    if let Some(ident) = template_macro_definition_at_position(template_file, content, position) {
+        return Ok(Some((template_file.to_string(), ident.name)));
+    }
+
+    let Some(target) =
+        template_definition_target_at_position(project, template_file, content, position)?
+    else {
+        return Ok(None);
+    };
+    if target.kind != TemplateDefinitionKind::Macro {
+        return Ok(None);
+    }
+    let Some(target_file) = template_file_for_template_path(project, &target.target_path) else {
+        return Ok(None);
+    };
+    let macro_name = target
+        .name
+        .rsplit_once("::")
+        .map(|(_, name)| name)
+        .unwrap_or(&target.name)
+        .to_string();
+    Ok(Some((target_file.to_string(), macro_name)))
+}
+
+fn template_macro_definition_at_position(
+    template_file: &str,
+    content: &str,
+    position: Position,
+) -> Option<Ident> {
+    let template = TemplateParser::new(template_file, content).parse().ok()?;
+    template_macro_definitions(&template.body)
+        .into_iter()
+        .find(|ident| range_contains_position(&template_ident_range(content, ident), position))
+}
+
+fn template_macro_definitions(nodes: &[Node]) -> Vec<Ident> {
+    let mut definitions = Vec::new();
+    collect_template_macro_definitions(nodes, &mut definitions);
+    definitions
+}
+
+fn collect_template_macro_definitions(nodes: &[Node], definitions: &mut Vec<Ident>) {
+    for node in nodes {
+        match node {
+            Node::Macro(node) => {
+                definitions.push(node.name.clone());
+                collect_template_macro_definitions(&node.body, definitions);
+            }
+            Node::If(node) => {
+                collect_template_macro_definitions(&node.then_body, definitions);
+                for branch in &node.elif_branches {
+                    collect_template_macro_definitions(&branch.body, definitions);
+                }
+                if let Some(body) = &node.else_body {
+                    collect_template_macro_definitions(body, definitions);
+                }
+            }
+            Node::For(node) => {
+                collect_template_macro_definitions(&node.body, definitions);
+                if let Some(body) = &node.else_body {
+                    collect_template_macro_definitions(body, definitions);
+                }
+            }
+            Node::Block(node) => collect_template_macro_definitions(&node.body, definitions),
+            Node::Text(_)
+            | Node::Print(_)
+            | Node::Include(_)
+            | Node::Extends(_)
+            | Node::Comment(_)
+            | Node::Set(_)
+            | Node::Import(_)
+            | Node::Continue(_)
+            | Node::Break(_)
+            | Node::CallBlock(_) => {}
+        }
+    }
+}
+
+fn template_macro_references(
+    project: &AuthoringProject,
+    target_template_file: &str,
+    macro_name: &str,
+) -> Result<Vec<Location>> {
+    let mut locations = Vec::new();
+    let Some(target_content) = project.template_contents.get(target_template_file) else {
+        return Ok(locations);
+    };
+    let Some(target_path) = project.template_paths.get(target_template_file) else {
+        return Ok(locations);
+    };
+    let target_template = TemplateParser::new(target_template_file, target_content)
+        .parse()
+        .ok();
+    if let Some(template) = target_template {
+        for ident in template_macro_definitions(&template.body) {
+            if ident.name == macro_name {
+                locations.push(Location {
+                    uri: Url::from_file_path(target_path.as_std_path()).map_err(|_| {
+                        eyre!("could not convert template path to URI: {target_path}")
+                    })?,
+                    range: template_ident_range(target_content, &ident),
+                });
+            }
+        }
+    }
+
+    for (template_file, content) in &project.template_contents {
+        let Some(path) = project.template_paths.get(template_file) else {
+            continue;
+        };
+        let Ok(template) = TemplateParser::new(template_file, content).parse() else {
+            continue;
+        };
+        let imports = template_import_aliases(project, &template.body);
+        let mut references = Vec::new();
+        collect_template_macro_call_references(
+            template_file,
+            target_template_file,
+            macro_name,
+            &imports,
+            &template.body,
+            &mut references,
+        );
+        for ident in references {
+            locations.push(Location {
+                uri: Url::from_file_path(path.as_std_path())
+                    .map_err(|_| eyre!("could not convert template path to URI: {path}"))?,
+                range: template_ident_range(content, &ident),
+            });
+        }
+    }
+
+    locations.sort_by(|a, b| {
+        a.uri
+            .as_str()
+            .cmp(b.uri.as_str())
+            .then_with(|| position_cmp(a.range.start, b.range.start))
+            .then_with(|| position_cmp(a.range.end, b.range.end))
+    });
+    locations.dedup_by(|left, right| left.uri == right.uri && left.range == right.range);
+    Ok(locations)
+}
+
+fn collect_template_macro_call_references(
+    template_file: &str,
+    target_template_file: &str,
+    macro_name: &str,
+    imports: &HashMap<String, String>,
+    nodes: &[Node],
+    references: &mut Vec<Ident>,
+) {
+    for node in nodes {
+        match node {
+            Node::Print(node) => collect_expr_macro_call_references(
+                template_file,
+                target_template_file,
+                macro_name,
+                imports,
+                &node.expr,
+                references,
+            ),
+            Node::If(node) => {
+                collect_expr_macro_call_references(
+                    template_file,
+                    target_template_file,
+                    macro_name,
+                    imports,
+                    &node.condition,
+                    references,
+                );
+                collect_template_macro_call_references(
+                    template_file,
+                    target_template_file,
+                    macro_name,
+                    imports,
+                    &node.then_body,
+                    references,
+                );
+                for branch in &node.elif_branches {
+                    collect_expr_macro_call_references(
+                        template_file,
+                        target_template_file,
+                        macro_name,
+                        imports,
+                        &branch.condition,
+                        references,
+                    );
+                    collect_template_macro_call_references(
+                        template_file,
+                        target_template_file,
+                        macro_name,
+                        imports,
+                        &branch.body,
+                        references,
+                    );
+                }
+                if let Some(body) = &node.else_body {
+                    collect_template_macro_call_references(
+                        template_file,
+                        target_template_file,
+                        macro_name,
+                        imports,
+                        body,
+                        references,
+                    );
+                }
+            }
+            Node::For(node) => {
+                collect_expr_macro_call_references(
+                    template_file,
+                    target_template_file,
+                    macro_name,
+                    imports,
+                    &node.iter,
+                    references,
+                );
+                collect_template_macro_call_references(
+                    template_file,
+                    target_template_file,
+                    macro_name,
+                    imports,
+                    &node.body,
+                    references,
+                );
+                if let Some(body) = &node.else_body {
+                    collect_template_macro_call_references(
+                        template_file,
+                        target_template_file,
+                        macro_name,
+                        imports,
+                        body,
+                        references,
+                    );
+                }
+            }
+            Node::Block(node) => collect_template_macro_call_references(
+                template_file,
+                target_template_file,
+                macro_name,
+                imports,
+                &node.body,
+                references,
+            ),
+            Node::Set(node) => collect_expr_macro_call_references(
+                template_file,
+                target_template_file,
+                macro_name,
+                imports,
+                &node.value,
+                references,
+            ),
+            Node::Macro(node) => collect_template_macro_call_references(
+                template_file,
+                target_template_file,
+                macro_name,
+                imports,
+                &node.body,
+                references,
+            ),
+            Node::CallBlock(node) => {
+                for (_, expr) in &node.kwargs {
+                    collect_expr_macro_call_references(
+                        template_file,
+                        target_template_file,
+                        macro_name,
+                        imports,
+                        expr,
+                        references,
+                    );
+                }
+            }
+            Node::Text(_)
+            | Node::Include(_)
+            | Node::Extends(_)
+            | Node::Comment(_)
+            | Node::Import(_)
+            | Node::Continue(_)
+            | Node::Break(_) => {}
+        }
+    }
+}
+
+fn collect_expr_macro_call_references(
+    template_file: &str,
+    target_template_file: &str,
+    macro_name: &str,
+    imports: &HashMap<String, String>,
+    expr: &Expr,
+    references: &mut Vec<Ident>,
+) {
+    match expr {
+        Expr::MacroCall(expr) => {
+            let target_file = if expr.namespace.name == "self" {
+                Some(template_file)
+            } else {
+                imports.get(&expr.namespace.name).map(|path| path.as_str())
+            };
+            if target_file == Some(target_template_file) && expr.macro_name.name == macro_name {
+                references.push(expr.macro_name.clone());
+            }
+            for arg in &expr.args {
+                collect_expr_macro_call_references(
+                    template_file,
+                    target_template_file,
+                    macro_name,
+                    imports,
+                    arg,
+                    references,
+                );
+            }
+            for (_, expr) in &expr.kwargs {
+                collect_expr_macro_call_references(
+                    template_file,
+                    target_template_file,
+                    macro_name,
+                    imports,
+                    expr,
+                    references,
+                );
+            }
+        }
+        Expr::Field(expr) => collect_expr_macro_call_references(
+            template_file,
+            target_template_file,
+            macro_name,
+            imports,
+            &expr.base,
+            references,
+        ),
+        Expr::Index(expr) => {
+            collect_expr_macro_call_references(
+                template_file,
+                target_template_file,
+                macro_name,
+                imports,
+                &expr.base,
+                references,
+            );
+            collect_expr_macro_call_references(
+                template_file,
+                target_template_file,
+                macro_name,
+                imports,
+                &expr.index,
+                references,
+            );
+        }
+        Expr::Filter(expr) => {
+            collect_expr_macro_call_references(
+                template_file,
+                target_template_file,
+                macro_name,
+                imports,
+                &expr.expr,
+                references,
+            );
+            for arg in &expr.args {
+                collect_expr_macro_call_references(
+                    template_file,
+                    target_template_file,
+                    macro_name,
+                    imports,
+                    arg,
+                    references,
+                );
+            }
+            for (_, expr) in &expr.kwargs {
+                collect_expr_macro_call_references(
+                    template_file,
+                    target_template_file,
+                    macro_name,
+                    imports,
+                    expr,
+                    references,
+                );
+            }
+        }
+        Expr::Binary(expr) => {
+            collect_expr_macro_call_references(
+                template_file,
+                target_template_file,
+                macro_name,
+                imports,
+                &expr.left,
+                references,
+            );
+            collect_expr_macro_call_references(
+                template_file,
+                target_template_file,
+                macro_name,
+                imports,
+                &expr.right,
+                references,
+            );
+        }
+        Expr::Unary(expr) => collect_expr_macro_call_references(
+            template_file,
+            target_template_file,
+            macro_name,
+            imports,
+            &expr.expr,
+            references,
+        ),
+        Expr::Call(expr) => {
+            collect_expr_macro_call_references(
+                template_file,
+                target_template_file,
+                macro_name,
+                imports,
+                &expr.func,
+                references,
+            );
+            for arg in &expr.args {
+                collect_expr_macro_call_references(
+                    template_file,
+                    target_template_file,
+                    macro_name,
+                    imports,
+                    arg,
+                    references,
+                );
+            }
+            for (_, expr) in &expr.kwargs {
+                collect_expr_macro_call_references(
+                    template_file,
+                    target_template_file,
+                    macro_name,
+                    imports,
+                    expr,
+                    references,
+                );
+            }
+        }
+        Expr::Ternary(expr) => {
+            collect_expr_macro_call_references(
+                template_file,
+                target_template_file,
+                macro_name,
+                imports,
+                &expr.value,
+                references,
+            );
+            collect_expr_macro_call_references(
+                template_file,
+                target_template_file,
+                macro_name,
+                imports,
+                &expr.condition,
+                references,
+            );
+            collect_expr_macro_call_references(
+                template_file,
+                target_template_file,
+                macro_name,
+                imports,
+                &expr.otherwise,
+                references,
+            );
+        }
+        Expr::Test(expr) => {
+            collect_expr_macro_call_references(
+                template_file,
+                target_template_file,
+                macro_name,
+                imports,
+                &expr.expr,
+                references,
+            );
+            for arg in &expr.args {
+                collect_expr_macro_call_references(
+                    template_file,
+                    target_template_file,
+                    macro_name,
+                    imports,
+                    arg,
+                    references,
+                );
+            }
+        }
+        Expr::Literal(literal) => {
+            collect_literal_macro_call_references(
+                template_file,
+                target_template_file,
+                macro_name,
+                imports,
+                literal,
+                references,
+            );
+        }
+        Expr::Var(_) => {}
+    }
+}
+
+fn collect_literal_macro_call_references(
+    template_file: &str,
+    target_template_file: &str,
+    macro_name: &str,
+    imports: &HashMap<String, String>,
+    literal: &gingembre::ast::Literal,
+    references: &mut Vec<Ident>,
+) {
+    match literal {
+        gingembre::ast::Literal::List(list) => {
+            for expr in &list.elements {
+                collect_expr_macro_call_references(
+                    template_file,
+                    target_template_file,
+                    macro_name,
+                    imports,
+                    expr,
+                    references,
+                );
+            }
+        }
+        gingembre::ast::Literal::Dict(dict) => {
+            for (key, value) in &dict.entries {
+                collect_expr_macro_call_references(
+                    template_file,
+                    target_template_file,
+                    macro_name,
+                    imports,
+                    key,
+                    references,
+                );
+                collect_expr_macro_call_references(
+                    template_file,
+                    target_template_file,
+                    macro_name,
+                    imports,
+                    value,
+                    references,
+                );
+            }
+        }
+        gingembre::ast::Literal::String(_)
+        | gingembre::ast::Literal::Int(_)
+        | gingembre::ast::Literal::Float(_)
+        | gingembre::ast::Literal::Bool(_)
+        | gingembre::ast::Literal::None(_) => {}
+    }
+}
+
+fn template_file_for_template_path<'a>(
+    project: &'a AuthoringProject,
+    target_path: &Utf8Path,
+) -> Option<&'a str> {
+    project
+        .template_paths
+        .iter()
+        .find(|(_, path)| path.as_path() == target_path)
+        .map(|(template_file, _)| template_file.as_str())
+}
+
 fn template_definition_target_at_position(
     project: &AuthoringProject,
     template_file: &str,
@@ -8960,6 +9524,74 @@ mod tests {
         ));
         assert!(test.target_path.ends_with("gingembre/src/eval.rs"));
         assert!(test.hover_markdown().contains("value is a string"));
+
+        std::fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[tokio::test]
+    async fn finds_imported_template_macro_references() {
+        let dir = temp_dir("template-macro-references");
+        let content_dir = dir.join("content");
+        let templates_dir = dir.join("templates");
+        std::fs::create_dir_all(&content_dir).expect("create content dir");
+        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
+        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
+
+        let macros = "{% macro card(title) %}{{ title }}{% endmacro %}\n";
+        let page = "{% import \"macros.html\" as ui %}\n{{ ui::card(\"Hi\") }}\n";
+        let other = "{% import \"macros.html\" as kit %}\n{% set rendered = kit::card(\"Yo\") %}\n";
+        std::fs::write(templates_dir.join("macros.html"), macros).expect("write macros");
+        std::fs::write(templates_dir.join("page.html"), page).expect("write page");
+        std::fs::write(templates_dir.join("other.html"), other).expect("write other");
+
+        let project = load_authoring_project(&content_dir, &[])
+            .await
+            .expect("load project");
+
+        let definition_query = template_macro_reference_query(
+            &project,
+            "macros.html",
+            macros,
+            position_for(macros, "card"),
+        )
+        .expect("definition query")
+        .expect("definition query");
+        assert_eq!(
+            definition_query,
+            ("macros.html".to_string(), "card".to_string())
+        );
+
+        let call_query =
+            template_macro_reference_query(&project, "page.html", page, position_for(page, "card"))
+                .expect("call query")
+                .expect("call query");
+        assert_eq!(call_query, ("macros.html".to_string(), "card".to_string()));
+
+        let references =
+            template_macro_references(&project, "macros.html", "card").expect("references");
+        assert_eq!(
+            references
+                .iter()
+                .map(|location| {
+                    Utf8PathBuf::from_path_buf(location.uri.to_file_path().expect("file uri"))
+                        .expect("utf8 path")
+                        .strip_prefix(&templates_dir)
+                        .expect("template relative")
+                        .to_string()
+                })
+                .collect::<Vec<_>>(),
+            vec![
+                "macros.html".to_string(),
+                "other.html".to_string(),
+                "page.html".to_string(),
+            ]
+        );
+        for (content, index) in [(macros, 0), (other, 0), (page, 0)] {
+            assert!(references.iter().any(|location| range_contains_position(
+                &location.range,
+                position_for_nth(content, "card", index)
+            )));
+        }
 
         std::fs::remove_dir_all(&dir).expect("remove temp dir");
     }
