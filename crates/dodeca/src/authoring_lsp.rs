@@ -686,7 +686,11 @@ impl Backend {
                 | AuthoringDiagnosticKind::MissingBlock
                 | AuthoringDiagnosticKind::UnknownMacro
                 | AuthoringDiagnosticKind::UnknownFilter
-                | AuthoringDiagnosticKind::UnknownTest => {}
+                | AuthoringDiagnosticKind::UnknownTest
+                | AuthoringDiagnosticKind::DuplicateTitle
+                | AuthoringDiagnosticKind::DuplicateRoute
+                | AuthoringDiagnosticKind::OrphanPage
+                | AuthoringDiagnosticKind::NoInboundLinks => {}
             }
         }
 
@@ -1281,6 +1285,10 @@ enum AuthoringDiagnosticKind {
     UnknownMacro,
     UnknownFilter,
     UnknownTest,
+    DuplicateTitle,
+    DuplicateRoute,
+    OrphanPage,
+    NoInboundLinks,
 }
 
 impl AuthoringDiagnostic {
@@ -1311,6 +1319,7 @@ fn load_authoring_diagnostics(project: &AuthoringProject) -> Vec<AuthoringDiagno
     for (template_file, content) in &project.template_contents {
         diagnostics.extend(diagnostics_for_template(project, template_file, content));
     }
+    diagnostics.extend(site_graph_diagnostics(project));
 
     diagnostics.sort_by(|a, b| {
         a.source_file
@@ -1379,6 +1388,160 @@ fn diagnostics_for_template(
         &mut diagnostics,
     );
     diagnostics
+}
+
+fn site_graph_diagnostics(project: &AuthoringProject) -> Vec<AuthoringDiagnostic> {
+    let mut diagnostics = Vec::new();
+    diagnostics.extend(duplicate_title_diagnostics(project));
+    diagnostics.extend(duplicate_route_diagnostics(project));
+    diagnostics.extend(inbound_link_diagnostics(project));
+    diagnostics
+}
+
+fn duplicate_title_diagnostics(project: &AuthoringProject) -> Vec<AuthoringDiagnostic> {
+    let mut by_title: HashMap<&str, Vec<&AuthoringPage>> = HashMap::new();
+    for page in &project.pages {
+        if !page.title.trim().is_empty() {
+            by_title.entry(page.title.as_str()).or_default().push(page);
+        }
+    }
+
+    by_title
+        .into_iter()
+        .filter(|(_, pages)| pages.len() > 1)
+        .flat_map(|(title, pages)| {
+            pages.into_iter().filter_map(move |page| {
+                let content = project.source_contents.get(&page.source_file)?;
+                Some(site_graph_diagnostic_for_page(
+                    page,
+                    content,
+                    AuthoringDiagnosticKind::DuplicateTitle,
+                    title,
+                    format!("title '{title}' is used by multiple pages"),
+                ))
+            })
+        })
+        .collect()
+}
+
+fn duplicate_route_diagnostics(project: &AuthoringProject) -> Vec<AuthoringDiagnostic> {
+    let mut by_route: HashMap<&str, Vec<&AuthoringPage>> = HashMap::new();
+    for page in &project.pages {
+        by_route.entry(page.route.as_str()).or_default().push(page);
+    }
+
+    by_route
+        .into_iter()
+        .filter(|(_, pages)| pages.len() > 1)
+        .flat_map(|(route, pages)| {
+            pages.into_iter().filter_map(move |page| {
+                let content = project.source_contents.get(&page.source_file)?;
+                Some(site_graph_diagnostic_for_page(
+                    page,
+                    content,
+                    AuthoringDiagnosticKind::DuplicateRoute,
+                    route,
+                    format!("route '{route}' is produced by multiple source files"),
+                ))
+            })
+        })
+        .collect()
+}
+
+fn inbound_link_diagnostics(project: &AuthoringProject) -> Vec<AuthoringDiagnostic> {
+    let inbound_counts = inbound_link_counts(project);
+    project
+        .pages
+        .iter()
+        .filter(|page| page.route != "/")
+        .filter(|page| inbound_counts.get(&page.route).copied().unwrap_or(0) == 0)
+        .filter(|page| !is_section_landing_with_children(project, page))
+        .filter_map(|page| {
+            let content = project.source_contents.get(&page.source_file)?;
+            let kind = match page.kind {
+                AuthoringPageKind::Page => AuthoringDiagnosticKind::OrphanPage,
+                AuthoringPageKind::Section => AuthoringDiagnosticKind::NoInboundLinks,
+            };
+            Some(site_graph_diagnostic_for_page(
+                page,
+                content,
+                kind,
+                &page.route,
+                format!("{} has no inbound links", page.route),
+            ))
+        })
+        .collect()
+}
+
+fn inbound_link_counts(project: &AuthoringProject) -> HashMap<String, usize> {
+    let mut counts = HashMap::new();
+    for page in &project.pages {
+        let Some(content) = project.source_contents.get(&page.source_file) else {
+            continue;
+        };
+        for reference in markdown_references(content) {
+            let Some(target_route) = reference_target_route(project, page, &reference) else {
+                continue;
+            };
+            if project.route_exists(&target_route) && target_route != page.route {
+                *counts.entry(target_route).or_insert(0) += 1;
+            }
+        }
+    }
+    counts
+}
+
+fn is_section_landing_with_children(project: &AuthoringProject, page: &AuthoringPage) -> bool {
+    if page.kind != AuthoringPageKind::Section {
+        return false;
+    }
+    let prefix = if page.route == "/" {
+        "/".to_string()
+    } else {
+        format!("{}/", page.route.trim_end_matches('/'))
+    };
+    project
+        .pages
+        .iter()
+        .any(|candidate| candidate.route != page.route && candidate.route.starts_with(&prefix))
+}
+
+fn site_graph_diagnostic_for_page(
+    page: &AuthoringPage,
+    content: &str,
+    kind: AuthoringDiagnosticKind,
+    target: &str,
+    message: String,
+) -> AuthoringDiagnostic {
+    let (byte_start, byte_end) = site_graph_page_identity_byte_range(content);
+    let (line, column) = byte_to_line_column(content, byte_start);
+    let (line_end, column_end) = byte_to_line_column(content, byte_end);
+    AuthoringDiagnostic {
+        source_file: page.source_file.clone(),
+        route: page.route.clone(),
+        kind,
+        target: target.to_string(),
+        resolved_route: Some(page.route.clone()),
+        message,
+        line,
+        column,
+        line_end,
+        column_end,
+        byte_start,
+        byte_end,
+    }
+}
+
+fn site_graph_page_identity_byte_range(content: &str) -> (usize, usize) {
+    if let Some(frontmatter_tail) = content.strip_prefix("+++\n") {
+        let end = frontmatter_tail
+            .find("\n+++")
+            .map(|offset| 4 + offset + "\n+++".len())
+            .unwrap_or(content.len());
+        return (0, end);
+    }
+    let first_line_end = content.find('\n').unwrap_or(content.len());
+    (0, first_line_end)
 }
 
 fn collect_template_diagnostics(
@@ -6540,6 +6703,10 @@ fn diagnostic_kind_name(kind: AuthoringDiagnosticKind) -> &'static str {
         AuthoringDiagnosticKind::UnknownMacro => "unknownMacro",
         AuthoringDiagnosticKind::UnknownFilter => "unknownFilter",
         AuthoringDiagnosticKind::UnknownTest => "unknownTest",
+        AuthoringDiagnosticKind::DuplicateTitle => "duplicateTitle",
+        AuthoringDiagnosticKind::DuplicateRoute => "duplicateRoute",
+        AuthoringDiagnosticKind::OrphanPage => "orphanPage",
+        AuthoringDiagnosticKind::NoInboundLinks => "noInboundLinks",
     }
 }
 
@@ -7171,9 +7338,7 @@ mod tests {
         std::fs::write(static_dir.join("logo.png"), b"png").expect("write static");
         std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
         std::fs::write(content_dir.join("guide/intro.md"), "# Intro\n").expect("write target");
-        std::fs::write(
-            content_dir.join("guide/source.md"),
-            "\
+        let source = "\
 # Source
 
 [ok](/guide/intro#intro)
@@ -7182,14 +7347,16 @@ mod tests {
 [missing source](@/guide/missing.md)
 ![missing image](/missing.png)
 ![ok image](/logo.png)
-",
-        )
-        .expect("write source");
+";
+        std::fs::write(content_dir.join("guide/source.md"), source).expect("write source");
 
         let project = load_authoring_project(&content_dir, &[])
             .await
             .expect("load project");
-        let diagnostics = load_authoring_diagnostics(&project);
+        let source_page = project
+            .page_for_source_file("guide/source.md")
+            .expect("source page");
+        let diagnostics = diagnostics_for_page(&project, source_page, source);
         let kinds = diagnostics
             .iter()
             .map(|diagnostic| diagnostic.kind)
@@ -7206,6 +7373,77 @@ mod tests {
         );
         assert_eq!(diagnostics[0].source_file, "guide/source.md");
         assert_eq!(diagnostics[0].resolved_route.as_deref(), Some("/missing"));
+
+        std::fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[tokio::test]
+    async fn reports_site_graph_diagnostics() {
+        let dir = temp_dir("site-graph-diagnostics");
+        let content_dir = dir.join("content");
+        std::fs::create_dir_all(content_dir.join("empty")).expect("create empty section");
+        std::fs::write(
+            content_dir.join("_index.md"),
+            "+++\ntitle = \"Home\"\n+++\n\n[linked](/linked)\n[same a](/same-a)\n[same b](/same-b)\n",
+        )
+        .expect("write root");
+        std::fs::write(
+            content_dir.join("linked.md"),
+            "+++\ntitle = \"Linked\"\n+++\n",
+        )
+        .expect("write linked");
+        std::fs::write(
+            content_dir.join("orphan.md"),
+            "+++\ntitle = \"Orphan\"\n+++\n",
+        )
+        .expect("write orphan");
+        std::fs::write(
+            content_dir.join("same-a.md"),
+            "+++\ntitle = \"Same\"\n+++\n",
+        )
+        .expect("write same a");
+        std::fs::write(
+            content_dir.join("same-b.md"),
+            "+++\ntitle = \"Same\"\n+++\n",
+        )
+        .expect("write same b");
+        std::fs::write(
+            content_dir.join("empty/_index.md"),
+            "+++\ntitle = \"Empty\"\n+++\n",
+        )
+        .expect("write empty section");
+
+        let mut project = load_authoring_project(&content_dir, &[])
+            .await
+            .expect("load project");
+        let duplicate_route_source = project
+            .pages
+            .iter()
+            .find(|page| page.source_file == "same-b.md")
+            .map(|page| page.route.clone())
+            .expect("same-b route");
+        for page in &mut project.pages {
+            if page.source_file == "same-b.md" {
+                page.route = "/same-a".to_string();
+            }
+        }
+
+        let diagnostics = site_graph_diagnostics(&project);
+        let has = |kind, target: &str| {
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.kind == kind && diagnostic.target == target)
+        };
+
+        assert!(has(AuthoringDiagnosticKind::DuplicateTitle, "Same"));
+        assert!(has(AuthoringDiagnosticKind::DuplicateRoute, "/same-a"));
+        assert!(has(AuthoringDiagnosticKind::OrphanPage, "/orphan"));
+        assert!(
+            has(AuthoringDiagnosticKind::NoInboundLinks, "/empty/")
+                || has(AuthoringDiagnosticKind::NoInboundLinks, "/empty")
+        );
+        assert!(!has(AuthoringDiagnosticKind::OrphanPage, "/linked"));
+        assert_ne!(duplicate_route_source, "/same-a");
 
         std::fs::remove_dir_all(&dir).expect("remove temp dir");
     }

@@ -43,7 +43,7 @@ Status values:
 | `lsp-015` | `done` | Template navigation | Go to definition for template extends/includes, blocks, macros, filters, and tests. | Path-bearing `extends`, `include`, and `import` targets resolve through Gingembre parsing and the authoring template model; block, macro, filter, and test identifiers use Gingembre AST spans and registries. |
 | `lsp-016` | `done` | Template diagnostics | Warn on missing templates, missing blocks, unknown macros, and unavailable filters/tests. | Uses Gingembre AST spans, template inheritance/import resolution, and exported Gingembre built-in filter/test registries. |
 | `lsp-017` | `done` | Template completions | Complete `page`, `section`, `config`, `data`, filters, tests, functions, and imported macros in templates. | Data keys come from the authoring model, functions from the template host, and filters/tests from Gingembre registries. |
-| `lsp-018` | `todo` | Site graph diagnostics | Report orphan pages, duplicate titles, duplicate routes, and pages with no inbound links. | Needs policy for intentional orphans. |
+| `lsp-018` | `done` | Site graph diagnostics | Report orphan pages, duplicate titles, duplicate routes, and pages with no inbound links. | Root is exempt; section landing pages with children are exempt; leaf pages/sections without inbound Markdown links warn. |
 | `lsp-019` | `todo` | Route graph view | Expose incoming and outgoing page links through editor-native views. | Could begin with references/document symbols before custom UI. |
 | `lsp-020` | `todo` | Build provenance hover | Explain which template, assets, transforms, and output path a page uses. | Best powered by reusable build/provenance data, not an LSP-only model. |
 
