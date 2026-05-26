@@ -1042,6 +1042,20 @@ impl Backend {
                     range: one_line_range(0),
                 }));
             }
+            if let Some(query) = template_index.macro_reference_query(&template_file, position)
+                && let Some(target) = template_index
+                    .macro_definition_target(&query.target_template_file, &query.macro_name)
+            {
+                return Ok(Some(Location {
+                    uri: Url::from_file_path(target.path.as_std_path()).map_err(|_| {
+                        eyre!(
+                            "could not convert template macro definition path to URI: {}",
+                            target.path
+                        )
+                    })?,
+                    range: target.range,
+                }));
+            }
             if let Some(target) =
                 template_definition_target_at_position(project, &template_file, &content, position)?
             {
@@ -7378,17 +7392,8 @@ impl TemplateAuthoringIndex {
         macro_name: &str,
     ) -> Vec<TemplateMacroReferenceTarget> {
         let mut targets = Vec::new();
-        if let Some(template) = self.templates.get(target_template_file) {
-            targets.extend(
-                template
-                    .macros
-                    .iter()
-                    .filter(|occurrence| occurrence.name == macro_name)
-                    .map(|occurrence| TemplateMacroReferenceTarget {
-                        path: template.path.clone(),
-                        range: occurrence.source_range,
-                    }),
-            );
+        if let Some(target) = self.macro_definition_target(target_template_file, macro_name) {
+            targets.push(target);
         }
 
         for template in self.templates.values() {
@@ -7415,6 +7420,22 @@ impl TemplateAuthoringIndex {
         });
         targets.dedup();
         targets
+    }
+
+    fn macro_definition_target(
+        &self,
+        target_template_file: &str,
+        macro_name: &str,
+    ) -> Option<TemplateMacroReferenceTarget> {
+        let template = self.templates.get(target_template_file)?;
+        template
+            .macros
+            .iter()
+            .find(|occurrence| occurrence.name == macro_name)
+            .map(|occurrence| TemplateMacroReferenceTarget {
+                path: template.path.clone(),
+                range: occurrence.source_range,
+            })
     }
 }
 
@@ -9706,6 +9727,14 @@ mod tests {
         assert!(range_contains_position(
             &call_query.source_range,
             position_for(page, "card")
+        ));
+        let definition_target = index
+            .macro_definition_target("macros.html", "card")
+            .expect("macro definition target");
+        assert_eq!(definition_target.path, templates_dir.join("macros.html"));
+        assert!(range_contains_position(
+            &definition_target.range,
+            position_for(macros, "card")
         ));
 
         let references =
