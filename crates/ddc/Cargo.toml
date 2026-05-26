@@ -1,0 +1,45 @@
+[package]
+name = "ddc"
+version = "0.6.1"
+edition = "2024"
+rust-version = "1.91"
+authors = ["Amos Wenger <amos@bearcove.eu>"]
+license = "MIT OR Apache-2.0"
+description = "Command-line interface for Dodeca"
+repository = "https://github.com/bearcove/dodeca"
+homepage = "https://dodeca.bearcove.eu/"
+keywords = ["static-site", "ssg", "incremental"]
+categories = ["command-line-utilities", "web-programming"]
+default-run = "ddc"
+
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+[[bin]]
+name = "ddc"
+path = "src/main.rs"
+
+[dependencies]
+cell-http-proto = { path = "../../cells/cell-http-proto" }
+cell-term-proto = { path = "../../cells/cell-term-proto" }
+cell-tui-proto = { path = "../../cells/cell-tui-proto" }
+dodeca = { path = "../dodeca" }
+dodeca-authoring-lsp = { path = "../dodeca-authoring-lsp" }
+dodeca-debug = { path = "../dodeca-debug" }
+arboard = { version = "3", default-features = false }
+camino.workspace = true
+chrono.workspace = true
+eyre.workspace = true
+facet.workspace = true
+figue.workspace = true
+if-addrs.workspace = true
+ignore.workspace = true
+open.workspace = true
+owo-colors.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+ur-taking-me-with-you.workspace = true
+vox-fdpass.workspace = true
+vox-stream.workspace = true

@@ -270,7 +270,7 @@ jobs:
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
             export DODECA_RELEASE_VERSION="${GITHUB_REF_NAME}"
           fi
-          cargo build --release -p dodeca --verbose
+          cargo build --release --bin ddc --verbose
           actual="$(target/release/ddc --version)"
           echo "$actual"
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
@@ -302,12 +302,12 @@ jobs:
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
             export DODECA_RELEASE_VERSION="${GITHUB_REF_NAME}"
           fi
-          cargo test --release -p dodeca --bins
+          cargo test --release --bin ddc
         shell: bash
       - name: Upload ddc to CAS
         run: "./scripts/cas-upload.ts target/release/ddc \"ci/${{ github.run_id }}/ddc-linux-x64\""
   build-cells-linux-x64-1:
-    name: Build cells (linux-x64) [cell-authoring-lsp]
+    name: Build cells (linux-x64) [cell-code-execution]
     runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
@@ -353,7 +353,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-1"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-1" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-authoring-lsp --verbose
+        run: cargo build --release --package cell-code-execution --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -370,11 +370,11 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-1 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-authoring-lsp
+        run: cargo test --release --package cell-code-execution
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-1\" target/release/libddc_cell_authoring_lsp.so"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-1\" target/release/libddc_cell_code_execution.so"
   build-cells-linux-x64-2:
-    name: Build cells (linux-x64) [cell-code-execution]
+    name: Build cells (linux-x64) [cell-css]
     runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
@@ -420,7 +420,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-2"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-2" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-code-execution --verbose
+        run: cargo build --release --package cell-css --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -437,11 +437,11 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-2 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-code-execution
+        run: cargo test --release --package cell-css
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-2\" target/release/libddc_cell_code_execution.so"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-2\" target/release/libddc_cell_css.so"
   build-cells-linux-x64-3:
-    name: Build cells (linux-x64) [cell-css]
+    name: Build cells (linux-x64) [cell-data]
     runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
@@ -487,7 +487,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-3"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-3" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-css --verbose
+        run: cargo build --release --package cell-data --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -504,11 +504,11 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-3 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-css
+        run: cargo test --release --package cell-data
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-3\" target/release/libddc_cell_css.so"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-3\" target/release/libddc_cell_data.so"
   build-cells-linux-x64-4:
-    name: Build cells (linux-x64) [cell-data]
+    name: Build cells (linux-x64) [cell-dialoguer]
     runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
@@ -554,7 +554,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-4"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-4" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-data --verbose
+        run: cargo build --release --package cell-dialoguer --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -571,11 +571,11 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-4 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-data
+        run: cargo test --release --package cell-dialoguer
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-4\" target/release/libddc_cell_data.so"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-4\" target/release/libddc_cell_dialoguer.so"
   build-cells-linux-x64-5:
-    name: Build cells (linux-x64) [cell-dialoguer]
+    name: Build cells (linux-x64) [cell-fonts]
     runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
@@ -621,7 +621,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-5"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-5" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-dialoguer --verbose
+        run: cargo build --release --package cell-fonts --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -638,11 +638,11 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-5 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-dialoguer
+        run: cargo test --release --package cell-fonts
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-5\" target/release/libddc_cell_dialoguer.so"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-5\" target/release/libddc_cell_fonts.so"
   build-cells-linux-x64-6:
-    name: Build cells (linux-x64) [cell-fonts]
+    name: Build cells (linux-x64) [cell-gingembre]
     runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
@@ -688,7 +688,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-6"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-6" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-fonts --verbose
+        run: cargo build --release --package cell-gingembre --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -705,11 +705,11 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-6 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-fonts
+        run: cargo test --release --package cell-gingembre
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-6\" target/release/libddc_cell_fonts.so"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-6\" target/release/libddc_cell_gingembre.so"
   build-cells-linux-x64-7:
-    name: Build cells (linux-x64) [cell-gingembre]
+    name: Build cells (linux-x64) [cell-html]
     runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
@@ -755,7 +755,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-7"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-7" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-gingembre --verbose
+        run: cargo build --release --package cell-html --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -772,11 +772,11 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-7 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-gingembre
+        run: cargo test --release --package cell-html
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-7\" target/release/libddc_cell_gingembre.so"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-7\" target/release/libddc_cell_html.so"
   build-cells-linux-x64-8:
-    name: Build cells (linux-x64) [cell-html]
+    name: Build cells (linux-x64) [cell-html-diff]
     runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
@@ -822,7 +822,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-8"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-8" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-html --verbose
+        run: cargo build --release --package cell-html-diff --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -839,11 +839,11 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-8 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-html
+        run: cargo test --release --package cell-html-diff
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-8\" target/release/libddc_cell_html.so"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-8\" target/release/libddc_cell_html_diff.so"
   build-cells-linux-x64-9:
-    name: Build cells (linux-x64) [cell-html-diff]
+    name: Build cells (linux-x64) [cell-http]
     runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
@@ -889,7 +889,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-9"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-9" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-html-diff --verbose
+        run: cargo build --release --package cell-http --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -906,11 +906,11 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-9 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-html-diff
+        run: cargo test --release --package cell-http
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-9\" target/release/libddc_cell_html_diff.so"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-9\" target/release/libddc_cell_http.so"
   build-cells-linux-x64-10:
-    name: Build cells (linux-x64) [cell-http]
+    name: Build cells (linux-x64) [cell-image]
     runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
@@ -956,7 +956,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-10"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-10" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-http --verbose
+        run: cargo build --release --package cell-image --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -973,11 +973,11 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-10 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-http
+        run: cargo test --release --package cell-image
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-10\" target/release/libddc_cell_http.so"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-10\" target/release/libddc_cell_image.so"
   build-cells-linux-x64-11:
-    name: Build cells (linux-x64) [cell-image]
+    name: Build cells (linux-x64) [cell-js]
     runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
@@ -1023,7 +1023,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-11"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-11" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-image --verbose
+        run: cargo build --release --package cell-js --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -1040,11 +1040,11 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-11 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-image
+        run: cargo test --release --package cell-js
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-11\" target/release/libddc_cell_image.so"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-11\" target/release/libddc_cell_js.so"
   build-cells-linux-x64-12:
-    name: Build cells (linux-x64) [cell-js]
+    name: Build cells (linux-x64) [cell-jxl]
     runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
@@ -1090,7 +1090,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-12"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-12" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-js --verbose
+        run: cargo build --release --package cell-jxl --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -1107,11 +1107,11 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-12 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-js
+        run: cargo test --release --package cell-jxl
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-12\" target/release/libddc_cell_js.so"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-12\" target/release/libddc_cell_jxl.so"
   build-cells-linux-x64-13:
-    name: Build cells (linux-x64) [cell-jxl]
+    name: Build cells (linux-x64) [cell-linkcheck]
     runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
@@ -1157,7 +1157,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-13"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-13" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-jxl --verbose
+        run: cargo build --release --package cell-linkcheck --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -1174,11 +1174,11 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-13 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-jxl
+        run: cargo test --release --package cell-linkcheck
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-13\" target/release/libddc_cell_jxl.so"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-13\" target/release/libddc_cell_linkcheck.so"
   build-cells-linux-x64-14:
-    name: Build cells (linux-x64) [cell-linkcheck]
+    name: Build cells (linux-x64) [cell-markdown]
     runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
@@ -1224,7 +1224,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-14"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-14" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-linkcheck --verbose
+        run: cargo build --release --package cell-markdown --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -1241,11 +1241,11 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-14 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-linkcheck
+        run: cargo test --release --package cell-markdown
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-14\" target/release/libddc_cell_linkcheck.so"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-14\" target/release/libddc_cell_markdown.so"
   build-cells-linux-x64-15:
-    name: Build cells (linux-x64) [cell-markdown]
+    name: Build cells (linux-x64) [cell-minify]
     runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
@@ -1291,7 +1291,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-15"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-15" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-markdown --verbose
+        run: cargo build --release --package cell-minify --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -1308,11 +1308,11 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-15 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-markdown
+        run: cargo test --release --package cell-minify
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-15\" target/release/libddc_cell_markdown.so"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-15\" target/release/libddc_cell_minify.so"
   build-cells-linux-x64-16:
-    name: Build cells (linux-x64) [cell-minify]
+    name: Build cells (linux-x64) [cell-sass]
     runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
@@ -1358,7 +1358,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-16"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-16" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-minify --verbose
+        run: cargo build --release --package cell-sass --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -1375,11 +1375,11 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-16 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-minify
+        run: cargo test --release --package cell-sass
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-16\" target/release/libddc_cell_minify.so"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-16\" target/release/libddc_cell_sass.so"
   build-cells-linux-x64-17:
-    name: Build cells (linux-x64) [cell-sass]
+    name: Build cells (linux-x64) [cell-search]
     runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
@@ -1425,7 +1425,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-17"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-17" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-sass --verbose
+        run: cargo build --release --package cell-search --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -1442,11 +1442,11 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-17 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-sass
+        run: cargo test --release --package cell-search
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-17\" target/release/libddc_cell_sass.so"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-17\" target/release/libddc_cell_search.so"
   build-cells-linux-x64-18:
-    name: Build cells (linux-x64) [cell-search]
+    name: Build cells (linux-x64) [cell-svgo]
     runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
@@ -1492,7 +1492,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-18"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-18" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-search --verbose
+        run: cargo build --release --package cell-svgo --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -1509,11 +1509,11 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-18 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-search
+        run: cargo test --release --package cell-svgo
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-18\" target/release/libddc_cell_search.so"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-18\" target/release/libddc_cell_svgo.so"
   build-cells-linux-x64-19:
-    name: Build cells (linux-x64) [cell-svgo]
+    name: Build cells (linux-x64) [cell-term]
     runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
@@ -1559,7 +1559,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-19"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-19" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-svgo --verbose
+        run: cargo build --release --package cell-term --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -1576,11 +1576,11 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-19 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-svgo
+        run: cargo test --release --package cell-term
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-19\" target/release/libddc_cell_svgo.so"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-19\" target/release/libddc_cell_term.so"
   build-cells-linux-x64-20:
-    name: Build cells (linux-x64) [cell-term]
+    name: Build cells (linux-x64) [cell-tui]
     runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
@@ -1626,7 +1626,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-20"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-20" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-term --verbose
+        run: cargo build --release --package cell-tui --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -1643,11 +1643,11 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-20 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-term
+        run: cargo test --release --package cell-tui
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-20\" target/release/libddc_cell_term.so"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-20\" target/release/libddc_cell_tui.so"
   build-cells-linux-x64-21:
-    name: Build cells (linux-x64) [cell-tui]
+    name: Build cells (linux-x64) [cell-vite]
     runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
@@ -1693,7 +1693,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-21"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-21" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-tui --verbose
+        run: cargo build --release --package cell-vite --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -1710,11 +1710,11 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-21 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-tui
+        run: cargo test --release --package cell-vite
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-21\" target/release/libddc_cell_tui.so"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-21\" target/release/libddc_cell_vite.so"
   build-cells-linux-x64-22:
-    name: Build cells (linux-x64) [cell-vite]
+    name: Build cells (linux-x64) [cell-webp]
     runs-on:
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
@@ -1760,7 +1760,7 @@ jobs:
           mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-22"
           CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-22" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-vite --verbose
+        run: cargo build --release --package cell-webp --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -1777,76 +1777,9 @@ jobs:
             echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-22 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-vite
+        run: cargo test --release --package cell-webp
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-22\" target/release/libddc_cell_vite.so"
-  build-cells-linux-x64-23:
-    name: Build cells (linux-x64) [cell-webp]
-    runs-on:
-      - depot-ubuntu-24.04-32
-    timeout-minutes: 30
-    env:
-      CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps:
-      - name: Checkout
-        uses: "https://github.com/actions/checkout@v4"
-      - name: Install Rust
-        uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with:
-          toolchain: 1.92.0
-      - name: Restore cache (ctree)
-        run: |-
-          if [ -d "/home/amos/.cache/dodeca-ci/cells-linux-x64-23" ]; then
-            echo "Restoring cache from /home/amos/.cache/dodeca-ci/cells-linux-x64-23..."
-            rm -rf target 2>/dev/null || true
-            ctree "/home/amos/.cache/dodeca-ci/cells-linux-x64-23" target && echo "Cache restored via ctree from /home/amos/.cache/dodeca-ci/cells-linux-x64-23" || echo "ctree failed, starting fresh"
-            du -sh target 2>/dev/null || true
-            echo "=== Cache contents after restore ==="
-            tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-
-            # CMake build directories are not relocatable - they contain absolute paths.
-            # Nuke them to force a fresh CMake configure on path changes.
-            find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
-            find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
-            echo "Cleaned CMake caches (non-relocatable)"
-
-          else
-            echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-23"
-          fi
-      - name: Timelord cache info (before sync)
-        run: |-
-          if [ -d "/home/amos/.cache/dodeca-ci/timelord" ]; then
-            timelord cache-info --cache-dir "/home/amos/.cache/dodeca-ci/timelord"
-          else
-            echo "No timelord cache dir at /home/amos/.cache/dodeca-ci/timelord"
-          fi
-      - name: Restore source mtimes (timelord)
-        run: "timelord sync --source-dir . --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\""
-      - name: Stamp cache artifacts (cargo sweep)
-        run: |-
-          mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-23"
-          CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-23" cargo sweep --stamp
-      - name: Build cells
-        run: cargo build --release -p cell-webp --verbose
-      - name: Save cache (ctree)
-        run: |-
-          echo "=== Cache contents before save ==="
-          du -sh target 2>/dev/null || true
-          tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          mkdir -p "$(dirname "/home/amos/.cache/dodeca-ci/cells-linux-x64-23")"
-          rm -rf "/home/amos/.cache/dodeca-ci/cells-linux-x64-23" 2>/dev/null || true
-          ctree target "/home/amos/.cache/dodeca-ci/cells-linux-x64-23" && echo "Cache saved via ctree to /home/amos/.cache/dodeca-ci/cells-linux-x64-23" || echo "ctree save failed (non-fatal)"
-      - name: Trim cache (cargo sweep)
-        run: |-
-          if [ -d "/home/amos/.cache/dodeca-ci/cells-linux-x64-23" ]; then
-            CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-23" cargo sweep --file || true
-          else
-            echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-23 to trim"
-          fi
-      - name: Test cells
-        run: cargo test --release -p cell-webp
-      - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-23\" target/release/libddc_cell_webp.so"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-22\" target/release/libddc_cell_webp.so"
   integration-linux-x64:
     name: Integration (linux-x64)
     runs-on:
@@ -1877,7 +1810,6 @@ jobs:
       - build-cells-linux-x64-20
       - build-cells-linux-x64-21
       - build-cells-linux-x64-22
-      - build-cells-linux-x64-23
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
     steps:
@@ -1924,7 +1856,7 @@ jobs:
           ./scripts/cas-download.ts "ci/${{ github.run_id }}/wasm.tar.gz" /tmp/wasm.tar.gz
           tar -xzf /tmp/wasm.tar.gz
       - name: Build integration-tests
-        run: cargo build -p integration-tests
+        run: cargo build --package integration-tests
       - name: Download ddc from CAS
         run: "./scripts/cas-download.ts \"ci/${{ github.run_id }}/ddc-linux-x64\" dist/ddc"
       - name: Download cells from CAS
@@ -1951,7 +1883,6 @@ jobs:
           ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-linux-x64-20" dist/
           ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-linux-x64-21" dist/
           ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-linux-x64-22" dist/
-          ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-linux-x64-23" dist/
       - name: List binaries
         run: ls -la dist/
       - name: Verify artifacts
@@ -1967,13 +1898,6 @@ jobs:
             missing=1
           else
             echo '✓ ddc'
-          fi
-
-          if [[ ! -f dist/libddc_cell_authoring_lsp.so ]]; then
-            echo '❌ MISSING: libddc_cell_authoring_lsp.so'
-            missing=1
-          else
-            echo '✓ libddc_cell_authoring_lsp.so'
           fi
 
           if [[ ! -f dist/libddc_cell_code_execution.so ]]; then
@@ -2138,7 +2062,7 @@ jobs:
           fi
 
           echo ''
-          echo 'All 24 artifacts verified.'
+          echo 'All 23 artifacts verified.'
       - name: Run integration tests
         run: cargo xtask integration --no-build
         env:
@@ -2199,7 +2123,6 @@ jobs:
           ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-linux-x64-20" target/release/
           ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-linux-x64-21" target/release/
           ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-linux-x64-22" target/release/
-          ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-linux-x64-23" target/release/
       - name: Download WASM from CAS
         run: |-
           ./scripts/cas-download.ts "ci/${{ github.run_id }}/wasm.tar.gz" /tmp/wasm.tar.gz
@@ -2283,7 +2206,7 @@ jobs:
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
             export DODECA_RELEASE_VERSION="${GITHUB_REF_NAME}"
           fi
-          cargo build --release -p dodeca --verbose
+          cargo build --release --bin ddc --verbose
           actual="$(target/release/ddc --version)"
           echo "$actual"
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
@@ -2315,12 +2238,12 @@ jobs:
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
             export DODECA_RELEASE_VERSION="${GITHUB_REF_NAME}"
           fi
-          cargo test --release -p dodeca --bins
+          cargo test --release --bin ddc
         shell: bash
       - name: Upload ddc to CAS
         run: "./scripts/cas-upload.ts target/release/ddc \"ci/${{ github.run_id }}/ddc-macos-arm64\""
   build-cells-macos-arm64-1:
-    name: Build cells (macos-arm64) [cell-authoring-lsp]
+    name: Build cells (macos-arm64) [cell-code-execution]
     runs-on:
       - depot-macos-15
     timeout-minutes: 30
@@ -2366,7 +2289,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-1"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-1" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-authoring-lsp --verbose
+        run: cargo build --release --package cell-code-execution --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -2383,11 +2306,11 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-1 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-authoring-lsp
+        run: cargo test --release --package cell-code-execution
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-1\" target/release/libddc_cell_authoring_lsp.dylib"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-1\" target/release/libddc_cell_code_execution.dylib"
   build-cells-macos-arm64-2:
-    name: Build cells (macos-arm64) [cell-code-execution]
+    name: Build cells (macos-arm64) [cell-css]
     runs-on:
       - depot-macos-15
     timeout-minutes: 30
@@ -2433,7 +2356,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-2"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-2" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-code-execution --verbose
+        run: cargo build --release --package cell-css --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -2450,11 +2373,11 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-2 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-code-execution
+        run: cargo test --release --package cell-css
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-2\" target/release/libddc_cell_code_execution.dylib"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-2\" target/release/libddc_cell_css.dylib"
   build-cells-macos-arm64-3:
-    name: Build cells (macos-arm64) [cell-css]
+    name: Build cells (macos-arm64) [cell-data]
     runs-on:
       - depot-macos-15
     timeout-minutes: 30
@@ -2500,7 +2423,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-3"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-3" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-css --verbose
+        run: cargo build --release --package cell-data --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -2517,11 +2440,11 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-3 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-css
+        run: cargo test --release --package cell-data
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-3\" target/release/libddc_cell_css.dylib"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-3\" target/release/libddc_cell_data.dylib"
   build-cells-macos-arm64-4:
-    name: Build cells (macos-arm64) [cell-data]
+    name: Build cells (macos-arm64) [cell-dialoguer]
     runs-on:
       - depot-macos-15
     timeout-minutes: 30
@@ -2567,7 +2490,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-4"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-4" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-data --verbose
+        run: cargo build --release --package cell-dialoguer --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -2584,11 +2507,11 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-4 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-data
+        run: cargo test --release --package cell-dialoguer
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-4\" target/release/libddc_cell_data.dylib"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-4\" target/release/libddc_cell_dialoguer.dylib"
   build-cells-macos-arm64-5:
-    name: Build cells (macos-arm64) [cell-dialoguer]
+    name: Build cells (macos-arm64) [cell-fonts]
     runs-on:
       - depot-macos-15
     timeout-minutes: 30
@@ -2634,7 +2557,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-5"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-5" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-dialoguer --verbose
+        run: cargo build --release --package cell-fonts --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -2651,11 +2574,11 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-5 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-dialoguer
+        run: cargo test --release --package cell-fonts
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-5\" target/release/libddc_cell_dialoguer.dylib"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-5\" target/release/libddc_cell_fonts.dylib"
   build-cells-macos-arm64-6:
-    name: Build cells (macos-arm64) [cell-fonts]
+    name: Build cells (macos-arm64) [cell-gingembre]
     runs-on:
       - depot-macos-15
     timeout-minutes: 30
@@ -2701,7 +2624,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-6"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-6" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-fonts --verbose
+        run: cargo build --release --package cell-gingembre --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -2718,11 +2641,11 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-6 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-fonts
+        run: cargo test --release --package cell-gingembre
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-6\" target/release/libddc_cell_fonts.dylib"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-6\" target/release/libddc_cell_gingembre.dylib"
   build-cells-macos-arm64-7:
-    name: Build cells (macos-arm64) [cell-gingembre]
+    name: Build cells (macos-arm64) [cell-html]
     runs-on:
       - depot-macos-15
     timeout-minutes: 30
@@ -2768,7 +2691,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-7"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-7" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-gingembre --verbose
+        run: cargo build --release --package cell-html --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -2785,11 +2708,11 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-7 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-gingembre
+        run: cargo test --release --package cell-html
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-7\" target/release/libddc_cell_gingembre.dylib"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-7\" target/release/libddc_cell_html.dylib"
   build-cells-macos-arm64-8:
-    name: Build cells (macos-arm64) [cell-html]
+    name: Build cells (macos-arm64) [cell-html-diff]
     runs-on:
       - depot-macos-15
     timeout-minutes: 30
@@ -2835,7 +2758,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-8"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-8" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-html --verbose
+        run: cargo build --release --package cell-html-diff --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -2852,11 +2775,11 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-8 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-html
+        run: cargo test --release --package cell-html-diff
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-8\" target/release/libddc_cell_html.dylib"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-8\" target/release/libddc_cell_html_diff.dylib"
   build-cells-macos-arm64-9:
-    name: Build cells (macos-arm64) [cell-html-diff]
+    name: Build cells (macos-arm64) [cell-http]
     runs-on:
       - depot-macos-15
     timeout-minutes: 30
@@ -2902,7 +2825,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-9"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-9" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-html-diff --verbose
+        run: cargo build --release --package cell-http --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -2919,11 +2842,11 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-9 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-html-diff
+        run: cargo test --release --package cell-http
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-9\" target/release/libddc_cell_html_diff.dylib"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-9\" target/release/libddc_cell_http.dylib"
   build-cells-macos-arm64-10:
-    name: Build cells (macos-arm64) [cell-http]
+    name: Build cells (macos-arm64) [cell-image]
     runs-on:
       - depot-macos-15
     timeout-minutes: 30
@@ -2969,7 +2892,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-10"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-10" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-http --verbose
+        run: cargo build --release --package cell-image --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -2986,11 +2909,11 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-10 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-http
+        run: cargo test --release --package cell-image
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-10\" target/release/libddc_cell_http.dylib"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-10\" target/release/libddc_cell_image.dylib"
   build-cells-macos-arm64-11:
-    name: Build cells (macos-arm64) [cell-image]
+    name: Build cells (macos-arm64) [cell-js]
     runs-on:
       - depot-macos-15
     timeout-minutes: 30
@@ -3036,7 +2959,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-11"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-11" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-image --verbose
+        run: cargo build --release --package cell-js --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -3053,11 +2976,11 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-11 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-image
+        run: cargo test --release --package cell-js
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-11\" target/release/libddc_cell_image.dylib"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-11\" target/release/libddc_cell_js.dylib"
   build-cells-macos-arm64-12:
-    name: Build cells (macos-arm64) [cell-js]
+    name: Build cells (macos-arm64) [cell-jxl]
     runs-on:
       - depot-macos-15
     timeout-minutes: 30
@@ -3103,7 +3026,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-12"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-12" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-js --verbose
+        run: cargo build --release --package cell-jxl --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -3120,11 +3043,11 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-12 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-js
+        run: cargo test --release --package cell-jxl
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-12\" target/release/libddc_cell_js.dylib"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-12\" target/release/libddc_cell_jxl.dylib"
   build-cells-macos-arm64-13:
-    name: Build cells (macos-arm64) [cell-jxl]
+    name: Build cells (macos-arm64) [cell-linkcheck]
     runs-on:
       - depot-macos-15
     timeout-minutes: 30
@@ -3170,7 +3093,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-13"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-13" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-jxl --verbose
+        run: cargo build --release --package cell-linkcheck --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -3187,11 +3110,11 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-13 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-jxl
+        run: cargo test --release --package cell-linkcheck
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-13\" target/release/libddc_cell_jxl.dylib"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-13\" target/release/libddc_cell_linkcheck.dylib"
   build-cells-macos-arm64-14:
-    name: Build cells (macos-arm64) [cell-linkcheck]
+    name: Build cells (macos-arm64) [cell-markdown]
     runs-on:
       - depot-macos-15
     timeout-minutes: 30
@@ -3237,7 +3160,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-14"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-14" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-linkcheck --verbose
+        run: cargo build --release --package cell-markdown --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -3254,11 +3177,11 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-14 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-linkcheck
+        run: cargo test --release --package cell-markdown
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-14\" target/release/libddc_cell_linkcheck.dylib"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-14\" target/release/libddc_cell_markdown.dylib"
   build-cells-macos-arm64-15:
-    name: Build cells (macos-arm64) [cell-markdown]
+    name: Build cells (macos-arm64) [cell-minify]
     runs-on:
       - depot-macos-15
     timeout-minutes: 30
@@ -3304,7 +3227,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-15"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-15" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-markdown --verbose
+        run: cargo build --release --package cell-minify --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -3321,11 +3244,11 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-15 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-markdown
+        run: cargo test --release --package cell-minify
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-15\" target/release/libddc_cell_markdown.dylib"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-15\" target/release/libddc_cell_minify.dylib"
   build-cells-macos-arm64-16:
-    name: Build cells (macos-arm64) [cell-minify]
+    name: Build cells (macos-arm64) [cell-sass]
     runs-on:
       - depot-macos-15
     timeout-minutes: 30
@@ -3371,7 +3294,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-16"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-16" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-minify --verbose
+        run: cargo build --release --package cell-sass --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -3388,11 +3311,11 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-16 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-minify
+        run: cargo test --release --package cell-sass
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-16\" target/release/libddc_cell_minify.dylib"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-16\" target/release/libddc_cell_sass.dylib"
   build-cells-macos-arm64-17:
-    name: Build cells (macos-arm64) [cell-sass]
+    name: Build cells (macos-arm64) [cell-search]
     runs-on:
       - depot-macos-15
     timeout-minutes: 30
@@ -3438,7 +3361,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-17"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-17" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-sass --verbose
+        run: cargo build --release --package cell-search --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -3455,11 +3378,11 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-17 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-sass
+        run: cargo test --release --package cell-search
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-17\" target/release/libddc_cell_sass.dylib"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-17\" target/release/libddc_cell_search.dylib"
   build-cells-macos-arm64-18:
-    name: Build cells (macos-arm64) [cell-search]
+    name: Build cells (macos-arm64) [cell-svgo]
     runs-on:
       - depot-macos-15
     timeout-minutes: 30
@@ -3505,7 +3428,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-18"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-18" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-search --verbose
+        run: cargo build --release --package cell-svgo --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -3522,11 +3445,11 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-18 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-search
+        run: cargo test --release --package cell-svgo
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-18\" target/release/libddc_cell_search.dylib"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-18\" target/release/libddc_cell_svgo.dylib"
   build-cells-macos-arm64-19:
-    name: Build cells (macos-arm64) [cell-svgo]
+    name: Build cells (macos-arm64) [cell-term]
     runs-on:
       - depot-macos-15
     timeout-minutes: 30
@@ -3572,7 +3495,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-19"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-19" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-svgo --verbose
+        run: cargo build --release --package cell-term --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -3589,11 +3512,11 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-19 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-svgo
+        run: cargo test --release --package cell-term
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-19\" target/release/libddc_cell_svgo.dylib"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-19\" target/release/libddc_cell_term.dylib"
   build-cells-macos-arm64-20:
-    name: Build cells (macos-arm64) [cell-term]
+    name: Build cells (macos-arm64) [cell-tui]
     runs-on:
       - depot-macos-15
     timeout-minutes: 30
@@ -3639,7 +3562,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-20"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-20" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-term --verbose
+        run: cargo build --release --package cell-tui --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -3656,11 +3579,11 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-20 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-term
+        run: cargo test --release --package cell-tui
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-20\" target/release/libddc_cell_term.dylib"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-20\" target/release/libddc_cell_tui.dylib"
   build-cells-macos-arm64-21:
-    name: Build cells (macos-arm64) [cell-tui]
+    name: Build cells (macos-arm64) [cell-vite]
     runs-on:
       - depot-macos-15
     timeout-minutes: 30
@@ -3706,7 +3629,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-21"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-21" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-tui --verbose
+        run: cargo build --release --package cell-vite --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -3723,11 +3646,11 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-21 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-tui
+        run: cargo test --release --package cell-vite
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-21\" target/release/libddc_cell_tui.dylib"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-21\" target/release/libddc_cell_vite.dylib"
   build-cells-macos-arm64-22:
-    name: Build cells (macos-arm64) [cell-vite]
+    name: Build cells (macos-arm64) [cell-webp]
     runs-on:
       - depot-macos-15
     timeout-minutes: 30
@@ -3773,7 +3696,7 @@ jobs:
           mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-22"
           CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-22" cargo sweep --stamp
       - name: Build cells
-        run: cargo build --release -p cell-vite --verbose
+        run: cargo build --release --package cell-webp --verbose
       - name: Save cache (ctree)
         run: |-
           echo "=== Cache contents before save ==="
@@ -3790,76 +3713,9 @@ jobs:
             echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-22 to trim"
           fi
       - name: Test cells
-        run: cargo test --release -p cell-vite
+        run: cargo test --release --package cell-webp
       - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-22\" target/release/libddc_cell_vite.dylib"
-  build-cells-macos-arm64-23:
-    name: Build cells (macos-arm64) [cell-webp]
-    runs-on:
-      - depot-macos-15
-    timeout-minutes: 30
-    env:
-      CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-    steps:
-      - name: Checkout
-        uses: "https://github.com/actions/checkout@v4"
-      - name: Install Rust
-        uses: "https://github.com/dtolnay/rust-toolchain@master"
-        with:
-          toolchain: 1.92.0
-      - name: Restore cache (ctree)
-        run: |-
-          if [ -d "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-23" ]; then
-            echo "Restoring cache from /Users/amos/.cache/dodeca-ci/cells-macos-arm64-23..."
-            rm -rf target 2>/dev/null || true
-            ctree "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-23" target && echo "Cache restored via ctree from /Users/amos/.cache/dodeca-ci/cells-macos-arm64-23" || echo "ctree failed, starting fresh"
-            du -sh target 2>/dev/null || true
-            echo "=== Cache contents after restore ==="
-            tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-
-            # CMake build directories are not relocatable - they contain absolute paths.
-            # Nuke them to force a fresh CMake configure on path changes.
-            find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
-            find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
-            echo "Cleaned CMake caches (non-relocatable)"
-
-          else
-            echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-23"
-          fi
-      - name: Timelord cache info (before sync)
-        run: |-
-          if [ -d "/Users/amos/.cache/dodeca-ci/timelord" ]; then
-            timelord cache-info --cache-dir "/Users/amos/.cache/dodeca-ci/timelord"
-          else
-            echo "No timelord cache dir at /Users/amos/.cache/dodeca-ci/timelord"
-          fi
-      - name: Restore source mtimes (timelord)
-        run: "timelord sync --source-dir . --cache-dir \"/Users/amos/.cache/dodeca-ci/timelord\""
-      - name: Stamp cache artifacts (cargo sweep)
-        run: |-
-          mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-23"
-          CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-23" cargo sweep --stamp
-      - name: Build cells
-        run: cargo build --release -p cell-webp --verbose
-      - name: Save cache (ctree)
-        run: |-
-          echo "=== Cache contents before save ==="
-          du -sh target 2>/dev/null || true
-          tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
-          mkdir -p "$(dirname "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-23")"
-          rm -rf "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-23" 2>/dev/null || true
-          ctree target "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-23" && echo "Cache saved via ctree to /Users/amos/.cache/dodeca-ci/cells-macos-arm64-23" || echo "ctree save failed (non-fatal)"
-      - name: Trim cache (cargo sweep)
-        run: |-
-          if [ -d "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-23" ]; then
-            CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-23" cargo sweep --file || true
-          else
-            echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-23 to trim"
-          fi
-      - name: Test cells
-        run: cargo test --release -p cell-webp
-      - name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-23\" target/release/libddc_cell_webp.dylib"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-22\" target/release/libddc_cell_webp.dylib"
   integration-macos-arm64:
     name: Integration (macos-arm64)
     runs-on:
@@ -3890,7 +3746,6 @@ jobs:
       - build-cells-macos-arm64-20
       - build-cells-macos-arm64-21
       - build-cells-macos-arm64-22
-      - build-cells-macos-arm64-23
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
     steps:
@@ -3937,7 +3792,7 @@ jobs:
           ./scripts/cas-download.ts "ci/${{ github.run_id }}/wasm.tar.gz" /tmp/wasm.tar.gz
           tar -xzf /tmp/wasm.tar.gz
       - name: Build integration-tests
-        run: cargo build -p integration-tests
+        run: cargo build --package integration-tests
       - name: Download ddc from CAS
         run: "./scripts/cas-download.ts \"ci/${{ github.run_id }}/ddc-macos-arm64\" dist/ddc"
       - name: Download cells from CAS
@@ -3964,7 +3819,6 @@ jobs:
           ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-macos-arm64-20" dist/
           ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-macos-arm64-21" dist/
           ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-macos-arm64-22" dist/
-          ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-macos-arm64-23" dist/
       - name: List binaries
         run: ls -la dist/
       - name: Verify artifacts
@@ -3980,13 +3834,6 @@ jobs:
             missing=1
           else
             echo '✓ ddc'
-          fi
-
-          if [[ ! -f dist/libddc_cell_authoring_lsp.dylib ]]; then
-            echo '❌ MISSING: libddc_cell_authoring_lsp.dylib'
-            missing=1
-          else
-            echo '✓ libddc_cell_authoring_lsp.dylib'
           fi
 
           if [[ ! -f dist/libddc_cell_code_execution.dylib ]]; then
@@ -4151,7 +3998,7 @@ jobs:
           fi
 
           echo ''
-          echo 'All 24 artifacts verified.'
+          echo 'All 23 artifacts verified.'
       - name: Run integration tests
         run: cargo xtask integration --no-build
         env:
@@ -4212,7 +4059,6 @@ jobs:
           ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-macos-arm64-20" target/release/
           ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-macos-arm64-21" target/release/
           ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-macos-arm64-22" target/release/
-          ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-macos-arm64-23" target/release/
       - name: Download WASM from CAS
         run: |-
           ./scripts/cas-download.ts "ci/${{ github.run_id }}/wasm.tar.gz" /tmp/wasm.tar.gz

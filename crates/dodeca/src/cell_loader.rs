@@ -75,7 +75,6 @@ host_cell_endpoints! {
     ep_html_diff      => "html-diff",      vox_ffi_host_html_diff_v1;
     ep_dialoguer      => "dialoguer",      vox_ffi_host_dialoguer_v1;
     ep_code_execution => "code-execution", vox_ffi_host_code_execution_v1;
-    ep_authoring_lsp  => "authoring-lsp",  vox_ffi_host_authoring_lsp_v1;
     ep_http           => "http",           vox_ffi_host_http_v1;
     ep_gingembre      => "gingembre",      vox_ffi_host_gingembre_v1;
     ep_data           => "data",           vox_ffi_host_data_v1;

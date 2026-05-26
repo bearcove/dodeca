@@ -1,7 +1,7 @@
 use camino::{Utf8Path, Utf8PathBuf};
-use ddc_cell_authoring_lsp::authoring_lsp::*;
 use dodeca::authoring_model::*;
 use dodeca::authoring_model::{AuthoringInputPath, load_authoring_project};
+use dodeca_authoring_lsp::authoring_lsp::*;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tower_lsp::lsp_types::*;
 

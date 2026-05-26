@@ -511,9 +511,9 @@ fn run_integration_tests(no_build: bool, extra_args: &[&str]) -> bool {
                     integration_bin.display()
                 );
                 let build_cmd = if release {
-                    "cargo build --release -p integration-tests"
+                    "cargo build --release --package integration-tests"
                 } else {
-                    "cargo build -p integration-tests"
+                    "cargo build --package integration-tests"
                 };
                 eprintln!("Rebuild it with: {}", build_cmd);
                 return false;
@@ -540,9 +540,9 @@ fn run_integration_tests(no_build: bool, extra_args: &[&str]) -> bool {
                     src
                 );
                 let build_cmd = if release {
-                    "cargo build --release -p integration-tests"
+                    "cargo build --release --package integration-tests"
                 } else {
-                    "cargo build -p integration-tests"
+                    "cargo build --package integration-tests"
                 };
                 eprintln!("Rebuild it with: {}", build_cmd);
                 return false;

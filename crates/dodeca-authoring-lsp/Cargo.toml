@@ -1,9 +1,15 @@
 [package]
-autobins = false
-name = "cell-authoring-lsp"
+name = "dodeca-authoring-lsp"
 version = "0.6.1"
 edition = "2024"
 rust-version = "1.91"
+authors = ["Amos Wenger <amos@bearcove.eu>"]
+license = "MIT OR Apache-2.0"
+description = "Authoring language server for Dodeca"
+repository = "https://github.com/bearcove/dodeca"
+homepage = "https://dodeca.bearcove.eu/"
+keywords = ["static-site", "ssg", "lsp"]
+categories = ["development-tools"]
 
 [package.metadata.docs.rs]
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
@@ -12,18 +18,15 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [lib]
-name = "ddc_cell_authoring_lsp"
-crate-type = ["cdylib", "rlib"]
-path = "src/main.rs"
+name = "dodeca_authoring_lsp"
+path = "src/lib.rs"
 
 [dependencies]
 camino.workspace = true
-cell-authoring-lsp-proto = { path = "../cell-authoring-lsp-proto" }
-dodeca = { path = "../../crates/dodeca" }
-dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }
+dodeca = { path = "../dodeca" }
 eyre.workspace = true
 facet.workspace = true
-gingembre = { path = "../../crates/gingembre" }
+gingembre = { path = "../gingembre" }
 marq.workspace = true
 pulldown-cmark.workspace = true
 serde_json.workspace = true

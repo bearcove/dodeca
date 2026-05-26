@@ -13,7 +13,7 @@ cargo install wasm-bindgen-cli --version "$WASM_BINDGEN_VERSION"
 rustup target add wasm32-unknown-unknown
 
 # Build WASM crates
-cargo build -p livereload-client -p dodeca-devtools --target wasm32-unknown-unknown --release
+cargo build --package livereload-client --package dodeca-devtools --target wasm32-unknown-unknown --release
 
 # Run wasm-bindgen
 # On Windows, wasm-bindgen might not be in PATH, so use full path if available

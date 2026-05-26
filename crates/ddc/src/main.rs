@@ -467,22 +467,7 @@ async fn async_main(command: Command) -> Result<()> {
         }
         Command::Lsp(args) => {
             logging::init_standard_tracing();
-            let client = cells::authoring_lsp_cell()
-                .await
-                .ok_or_else(|| eyre!("Authoring LSP cell not available"))?;
-            match client
-                .run(cell_authoring_lsp_proto::AuthoringLspStartupArgs {
-                    content: args.content,
-                    output: args.output,
-                })
-                .await
-            {
-                Ok(cell_authoring_lsp_proto::AuthoringLspRunResult::Success) => Ok(()),
-                Ok(cell_authoring_lsp_proto::AuthoringLspRunResult::Error { message }) => {
-                    Err(eyre!(message))
-                }
-                Err(error) => Err(eyre!("Authoring LSP cell failed: {error}")),
-            }
+            dodeca_authoring_lsp::run(args.content, args.output).await
         }
         Command::Static(args) => {
             let path = Utf8PathBuf::from(&args.path);

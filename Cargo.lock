@@ -1476,32 +1476,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cell-authoring-lsp"
-version = "0.6.1"
-dependencies = [
- "camino",
- "cell-authoring-lsp-proto",
- "dodeca",
- "dodeca-cell-runtime",
- "eyre",
- "facet",
- "gingembre",
- "marq",
- "pulldown-cmark",
- "serde_json",
- "tokio",
- "tower-lsp",
-]
-
-[[package]]
-name = "cell-authoring-lsp-proto"
-version = "0.6.1"
-dependencies = [
- "facet",
- "vox 0.8.1",
-]
-
-[[package]]
 name = "cell-code-execution"
 version = "0.6.1"
 dependencies = [
@@ -2686,6 +2660,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "ddc"
+version = "0.6.1"
+dependencies = [
+ "arboard",
+ "camino",
+ "cell-http-proto",
+ "cell-term-proto",
+ "cell-tui-proto",
+ "chrono",
+ "dodeca",
+ "dodeca-authoring-lsp",
+ "dodeca-debug",
+ "eyre",
+ "facet",
+ "figue",
+ "if-addrs",
+ "ignore",
+ "open",
+ "owo-colors",
+ "tokio",
+ "tracing",
+ "ur-taking-me-with-you",
+ "vox-fdpass",
+ "vox-stream",
+]
+
+[[package]]
 name = "deltae"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2824,7 +2825,6 @@ dependencies = [
  "arborium-theme",
  "ariadne 0.5.1",
  "camino",
- "cell-authoring-lsp-proto",
  "cell-code-execution-proto",
  "cell-css-proto",
  "cell-data-proto",
@@ -2887,6 +2887,22 @@ dependencies = [
  "vox-fdpass",
  "vox-ffi",
  "vox-stream",
+]
+
+[[package]]
+name = "dodeca-authoring-lsp"
+version = "0.6.1"
+dependencies = [
+ "camino",
+ "dodeca",
+ "eyre",
+ "facet",
+ "gingembre",
+ "marq",
+ "pulldown-cmark",
+ "serde_json",
+ "tokio",
+ "tower-lsp",
 ]
 
 [[package]]
@@ -4673,8 +4689,8 @@ name = "integration-tests"
 version = "0.6.1"
 dependencies = [
  "camino",
- "cell-authoring-lsp",
  "dodeca",
+ "dodeca-authoring-lsp",
  "dodeca-search-format",
  "facet-json",
  "facet-value",

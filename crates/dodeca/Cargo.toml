@@ -10,7 +10,6 @@ repository = "https://github.com/bearcove/dodeca"
 homepage = "https://dodeca.bearcove.eu/"
 keywords = ["static-site", "ssg", "incremental"]
 categories = ["command-line-utilities", "web-programming"]
-default-run = "ddc"
 
 [package.metadata.docs.rs]
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
@@ -18,13 +17,8 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 [package.metadata."docs.rs"]
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
-[[bin]]
-name = "ddc"
-path = "src/main.rs"
-
 [dependencies]
 cell-code-execution-proto = { path = "../../cells/cell-code-execution-proto" }
-cell-authoring-lsp-proto = { path = "../../cells/cell-authoring-lsp-proto" }
 cell-vite-proto = { path = "../../cells/cell-vite-proto" }
 dodeca-config = { path = "../dodeca-config" }
 cell-lifecycle-proto = { path = "../../cells/cell-lifecycle-proto" }

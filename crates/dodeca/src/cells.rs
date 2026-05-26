@@ -11,7 +11,6 @@
 //!
 //! The host uses `MultiPeerHostDriver` to manage all cell connections.
 
-use cell_authoring_lsp_proto::AuthoringLspClient;
 use cell_code_execution_proto::{
     CodeExecutionResult, CodeExecutorClient, ExecuteSamplesInput, ExtractSamplesInput,
 };
@@ -451,7 +450,6 @@ cell_client_accessor!(search_cell, "search", SearchIndexerClient);
 cell_client_accessor!(html_diff_cell, "html_diff", HtmlDifferClient);
 cell_client_accessor!(dialoguer_cell, "dialoguer", DialoguerClient);
 cell_client_accessor!(code_execution_cell, "code_execution", CodeExecutorClient);
-cell_client_accessor!(authoring_lsp_cell, "authoring-lsp", AuthoringLspClient);
 cell_client_accessor!(http_cell, "http", TcpTunnelClient);
 cell_client_accessor!(term_cell, "term", TermRecorderClient);
 

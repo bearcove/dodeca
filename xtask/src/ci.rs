@@ -700,7 +700,7 @@ const BUILD_DDC_COMMAND: &str = r#"set -euo pipefail
 if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
   export DODECA_RELEASE_VERSION="${GITHUB_REF_NAME}"
 fi
-cargo build --release -p dodeca --verbose
+cargo build --release --bin ddc --verbose
 actual="$(target/release/ddc --version)"
 echo "$actual"
 if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
@@ -715,7 +715,7 @@ const TEST_DDC_COMMAND: &str = r#"set -euo pipefail
 if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
   export DODECA_RELEASE_VERSION="${GITHUB_REF_NAME}"
 fi
-cargo test --release -p dodeca --bins"#;
+cargo test --release --bin ddc"#;
 
 pub mod common {
     use super::*;
@@ -1322,13 +1322,13 @@ pub fn build_ci_workflow(platform: CiPlatform, repo_root: &Utf8Path) -> Workflow
 
             let build_args: String = cells
                 .iter()
-                .map(|(pkg, _)| format!("-p {pkg}"))
+                .map(|(pkg, _)| format!("--package {pkg}"))
                 .collect::<Vec<_>>()
                 .join(" ");
 
             let test_args: String = cells
                 .iter()
-                .map(|(pkg, _)| format!("-p {pkg}"))
+                .map(|(pkg, _)| format!("--package {pkg}"))
                 .collect::<Vec<_>>()
                 .join(" ");
 
@@ -1423,7 +1423,7 @@ pub fn build_ci_workflow(platform: CiPlatform, repo_root: &Utf8Path) -> Workflow
                     // Build integration-tests binary (xtask will be built in debug, so build integration-tests in debug too)
                     Step::run(
                         "Build integration-tests",
-                        "cargo build -p integration-tests",
+                        "cargo build --package integration-tests",
                     ),
                     Step::uses("Download ddc", platform.download_artifact_action())
                         .with_inputs([("name", format!("ddc-{short}")), ("path", "dist".into())]),
@@ -1835,13 +1835,13 @@ fi"#,
 
             let build_args: String = cells
                 .iter()
-                .map(|(pkg, _)| format!("-p {pkg}"))
+                .map(|(pkg, _)| format!("--package {pkg}"))
                 .collect::<Vec<_>>()
                 .join(" ");
 
             let test_args: String = cells
                 .iter()
-                .map(|(pkg, _)| format!("-p {pkg}"))
+                .map(|(pkg, _)| format!("--package {pkg}"))
                 .collect::<Vec<_>>()
                 .join(" ");
 
@@ -1924,7 +1924,7 @@ tar -xzf /tmp/wasm.tar.gz"#
                     // Build integration-tests binary (xtask will be built in debug, so build integration-tests in debug too)
                     Step::run(
                         "Build integration-tests",
-                        "cargo build -p integration-tests",
+                        "cargo build --package integration-tests",
                     ),
                     // Download ddc from CAS
                     Step::run(
