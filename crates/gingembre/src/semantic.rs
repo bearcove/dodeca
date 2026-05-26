@@ -25,7 +25,19 @@ pub struct TemplateSymbol {
     pub name: String,
     pub kind: TemplateSymbolKind,
     pub span: Option<Span>,
+    pub origin: Option<TemplateSymbolOrigin>,
     scope: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TemplateSymbolOrigin {
+    ContextRoot,
+    Function,
+    ExpressionPath(Vec<String>),
+    IterationItem(Vec<String>),
+    MacroParam,
+    ImportAlias,
+    Macro,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,10 +112,22 @@ impl TemplateSemanticIndex {
         };
         let root_scope = builder.push_scope(None, template.span);
         for name in context_roots {
-            builder.define(root_scope, *name, TemplateSymbolKind::ContextRoot, None);
+            builder.define(
+                root_scope,
+                *name,
+                TemplateSymbolKind::ContextRoot,
+                None,
+                Some(TemplateSymbolOrigin::ContextRoot),
+            );
         }
         for name in functions {
-            builder.define(root_scope, *name, TemplateSymbolKind::Function, None);
+            builder.define(
+                root_scope,
+                *name,
+                TemplateSymbolKind::Function,
+                None,
+                Some(TemplateSymbolOrigin::Function),
+            );
         }
         builder.collect_nodes(&template.body, root_scope);
         builder.index
@@ -155,8 +179,9 @@ impl TemplateSemanticIndex {
             let mut current = Some(scope_id);
             while let Some(id) = current {
                 for (name, symbol_id) in &self.scopes[id].symbols {
-                    if seen.insert(name.clone())
-                        && let Some(symbol) = self.symbols.get(*symbol_id)
+                    if let Some(symbol) = self.symbols.get(*symbol_id)
+                        && symbol_is_visible_at_offset(symbol, offset)
+                        && seen.insert(name.clone())
                     {
                         visible.push(symbol);
                     }
@@ -165,6 +190,16 @@ impl TemplateSemanticIndex {
             }
         }
         visible
+    }
+
+    pub fn visible_symbol_named_at_offset(
+        &self,
+        name: &str,
+        offset: usize,
+    ) -> Option<&TemplateSymbol> {
+        self.visible_symbols_at_offset(offset)
+            .into_iter()
+            .find(|symbol| symbol.name == name)
     }
 
     fn scope_depth(&self, mut scope_id: usize) -> usize {
@@ -198,6 +233,7 @@ impl SemanticBuilder {
         name: impl Into<String>,
         kind: TemplateSymbolKind,
         span: Option<Span>,
+        origin: Option<TemplateSymbolOrigin>,
     ) -> usize {
         let name = name.into();
         let id = self.index.symbols.len();
@@ -206,6 +242,7 @@ impl SemanticBuilder {
             name: name.clone(),
             kind,
             span,
+            origin,
             scope,
         });
         self.index.scopes[scope].symbols.insert(name, id);
@@ -256,7 +293,7 @@ impl SemanticBuilder {
                 Node::For(node) => {
                     self.collect_expr(&node.iter, scope);
                     let body_scope = self.push_scope(Some(scope), node.span);
-                    self.define_target(body_scope, &node.target);
+                    self.define_target(body_scope, &node.target, expr_path(&node.iter));
                     self.collect_nodes(&node.body, body_scope);
                     if let Some(body) = &node.else_body {
                         self.collect_nodes(body, scope);
@@ -283,6 +320,7 @@ impl SemanticBuilder {
                         node.name.name.clone(),
                         TemplateSymbolKind::SetBinding,
                         Some(node.name.span),
+                        expr_path(&node.value).map(TemplateSymbolOrigin::ExpressionPath),
                     );
                 }
                 Node::Import(node) => {
@@ -295,6 +333,7 @@ impl SemanticBuilder {
                         node.alias.name.clone(),
                         TemplateSymbolKind::ImportAlias,
                         Some(node.alias.span),
+                        Some(TemplateSymbolOrigin::ImportAlias),
                     );
                 }
                 Node::Macro(node) => self.collect_macro(node, scope),
@@ -330,6 +369,7 @@ impl SemanticBuilder {
             node.name.name.clone(),
             TemplateSymbolKind::Macro,
             Some(node.name.span),
+            Some(TemplateSymbolOrigin::Macro),
         );
         let macro_scope = self.push_scope(Some(scope), node.span);
         for param in &node.params {
@@ -338,6 +378,7 @@ impl SemanticBuilder {
                 param.name.name.clone(),
                 TemplateSymbolKind::MacroParam,
                 Some(param.name.span),
+                Some(TemplateSymbolOrigin::MacroParam),
             );
             if let Some(default) = &param.default {
                 self.collect_expr(default, macro_scope);
@@ -346,7 +387,7 @@ impl SemanticBuilder {
         self.collect_nodes(&node.body, macro_scope);
     }
 
-    fn define_target(&mut self, scope: usize, target: &Target) {
+    fn define_target(&mut self, scope: usize, target: &Target, iter_path: Option<Vec<String>>) {
         match target {
             Target::Single { name, span } => {
                 self.define(
@@ -354,6 +395,7 @@ impl SemanticBuilder {
                     name.clone(),
                     TemplateSymbolKind::LoopBinding,
                     Some(*span),
+                    iter_path.map(TemplateSymbolOrigin::IterationItem),
                 );
             }
             Target::Tuple { names, .. } => {
@@ -363,6 +405,7 @@ impl SemanticBuilder {
                         name.clone(),
                         TemplateSymbolKind::LoopBinding,
                         Some(*span),
+                        iter_path.clone().map(TemplateSymbolOrigin::IterationItem),
                     );
                 }
             }
@@ -575,6 +618,10 @@ fn span_contains_offset(span: Span, offset: usize) -> bool {
     span.offset() <= offset && offset <= span.offset().saturating_add(span.len())
 }
 
+fn symbol_is_visible_at_offset(symbol: &TemplateSymbol, offset: usize) -> bool {
+    symbol.span.is_none_or(|span| span.offset() <= offset)
+}
+
 fn expr_path(expr: &Expr) -> Option<Vec<String>> {
     match expr {
         Expr::Var(ident) => Some(vec![ident.name.clone()]),
@@ -587,4 +634,68 @@ fn field_expr_path(expr: &crate::ast::FieldExpr) -> Option<Vec<String>> {
     let mut path = expr_path(&expr.base)?;
     path.push(expr.field.name.clone());
     Some(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::parser::Parser;
+
+    use super::*;
+
+    fn semantic_index(source: &str) -> TemplateSemanticIndex {
+        let template = Parser::new("test.html", source).parse().expect("template");
+        TemplateSemanticIndex::build(&template, &["page", "section", "root"], &[])
+    }
+
+    #[test]
+    fn records_set_and_loop_binding_origins() {
+        let source =
+            "{% set current = page %}\n{% for item in section.pages %}{{ item.path }}{% endfor %}";
+        let index = semantic_index(source);
+
+        let current = index
+            .symbols
+            .iter()
+            .find(|symbol| symbol.name == "current")
+            .expect("current symbol");
+        assert_eq!(
+            current.origin,
+            Some(TemplateSymbolOrigin::ExpressionPath(vec![
+                "page".to_string()
+            ]))
+        );
+
+        let item = index
+            .symbols
+            .iter()
+            .find(|symbol| symbol.name == "item")
+            .expect("item symbol");
+        assert_eq!(
+            item.origin,
+            Some(TemplateSymbolOrigin::IterationItem(vec![
+                "section".to_string(),
+                "pages".to_string()
+            ]))
+        );
+    }
+
+    #[test]
+    fn hides_later_bindings_from_visible_symbol_lookup() {
+        let source = "{{ alpha }}\n{% set alpha = page %}\n{{ alpha.path }}";
+        let index = semantic_index(source);
+        let first_alpha = source.find("alpha").expect("first alpha");
+        assert!(
+            index
+                .visible_symbol_named_at_offset("alpha", first_alpha)
+                .is_none(),
+            "set bindings are not visible before their declaration"
+        );
+        let last_alpha = source.rfind("alpha").expect("last alpha");
+        assert!(
+            index
+                .visible_symbol_named_at_offset("alpha", last_alpha)
+                .is_some(),
+            "set bindings are visible after their declaration"
+        );
+    }
 }

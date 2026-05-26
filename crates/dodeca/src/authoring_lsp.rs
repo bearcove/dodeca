@@ -8,7 +8,7 @@ use gingembre::ast::{Expr, Ident, Node, StringLit};
 use gingembre::parser::Parser as TemplateParser;
 use gingembre::semantic::{
     TemplateReferenceKind, TemplateSemanticIndex, TemplateSemanticTokenKind, TemplateSymbol,
-    TemplateSymbolKind,
+    TemplateSymbolKind, TemplateSymbolOrigin,
 };
 use gingembre::{BUILTIN_FILTERS, BUILTIN_TESTS, BuiltinItemInfo, builtin_filter, builtin_test};
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
@@ -3014,7 +3014,7 @@ fn template_semantic_hover(
     let index = project.template_semantics.get(template_file)?;
     if let Some(reference) = index.reference_at_offset(offset) {
         let markdown = match reference.kind {
-            TemplateReferenceKind::Field => template_field_hover_markdown(reference),
+            TemplateReferenceKind::Field => template_field_hover_markdown(index, reference, offset),
             TemplateReferenceKind::Filter => {
                 template_item_hover_markdown(&reference.name, template_filter_info(&reference.name))
             }
@@ -3227,12 +3227,17 @@ fn template_symbol_hover_markdown(symbol: &TemplateSymbol) -> String {
     )
 }
 
-fn template_field_hover_markdown(reference: &gingembre::semantic::TemplateReference) -> String {
+fn template_field_hover_markdown(
+    index: &TemplateSemanticIndex,
+    reference: &gingembre::semantic::TemplateReference,
+    offset: usize,
+) -> String {
     let path = reference
         .path
         .split_last()
         .map(|(_, base)| base.to_vec())
         .unwrap_or_default();
+    let path = resolve_template_expression_path(index, &path, offset, 0).unwrap_or(path);
     let info = template_field_info(&path, &reference.name);
     template_item_hover_markdown(&reference.name, info)
 }
@@ -5220,7 +5225,8 @@ fn template_completion_items(
             template_root_completion_items(project, template_file, content, &context)
         }
         TemplateCompletionKind::Field(path) => {
-            template_field_completion_items(project, path, context.range)
+            let offset = position_to_byte_offset(content, position);
+            template_field_completion_items(project, template_file, path, context.range, offset)
         }
         TemplateCompletionKind::Filter => BUILTIN_FILTERS
             .iter()
@@ -5331,10 +5337,14 @@ fn template_root_completion_items(
 
 fn template_field_completion_items(
     project: &AuthoringProject,
+    template_file: &str,
     path: &[String],
     range: Range,
+    offset: Option<usize>,
 ) -> Vec<CompletionItem> {
-    let names = match path {
+    let resolved_path = template_resolved_field_path(project, template_file, path, offset)
+        .unwrap_or_else(|| path.to_vec());
+    let names = match resolved_path.as_slice() {
         [root] if root == "config" => TEMPLATE_CONFIG_FIELDS,
         [root] if root == "page" => TEMPLATE_PAGE_FIELDS,
         [root] if root == "section" || root == "root" => TEMPLATE_SECTION_FIELDS,
@@ -5364,11 +5374,75 @@ fn template_field_completion_items(
             template_completion_item(
                 (*name).to_string(),
                 CompletionItemKind::FIELD,
-                template_field_info(path, name),
+                template_field_info(&resolved_path, name),
                 range,
             )
         })
         .collect()
+}
+
+fn template_resolved_field_path(
+    project: &AuthoringProject,
+    template_file: &str,
+    path: &[String],
+    offset: Option<usize>,
+) -> Option<Vec<String>> {
+    let offset = offset?;
+    let index = project.template_semantics.get(template_file)?;
+    resolve_template_expression_path(index, path, offset, 0)
+}
+
+fn resolve_template_expression_path(
+    index: &TemplateSemanticIndex,
+    path: &[String],
+    offset: usize,
+    depth: usize,
+) -> Option<Vec<String>> {
+    if depth > 8 || path.is_empty() {
+        return None;
+    }
+    let root = &path[0];
+    let suffix = &path[1..];
+    let symbol = index.visible_symbol_named_at_offset(root, offset)?;
+    let mut resolved = resolve_template_symbol_path(index, symbol, offset, depth + 1)?;
+    resolved.extend(suffix.iter().cloned());
+    Some(resolved)
+}
+
+fn resolve_template_symbol_path(
+    index: &TemplateSemanticIndex,
+    symbol: &TemplateSymbol,
+    offset: usize,
+    depth: usize,
+) -> Option<Vec<String>> {
+    if depth > 8 {
+        return None;
+    }
+    match &symbol.origin {
+        Some(TemplateSymbolOrigin::ContextRoot) => Some(vec![symbol.name.clone()]),
+        Some(TemplateSymbolOrigin::ExpressionPath(path)) => {
+            resolve_template_expression_path(index, path, offset, depth + 1)
+                .or_else(|| Some(path.clone()))
+        }
+        Some(TemplateSymbolOrigin::IterationItem(path)) => {
+            let iter_path = resolve_template_expression_path(index, path, offset, depth + 1)
+                .unwrap_or_else(|| path.clone());
+            template_iteration_item_path(&iter_path)
+        }
+        _ => None,
+    }
+}
+
+fn template_iteration_item_path(iter_path: &[String]) -> Option<Vec<String>> {
+    match iter_path {
+        [root, field] if (root == "section" || root == "root") && field == "pages" => {
+            Some(vec!["page".to_string()])
+        }
+        [root, field] if (root == "section" || root == "root") && field == "subsections" => {
+            Some(vec!["section".to_string()])
+        }
+        _ => None,
+    }
 }
 
 fn template_macro_completion_items(
@@ -8177,7 +8251,7 @@ mod tests {
         std::fs::create_dir_all(&templates_dir).expect("create templates dir");
         std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
 
-        let template = "{% set local_route = \"/\" %}\n{{ local_route }}\n{% for item in section.pages %}\n{{ item.path | path_parent }}\n{% endfor %}\n{% macro label(title) %}{{ title }}{% endmacro %}\n";
+        let template = "{% set local_route = \"/\" %}\n{{ local_route }}\n{% for item in section.pages %}\n{{ item.path | path_parent }}\n{% endfor %}\n{% for child in section.subsections %}\n{{ child.pages }}\n{% endfor %}\n{% macro label(title) %}{{ title }}{% endmacro %}\n";
         std::fs::write(templates_dir.join("page.html"), template).expect("write template");
         let project = load_authoring_project(&content_dir, &[])
             .await
@@ -8212,6 +8286,19 @@ mod tests {
         };
         assert!(markup.value.contains("Gingembre filter"));
         assert!(markup.value.contains("Returns the parent path"));
+
+        let section_field_hover = template_semantic_hover(
+            &project,
+            "page.html",
+            template,
+            position_for_nth(template, "pages", 1),
+        )
+        .expect("section field hover through loop binding");
+        let HoverContents::Markup(markup) = section_field_hover.contents else {
+            panic!("expected section field markdown hover");
+        };
+        assert!(markup.value.contains("Section pages"));
+        assert!(markup.value.contains("nearest parent section"));
 
         let definition = template_semantic_definition(
             &content_dir,
@@ -8359,7 +8446,7 @@ mod tests {
         )
         .expect("write macros");
 
-        let template = "{% import \"macros.html\" as macros %}\n{% set local_route = \"/\" %}\n{{ loc }}\n{{ pa }}\n{{ page.ti }}\n{{ data.ver }}\n{{ title | tr }}\n{% if title is str %}ok{% endif %}\n{{ macros::card() }}\n";
+        let template = "{% import \"macros.html\" as macros %}\n{% set local_route = \"/\" %}\n{% set current_page = page %}\n{{ loc }}\n{{ pa }}\n{{ page.ti }}\n{{ current_page.pa }}\n{% for item in section.pages %}\n{{ item.pa }}\n{% endfor %}\n{{ data.ver }}\n{{ title | tr }}\n{% if title is str %}ok{% endif %}\n{{ macros::card() }}\n";
         std::fs::write(templates_dir.join("page.html"), template).expect("write template");
         let project = load_authoring_project(&content_dir, &[])
             .await
@@ -8396,6 +8483,22 @@ mod tests {
         assert!(
             labels(position_for(template, "ti")).contains(&"title".to_string()),
             "page field completion should include title"
+        );
+        let current_page_field_byte = template
+            .find("current_page.pa")
+            .expect("current page alias field")
+            + "current_page.".len();
+        let (line, column) = byte_to_line_column(template, current_page_field_byte);
+        assert!(
+            labels(Position::new(line - 1, column - 1)).contains(&"path".to_string()),
+            "set aliases should complete fields from their source value"
+        );
+        let loop_item_field_byte =
+            template.find("item.pa").expect("loop item field") + "item.".len();
+        let (line, column) = byte_to_line_column(template, loop_item_field_byte);
+        assert!(
+            labels(Position::new(line - 1, column - 1)).contains(&"permalink".to_string()),
+            "loop bindings over section.pages should complete page fields"
         );
         assert!(
             labels(position_for(template, "ver")).contains(&"versions".to_string()),
