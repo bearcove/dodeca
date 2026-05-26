@@ -315,11 +315,9 @@ impl SemanticBuilder {
                 }),
                 Node::Set(node) => {
                     self.collect_expr(&node.value, scope);
-                    self.define(
+                    self.define_set_binding(
                         scope,
-                        node.name.name.clone(),
-                        TemplateSymbolKind::SetBinding,
-                        Some(node.name.span),
+                        &node.name,
                         expr_path(&node.value).map(TemplateSymbolOrigin::ExpressionPath),
                     );
                 }
@@ -361,6 +359,46 @@ impl SemanticBuilder {
         if let Some(body) = &node.else_body {
             self.collect_nodes(body, scope);
         }
+    }
+
+    fn define_set_binding(
+        &mut self,
+        scope: usize,
+        ident: &Ident,
+        origin: Option<TemplateSymbolOrigin>,
+    ) {
+        if let Some(symbol_id) = self.index.scopes[scope]
+            .symbols
+            .get(&ident.name)
+            .copied()
+            .filter(|symbol_id| {
+                self.index
+                    .symbols
+                    .get(*symbol_id)
+                    .is_some_and(|symbol| symbol.kind == TemplateSymbolKind::SetBinding)
+            })
+        {
+            self.index.references.push(TemplateReference {
+                name: ident.name.clone(),
+                span: ident.span,
+                kind: TemplateReferenceKind::Variable,
+                symbol_id: Some(symbol_id),
+                path: vec![ident.name.clone()],
+            });
+            self.index.tokens.push(TemplateSemanticToken {
+                span: ident.span,
+                kind: TemplateSemanticTokenKind::Variable,
+            });
+            return;
+        }
+
+        self.define(
+            scope,
+            ident.name.clone(),
+            TemplateSymbolKind::SetBinding,
+            Some(ident.span),
+            origin,
+        );
     }
 
     fn collect_macro(&mut self, node: &MacroNode, scope: usize) {
@@ -697,5 +735,32 @@ mod tests {
                 .is_some(),
             "set bindings are visible after their declaration"
         );
+    }
+
+    #[test]
+    fn repeated_set_in_same_scope_references_original_binding() {
+        let source = "{% set current_path = \"/\" %}\n{% set current_path = section.path %}\n{% set current_path = page.path %}\n{{ current_path }}";
+        let index = semantic_index(source);
+        let offsets = source
+            .match_indices("current_path")
+            .map(|(offset, _)| offset)
+            .collect::<Vec<_>>();
+        assert_eq!(offsets.len(), 4);
+
+        let symbol = index
+            .symbol_for_offset(offsets[0])
+            .expect("first set binding");
+        assert_eq!(symbol.name, "current_path");
+        assert_eq!(symbol.kind, TemplateSymbolKind::SetBinding);
+        assert_eq!(symbol.span.expect("symbol span").offset(), offsets[0]);
+
+        for offset in offsets.iter().copied().skip(1) {
+            let resolved = index
+                .symbol_for_offset(offset)
+                .expect("later assignment or use resolves");
+            assert_eq!(resolved.id, symbol.id);
+        }
+
+        assert_eq!(index.references_to_symbol(symbol.id).len(), 3);
     }
 }

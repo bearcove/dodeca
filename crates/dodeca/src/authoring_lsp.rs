@@ -9222,6 +9222,90 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn repeated_template_set_bindings_share_references() {
+        let dir = temp_dir("template-repeated-set-references");
+        let content_dir = dir.join("content");
+        let templates_dir = dir.join("templates");
+        std::fs::create_dir_all(&content_dir).expect("create content dir");
+        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
+        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
+
+        let template = "{% set current_path = \"/\" %}\n{% if section is defined %}{% set current_path = section.path %}{% endif %}\n{% if page is defined %}{% set current_path = page.path %}{% endif %}\n<a class=\"{% if current_path is eq(\"/\") %}is-active{% endif %}\">{{ current_path }}</a>\n";
+        std::fs::write(templates_dir.join("base.html"), template).expect("write template");
+        let project = load_authoring_project(&content_dir, &[])
+            .await
+            .expect("load project");
+
+        let first_definition = template_semantic_definition(
+            &content_dir,
+            &project,
+            "base.html",
+            position_for(template, "current_path"),
+        )
+        .expect("first definition");
+        let second_definition = template_semantic_definition(
+            &content_dir,
+            &project,
+            "base.html",
+            position_for_nth(template, "current_path", 1),
+        )
+        .expect("second definition");
+        assert_eq!(first_definition.range, second_definition.range);
+        assert!(range_contains_position(
+            &first_definition.range,
+            position_for(template, "current_path")
+        ));
+
+        let first_references = template_semantic_references(
+            &content_dir,
+            &project,
+            "base.html",
+            template,
+            position_for(template, "current_path"),
+        );
+        let second_references = template_semantic_references(
+            &content_dir,
+            &project,
+            "base.html",
+            template,
+            position_for_nth(template, "current_path", 1),
+        );
+        assert_eq!(first_references, second_references);
+        assert_eq!(first_references.len(), 5);
+        for index in 0..5 {
+            assert!(
+                first_references
+                    .iter()
+                    .any(|location| range_contains_position(
+                        &location.range,
+                        position_for_nth(template, "current_path", index)
+                    ))
+            );
+        }
+
+        let uri =
+            Url::from_file_path(templates_dir.join("base.html").as_std_path()).expect("file uri");
+        let edit = template_semantic_rename_workspace_edit(
+            &uri,
+            &project,
+            "base.html",
+            template,
+            position_for(template, "current_path"),
+            "active_path",
+        )
+        .expect("rename edit")
+        .expect("rename edit");
+        let edits = edit
+            .changes
+            .expect("changes")
+            .remove(&uri)
+            .expect("template edits");
+        assert_eq!(edits.len(), 5);
+
+        std::fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[tokio::test]
     async fn reports_template_diagnostics_from_authoring_model() {
         let dir = temp_dir("template-diagnostics");
         let content_dir = dir.join("content");
