@@ -800,11 +800,12 @@ impl Backend {
         let path = lsp_file_uri_to_utf8_path(uri)?;
         let project = self.current_project(&dirs).await?;
         if let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? {
+            let template_index = TemplateAuthoringIndex::new(&project, &template_file, &content);
             if let Some(occurrence) =
-                template_block_occurrence_at_position(&project, &template_file, &content, position)
+                template_index.block_occurrence_at_position(&template_file, position)
             {
                 return Ok(Some(markdown_hover(
-                    template_block_hover_markdown(&project, &template_file, &content, &occurrence),
+                    template_block_hover_markdown(&template_index, &template_file, &occurrence),
                     occurrence.source_range,
                 )));
             }
@@ -988,15 +989,13 @@ impl Backend {
         let path = lsp_file_uri_to_utf8_path(uri)?;
 
         if let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? {
+            let template_index = TemplateAuthoringIndex::new(&project, &template_file, &content);
             if let Some(occurrence) =
-                template_block_occurrence_at_position(&project, &template_file, &content, position)
+                template_index.block_occurrence_at_position(&template_file, position)
             {
-                if let Some(target) = template_block_definition_target(
-                    &project,
-                    &template_file,
-                    &content,
-                    &occurrence.ident,
-                ) {
+                if let Some(target) =
+                    template_index.block_definition_target(&template_file, &occurrence)
+                {
                     return Ok(Some(target.location()?));
                 }
                 return Ok(Some(Location {
@@ -1076,13 +1075,13 @@ impl Backend {
         let path = lsp_file_uri_to_utf8_path(uri)?;
         let project = self.current_project(&dirs).await?;
         if let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? {
+            let template_index = TemplateAuthoringIndex::new(&project, &template_file, &content);
             if let Some(occurrence) =
-                template_block_occurrence_at_position(&project, &template_file, &content, position)
+                template_index.block_occurrence_at_position(&template_file, position)
             {
                 return template_block_references(
-                    &project,
+                    &template_index,
                     &template_file,
-                    &content,
                     &occurrence.name,
                 );
             }
@@ -1523,8 +1522,26 @@ struct TemplateRouteReference {
 #[derive(Debug, Clone)]
 struct TemplateBlockOccurrence {
     name: String,
-    ident: Ident,
     source_range: Range,
+}
+
+#[derive(Debug, Clone)]
+struct TemplateAuthoringIndex {
+    templates: HashMap<String, IndexedTemplate>,
+    children_by_parent: HashMap<String, Vec<String>>,
+}
+
+#[derive(Debug, Clone)]
+struct IndexedTemplate {
+    path: Utf8PathBuf,
+    extends: Option<String>,
+    blocks: Vec<TemplateBlockOccurrence>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TemplateBlockReferenceTarget {
+    path: Utf8PathBuf,
+    range: Range,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -6956,21 +6973,6 @@ fn collect_template_document_symbols(
     }
 }
 
-fn template_block_occurrence_at_position(
-    project: &AuthoringProject,
-    template_file: &str,
-    content: &str,
-    position: Position,
-) -> Option<TemplateBlockOccurrence> {
-    if !project.template_contents.contains_key(template_file) {
-        return None;
-    }
-    let template = TemplateParser::new(template_file, content).parse().ok()?;
-    template_block_occurrences(content, &template.body)
-        .into_iter()
-        .find(|occurrence| range_contains_position(&occurrence.source_range, position))
-}
-
 fn template_block_occurrences(content: &str, nodes: &[Node]) -> Vec<TemplateBlockOccurrence> {
     let mut occurrences = Vec::new();
     collect_template_block_occurrences(content, nodes, &mut occurrences);
@@ -6987,7 +6989,6 @@ fn collect_template_block_occurrences(
             Node::Block(node) => {
                 occurrences.push(TemplateBlockOccurrence {
                     name: node.name.name.clone(),
-                    ident: node.name.clone(),
                     source_range: template_ident_range(content, &node.name),
                 });
                 collect_template_block_occurrences(content, &node.body, occurrences);
@@ -7024,16 +7025,179 @@ fn collect_template_block_occurrences(
     }
 }
 
+impl TemplateAuthoringIndex {
+    fn new(project: &AuthoringProject, current_file: &str, current_content: &str) -> Self {
+        let mut templates = HashMap::new();
+
+        for (template_file, template_path) in &project.template_paths {
+            let Some(content) =
+                template_content(project, template_file, current_file, current_content)
+            else {
+                continue;
+            };
+            let Ok(template) = TemplateParser::new(template_file, &content).parse() else {
+                continue;
+            };
+            templates.insert(
+                template_file.clone(),
+                IndexedTemplate {
+                    path: template_path.clone(),
+                    extends: template_extends_path_from_nodes(&template.body),
+                    blocks: template_block_occurrences(&content, &template.body),
+                },
+            );
+        }
+
+        let mut children_by_parent = HashMap::<String, Vec<String>>::new();
+        for (template_file, template) in &templates {
+            let Some(parent_file) = &template.extends else {
+                continue;
+            };
+            if templates.contains_key(parent_file) {
+                children_by_parent
+                    .entry(parent_file.clone())
+                    .or_default()
+                    .push(template_file.clone());
+            }
+        }
+        for children in children_by_parent.values_mut() {
+            children.sort();
+        }
+
+        Self {
+            templates,
+            children_by_parent,
+        }
+    }
+
+    fn block_occurrence_at_position(
+        &self,
+        template_file: &str,
+        position: Position,
+    ) -> Option<TemplateBlockOccurrence> {
+        self.templates
+            .get(template_file)?
+            .blocks
+            .iter()
+            .find(|occurrence| range_contains_position(&occurrence.source_range, position))
+            .cloned()
+    }
+
+    fn block_definition_target(
+        &self,
+        template_file: &str,
+        occurrence: &TemplateBlockOccurrence,
+    ) -> Option<TemplateDefinitionTarget> {
+        let mut seen = HashSet::new();
+        let mut cursor = template_file.to_string();
+        while seen.insert(cursor.clone()) {
+            let parent_file = self.templates.get(&cursor)?.extends.clone()?;
+            let parent = self.templates.get(&parent_file)?;
+            if let Some(target) = parent
+                .blocks
+                .iter()
+                .find(|block| block.name == occurrence.name)
+            {
+                return Some(TemplateDefinitionTarget {
+                    kind: TemplateDefinitionKind::Block,
+                    name: occurrence.name.clone(),
+                    source_range: occurrence.source_range,
+                    target_path: parent.path.clone(),
+                    target_range: target.source_range,
+                });
+            }
+            cursor = parent_file;
+        }
+        None
+    }
+
+    fn block_reference_targets(
+        &self,
+        template_file: &str,
+        block_name: &str,
+    ) -> Vec<TemplateBlockReferenceTarget> {
+        let Some(owner) = self.block_reference_owner(template_file, block_name) else {
+            return Vec::new();
+        };
+
+        let mut targets = Vec::new();
+        self.collect_block_reference_targets(&owner, block_name, &mut targets);
+        targets.sort_by(|a, b| {
+            a.path
+                .cmp(&b.path)
+                .then_with(|| position_cmp(a.range.start, b.range.start))
+                .then_with(|| position_cmp(a.range.end, b.range.end))
+        });
+        targets.dedup();
+        targets
+    }
+
+    fn block_reference_owner(&self, template_file: &str, block_name: &str) -> Option<String> {
+        let mut owner = self
+            .template_declares_block(template_file, block_name)
+            .then(|| template_file.to_string())?;
+        let mut seen = HashSet::new();
+        let mut cursor = template_file.to_string();
+
+        while seen.insert(cursor.clone()) {
+            let Some(parent_file) = self.templates.get(&cursor).and_then(|template| {
+                template
+                    .extends
+                    .as_ref()
+                    .filter(|parent| self.templates.contains_key(*parent))
+                    .cloned()
+            }) else {
+                break;
+            };
+            if self.template_declares_block(&parent_file, block_name) {
+                owner = parent_file.clone();
+            }
+            cursor = parent_file;
+        }
+
+        Some(owner)
+    }
+
+    fn collect_block_reference_targets(
+        &self,
+        template_file: &str,
+        block_name: &str,
+        targets: &mut Vec<TemplateBlockReferenceTarget>,
+    ) {
+        let Some(template) = self.templates.get(template_file) else {
+            return;
+        };
+        targets.extend(
+            template
+                .blocks
+                .iter()
+                .filter(|block| block.name == block_name)
+                .map(|block| TemplateBlockReferenceTarget {
+                    path: template.path.clone(),
+                    range: block.source_range,
+                }),
+        );
+        if let Some(children) = self.children_by_parent.get(template_file) {
+            for child in children {
+                self.collect_block_reference_targets(child, block_name, targets);
+            }
+        }
+    }
+
+    fn template_declares_block(&self, template_file: &str, block_name: &str) -> bool {
+        self.templates
+            .get(template_file)
+            .is_some_and(|template| template.blocks.iter().any(|block| block.name == block_name))
+    }
+}
+
 fn template_block_hover_markdown(
-    project: &AuthoringProject,
+    index: &TemplateAuthoringIndex,
     template_file: &str,
-    content: &str,
     occurrence: &TemplateBlockOccurrence,
 ) -> String {
     let mut sections = vec![format!("**Dodeca template block** `{}`", occurrence.name)];
-    if let Some(target) =
-        template_block_definition_target(project, template_file, content, &occurrence.ident)
-    {
+    if let Some(target) = index.block_definition_target(template_file, occurrence) {
         sections.push(format!(
             "Overrides `{}` in `{}`.",
             occurrence.name, target.target_path
@@ -7041,22 +7205,20 @@ fn template_block_hover_markdown(
     } else {
         sections.push("Defines a block that child templates may override.".to_string());
     }
-    let reference_count =
-        template_block_reference_targets(project, template_file, content, &occurrence.name).len();
+    let reference_count = index
+        .block_reference_targets(template_file, &occurrence.name)
+        .len();
     sections.push(format!("{reference_count} matching block declaration(s)."));
     sections.join("\n\n")
 }
 
 fn template_block_references(
-    project: &AuthoringProject,
-    current_file: &str,
-    current_content: &str,
+    index: &TemplateAuthoringIndex,
+    template_file: &str,
     block_name: &str,
 ) -> Result<Vec<Location>> {
     let mut locations = Vec::new();
-    for target in
-        template_block_reference_targets(project, current_file, current_content, block_name)
-    {
+    for target in index.block_reference_targets(template_file, block_name) {
         locations.push(Location {
             uri: Url::from_file_path(target.path.as_std_path()).map_err(|_| {
                 eyre!(
@@ -7076,40 +7238,6 @@ fn template_block_references(
     });
     locations.dedup_by(|left, right| left.uri == right.uri && left.range == right.range);
     Ok(locations)
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct TemplateBlockReferenceTarget {
-    path: Utf8PathBuf,
-    range: Range,
-}
-
-fn template_block_reference_targets(
-    project: &AuthoringProject,
-    current_file: &str,
-    current_content: &str,
-    block_name: &str,
-) -> Vec<TemplateBlockReferenceTarget> {
-    let mut targets = Vec::new();
-    for (template_file, template_path) in &project.template_paths {
-        let Some(content) = template_content(project, template_file, current_file, current_content)
-        else {
-            continue;
-        };
-        let Ok(template) = TemplateParser::new(template_file, &content).parse() else {
-            continue;
-        };
-        targets.extend(
-            template_block_occurrences(&content, &template.body)
-                .into_iter()
-                .filter(|occurrence| occurrence.name == block_name)
-                .map(|occurrence| TemplateBlockReferenceTarget {
-                    path: template_path.clone(),
-                    range: occurrence.source_range,
-                }),
-        );
-    }
-    targets
 }
 
 fn template_definition_target_at_position(
@@ -7695,7 +7823,11 @@ fn template_extends_path(
         return None;
     }
     let template = TemplateParser::new(template_file, content).parse().ok()?;
-    for node in &template.body {
+    template_extends_path_from_nodes(&template.body)
+}
+
+fn template_extends_path_from_nodes(nodes: &[Node]) -> Option<String> {
+    for node in nodes {
         match node {
             Node::Extends(node) => return Some(node.path.value.clone()),
             Node::Text(node) if node.text.trim().is_empty() => {}
@@ -8763,29 +8895,26 @@ mod tests {
         let project = load_authoring_project(&content_dir, &[])
             .await
             .expect("load project");
-        let occurrence = template_block_occurrence_at_position(
-            &project,
-            "child.html",
-            child,
-            position_for(child, "breadcrumbs"),
-        )
-        .expect("block occurrence");
+        let index = TemplateAuthoringIndex::new(&project, "child.html", child);
+        let occurrence = index
+            .block_occurrence_at_position("child.html", position_for(child, "breadcrumbs"))
+            .expect("block occurrence");
         assert_eq!(occurrence.name, "breadcrumbs");
 
-        let target =
-            template_block_definition_target(&project, "child.html", child, &occurrence.ident)
-                .expect("parent block target");
+        let target = index
+            .block_definition_target("child.html", &occurrence)
+            .expect("parent block target");
         assert_eq!(target.target_path, templates_dir.join("base.html"));
         assert!(range_contains_position(
             &target.target_range,
             position_for(base, "breadcrumbs")
         ));
 
-        let hover = template_block_hover_markdown(&project, "child.html", child, &occurrence);
+        let hover = template_block_hover_markdown(&index, "child.html", &occurrence);
         assert!(hover.contains("Overrides"));
         assert!(hover.contains("3 matching block declaration"));
 
-        let references = template_block_references(&project, "child.html", child, "breadcrumbs")
+        let references = template_block_references(&index, "child.html", "breadcrumbs")
             .expect("block references");
         assert_eq!(references.len(), 3);
         assert_eq!(
@@ -8804,6 +8933,132 @@ mod tests {
                 "child.html".to_string(),
                 "sibling.html".to_string(),
             ]
+        );
+
+        std::fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[tokio::test]
+    async fn resolves_template_block_references_by_inheritance_tree() {
+        let dir = temp_dir("template-block-inheritance-references");
+        let content_dir = dir.join("content");
+        let templates_dir = dir.join("templates");
+        std::fs::create_dir_all(&content_dir).expect("create content dir");
+        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
+        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
+
+        let base = "{% block breadcrumbs %}Base{% endblock %}\n";
+        let child = "{% extends \"base.html\" %}\n{% block breadcrumbs %}Child{% endblock %}\n";
+        let grandchild =
+            "{% extends \"child.html\" %}\n{% block breadcrumbs %}Grandchild{% endblock %}\n";
+        let other_base = "{% block breadcrumbs %}Other base{% endblock %}\n";
+        let other_child =
+            "{% extends \"other-base.html\" %}\n{% block breadcrumbs %}Other child{% endblock %}\n";
+        std::fs::write(templates_dir.join("base.html"), base).expect("write base");
+        std::fs::write(templates_dir.join("child.html"), child).expect("write child");
+        std::fs::write(templates_dir.join("grandchild.html"), grandchild)
+            .expect("write grandchild");
+        std::fs::write(templates_dir.join("other-base.html"), other_base)
+            .expect("write other base");
+        std::fs::write(templates_dir.join("other-child.html"), other_child)
+            .expect("write other child");
+
+        let project = load_authoring_project(&content_dir, &[])
+            .await
+            .expect("load project");
+        let index = TemplateAuthoringIndex::new(&project, "child.html", child);
+
+        let child_occurrence = index
+            .block_occurrence_at_position("child.html", position_for(child, "breadcrumbs"))
+            .expect("child block occurrence");
+        let target = index
+            .block_definition_target("child.html", &child_occurrence)
+            .expect("child parent block");
+        assert_eq!(target.target_path, templates_dir.join("base.html"));
+
+        let references =
+            template_block_references(&index, "child.html", "breadcrumbs").expect("references");
+        assert_eq!(
+            references
+                .iter()
+                .map(|location| {
+                    Utf8PathBuf::from_path_buf(location.uri.to_file_path().expect("file uri"))
+                        .expect("utf8 path")
+                        .strip_prefix(&templates_dir)
+                        .expect("template relative")
+                        .to_string()
+                })
+                .collect::<Vec<_>>(),
+            vec![
+                "base.html".to_string(),
+                "child.html".to_string(),
+                "grandchild.html".to_string(),
+            ]
+        );
+
+        let other_index = TemplateAuthoringIndex::new(&project, "other-child.html", other_child);
+        let other_references =
+            template_block_references(&other_index, "other-child.html", "breadcrumbs")
+                .expect("other references");
+        assert_eq!(
+            other_references
+                .iter()
+                .map(|location| {
+                    Utf8PathBuf::from_path_buf(location.uri.to_file_path().expect("file uri"))
+                        .expect("utf8 path")
+                        .strip_prefix(&templates_dir)
+                        .expect("template relative")
+                        .to_string()
+                })
+                .collect::<Vec<_>>(),
+            vec![
+                "other-base.html".to_string(),
+                "other-child.html".to_string(),
+            ]
+        );
+
+        std::fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[tokio::test]
+    async fn template_block_index_uses_current_template_content() {
+        let dir = temp_dir("template-block-live-content");
+        let content_dir = dir.join("content");
+        let templates_dir = dir.join("templates");
+        std::fs::create_dir_all(&content_dir).expect("create content dir");
+        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
+        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
+
+        let base = "{% block breadcrumbs %}Base{% endblock %}\n";
+        let other_base = "{% block breadcrumbs %}Other base{% endblock %}\n";
+        let disk_child =
+            "{% extends \"base.html\" %}\n{% block breadcrumbs %}Child{% endblock %}\n";
+        let live_child =
+            "{% extends \"other-base.html\" %}\n{% block breadcrumbs %}Child{% endblock %}\n";
+        std::fs::write(templates_dir.join("base.html"), base).expect("write base");
+        std::fs::write(templates_dir.join("other-base.html"), other_base)
+            .expect("write other base");
+        std::fs::write(templates_dir.join("child.html"), disk_child).expect("write child");
+
+        let project = load_authoring_project(&content_dir, &[])
+            .await
+            .expect("load project");
+        let index = TemplateAuthoringIndex::new(&project, "child.html", live_child);
+        let references =
+            template_block_references(&index, "child.html", "breadcrumbs").expect("references");
+
+        assert_eq!(
+            references
+                .iter()
+                .map(|location| {
+                    Utf8PathBuf::from_path_buf(location.uri.to_file_path().expect("file uri"))
+                        .expect("utf8 path")
+                        .strip_prefix(&templates_dir)
+                        .expect("template relative")
+                        .to_string()
+                })
+                .collect::<Vec<_>>(),
+            vec!["child.html".to_string(), "other-base.html".to_string()]
         );
 
         std::fs::remove_dir_all(&dir).expect("remove temp dir");
