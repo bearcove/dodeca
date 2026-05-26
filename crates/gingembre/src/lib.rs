@@ -51,7 +51,7 @@ pub use error::{
     NamedSource, PrettyError, RenderError, SourceLocation, SourceSpan, TemplateError,
     format_template_error_pretty,
 };
-pub use eval::{Context, GlobalFn, Value, ValueExt};
+pub use eval::{BUILTIN_FILTER_NAMES, BUILTIN_TEST_NAMES, Context, GlobalFn, Value, ValueExt};
 pub use lazy::{DataPath, DataResolver, LazyValue};
 pub use render::{Engine, InMemoryLoader, TemplateLoader};
 

@@ -11,6 +11,67 @@ use facet_value::{DestructuredRef, VArray, VObject, VString};
 use futures::future::BoxFuture;
 use std::collections::HashMap;
 
+pub const BUILTIN_FILTER_NAMES: &[&str] = &[
+    "upper",
+    "lower",
+    "capitalize",
+    "title",
+    "trim",
+    "length",
+    "first",
+    "last",
+    "reverse",
+    "sort",
+    "join",
+    "split",
+    "default",
+    "escape",
+    "safe",
+    "typeof",
+    "slice",
+    "map",
+    "selectattr",
+    "rejectattr",
+    "groupby",
+    "path_segments",
+    "path_first",
+    "path_parent",
+    "path_basename",
+];
+
+pub const BUILTIN_TEST_NAMES: &[&str] = &[
+    "starting_with",
+    "startswith",
+    "ending_with",
+    "endswith",
+    "containing",
+    "contains",
+    "defined",
+    "undefined",
+    "none",
+    "string",
+    "number",
+    "integer",
+    "float",
+    "mapping",
+    "dict",
+    "iterable",
+    "sequence",
+    "odd",
+    "even",
+    "truthy",
+    "falsy",
+    "empty",
+    "eq",
+    "equalto",
+    "sameas",
+    "ne",
+    "lt",
+    "lessthan",
+    "gt",
+    "greaterthan",
+];
+
 /// Re-export facet_value::Value as the template Value type
 pub use facet_value::Value;
 
@@ -1055,35 +1116,6 @@ fn apply_filter(
     span: Span,
     source: &TemplateSource,
 ) -> Result<Value, TemplateError> {
-    let known_filters = vec![
-        "upper",
-        "lower",
-        "capitalize",
-        "title",
-        "trim",
-        "length",
-        "first",
-        "last",
-        "reverse",
-        "sort",
-        "join",
-        "split",
-        "default",
-        "escape",
-        "safe",
-        "typeof",
-        "slice",
-        "map",
-        "selectattr",
-        "rejectattr",
-        "groupby",
-        // Path manipulation filters
-        "path_segments",
-        "path_first",
-        "path_parent",
-        "path_basename",
-    ];
-
     // Helper to get kwarg value
     let get_kwarg =
         |key: &str| -> Option<&Value> { kwargs.iter().find(|(k, _)| k == key).map(|(_, v)| v) };
@@ -1426,7 +1458,10 @@ fn apply_filter(
         _ => {
             return Err(UnknownFilterError {
                 name: name.to_string(),
-                known_filters: known_filters.into_iter().map(String::from).collect(),
+                known_filters: BUILTIN_FILTER_NAMES
+                    .iter()
+                    .map(|name| name.to_string())
+                    .collect(),
                 loc: SourceLocation::new(span, source.named_source()),
             }
             .into());

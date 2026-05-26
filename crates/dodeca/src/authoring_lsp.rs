@@ -4,8 +4,9 @@ use std::sync::{Arc, Mutex};
 use camino::{Utf8Path, Utf8PathBuf};
 use eyre::{Result, eyre};
 use facet::{Facet, NumericType, PrimitiveType, Type, UserType};
-use gingembre::ast::{Node, StringLit};
+use gingembre::ast::{Expr, Ident, Node, StringLit};
 use gingembre::parser::Parser as TemplateParser;
+use gingembre::{BUILTIN_FILTER_NAMES, BUILTIN_TEST_NAMES};
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::{
@@ -727,6 +728,17 @@ impl Backend {
                     target.source_range,
                 )));
             }
+            if let Some(target) = template_definition_target_at_position(
+                &project,
+                &template_file,
+                &content,
+                position,
+            )? {
+                return Ok(Some(markdown_hover(
+                    target.hover_markdown(),
+                    target.source_range,
+                )));
+            }
             return Ok(None);
         }
 
@@ -802,8 +814,9 @@ impl Backend {
         let dirs = self.dirs_for_uri(&uri)?;
         let content = self.document_content(&uri)?;
         let path = lsp_file_uri_to_utf8_path(&uri)?;
-        if template_file_for_path(&dirs.content_dir, &path)?.is_some() {
-            return Ok(Vec::new());
+        if let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? {
+            let project = self.current_project(&dirs).await?;
+            return template_document_symbols(&project, &template_file, &content);
         }
         let source_file = source_file_for_path(&dirs.content_dir, &path)?;
         let project = self.current_project(&dirs).await?;
@@ -845,6 +858,14 @@ impl Backend {
                     uri: target.target_uri()?,
                     range: one_line_range(0),
                 }));
+            }
+            if let Some(target) = template_definition_target_at_position(
+                &project,
+                &template_file,
+                &content,
+                position,
+            )? {
+                return Ok(Some(target.location()?));
             }
             return Ok(None);
         }
@@ -3800,6 +3821,57 @@ impl TemplateDocumentTarget {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TemplateDefinitionKind {
+    Block,
+    Macro,
+    Filter,
+    Test,
+}
+
+impl TemplateDefinitionKind {
+    fn label(self) -> &'static str {
+        match self {
+            TemplateDefinitionKind::Block => "block",
+            TemplateDefinitionKind::Macro => "macro",
+            TemplateDefinitionKind::Filter => "filter",
+            TemplateDefinitionKind::Test => "test",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct TemplateDefinitionTarget {
+    kind: TemplateDefinitionKind,
+    name: String,
+    source_range: Range,
+    target_path: Utf8PathBuf,
+    target_range: Range,
+}
+
+impl TemplateDefinitionTarget {
+    fn location(&self) -> Result<Location> {
+        Ok(Location {
+            uri: Url::from_file_path(self.target_path.as_std_path()).map_err(|_| {
+                eyre!(
+                    "could not convert template definition path to URI: {}",
+                    self.target_path
+                )
+            })?,
+            range: self.target_range,
+        })
+    }
+
+    fn hover_markdown(&self) -> String {
+        format!(
+            "**Dodeca template {}**\n\n`{}`\n\nDefinition: `{}`",
+            self.kind.label(),
+            self.name,
+            self.target_path
+        )
+    }
+}
+
 fn frontmatter_field_specs() -> Vec<FrontmatterFieldSpec> {
     let fields = match <Frontmatter as Facet>::SHAPE.ty {
         Type::User(UserType::Struct(struct_type)) => struct_type.fields,
@@ -4152,6 +4224,787 @@ fn template_string_range(content: &str, string: &StringLit) -> Range {
         string.span.offset(),
         string.span.offset() + string.span.len(),
     )
+}
+
+fn template_ident_range(content: &str, ident: &Ident) -> Range {
+    byte_range_to_lsp_range(
+        content,
+        ident.span.offset(),
+        ident.span.offset() + ident.span.len(),
+    )
+}
+
+#[allow(deprecated)]
+fn template_document_symbols(
+    project: &AuthoringProject,
+    template_file: &str,
+    content: &str,
+) -> Result<Vec<DocumentSymbol>> {
+    if !project.template_contents.contains_key(template_file) {
+        return Ok(Vec::new());
+    }
+    let Ok(template) = TemplateParser::new(template_file, content).parse() else {
+        return Ok(Vec::new());
+    };
+
+    let mut symbols = Vec::new();
+    collect_template_document_symbols(content, &template.body, &mut symbols);
+    Ok(symbols)
+}
+
+#[allow(deprecated)]
+fn collect_template_document_symbols(
+    content: &str,
+    nodes: &[Node],
+    symbols: &mut Vec<DocumentSymbol>,
+) {
+    for node in nodes {
+        match node {
+            Node::Block(node) => {
+                let mut children = Vec::new();
+                collect_template_document_symbols(content, &node.body, &mut children);
+                symbols.push(DocumentSymbol {
+                    name: node.name.name.clone(),
+                    detail: Some("Dodeca template block".to_string()),
+                    kind: SymbolKind::MODULE,
+                    tags: None,
+                    deprecated: None,
+                    range: byte_range_to_lsp_range(
+                        content,
+                        node.span.offset(),
+                        node.span.offset() + node.span.len(),
+                    ),
+                    selection_range: template_ident_range(content, &node.name),
+                    children: (!children.is_empty()).then_some(children),
+                });
+            }
+            Node::Macro(node) => {
+                let mut children = Vec::new();
+                collect_template_document_symbols(content, &node.body, &mut children);
+                symbols.push(DocumentSymbol {
+                    name: node.name.name.clone(),
+                    detail: Some("Dodeca template macro".to_string()),
+                    kind: SymbolKind::FUNCTION,
+                    tags: None,
+                    deprecated: None,
+                    range: byte_range_to_lsp_range(
+                        content,
+                        node.span.offset(),
+                        node.span.offset() + node.span.len(),
+                    ),
+                    selection_range: template_ident_range(content, &node.name),
+                    children: (!children.is_empty()).then_some(children),
+                });
+            }
+            Node::If(node) => {
+                collect_template_document_symbols(content, &node.then_body, symbols);
+                for branch in &node.elif_branches {
+                    collect_template_document_symbols(content, &branch.body, symbols);
+                }
+                if let Some(body) = &node.else_body {
+                    collect_template_document_symbols(content, body, symbols);
+                }
+            }
+            Node::For(node) => {
+                collect_template_document_symbols(content, &node.body, symbols);
+                if let Some(body) = &node.else_body {
+                    collect_template_document_symbols(content, body, symbols);
+                }
+            }
+            Node::Text(_)
+            | Node::Print(_)
+            | Node::Include(_)
+            | Node::Extends(_)
+            | Node::Comment(_)
+            | Node::Set(_)
+            | Node::Import(_)
+            | Node::Continue(_)
+            | Node::Break(_)
+            | Node::CallBlock(_) => {}
+        }
+    }
+}
+
+fn template_definition_target_at_position(
+    project: &AuthoringProject,
+    template_file: &str,
+    content: &str,
+    position: Position,
+) -> Result<Option<TemplateDefinitionTarget>> {
+    Ok(
+        template_definition_targets(project, template_file, content)?
+            .into_iter()
+            .find(|target| range_contains_position(&target.source_range, position)),
+    )
+}
+
+fn template_definition_targets(
+    project: &AuthoringProject,
+    template_file: &str,
+    content: &str,
+) -> Result<Vec<TemplateDefinitionTarget>> {
+    if !project.template_contents.contains_key(template_file) {
+        return Ok(Vec::new());
+    }
+    let Ok(template) = TemplateParser::new(template_file, content).parse() else {
+        return Ok(Vec::new());
+    };
+
+    let imports = template_import_aliases(project, &template.body);
+    let mut targets = Vec::new();
+    collect_template_definition_targets(
+        project,
+        template_file,
+        content,
+        &template.body,
+        &imports,
+        &mut targets,
+    );
+    Ok(targets)
+}
+
+fn collect_template_definition_targets(
+    project: &AuthoringProject,
+    template_file: &str,
+    content: &str,
+    nodes: &[Node],
+    imports: &HashMap<String, String>,
+    targets: &mut Vec<TemplateDefinitionTarget>,
+) {
+    for node in nodes {
+        match node {
+            Node::Block(node) => {
+                if let Some(target) =
+                    template_block_definition_target(project, template_file, content, &node.name)
+                {
+                    targets.push(target);
+                }
+                collect_template_definition_targets(
+                    project,
+                    template_file,
+                    content,
+                    &node.body,
+                    imports,
+                    targets,
+                );
+            }
+            Node::Macro(node) => {
+                collect_template_definition_targets(
+                    project,
+                    template_file,
+                    content,
+                    &node.body,
+                    imports,
+                    targets,
+                );
+            }
+            Node::Print(node) => collect_expr_definition_targets(
+                project,
+                template_file,
+                content,
+                &node.expr,
+                imports,
+                targets,
+            ),
+            Node::If(node) => {
+                collect_expr_definition_targets(
+                    project,
+                    template_file,
+                    content,
+                    &node.condition,
+                    imports,
+                    targets,
+                );
+                collect_template_definition_targets(
+                    project,
+                    template_file,
+                    content,
+                    &node.then_body,
+                    imports,
+                    targets,
+                );
+                for branch in &node.elif_branches {
+                    collect_expr_definition_targets(
+                        project,
+                        template_file,
+                        content,
+                        &branch.condition,
+                        imports,
+                        targets,
+                    );
+                    collect_template_definition_targets(
+                        project,
+                        template_file,
+                        content,
+                        &branch.body,
+                        imports,
+                        targets,
+                    );
+                }
+                if let Some(body) = &node.else_body {
+                    collect_template_definition_targets(
+                        project,
+                        template_file,
+                        content,
+                        body,
+                        imports,
+                        targets,
+                    );
+                }
+            }
+            Node::For(node) => {
+                collect_expr_definition_targets(
+                    project,
+                    template_file,
+                    content,
+                    &node.iter,
+                    imports,
+                    targets,
+                );
+                collect_template_definition_targets(
+                    project,
+                    template_file,
+                    content,
+                    &node.body,
+                    imports,
+                    targets,
+                );
+                if let Some(body) = &node.else_body {
+                    collect_template_definition_targets(
+                        project,
+                        template_file,
+                        content,
+                        body,
+                        imports,
+                        targets,
+                    );
+                }
+            }
+            Node::Set(node) => collect_expr_definition_targets(
+                project,
+                template_file,
+                content,
+                &node.value,
+                imports,
+                targets,
+            ),
+            Node::CallBlock(node) => {
+                for (_, expr) in &node.kwargs {
+                    collect_expr_definition_targets(
+                        project,
+                        template_file,
+                        content,
+                        expr,
+                        imports,
+                        targets,
+                    );
+                }
+            }
+            Node::Text(_)
+            | Node::Include(_)
+            | Node::Extends(_)
+            | Node::Comment(_)
+            | Node::Import(_)
+            | Node::Continue(_)
+            | Node::Break(_) => {}
+        }
+    }
+}
+
+fn collect_expr_definition_targets(
+    project: &AuthoringProject,
+    template_file: &str,
+    content: &str,
+    expr: &Expr,
+    imports: &HashMap<String, String>,
+    targets: &mut Vec<TemplateDefinitionTarget>,
+) {
+    match expr {
+        Expr::Literal(literal) => collect_literal_definition_targets(
+            project,
+            template_file,
+            content,
+            literal,
+            imports,
+            targets,
+        ),
+        Expr::Var(_) => {}
+        Expr::Field(expr) => {
+            collect_expr_definition_targets(
+                project,
+                template_file,
+                content,
+                &expr.base,
+                imports,
+                targets,
+            );
+        }
+        Expr::Index(expr) => {
+            collect_expr_definition_targets(
+                project,
+                template_file,
+                content,
+                &expr.base,
+                imports,
+                targets,
+            );
+            collect_expr_definition_targets(
+                project,
+                template_file,
+                content,
+                &expr.index,
+                imports,
+                targets,
+            );
+        }
+        Expr::Filter(expr) => {
+            collect_expr_definition_targets(
+                project,
+                template_file,
+                content,
+                &expr.expr,
+                imports,
+                targets,
+            );
+            for arg in &expr.args {
+                collect_expr_definition_targets(
+                    project,
+                    template_file,
+                    content,
+                    arg,
+                    imports,
+                    targets,
+                );
+            }
+            for (_, expr) in &expr.kwargs {
+                collect_expr_definition_targets(
+                    project,
+                    template_file,
+                    content,
+                    expr,
+                    imports,
+                    targets,
+                );
+            }
+            if BUILTIN_FILTER_NAMES.contains(&expr.filter.name.as_str())
+                && let Some(target) = builtin_template_definition_target(
+                    TemplateDefinitionKind::Filter,
+                    &expr.filter,
+                    content,
+                )
+            {
+                targets.push(target);
+            }
+        }
+        Expr::Binary(expr) => {
+            collect_expr_definition_targets(
+                project,
+                template_file,
+                content,
+                &expr.left,
+                imports,
+                targets,
+            );
+            collect_expr_definition_targets(
+                project,
+                template_file,
+                content,
+                &expr.right,
+                imports,
+                targets,
+            );
+        }
+        Expr::Unary(expr) => collect_expr_definition_targets(
+            project,
+            template_file,
+            content,
+            &expr.expr,
+            imports,
+            targets,
+        ),
+        Expr::Call(expr) => {
+            collect_expr_definition_targets(
+                project,
+                template_file,
+                content,
+                &expr.func,
+                imports,
+                targets,
+            );
+            for arg in &expr.args {
+                collect_expr_definition_targets(
+                    project,
+                    template_file,
+                    content,
+                    arg,
+                    imports,
+                    targets,
+                );
+            }
+            for (_, expr) in &expr.kwargs {
+                collect_expr_definition_targets(
+                    project,
+                    template_file,
+                    content,
+                    expr,
+                    imports,
+                    targets,
+                );
+            }
+        }
+        Expr::Ternary(expr) => {
+            collect_expr_definition_targets(
+                project,
+                template_file,
+                content,
+                &expr.value,
+                imports,
+                targets,
+            );
+            collect_expr_definition_targets(
+                project,
+                template_file,
+                content,
+                &expr.condition,
+                imports,
+                targets,
+            );
+            collect_expr_definition_targets(
+                project,
+                template_file,
+                content,
+                &expr.otherwise,
+                imports,
+                targets,
+            );
+        }
+        Expr::Test(expr) => {
+            collect_expr_definition_targets(
+                project,
+                template_file,
+                content,
+                &expr.expr,
+                imports,
+                targets,
+            );
+            for arg in &expr.args {
+                collect_expr_definition_targets(
+                    project,
+                    template_file,
+                    content,
+                    arg,
+                    imports,
+                    targets,
+                );
+            }
+            if BUILTIN_TEST_NAMES.contains(&expr.test_name.name.as_str())
+                && let Some(target) = builtin_template_definition_target(
+                    TemplateDefinitionKind::Test,
+                    &expr.test_name,
+                    content,
+                )
+            {
+                targets.push(target);
+            }
+        }
+        Expr::MacroCall(expr) => {
+            for arg in &expr.args {
+                collect_expr_definition_targets(
+                    project,
+                    template_file,
+                    content,
+                    arg,
+                    imports,
+                    targets,
+                );
+            }
+            for (_, expr) in &expr.kwargs {
+                collect_expr_definition_targets(
+                    project,
+                    template_file,
+                    content,
+                    expr,
+                    imports,
+                    targets,
+                );
+            }
+            if let Some(target) = template_macro_definition_target(
+                project,
+                template_file,
+                content,
+                imports,
+                &expr.namespace,
+                &expr.macro_name,
+            ) {
+                targets.push(target);
+            }
+        }
+    }
+}
+
+fn collect_literal_definition_targets(
+    project: &AuthoringProject,
+    template_file: &str,
+    content: &str,
+    literal: &gingembre::ast::Literal,
+    imports: &HashMap<String, String>,
+    targets: &mut Vec<TemplateDefinitionTarget>,
+) {
+    match literal {
+        gingembre::ast::Literal::List(list) => {
+            for expr in &list.elements {
+                collect_expr_definition_targets(
+                    project,
+                    template_file,
+                    content,
+                    expr,
+                    imports,
+                    targets,
+                );
+            }
+        }
+        gingembre::ast::Literal::Dict(dict) => {
+            for (key, value) in &dict.entries {
+                collect_expr_definition_targets(
+                    project,
+                    template_file,
+                    content,
+                    key,
+                    imports,
+                    targets,
+                );
+                collect_expr_definition_targets(
+                    project,
+                    template_file,
+                    content,
+                    value,
+                    imports,
+                    targets,
+                );
+            }
+        }
+        gingembre::ast::Literal::String(_)
+        | gingembre::ast::Literal::Int(_)
+        | gingembre::ast::Literal::Float(_)
+        | gingembre::ast::Literal::Bool(_)
+        | gingembre::ast::Literal::None(_) => {}
+    }
+}
+
+fn template_import_aliases(project: &AuthoringProject, nodes: &[Node]) -> HashMap<String, String> {
+    let mut imports = HashMap::new();
+    collect_template_import_aliases(project, nodes, &mut imports);
+    imports
+}
+
+fn collect_template_import_aliases(
+    project: &AuthoringProject,
+    nodes: &[Node],
+    imports: &mut HashMap<String, String>,
+) {
+    for node in nodes {
+        match node {
+            Node::Import(node) => {
+                if project.template_paths.contains_key(&node.path.value) {
+                    imports.insert(node.alias.name.clone(), node.path.value.clone());
+                }
+            }
+            Node::If(node) => {
+                collect_template_import_aliases(project, &node.then_body, imports);
+                for branch in &node.elif_branches {
+                    collect_template_import_aliases(project, &branch.body, imports);
+                }
+                if let Some(body) = &node.else_body {
+                    collect_template_import_aliases(project, body, imports);
+                }
+            }
+            Node::For(node) => {
+                collect_template_import_aliases(project, &node.body, imports);
+                if let Some(body) = &node.else_body {
+                    collect_template_import_aliases(project, body, imports);
+                }
+            }
+            Node::Block(node) => collect_template_import_aliases(project, &node.body, imports),
+            Node::Macro(node) => collect_template_import_aliases(project, &node.body, imports),
+            Node::Text(_)
+            | Node::Print(_)
+            | Node::Include(_)
+            | Node::Extends(_)
+            | Node::Comment(_)
+            | Node::Set(_)
+            | Node::Continue(_)
+            | Node::Break(_)
+            | Node::CallBlock(_) => {}
+        }
+    }
+}
+
+fn template_block_definition_target(
+    project: &AuthoringProject,
+    template_file: &str,
+    content: &str,
+    source_ident: &Ident,
+) -> Option<TemplateDefinitionTarget> {
+    let mut seen = HashSet::new();
+    let parent_file = template_extends_path(template_file, content, &mut seen)?;
+    let (target_file, target_content, target_ident) = template_block_definition(
+        project,
+        &parent_file,
+        template_file,
+        content,
+        &source_ident.name,
+    )?;
+    Some(TemplateDefinitionTarget {
+        kind: TemplateDefinitionKind::Block,
+        name: source_ident.name.clone(),
+        source_range: template_ident_range(content, source_ident),
+        target_path: project.template_paths.get(&target_file).cloned()?,
+        target_range: template_ident_range(&target_content, &target_ident),
+    })
+}
+
+fn template_block_definition(
+    project: &AuthoringProject,
+    template_file: &str,
+    current_file: &str,
+    current_content: &str,
+    name: &str,
+) -> Option<(String, String, Ident)> {
+    let content = template_content(project, template_file, current_file, current_content)?;
+    let template = TemplateParser::new(template_file, content.as_str())
+        .parse()
+        .ok()?;
+    if let Some(ident) = top_level_block_ident(&template.body, name) {
+        return Some((template_file.to_string(), content, ident));
+    }
+
+    let mut seen = HashSet::new();
+    if let Some(parent_file) = template_extends_path(template_file, &content, &mut seen) {
+        return template_block_definition(
+            project,
+            &parent_file,
+            current_file,
+            current_content,
+            name,
+        );
+    }
+
+    None
+}
+
+fn top_level_block_ident(nodes: &[Node], name: &str) -> Option<Ident> {
+    nodes.iter().find_map(|node| match node {
+        Node::Block(node) if node.name.name == name => Some(node.name.clone()),
+        _ => None,
+    })
+}
+
+fn template_extends_path(
+    template_file: &str,
+    content: &str,
+    seen: &mut HashSet<String>,
+) -> Option<String> {
+    if !seen.insert(template_file.to_string()) {
+        return None;
+    }
+    let template = TemplateParser::new(template_file, content).parse().ok()?;
+    for node in &template.body {
+        match node {
+            Node::Extends(node) => return Some(node.path.value.clone()),
+            Node::Text(node) if node.text.trim().is_empty() => {}
+            _ => return None,
+        }
+    }
+    None
+}
+
+fn template_macro_definition_target(
+    project: &AuthoringProject,
+    template_file: &str,
+    content: &str,
+    imports: &HashMap<String, String>,
+    namespace: &Ident,
+    macro_name: &Ident,
+) -> Option<TemplateDefinitionTarget> {
+    let target_file = if namespace.name == "self" {
+        template_file
+    } else {
+        imports.get(&namespace.name)?.as_str()
+    };
+    let target_content = template_content(project, target_file, template_file, content)?;
+    let template = TemplateParser::new(target_file, target_content.as_str())
+        .parse()
+        .ok()?;
+    let target_ident = top_level_macro_ident(&template.body, &macro_name.name)?;
+    Some(TemplateDefinitionTarget {
+        kind: TemplateDefinitionKind::Macro,
+        name: format!("{}::{}", namespace.name, macro_name.name),
+        source_range: template_ident_range(content, macro_name),
+        target_path: project.template_paths.get(target_file).cloned()?,
+        target_range: template_ident_range(&target_content, &target_ident),
+    })
+}
+
+fn top_level_macro_ident(nodes: &[Node], name: &str) -> Option<Ident> {
+    nodes.iter().find_map(|node| match node {
+        Node::Macro(node) if node.name.name == name => Some(node.name.clone()),
+        _ => None,
+    })
+}
+
+fn template_content(
+    project: &AuthoringProject,
+    template_file: &str,
+    current_file: &str,
+    current_content: &str,
+) -> Option<String> {
+    if template_file == current_file {
+        Some(current_content.to_string())
+    } else {
+        project.template_contents.get(template_file).cloned()
+    }
+}
+
+fn builtin_template_definition_target(
+    kind: TemplateDefinitionKind,
+    ident: &Ident,
+    content: &str,
+) -> Option<TemplateDefinitionTarget> {
+    let target_path = gingembre_eval_source_path()?;
+    let target_content = std::fs::read_to_string(target_path.as_std_path()).ok()?;
+    let target_range = builtin_template_definition_range(&target_content, kind, &ident.name)?;
+    Some(TemplateDefinitionTarget {
+        kind,
+        name: ident.name.clone(),
+        source_range: template_ident_range(content, ident),
+        target_path,
+        target_range,
+    })
+}
+
+fn gingembre_eval_source_path() -> Option<Utf8PathBuf> {
+    let dodeca_manifest_dir = Utf8PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    Some(dodeca_manifest_dir.parent()?.join("gingembre/src/eval.rs"))
+}
+
+fn builtin_template_definition_range(
+    source: &str,
+    kind: TemplateDefinitionKind,
+    name: &str,
+) -> Option<Range> {
+    let marker = match kind {
+        TemplateDefinitionKind::Filter => "Ok(match name {",
+        TemplateDefinitionKind::Test => "let result = match test.test_name.name.as_str() {",
+        TemplateDefinitionKind::Block | TemplateDefinitionKind::Macro => return None,
+    };
+    let section_start = source.find(marker)?;
+    let needle = format!("\"{name}\"");
+    let name_start = section_start + source[section_start..].find(&needle)? + 1;
+    Some(byte_range_to_lsp_range(
+        source,
+        name_start,
+        name_start + name.len(),
+    ))
 }
 
 fn frontmatter_completion_label(spec: FrontmatterFieldSpec) -> &'static str {
@@ -4896,6 +5749,111 @@ mod tests {
             Url::from_file_path(templates_dir.join("partial.html").as_std_path())
                 .expect("expected uri")
         );
+
+        std::fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[tokio::test]
+    async fn resolves_template_definition_targets_from_authoring_model() {
+        let dir = temp_dir("template-definitions");
+        let content_dir = dir.join("content");
+        let templates_dir = dir.join("templates");
+        std::fs::create_dir_all(&content_dir).expect("create content dir");
+        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
+        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
+
+        let base = "{% block content %}Base{% endblock %}\n";
+        let macros = "{% macro card(title) %}{{ title }}{% endmacro %}\n";
+        let child = "{% extends \"base.html\" %}\n{% import \"macros.html\" as macros %}\n{% block content %}{{ macros::card(\"Hi\") }} {{ title | trim }}{% if title is string %}ok{% endif %}{% endblock %}\n";
+
+        std::fs::write(templates_dir.join("base.html"), base).expect("write base");
+        std::fs::write(templates_dir.join("macros.html"), macros).expect("write macros");
+        std::fs::write(templates_dir.join("child.html"), child).expect("write child");
+
+        let project = load_authoring_project(&content_dir, &[])
+            .await
+            .expect("load project");
+        let targets =
+            template_definition_targets(&project, "child.html", child).expect("definition targets");
+
+        let block = targets
+            .iter()
+            .find(|target| target.kind == TemplateDefinitionKind::Block && target.name == "content")
+            .expect("block target");
+        assert!(range_contains_position(
+            &block.source_range,
+            position_for(child, "content")
+        ));
+        assert_eq!(block.target_path, templates_dir.join("base.html"));
+        assert!(range_contains_position(
+            &block.target_range,
+            position_for(base, "content")
+        ));
+
+        let macro_target = targets
+            .iter()
+            .find(|target| {
+                target.kind == TemplateDefinitionKind::Macro && target.name == "macros::card"
+            })
+            .expect("macro target");
+        assert!(range_contains_position(
+            &macro_target.source_range,
+            position_for(child, "card")
+        ));
+        assert_eq!(macro_target.target_path, templates_dir.join("macros.html"));
+        assert!(range_contains_position(
+            &macro_target.target_range,
+            position_for(macros, "card")
+        ));
+
+        let filter = targets
+            .iter()
+            .find(|target| target.kind == TemplateDefinitionKind::Filter && target.name == "trim")
+            .expect("filter target");
+        assert!(range_contains_position(
+            &filter.source_range,
+            position_for(child, "trim")
+        ));
+        assert!(filter.target_path.ends_with("gingembre/src/eval.rs"));
+
+        let test = targets
+            .iter()
+            .find(|target| target.kind == TemplateDefinitionKind::Test && target.name == "string")
+            .expect("test target");
+        assert!(range_contains_position(
+            &test.source_range,
+            position_for(child, "string")
+        ));
+        assert!(test.target_path.ends_with("gingembre/src/eval.rs"));
+
+        std::fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[tokio::test]
+    async fn exposes_template_document_symbols() {
+        let dir = temp_dir("template-symbols");
+        let content_dir = dir.join("content");
+        let templates_dir = dir.join("templates");
+        std::fs::create_dir_all(&content_dir).expect("create content dir");
+        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
+        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
+
+        let template =
+            "{% block content %}{% macro card(title) %}{{ title }}{% endmacro %}{% endblock %}\n";
+        std::fs::write(templates_dir.join("page.html"), template).expect("write template");
+        let project = load_authoring_project(&content_dir, &[])
+            .await
+            .expect("load project");
+
+        let symbols =
+            template_document_symbols(&project, "page.html", template).expect("document symbols");
+        assert_eq!(symbols.len(), 1);
+        assert_eq!(symbols[0].name, "content");
+        assert_eq!(symbols[0].kind, SymbolKind::MODULE);
+        let children = symbols[0].children.as_ref().expect("block children");
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].name, "card");
+        assert_eq!(children[0].kind, SymbolKind::FUNCTION);
 
         std::fs::remove_dir_all(&dir).expect("remove temp dir");
     }
