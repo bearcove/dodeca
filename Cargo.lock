@@ -3362,7 +3362,8 @@ dependencies = [
 [[package]]
 name = "facet-styx"
 version = "3.0.2"
-source = "git+https://github.com/bearcove/styx?branch=main#0655eb2b0f9e1ddbd0e27a0b9063f1317c990f70"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1632b326f6333ccaa4a1f296af05e0b3b11e3e26091b2320122b44ae3106864c"
 dependencies = [
  "ariadne 0.6.0",
  "facet",
@@ -3492,7 +3493,8 @@ dependencies = [
 [[package]]
 name = "figue"
 version = "4.0.3"
-source = "git+https://github.com/bearcove/figue?branch=main#992f17955f263828dfb621b549de74fef050211c"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e83fc566ee7708ac32d50077aaaeb70020b0e64e9098c642c7a3d70b3d255304"
 dependencies = [
  "ariadne 0.6.0",
  "camino",
@@ -3517,7 +3519,8 @@ dependencies = [
 [[package]]
 name = "figue-attrs"
 version = "4.0.3"
-source = "git+https://github.com/bearcove/figue?branch=main#992f17955f263828dfb621b549de74fef050211c"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a8ad195afe7682a9539888961401599f9c4ba6213c24e94ba76fbcd765e948d"
 dependencies = [
  "facet",
 ]
@@ -7887,7 +7890,8 @@ dependencies = [
 [[package]]
 name = "styx-cst"
 version = "3.0.2"
-source = "git+https://github.com/bearcove/styx?branch=main#0655eb2b0f9e1ddbd0e27a0b9063f1317c990f70"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b5913c79e5ee8466a7bbfe29e6697ea0ab1ef1b06fab89769c094a7e75da7776"
 dependencies = [
  "rowan",
  "styx-tokenizer",
@@ -7896,7 +7900,8 @@ dependencies = [
 [[package]]
 name = "styx-embed"
 version = "3.0.2"
-source = "git+https://github.com/bearcove/styx?branch=main#0655eb2b0f9e1ddbd0e27a0b9063f1317c990f70"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54f76b524094c44b874aafa777cf4a0e669da59df6db24c478ce4b0ad086b75d"
 dependencies = [
  "blake3",
  "goblin",
@@ -7908,7 +7913,8 @@ dependencies = [
 [[package]]
 name = "styx-embed-macros"
 version = "3.0.2"
-source = "git+https://github.com/bearcove/styx?branch=main#0655eb2b0f9e1ddbd0e27a0b9063f1317c990f70"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b4c7ab3601162aa160af466e25c1792ee2dd8a414ed2099ba85a23cde5cfb343"
 dependencies = [
  "blake3",
  "lz4_flex",
@@ -7920,7 +7926,8 @@ dependencies = [
 [[package]]
 name = "styx-format"
 version = "3.0.2"
-source = "git+https://github.com/bearcove/styx?branch=main#0655eb2b0f9e1ddbd0e27a0b9063f1317c990f70"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29fef3586e6fad909b5bbab8cb85e38c96974ffdfaa57fc3ab2c81b0f7fd00be"
 dependencies = [
  "styx-cst",
  "styx-parse",
@@ -7930,7 +7937,8 @@ dependencies = [
 [[package]]
 name = "styx-parse"
 version = "3.0.2"
-source = "git+https://github.com/bearcove/styx?branch=main#0655eb2b0f9e1ddbd0e27a0b9063f1317c990f70"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b17c2ab20c37e53d88be2cacc3b2bae1fe8bdb0b10a052f032c1f842be90265c"
 dependencies = [
  "styx-tokenizer",
  "tracing",
@@ -7939,7 +7947,8 @@ dependencies = [
 [[package]]
 name = "styx-tokenizer"
 version = "3.0.1"
-source = "git+https://github.com/bearcove/styx?branch=main#0655eb2b0f9e1ddbd0e27a0b9063f1317c990f70"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7bb4d54574c87d2e1436ecdcf316b76cc5f5ab6defad83811434b2a2be908133"
 dependencies = [
  "tracing",
 ]
@@ -7947,7 +7956,8 @@ dependencies = [
 [[package]]
 name = "styx-tree"
 version = "3.0.2"
-source = "git+https://github.com/bearcove/styx?branch=main#0655eb2b0f9e1ddbd0e27a0b9063f1317c990f70"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57a065556559a4d24c7a5b7dc59f347f7887c9b4b083549c0b8f2b213c5025f5"
 dependencies = [
  "ariadne 0.6.0",
  "facet-testhelpers",
