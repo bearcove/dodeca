@@ -1101,10 +1101,12 @@ impl Backend {
                     &target.target_path,
                 );
             }
-            if let Some((target_file, macro_name)) =
-                template_macro_reference_query(project, &template_file, &content, position)?
-            {
-                return template_macro_references(project, &target_file, &macro_name);
+            if let Some(query) = template_index.macro_reference_query(&template_file, position) {
+                return template_macro_references(
+                    template_index,
+                    &query.target_template_file,
+                    &query.macro_name,
+                );
             }
             if let Some(reference) =
                 template_route_reference_at_position(project, &template_file, &content, position)
@@ -1553,6 +1555,19 @@ struct TemplateBlockOccurrence {
 }
 
 #[derive(Debug, Clone)]
+struct TemplateMacroOccurrence {
+    name: String,
+    source_range: Range,
+}
+
+#[derive(Debug, Clone)]
+struct TemplateMacroCallOccurrence {
+    target_template_file: String,
+    macro_name: String,
+    source_range: Range,
+}
+
+#[derive(Debug, Clone)]
 struct TemplateAuthoringIndex {
     templates: HashMap<String, IndexedTemplate>,
     children_by_parent: HashMap<String, Vec<String>>,
@@ -1563,10 +1578,24 @@ struct IndexedTemplate {
     path: Utf8PathBuf,
     extends: Option<String>,
     blocks: Vec<TemplateBlockOccurrence>,
+    macros: Vec<TemplateMacroOccurrence>,
+    macro_calls: Vec<TemplateMacroCallOccurrence>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct TemplateBlockReferenceTarget {
+    path: Utf8PathBuf,
+    range: Range,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TemplateMacroReferenceQuery {
+    target_template_file: String,
+    macro_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TemplateMacroReferenceTarget {
     path: Utf8PathBuf,
     range: Range,
 }
@@ -7110,12 +7139,20 @@ impl TemplateAuthoringIndex {
             let Ok(template) = TemplateParser::new(template_file, content).parse() else {
                 continue;
             };
+            let imports = template_import_aliases(project, &template.body);
             templates.insert(
                 template_file.clone(),
                 IndexedTemplate {
                     path: template_path.clone(),
                     extends: template_extends_path_from_nodes(&template.body),
                     blocks: template_block_occurrences(content, &template.body),
+                    macros: template_macro_occurrences(content, &template.body),
+                    macro_calls: template_macro_call_occurrences(
+                        template_file,
+                        content,
+                        &imports,
+                        &template.body,
+                    ),
                 },
             );
         }
@@ -7261,6 +7298,77 @@ impl TemplateAuthoringIndex {
             .get(template_file)
             .is_some_and(|template| template.blocks.iter().any(|block| block.name == block_name))
     }
+
+    fn macro_reference_query(
+        &self,
+        template_file: &str,
+        position: Position,
+    ) -> Option<TemplateMacroReferenceQuery> {
+        let template = self.templates.get(template_file)?;
+        if let Some(occurrence) = template
+            .macros
+            .iter()
+            .find(|occurrence| range_contains_position(&occurrence.source_range, position))
+        {
+            return Some(TemplateMacroReferenceQuery {
+                target_template_file: template_file.to_string(),
+                macro_name: occurrence.name.clone(),
+            });
+        }
+        template
+            .macro_calls
+            .iter()
+            .find(|occurrence| range_contains_position(&occurrence.source_range, position))
+            .map(|occurrence| TemplateMacroReferenceQuery {
+                target_template_file: occurrence.target_template_file.clone(),
+                macro_name: occurrence.macro_name.clone(),
+            })
+    }
+
+    fn macro_reference_targets(
+        &self,
+        target_template_file: &str,
+        macro_name: &str,
+    ) -> Vec<TemplateMacroReferenceTarget> {
+        let mut targets = Vec::new();
+        if let Some(template) = self.templates.get(target_template_file) {
+            targets.extend(
+                template
+                    .macros
+                    .iter()
+                    .filter(|occurrence| occurrence.name == macro_name)
+                    .map(|occurrence| TemplateMacroReferenceTarget {
+                        path: template.path.clone(),
+                        range: occurrence.source_range,
+                    }),
+            );
+        }
+
+        for template in self.templates.values() {
+            targets.extend(
+                template
+                    .macro_calls
+                    .iter()
+                    .filter(|occurrence| {
+                        occurrence.target_template_file == target_template_file
+                            && occurrence.macro_name == macro_name
+                    })
+                    .map(|occurrence| TemplateMacroReferenceTarget {
+                        path: template.path.clone(),
+                        range: occurrence.source_range,
+                    }),
+            );
+        }
+
+        targets.sort_by(|a, b| {
+            a.path
+                .cmp(&b.path)
+                .then_with(|| position_cmp(a.range.start, b.range.start))
+                .then_with(|| position_cmp(a.range.end, b.range.end))
+        });
+        targets.dedup();
+        targets
+    }
 }
 
 fn template_block_hover_markdown(
@@ -7312,76 +7420,72 @@ fn template_block_references(
     Ok(locations)
 }
 
-fn template_macro_reference_query(
-    project: &AuthoringProject,
-    template_file: &str,
-    content: &str,
-    position: Position,
-) -> Result<Option<(String, String)>> {
-    if let Some(ident) = template_macro_definition_at_position(template_file, content, position) {
-        return Ok(Some((template_file.to_string(), ident.name)));
+fn template_macro_references(
+    index: &TemplateAuthoringIndex,
+    target_template_file: &str,
+    macro_name: &str,
+) -> Result<Vec<Location>> {
+    let mut locations = Vec::new();
+    for target in index.macro_reference_targets(target_template_file, macro_name) {
+        locations.push(Location {
+            uri: Url::from_file_path(target.path.as_std_path()).map_err(|_| {
+                eyre!(
+                    "could not convert template macro reference path to URI: {}",
+                    target.path
+                )
+            })?,
+            range: target.range,
+        });
     }
-
-    let Some(target) =
-        template_definition_target_at_position(project, template_file, content, position)?
-    else {
-        return Ok(None);
-    };
-    if target.kind != TemplateDefinitionKind::Macro {
-        return Ok(None);
-    }
-    let Some(target_file) = template_file_for_template_path(project, &target.target_path) else {
-        return Ok(None);
-    };
-    let macro_name = target
-        .name
-        .rsplit_once("::")
-        .map(|(_, name)| name)
-        .unwrap_or(&target.name)
-        .to_string();
-    Ok(Some((target_file.to_string(), macro_name)))
+    locations.sort_by(|a, b| {
+        a.uri
+            .as_str()
+            .cmp(b.uri.as_str())
+            .then_with(|| position_cmp(a.range.start, b.range.start))
+            .then_with(|| position_cmp(a.range.end, b.range.end))
+    });
+    locations.dedup_by(|left, right| left.uri == right.uri && left.range == right.range);
+    Ok(locations)
 }
 
-fn template_macro_definition_at_position(
-    template_file: &str,
+fn template_macro_occurrences(content: &str, nodes: &[Node]) -> Vec<TemplateMacroOccurrence> {
+    let mut occurrences = Vec::new();
+    collect_template_macro_occurrences(content, nodes, &mut occurrences);
+    occurrences
+}
+
+fn collect_template_macro_occurrences(
     content: &str,
-    position: Position,
-) -> Option<Ident> {
-    let template = TemplateParser::new(template_file, content).parse().ok()?;
-    template_macro_definitions(&template.body)
-        .into_iter()
-        .find(|ident| range_contains_position(&template_ident_range(content, ident), position))
-}
-
-fn template_macro_definitions(nodes: &[Node]) -> Vec<Ident> {
-    let mut definitions = Vec::new();
-    collect_template_macro_definitions(nodes, &mut definitions);
-    definitions
-}
-
-fn collect_template_macro_definitions(nodes: &[Node], definitions: &mut Vec<Ident>) {
+    nodes: &[Node],
+    occurrences: &mut Vec<TemplateMacroOccurrence>,
+) {
     for node in nodes {
         match node {
             Node::Macro(node) => {
-                definitions.push(node.name.clone());
-                collect_template_macro_definitions(&node.body, definitions);
+                occurrences.push(TemplateMacroOccurrence {
+                    name: node.name.name.clone(),
+                    source_range: template_ident_range(content, &node.name),
+                });
+                collect_template_macro_occurrences(content, &node.body, occurrences);
             }
             Node::If(node) => {
-                collect_template_macro_definitions(&node.then_body, definitions);
+                collect_template_macro_occurrences(content, &node.then_body, occurrences);
                 for branch in &node.elif_branches {
-                    collect_template_macro_definitions(&branch.body, definitions);
+                    collect_template_macro_occurrences(content, &branch.body, occurrences);
                 }
                 if let Some(body) = &node.else_body {
-                    collect_template_macro_definitions(body, definitions);
+                    collect_template_macro_occurrences(content, body, occurrences);
                 }
             }
             Node::For(node) => {
-                collect_template_macro_definitions(&node.body, definitions);
+                collect_template_macro_occurrences(content, &node.body, occurrences);
                 if let Some(body) = &node.else_body {
-                    collect_template_macro_definitions(body, definitions);
+                    collect_template_macro_occurrences(content, body, occurrences);
                 }
             }
-            Node::Block(node) => collect_template_macro_definitions(&node.body, definitions),
+            Node::Block(node) => {
+                collect_template_macro_occurrences(content, &node.body, occurrences);
+            }
             Node::Text(_)
             | Node::Print(_)
             | Node::Include(_)
@@ -7396,196 +7500,134 @@ fn collect_template_macro_definitions(nodes: &[Node], definitions: &mut Vec<Iden
     }
 }
 
-fn template_macro_references(
-    project: &AuthoringProject,
-    target_template_file: &str,
-    macro_name: &str,
-) -> Result<Vec<Location>> {
-    let mut locations = Vec::new();
-    let Some(target_content) = project.template_contents.get(target_template_file) else {
-        return Ok(locations);
-    };
-    let Some(target_path) = project.template_paths.get(target_template_file) else {
-        return Ok(locations);
-    };
-    let target_template = TemplateParser::new(target_template_file, target_content)
-        .parse()
-        .ok();
-    if let Some(template) = target_template {
-        for ident in template_macro_definitions(&template.body) {
-            if ident.name == macro_name {
-                locations.push(Location {
-                    uri: Url::from_file_path(target_path.as_std_path()).map_err(|_| {
-                        eyre!("could not convert template path to URI: {target_path}")
-                    })?,
-                    range: template_ident_range(target_content, &ident),
-                });
-            }
-        }
-    }
-
-    for (template_file, content) in &project.template_contents {
-        let Some(path) = project.template_paths.get(template_file) else {
-            continue;
-        };
-        let Ok(template) = TemplateParser::new(template_file, content).parse() else {
-            continue;
-        };
-        let imports = template_import_aliases(project, &template.body);
-        let mut references = Vec::new();
-        collect_template_macro_call_references(
-            template_file,
-            target_template_file,
-            macro_name,
-            &imports,
-            &template.body,
-            &mut references,
-        );
-        for ident in references {
-            locations.push(Location {
-                uri: Url::from_file_path(path.as_std_path())
-                    .map_err(|_| eyre!("could not convert template path to URI: {path}"))?,
-                range: template_ident_range(content, &ident),
-            });
-        }
-    }
-
-    locations.sort_by(|a, b| {
-        a.uri
-            .as_str()
-            .cmp(b.uri.as_str())
-            .then_with(|| position_cmp(a.range.start, b.range.start))
-            .then_with(|| position_cmp(a.range.end, b.range.end))
-    });
-    locations.dedup_by(|left, right| left.uri == right.uri && left.range == right.range);
-    Ok(locations)
-}
-
-fn collect_template_macro_call_references(
+fn template_macro_call_occurrences(
     template_file: &str,
-    target_template_file: &str,
-    macro_name: &str,
+    content: &str,
     imports: &HashMap<String, String>,
     nodes: &[Node],
-    references: &mut Vec<Ident>,
+) -> Vec<TemplateMacroCallOccurrence> {
+    let mut occurrences = Vec::new();
+    collect_template_macro_call_occurrences(
+        template_file,
+        content,
+        imports,
+        nodes,
+        &mut occurrences,
+    );
+    occurrences
+}
+
+fn collect_template_macro_call_occurrences(
+    template_file: &str,
+    content: &str,
+    imports: &HashMap<String, String>,
+    nodes: &[Node],
+    occurrences: &mut Vec<TemplateMacroCallOccurrence>,
 ) {
     for node in nodes {
         match node {
-            Node::Print(node) => collect_expr_macro_call_references(
+            Node::Print(node) => collect_expr_macro_call_occurrences(
                 template_file,
-                target_template_file,
-                macro_name,
+                content,
                 imports,
                 &node.expr,
-                references,
+                occurrences,
             ),
             Node::If(node) => {
-                collect_expr_macro_call_references(
+                collect_expr_macro_call_occurrences(
                     template_file,
-                    target_template_file,
-                    macro_name,
+                    content,
                     imports,
                     &node.condition,
-                    references,
+                    occurrences,
                 );
-                collect_template_macro_call_references(
+                collect_template_macro_call_occurrences(
                     template_file,
-                    target_template_file,
-                    macro_name,
+                    content,
                     imports,
                     &node.then_body,
-                    references,
+                    occurrences,
                 );
                 for branch in &node.elif_branches {
-                    collect_expr_macro_call_references(
+                    collect_expr_macro_call_occurrences(
                         template_file,
-                        target_template_file,
-                        macro_name,
+                        content,
                         imports,
                         &branch.condition,
-                        references,
+                        occurrences,
                     );
-                    collect_template_macro_call_references(
+                    collect_template_macro_call_occurrences(
                         template_file,
-                        target_template_file,
-                        macro_name,
+                        content,
                         imports,
                         &branch.body,
-                        references,
+                        occurrences,
                     );
                 }
                 if let Some(body) = &node.else_body {
-                    collect_template_macro_call_references(
+                    collect_template_macro_call_occurrences(
                         template_file,
-                        target_template_file,
-                        macro_name,
+                        content,
                         imports,
                         body,
-                        references,
+                        occurrences,
                     );
                 }
             }
             Node::For(node) => {
-                collect_expr_macro_call_references(
+                collect_expr_macro_call_occurrences(
                     template_file,
-                    target_template_file,
-                    macro_name,
+                    content,
                     imports,
                     &node.iter,
-                    references,
+                    occurrences,
                 );
-                collect_template_macro_call_references(
+                collect_template_macro_call_occurrences(
                     template_file,
-                    target_template_file,
-                    macro_name,
+                    content,
                     imports,
                     &node.body,
-                    references,
+                    occurrences,
                 );
                 if let Some(body) = &node.else_body {
-                    collect_template_macro_call_references(
+                    collect_template_macro_call_occurrences(
                         template_file,
-                        target_template_file,
-                        macro_name,
+                        content,
                         imports,
                         body,
-                        references,
+                        occurrences,
                     );
                 }
             }
-            Node::Block(node) => collect_template_macro_call_references(
+            Node::Block(node) => collect_template_macro_call_occurrences(
                 template_file,
-                target_template_file,
-                macro_name,
+                content,
                 imports,
                 &node.body,
-                references,
+                occurrences,
             ),
-            Node::Set(node) => collect_expr_macro_call_references(
+            Node::Set(node) => collect_expr_macro_call_occurrences(
                 template_file,
-                target_template_file,
-                macro_name,
+                content,
                 imports,
                 &node.value,
-                references,
+                occurrences,
             ),
-            Node::Macro(node) => collect_template_macro_call_references(
+            Node::Macro(node) => collect_template_macro_call_occurrences(
                 template_file,
-                target_template_file,
-                macro_name,
+                content,
                 imports,
                 &node.body,
-                references,
+                occurrences,
             ),
             Node::CallBlock(node) => {
                 for (_, expr) in &node.kwargs {
-                    collect_expr_macro_call_references(
+                    collect_expr_macro_call_occurrences(
                         template_file,
-                        target_template_file,
-                        macro_name,
+                        content,
                         imports,
                         expr,
-                        references,
+                        occurrences,
                     );
                 }
             }
@@ -7600,13 +7642,12 @@ fn collect_template_macro_call_references(
     }
 }
 
-fn collect_expr_macro_call_references(
+fn collect_expr_macro_call_occurrences(
     template_file: &str,
-    target_template_file: &str,
-    macro_name: &str,
+    content: &str,
     imports: &HashMap<String, String>,
     expr: &Expr,
-    references: &mut Vec<Ident>,
+    occurrences: &mut Vec<TemplateMacroCallOccurrence>,
 ) {
     match expr {
         Expr::MacroCall(expr) => {
@@ -7615,240 +7656,220 @@ fn collect_expr_macro_call_references(
             } else {
                 imports.get(&expr.namespace.name).map(|path| path.as_str())
             };
-            if target_file == Some(target_template_file) && expr.macro_name.name == macro_name {
-                references.push(expr.macro_name.clone());
+            if let Some(target_file) = target_file {
+                occurrences.push(TemplateMacroCallOccurrence {
+                    target_template_file: target_file.to_string(),
+                    macro_name: expr.macro_name.name.clone(),
+                    source_range: template_ident_range(content, &expr.macro_name),
+                });
             }
             for arg in &expr.args {
-                collect_expr_macro_call_references(
+                collect_expr_macro_call_occurrences(
                     template_file,
-                    target_template_file,
-                    macro_name,
+                    content,
                     imports,
                     arg,
-                    references,
+                    occurrences,
                 );
             }
             for (_, expr) in &expr.kwargs {
-                collect_expr_macro_call_references(
+                collect_expr_macro_call_occurrences(
                     template_file,
-                    target_template_file,
-                    macro_name,
+                    content,
                     imports,
                     expr,
-                    references,
+                    occurrences,
                 );
             }
         }
-        Expr::Field(expr) => collect_expr_macro_call_references(
+        Expr::Field(expr) => collect_expr_macro_call_occurrences(
             template_file,
-            target_template_file,
-            macro_name,
+            content,
             imports,
             &expr.base,
-            references,
+            occurrences,
         ),
         Expr::Index(expr) => {
-            collect_expr_macro_call_references(
+            collect_expr_macro_call_occurrences(
                 template_file,
-                target_template_file,
-                macro_name,
+                content,
                 imports,
                 &expr.base,
-                references,
+                occurrences,
             );
-            collect_expr_macro_call_references(
+            collect_expr_macro_call_occurrences(
                 template_file,
-                target_template_file,
-                macro_name,
+                content,
                 imports,
                 &expr.index,
-                references,
+                occurrences,
             );
         }
         Expr::Filter(expr) => {
-            collect_expr_macro_call_references(
+            collect_expr_macro_call_occurrences(
                 template_file,
-                target_template_file,
-                macro_name,
+                content,
                 imports,
                 &expr.expr,
-                references,
+                occurrences,
             );
             for arg in &expr.args {
-                collect_expr_macro_call_references(
+                collect_expr_macro_call_occurrences(
                     template_file,
-                    target_template_file,
-                    macro_name,
+                    content,
                     imports,
                     arg,
-                    references,
+                    occurrences,
                 );
             }
             for (_, expr) in &expr.kwargs {
-                collect_expr_macro_call_references(
+                collect_expr_macro_call_occurrences(
                     template_file,
-                    target_template_file,
-                    macro_name,
+                    content,
                     imports,
                     expr,
-                    references,
+                    occurrences,
                 );
             }
         }
         Expr::Binary(expr) => {
-            collect_expr_macro_call_references(
+            collect_expr_macro_call_occurrences(
                 template_file,
-                target_template_file,
-                macro_name,
+                content,
                 imports,
                 &expr.left,
-                references,
+                occurrences,
             );
-            collect_expr_macro_call_references(
+            collect_expr_macro_call_occurrences(
                 template_file,
-                target_template_file,
-                macro_name,
+                content,
                 imports,
                 &expr.right,
-                references,
+                occurrences,
             );
         }
-        Expr::Unary(expr) => collect_expr_macro_call_references(
+        Expr::Unary(expr) => collect_expr_macro_call_occurrences(
             template_file,
-            target_template_file,
-            macro_name,
+            content,
             imports,
             &expr.expr,
-            references,
+            occurrences,
         ),
         Expr::Call(expr) => {
-            collect_expr_macro_call_references(
+            collect_expr_macro_call_occurrences(
                 template_file,
-                target_template_file,
-                macro_name,
+                content,
                 imports,
                 &expr.func,
-                references,
+                occurrences,
             );
             for arg in &expr.args {
-                collect_expr_macro_call_references(
+                collect_expr_macro_call_occurrences(
                     template_file,
-                    target_template_file,
-                    macro_name,
+                    content,
                     imports,
                     arg,
-                    references,
+                    occurrences,
                 );
             }
             for (_, expr) in &expr.kwargs {
-                collect_expr_macro_call_references(
+                collect_expr_macro_call_occurrences(
                     template_file,
-                    target_template_file,
-                    macro_name,
+                    content,
                     imports,
                     expr,
-                    references,
+                    occurrences,
                 );
             }
         }
         Expr::Ternary(expr) => {
-            collect_expr_macro_call_references(
+            collect_expr_macro_call_occurrences(
                 template_file,
-                target_template_file,
-                macro_name,
+                content,
                 imports,
                 &expr.value,
-                references,
+                occurrences,
             );
-            collect_expr_macro_call_references(
+            collect_expr_macro_call_occurrences(
                 template_file,
-                target_template_file,
-                macro_name,
+                content,
                 imports,
                 &expr.condition,
-                references,
+                occurrences,
             );
-            collect_expr_macro_call_references(
+            collect_expr_macro_call_occurrences(
                 template_file,
-                target_template_file,
-                macro_name,
+                content,
                 imports,
                 &expr.otherwise,
-                references,
+                occurrences,
             );
         }
         Expr::Test(expr) => {
-            collect_expr_macro_call_references(
+            collect_expr_macro_call_occurrences(
                 template_file,
-                target_template_file,
-                macro_name,
+                content,
                 imports,
                 &expr.expr,
-                references,
+                occurrences,
             );
             for arg in &expr.args {
-                collect_expr_macro_call_references(
+                collect_expr_macro_call_occurrences(
                     template_file,
-                    target_template_file,
-                    macro_name,
+                    content,
                     imports,
                     arg,
-                    references,
+                    occurrences,
                 );
             }
         }
         Expr::Literal(literal) => {
-            collect_literal_macro_call_references(
+            collect_literal_macro_call_occurrences(
                 template_file,
-                target_template_file,
-                macro_name,
+                content,
                 imports,
                 literal,
-                references,
+                occurrences,
             );
         }
         Expr::Var(_) => {}
     }
 }
 
-fn collect_literal_macro_call_references(
+fn collect_literal_macro_call_occurrences(
     template_file: &str,
-    target_template_file: &str,
-    macro_name: &str,
+    content: &str,
     imports: &HashMap<String, String>,
     literal: &gingembre::ast::Literal,
-    references: &mut Vec<Ident>,
+    occurrences: &mut Vec<TemplateMacroCallOccurrence>,
 ) {
     match literal {
         gingembre::ast::Literal::List(list) => {
             for expr in &list.elements {
-                collect_expr_macro_call_references(
+                collect_expr_macro_call_occurrences(
                     template_file,
-                    target_template_file,
-                    macro_name,
+                    content,
                     imports,
                     expr,
-                    references,
+                    occurrences,
                 );
             }
         }
         gingembre::ast::Literal::Dict(dict) => {
             for (key, value) in &dict.entries {
-                collect_expr_macro_call_references(
+                collect_expr_macro_call_occurrences(
                     template_file,
-                    target_template_file,
-                    macro_name,
+                    content,
                     imports,
                     key,
-                    references,
+                    occurrences,
                 );
-                collect_expr_macro_call_references(
+                collect_expr_macro_call_occurrences(
                     template_file,
-                    target_template_file,
-                    macro_name,
+                    content,
                     imports,
                     value,
-                    references,
+                    occurrences,
                 );
             }
         }
@@ -7858,17 +7879,6 @@ fn collect_literal_macro_call_references(
         | gingembre::ast::Literal::Bool(_)
         | gingembre::ast::Literal::None(_) => {}
     }
-}
-
-fn template_file_for_template_path<'a>(
-    project: &'a AuthoringProject,
-    target_path: &Utf8Path,
-) -> Option<&'a str> {
-    project
-        .template_paths
-        .iter()
-        .find(|(_, path)| path.as_path() == target_path)
-        .map(|(template_file, _)| template_file.as_str())
 }
 
 fn template_definition_target_at_position(
@@ -9548,27 +9558,31 @@ mod tests {
             .await
             .expect("load project");
 
-        let definition_query = template_macro_reference_query(
-            &project,
-            "macros.html",
-            macros,
-            position_for(macros, "card"),
-        )
-        .expect("definition query")
-        .expect("definition query");
+        let index = TemplateAuthoringIndex::new(&project);
+        let definition_query = index
+            .macro_reference_query("macros.html", position_for(macros, "card"))
+            .expect("definition query");
         assert_eq!(
             definition_query,
-            ("macros.html".to_string(), "card".to_string())
+            TemplateMacroReferenceQuery {
+                target_template_file: "macros.html".to_string(),
+                macro_name: "card".to_string()
+            }
         );
 
-        let call_query =
-            template_macro_reference_query(&project, "page.html", page, position_for(page, "card"))
-                .expect("call query")
-                .expect("call query");
-        assert_eq!(call_query, ("macros.html".to_string(), "card".to_string()));
+        let call_query = index
+            .macro_reference_query("page.html", position_for(page, "card"))
+            .expect("call query");
+        assert_eq!(
+            call_query,
+            TemplateMacroReferenceQuery {
+                target_template_file: "macros.html".to_string(),
+                macro_name: "card".to_string()
+            }
+        );
 
         let references =
-            template_macro_references(&project, "macros.html", "card").expect("references");
+            template_macro_references(&index, "macros.html", "card").expect("references");
         assert_eq!(
             references
                 .iter()
