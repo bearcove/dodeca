@@ -1092,6 +1092,15 @@ impl Backend {
             {
                 return template_block_references(template_index, &template_file, &occurrence.name);
             }
+            if let Some(target) =
+                template_document_target_at_position(project, &template_file, &content, position)?
+            {
+                return template_document_references(
+                    &dirs.content_dir,
+                    project,
+                    &target.target_path,
+                );
+            }
             if let Some(reference) =
                 template_route_reference_at_position(project, &template_file, &content, position)
                 && let Some(target_page) = project.page_for_route(&reference.target_route)
@@ -1111,6 +1120,12 @@ impl Backend {
         let page = project
             .page_for_source_file(&source_file)
             .ok_or_else(|| eyre!("missing authoring page for {source_file}"))?;
+
+        if let Some(target) = frontmatter_document_target_at_position(project, &content, position)?
+            && target.kind == FrontmatterDocumentKind::Template
+        {
+            return template_document_references(&dirs.content_dir, project, &target.target_path);
+        }
 
         if let Some(frontmatter_range) = frontmatter_lsp_range(&content)
             && range_contains_position(&frontmatter_range, position)
@@ -6746,6 +6761,53 @@ fn frontmatter_data_target_path<'a>(
         .or_else(|| project.data_paths.get(path))
 }
 
+fn template_document_references(
+    content_dir: &Utf8Path,
+    project: &AuthoringProject,
+    target_path: &Utf8Path,
+) -> Result<Vec<Location>> {
+    let mut locations = Vec::new();
+
+    for (template_file, content) in &project.template_contents {
+        for target in template_document_targets(project, template_file, content)? {
+            if target.target_path == target_path {
+                let Some(path) = project.template_paths.get(template_file) else {
+                    continue;
+                };
+                locations.push(Location {
+                    uri: Url::from_file_path(path.as_std_path())
+                        .map_err(|_| eyre!("could not convert template path to URI: {path}"))?,
+                    range: target.source_range,
+                });
+            }
+        }
+    }
+
+    for (source_file, content) in &project.source_contents {
+        for target in frontmatter_document_targets(project, content)? {
+            if target.kind == FrontmatterDocumentKind::Template && target.target_path == target_path
+            {
+                let path = content_dir.join(source_file);
+                locations.push(Location {
+                    uri: Url::from_file_path(path.as_std_path())
+                        .map_err(|_| eyre!("could not convert source path to URI: {path}"))?,
+                    range: target.source_range,
+                });
+            }
+        }
+    }
+
+    locations.sort_by(|a, b| {
+        a.uri
+            .as_str()
+            .cmp(b.uri.as_str())
+            .then_with(|| position_cmp(a.range.start, b.range.start))
+            .then_with(|| position_cmp(a.range.end, b.range.end))
+    });
+    locations.dedup_by(|left, right| left.uri == right.uri && left.range == right.range);
+    Ok(locations)
+}
+
 fn frontmatter_string_value(content: &str, entry: &FrontmatterEntry) -> Option<(String, Range)> {
     let value = entry.value.trim();
     let leading = entry.value.find(value)?;
@@ -8749,6 +8811,8 @@ mod tests {
         std::fs::create_dir_all(&content_dir).expect("create content dir");
         std::fs::create_dir_all(&templates_dir).expect("create templates dir");
         std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
+        let source = "+++\ntitle = \"Uses Base\"\ntemplate = \"base.html\"\n+++\n\n# Uses Base\n";
+        std::fs::write(content_dir.join("uses-base.md"), source).expect("write source");
         std::fs::write(
             templates_dir.join("base.html"),
             "{% block content %}{% endblock %}",
@@ -8780,6 +8844,25 @@ mod tests {
         assert_eq!(targets[2].kind, TemplateDocumentKind::Import);
         assert_eq!(targets[2].path, "macros.html");
         assert_eq!(targets[2].target_path, templates_dir.join("macros.html"));
+        let references =
+            template_document_references(&content_dir, &project, &targets[0].target_path)
+                .expect("template document references");
+        assert_eq!(
+            references
+                .iter()
+                .map(|location| {
+                    Utf8PathBuf::from_path_buf(location.uri.to_file_path().expect("file uri"))
+                        .expect("utf8 path")
+                        .strip_prefix(&dir)
+                        .expect("project relative")
+                        .to_string()
+                })
+                .collect::<Vec<_>>(),
+            vec![
+                "content/uses-base.md".to_string(),
+                "templates/child.html".to_string(),
+            ]
+        );
 
         let target = template_document_target_at_position(
             &project,
