@@ -953,7 +953,13 @@ impl Backend {
         {
             let backlink_count = references_to_page(&dirs.content_dir, project, page)?.len();
             return Ok(Some(markdown_hover(
-                frontmatter_hover_markdown(project, page, &content, backlink_count),
+                frontmatter_hover_markdown(
+                    project,
+                    &world.template_index,
+                    page,
+                    &content,
+                    backlink_count,
+                ),
                 frontmatter_range,
             )));
         }
@@ -1700,6 +1706,7 @@ struct IndexedTemplate {
     content: String,
     semantic: Option<TemplateSemanticIndex>,
     extends: Option<String>,
+    dependencies: Vec<String>,
     document_targets: Vec<TemplateDocumentTarget>,
     route_references: Vec<TemplateRouteReference>,
     blocks: Vec<TemplateBlockOccurrence>,
@@ -3184,6 +3191,7 @@ fn page_link_hover_markdown(
 
 fn frontmatter_hover_markdown(
     project: &AuthoringProject,
+    template_index: &TemplateAuthoringIndex,
     page: &AuthoringPage,
     content: &str,
     backlink_count: usize,
@@ -3207,7 +3215,12 @@ fn frontmatter_hover_markdown(
     }
 
     sections.push(frontmatter_hover_metadata_table(page, backlink_count));
-    sections.push(build_provenance_hover_table(project, page, content));
+    sections.push(build_provenance_hover_table(
+        project,
+        template_index,
+        page,
+        content,
+    ));
     sections.join("\n\n")
 }
 
@@ -3230,6 +3243,7 @@ fn frontmatter_hover_metadata_table(page: &AuthoringPage, backlink_count: usize)
 
 fn build_provenance_hover_table(
     project: &AuthoringProject,
+    template_index: &TemplateAuthoringIndex,
     page: &AuthoringPage,
     content: &str,
 ) -> String {
@@ -3239,7 +3253,7 @@ fn build_provenance_hover_table(
         format!("| transforms | `{}` |", page_transform_chain(page)),
     ];
 
-    let templates = template_dependency_names(project, &page.template);
+    let templates = template_index.dependency_names(&page.template);
     if !templates.is_empty() {
         rows.push(format!("| templates | `{}` |", templates.join("`, `")));
     }
@@ -3309,37 +3323,6 @@ fn page_transform_chain(page: &AuthoringPage) -> &'static str {
     match page.kind {
         AuthoringPageKind::Page => "markdown -> page template -> html postprocess -> output",
         AuthoringPageKind::Section => "markdown -> section template -> html postprocess -> output",
-    }
-}
-
-fn template_dependency_names(project: &AuthoringProject, root_template: &str) -> Vec<String> {
-    let mut names = Vec::new();
-    let mut seen = HashSet::new();
-    collect_template_dependency_names(project, root_template, &mut seen, &mut names);
-    names
-}
-
-fn collect_template_dependency_names(
-    project: &AuthoringProject,
-    template_file: &str,
-    seen: &mut HashSet<String>,
-    names: &mut Vec<String>,
-) {
-    if !seen.insert(template_file.to_string()) {
-        return;
-    }
-    if !project.template_contents.contains_key(template_file) {
-        return;
-    }
-    names.push(template_file.to_string());
-    let Some(content) = project.template_contents.get(template_file) else {
-        return;
-    };
-    let Ok(template) = TemplateParser::new(template_file, content.as_str()).parse() else {
-        return;
-    };
-    for dependency in template_path_dependencies(&template.body) {
-        collect_template_dependency_names(project, &dependency, seen, names);
     }
 }
 
@@ -7142,6 +7125,7 @@ impl TemplateAuthoringIndex {
                     content: content.clone(),
                     semantic: project.template_semantics.get(template_file).cloned(),
                     extends: template_extends_path_from_nodes(&template.body),
+                    dependencies: template_path_dependencies(&template.body),
                     document_targets: template_document_targets_for_nodes(
                         project,
                         content,
@@ -7443,6 +7427,31 @@ impl TemplateAuthoringIndex {
                 path: template.path.clone(),
                 range: occurrence.source_range,
             })
+    }
+
+    fn dependency_names(&self, root_template: &str) -> Vec<String> {
+        let mut names = Vec::new();
+        let mut seen = HashSet::new();
+        self.collect_dependency_names(root_template, &mut seen, &mut names);
+        names
+    }
+
+    fn collect_dependency_names(
+        &self,
+        template_file: &str,
+        seen: &mut HashSet<String>,
+        names: &mut Vec<String>,
+    ) {
+        if !seen.insert(template_file.to_string()) {
+            return;
+        }
+        let Some(template) = self.templates.get(template_file) else {
+            return;
+        };
+        names.push(template_file.to_string());
+        for dependency in &template.dependencies {
+            self.collect_dependency_names(dependency, seen, names);
+        }
     }
 
     fn semantic_tokens(&self, template_file: &str) -> Option<SemanticTokens> {
@@ -11557,6 +11566,7 @@ title = \"Source\"
         let project = load_authoring_project(&content_dir, &[])
             .await
             .expect("load project");
+        let template_index = TemplateAuthoringIndex::new(&project);
         let page = project
             .page_for_source_file("guide/source.md")
             .expect("source page");
@@ -11580,7 +11590,8 @@ title = \"Source\"
         assert!(logo_hover.contains("Dodeca static asset"));
         assert!(logo_hover.contains("static/logo.png"));
 
-        let frontmatter_hover = frontmatter_hover_markdown(&project, page, source, 3);
+        let frontmatter_hover =
+            frontmatter_hover_markdown(&project, &template_index, page, source, 3);
         assert!(frontmatter_hover.contains("**Dodeca page: Source**"));
         assert!(frontmatter_hover.contains("> [intro](/guide/intro#intro--details)"));
         assert!(frontmatter_hover.contains("| route | source | headings | backlinks |"));
