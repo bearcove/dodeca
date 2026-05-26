@@ -354,22 +354,20 @@ fn validate_links(
             errors,
             source_path,
         ),
-        PageTypeSchema::Type { name: Some(name) } => {
-            if seen_types.insert(name.clone()) {
-                if let Some(schema) = page_types.get(name) {
-                    validate_links(
-                        schema,
-                        value,
-                        path,
-                        page_types,
-                        link_index,
-                        seen_types,
-                        errors,
-                        source_path,
-                    );
-                }
-                seen_types.remove(name);
+        PageTypeSchema::Type { name: Some(name) } if seen_types.insert(name.clone()) => {
+            if let Some(schema) = page_types.get(name) {
+                validate_links(
+                    schema,
+                    value,
+                    path,
+                    page_types,
+                    link_index,
+                    seen_types,
+                    errors,
+                    source_path,
+                );
             }
+            seen_types.remove(name);
         }
         _ => {}
     }

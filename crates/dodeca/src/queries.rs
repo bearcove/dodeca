@@ -413,7 +413,7 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
     }))
 }
 
-pub(crate) fn default_title_from_source_path(path: &str) -> String {
+pub fn default_title_from_source_path(path: &str) -> String {
     let path = path.strip_suffix(".md").unwrap_or(path);
     let slug = if path == "_index" {
         "home"

@@ -37,28 +37,28 @@ use tower_lsp::lsp_types::{
 };
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
-use crate::authoring_model::{
+use dodeca::authoring_model::{
     AuthoringDocumentOverlay, AuthoringInputPath, AuthoringPage, AuthoringPageKind,
     AuthoringProject, AuthoringWorkspace, RenderedHref, RenderedHrefOrigin,
 };
-use crate::config::ResolvedConfig;
-use crate::queries::{Frontmatter, default_title_from_source_path};
-use crate::template_host::TEMPLATE_FUNCTION_NAMES;
-use crate::types::SourcePath;
+use dodeca::config::ResolvedConfig;
+use dodeca::queries::{Frontmatter, default_title_from_source_path};
+use dodeca::template_host::TEMPLATE_FUNCTION_NAMES;
+use dodeca::types::SourcePath;
 
-const LIST_PAGES_COMMAND: &str = "dodeca.listPages";
-const DIAGNOSTICS_COMMAND: &str = "dodeca.authoringDiagnostics";
-const CREATE_PAGE_COMMAND: &str = "dodeca.createPage";
-const ROUTE_GRAPH_COMMAND: &str = "dodeca.routeGraph";
+pub const LIST_PAGES_COMMAND: &str = "dodeca.listPages";
+pub const DIAGNOSTICS_COMMAND: &str = "dodeca.authoringDiagnostics";
+pub const CREATE_PAGE_COMMAND: &str = "dodeca.createPage";
+pub const ROUTE_GRAPH_COMMAND: &str = "dodeca.routeGraph";
 
-const TEMPLATE_SEMANTIC_TOKEN_VARIABLE: u32 = 0;
-const TEMPLATE_SEMANTIC_TOKEN_PARAMETER: u32 = 1;
-const TEMPLATE_SEMANTIC_TOKEN_PROPERTY: u32 = 2;
-const TEMPLATE_SEMANTIC_TOKEN_FUNCTION: u32 = 3;
-const TEMPLATE_SEMANTIC_TOKEN_MACRO: u32 = 4;
-const TEMPLATE_SEMANTIC_TOKEN_STRING: u32 = 5;
-const TEMPLATE_SEMANTIC_TOKEN_NUMBER: u32 = 6;
-const TEMPLATE_SEMANTIC_TOKEN_KEYWORD: u32 = 7;
+pub const TEMPLATE_SEMANTIC_TOKEN_VARIABLE: u32 = 0;
+pub const TEMPLATE_SEMANTIC_TOKEN_PARAMETER: u32 = 1;
+pub const TEMPLATE_SEMANTIC_TOKEN_PROPERTY: u32 = 2;
+pub const TEMPLATE_SEMANTIC_TOKEN_FUNCTION: u32 = 3;
+pub const TEMPLATE_SEMANTIC_TOKEN_MACRO: u32 = 4;
+pub const TEMPLATE_SEMANTIC_TOKEN_STRING: u32 = 5;
+pub const TEMPLATE_SEMANTIC_TOKEN_NUMBER: u32 = 6;
+pub const TEMPLATE_SEMANTIC_TOKEN_KEYWORD: u32 = 7;
 
 pub async fn run(content: Option<String>, output: Option<String>) -> Result<()> {
     let state = Arc::new(Mutex::new(AuthoringState {
@@ -83,44 +83,44 @@ pub async fn run(content: Option<String>, output: Option<String>) -> Result<()> 
 }
 
 #[derive(Clone)]
-struct Backend {
-    client: Client,
-    state: Arc<Mutex<AuthoringState>>,
+pub struct Backend {
+    pub client: Client,
+    pub state: Arc<Mutex<AuthoringState>>,
 }
 
-struct AuthoringState {
-    startup_args: LspStartupArgs,
-    dirs: Option<AuthoringDirs>,
-    documents: HashMap<Url, String>,
-    input_revision: u64,
-    workspace: Option<AuthoringWorkspace>,
-    applied_input_revision: Option<u64>,
-    world_cache: Option<CachedAuthoringWorld>,
-}
-
-#[derive(Debug, Clone)]
-struct LspStartupArgs {
-    content: Option<String>,
-    output: Option<String>,
+pub struct AuthoringState {
+    pub startup_args: LspStartupArgs,
+    pub dirs: Option<AuthoringDirs>,
+    pub documents: HashMap<Url, String>,
+    pub input_revision: u64,
+    pub workspace: Option<AuthoringWorkspace>,
+    pub applied_input_revision: Option<u64>,
+    pub world_cache: Option<CachedAuthoringWorld>,
 }
 
 #[derive(Debug, Clone)]
-struct CachedAuthoringWorld {
-    content_dir: Utf8PathBuf,
-    input_revision: u64,
-    world: AuthoringWorld,
+pub struct LspStartupArgs {
+    pub content: Option<String>,
+    pub output: Option<String>,
 }
 
 #[derive(Debug, Clone)]
-struct AuthoringWorld {
-    project: AuthoringProject,
-    template_index: TemplateAuthoringIndex,
-    content_graph: ContentAuthoringGraph,
-    source_document_targets: HashMap<String, Vec<FrontmatterDocumentTarget>>,
+pub struct CachedAuthoringWorld {
+    pub content_dir: Utf8PathBuf,
+    pub input_revision: u64,
+    pub world: AuthoringWorld,
+}
+
+#[derive(Debug, Clone)]
+pub struct AuthoringWorld {
+    pub project: AuthoringProject,
+    pub template_index: TemplateAuthoringIndex,
+    pub content_graph: ContentAuthoringGraph,
+    pub source_document_targets: HashMap<String, Vec<FrontmatterDocumentTarget>>,
 }
 
 impl AuthoringWorld {
-    fn new(project: AuthoringProject) -> Result<Self> {
+    pub fn new(project: AuthoringProject) -> Result<Self> {
         let template_index = TemplateAuthoringIndex::new(&project);
         let content_graph = ContentAuthoringGraph::new(&project);
         let mut source_document_targets = HashMap::new();
@@ -138,15 +138,15 @@ impl AuthoringWorld {
         })
     }
 
-    fn route_graph(&self) -> &[RouteGraphNode] {
+    pub fn route_graph(&self) -> &[RouteGraphNode] {
         self.content_graph.routes()
     }
 
-    fn inbound_reference_count(&self, route: &str) -> usize {
+    pub fn inbound_reference_count(&self, route: &str) -> usize {
         self.content_graph.inbound_reference_count(route)
     }
 
-    fn references_to_page(
+    pub fn references_to_page(
         &self,
         content_dir: &Utf8Path,
         target_page: &AuthoringPage,
@@ -154,14 +154,14 @@ impl AuthoringWorld {
         references_to_page(content_dir, &self.project, target_page)
     }
 
-    fn source_document_targets(&self, source_file: &str) -> &[FrontmatterDocumentTarget] {
+    pub fn source_document_targets(&self, source_file: &str) -> &[FrontmatterDocumentTarget] {
         self.source_document_targets
             .get(source_file)
             .map(Vec::as_slice)
             .unwrap_or_default()
     }
 
-    fn source_document_target_at_position(
+    pub fn source_document_target_at_position(
         &self,
         source_file: &str,
         position: Position,
@@ -172,7 +172,7 @@ impl AuthoringWorld {
             .cloned()
     }
 
-    fn template_document_references(
+    pub fn template_document_references(
         &self,
         content_dir: &Utf8Path,
         target_path: &Utf8Path,
@@ -218,22 +218,22 @@ impl AuthoringWorld {
 }
 
 #[derive(Debug, Clone)]
-struct ContentAuthoringGraph {
-    routes: Vec<RouteGraphNode>,
+pub struct ContentAuthoringGraph {
+    pub routes: Vec<RouteGraphNode>,
 }
 
 impl ContentAuthoringGraph {
-    fn new(project: &AuthoringProject) -> Self {
+    pub fn new(project: &AuthoringProject) -> Self {
         Self {
             routes: route_graph_for_project(project),
         }
     }
 
-    fn routes(&self) -> &[RouteGraphNode] {
+    pub fn routes(&self) -> &[RouteGraphNode] {
         &self.routes
     }
 
-    fn inbound_reference_count(&self, route: &str) -> usize {
+    pub fn inbound_reference_count(&self, route: &str) -> usize {
         self.routes
             .iter()
             .find(|node| node.route == route)
@@ -243,8 +243,8 @@ impl ContentAuthoringGraph {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct AuthoringDirs {
-    content_dir: Utf8PathBuf,
+pub struct AuthoringDirs {
+    pub content_dir: Utf8PathBuf,
 }
 
 #[tower_lsp::async_trait]
@@ -319,7 +319,7 @@ impl LanguageServer for Backend {
             },
             server_info: Some(ServerInfo {
                 name: "dodeca-authoring".to_string(),
-                version: Some(crate::dodeca_version().to_string()),
+                version: Some(dodeca::dodeca_version().to_string()),
             }),
         })
     }
@@ -611,7 +611,7 @@ impl LanguageServer for Backend {
 }
 
 impl Backend {
-    fn set_dirs(&self, dirs: AuthoringDirs) {
+    pub fn set_dirs(&self, dirs: AuthoringDirs) {
         let mut state = self.state.lock().unwrap();
         if state.dirs.as_ref() != Some(&dirs) {
             state.workspace = None;
@@ -621,7 +621,7 @@ impl Backend {
         state.dirs = Some(dirs);
     }
 
-    fn resolve_dirs_from_initialize(
+    pub fn resolve_dirs_from_initialize(
         &self,
         params: &InitializeParams,
     ) -> Result<Option<AuthoringDirs>> {
@@ -629,7 +629,7 @@ impl Backend {
         resolve_initial_authoring_dirs(&startup_args, params)
     }
 
-    fn dirs(&self) -> Result<AuthoringDirs> {
+    pub fn dirs(&self) -> Result<AuthoringDirs> {
         let state = self.state.lock().unwrap();
         state
             .dirs
@@ -637,7 +637,7 @@ impl Backend {
             .ok_or_else(|| eyre!("dodeca authoring server has not been initialized"))
     }
 
-    fn dirs_for_uri(&self, uri: &Url) -> Result<AuthoringDirs> {
+    pub fn dirs_for_uri(&self, uri: &Url) -> Result<AuthoringDirs> {
         let startup_args = self.state.lock().unwrap().startup_args.clone();
         let dirs = resolve_authoring_dirs_for_document(&startup_args, uri)?;
         self.set_dirs(dirs.clone());
@@ -645,7 +645,7 @@ impl Backend {
     }
 
     #[allow(clippy::disallowed_types)]
-    async fn register_workspace_file_watches(&self) {
+    pub async fn register_workspace_file_watches(&self) {
         let watchers = vec![FileSystemWatcher {
             glob_pattern: GlobPattern::String("**/*".to_string()),
             kind: Some(WatchKind::Create | WatchKind::Change | WatchKind::Delete),
@@ -667,7 +667,10 @@ impl Backend {
         }
     }
 
-    async fn apply_watched_file_changes(&self, params: DidChangeWatchedFilesParams) -> Result<()> {
+    pub async fn apply_watched_file_changes(
+        &self,
+        params: DidChangeWatchedFilesParams,
+    ) -> Result<()> {
         let dirs = self.dirs()?;
         let mut changed = false;
         {
@@ -716,38 +719,38 @@ impl Backend {
         Ok(())
     }
 
-    async fn list_pages(&self) -> Result<Vec<AuthoringPage>> {
+    pub async fn list_pages(&self) -> Result<Vec<AuthoringPage>> {
         let dirs = self.dirs()?;
         Ok(self.current_project(&dirs).await?.pages)
     }
 
-    async fn authoring_diagnostics(&self) -> Result<Vec<AuthoringDiagnostic>> {
+    pub async fn authoring_diagnostics(&self) -> Result<Vec<AuthoringDiagnostic>> {
         let dirs = self.dirs()?;
         let world = self.current_world(&dirs).await?;
         Ok(load_authoring_diagnostics_for_world(&world))
     }
 
-    async fn authoring_route_graph(&self) -> Result<Vec<RouteGraphNode>> {
+    pub async fn authoring_route_graph(&self) -> Result<Vec<RouteGraphNode>> {
         let dirs = self.dirs()?;
         let world = self.current_world(&dirs).await?;
         Ok(world.route_graph().to_vec())
     }
 
-    fn set_document(&self, uri: Url, content: String) {
+    pub fn set_document(&self, uri: Url, content: String) {
         let mut state = self.state.lock().unwrap();
         state.documents.insert(uri, content);
         state.input_revision = state.input_revision.wrapping_add(1);
         state.world_cache = None;
     }
 
-    fn remove_document(&self, uri: &Url) {
+    pub fn remove_document(&self, uri: &Url) {
         let mut state = self.state.lock().unwrap();
         state.documents.remove(uri);
         state.input_revision = state.input_revision.wrapping_add(1);
         state.world_cache = None;
     }
 
-    fn document_content(&self, uri: &Url) -> Result<String> {
+    pub fn document_content(&self, uri: &Url) -> Result<String> {
         if let Some(content) = self.state.lock().unwrap().documents.get(uri).cloned() {
             return Ok(content);
         }
@@ -758,11 +761,11 @@ impl Backend {
         Ok(std::fs::read_to_string(path)?)
     }
 
-    async fn current_project(&self, dirs: &AuthoringDirs) -> Result<AuthoringProject> {
+    pub async fn current_project(&self, dirs: &AuthoringDirs) -> Result<AuthoringProject> {
         Ok(self.current_world(dirs).await?.project)
     }
 
-    async fn current_world(&self, dirs: &AuthoringDirs) -> Result<AuthoringWorld> {
+    pub async fn current_world(&self, dirs: &AuthoringDirs) -> Result<AuthoringWorld> {
         let cached = {
             let state = self.state.lock().unwrap();
             state
@@ -842,7 +845,7 @@ impl Backend {
         Ok(world)
     }
 
-    async fn code_actions(&self, params: CodeActionParams) -> Result<CodeActionResponse> {
+    pub async fn code_actions(&self, params: CodeActionParams) -> Result<CodeActionResponse> {
         let uri = params.text_document.uri;
         let dirs = self.dirs_for_uri(&uri)?;
         let content = self.document_content(&uri)?;
@@ -940,7 +943,7 @@ impl Backend {
         Ok(actions)
     }
 
-    async fn completions(&self, params: CompletionParams) -> Result<Vec<CompletionItem>> {
+    pub async fn completions(&self, params: CompletionParams) -> Result<Vec<CompletionItem>> {
         let uri = params.text_document_position.text_document.uri;
         let position = params.text_document_position.position;
         let dirs = self.dirs_for_uri(&uri)?;
@@ -976,7 +979,7 @@ impl Backend {
         ))
     }
 
-    async fn hover_for_position(&self, uri: &Url, position: Position) -> Result<Option<Hover>> {
+    pub async fn hover_for_position(&self, uri: &Url, position: Position) -> Result<Option<Hover>> {
         let dirs = self.dirs_for_uri(uri)?;
         let content = self.document_content(uri)?;
         let path = lsp_file_uri_to_utf8_path(uri)?;
@@ -1064,7 +1067,7 @@ impl Backend {
         )))
     }
 
-    async fn document_links(&self, params: DocumentLinkParams) -> Result<Vec<DocumentLink>> {
+    pub async fn document_links(&self, params: DocumentLinkParams) -> Result<Vec<DocumentLink>> {
         let uri = params.text_document.uri;
         let dirs = self.dirs_for_uri(&uri)?;
         let world = self.current_world(&dirs).await?;
@@ -1120,7 +1123,7 @@ impl Backend {
             .collect()
     }
 
-    async fn semantic_tokens_for_document(&self, uri: &Url) -> Result<Option<SemanticTokens>> {
+    pub async fn semantic_tokens_for_document(&self, uri: &Url) -> Result<Option<SemanticTokens>> {
         let dirs = self.dirs_for_uri(uri)?;
         let path = lsp_file_uri_to_utf8_path(uri)?;
         let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? else {
@@ -1133,7 +1136,10 @@ impl Backend {
             .semantic_tokens(&template_file))
     }
 
-    async fn document_symbols(&self, params: DocumentSymbolParams) -> Result<Vec<DocumentSymbol>> {
+    pub async fn document_symbols(
+        &self,
+        params: DocumentSymbolParams,
+    ) -> Result<Vec<DocumentSymbol>> {
         let uri = params.text_document.uri;
         let dirs = self.dirs_for_uri(&uri)?;
         let content = self.document_content(&uri)?;
@@ -1151,7 +1157,7 @@ impl Backend {
         Ok(vec![document_symbol_for_page(page, &content)])
     }
 
-    async fn workspace_symbols(
+    pub async fn workspace_symbols(
         &self,
         params: WorkspaceSymbolParams,
     ) -> Result<Vec<SymbolInformation>> {
@@ -1164,7 +1170,7 @@ impl Backend {
         ))
     }
 
-    async fn definition_for_position(
+    pub async fn definition_for_position(
         &self,
         uri: &Url,
         position: Position,
@@ -1261,7 +1267,7 @@ impl Backend {
         definition_for_reference(&dirs, project, page, &reference)
     }
 
-    async fn references_for_position(
+    pub async fn references_for_position(
         &self,
         uri: &Url,
         position: Position,
@@ -1323,7 +1329,7 @@ impl Backend {
         Ok(Vec::new())
     }
 
-    async fn prepare_rename_for_position(
+    pub async fn prepare_rename_for_position(
         &self,
         uri: &Url,
         position: Position,
@@ -1384,7 +1390,7 @@ impl Backend {
         }))
     }
 
-    async fn rename_for_position(
+    pub async fn rename_for_position(
         &self,
         uri: &Url,
         position: Position,
@@ -1453,7 +1459,7 @@ impl Backend {
         )
     }
 
-    async fn publish_document_diagnostics(&self, uri: Url, content: String) {
+    pub async fn publish_document_diagnostics(&self, uri: Url, content: String) {
         let dirs = match self.dirs_for_uri(&uri) {
             Ok(dirs) => dirs,
             Err(err) => {
@@ -1529,7 +1535,7 @@ impl Backend {
             .await;
     }
 
-    async fn publish_workspace_diagnostics(&self) {
+    pub async fn publish_workspace_diagnostics(&self) {
         let dirs = match self.dirs() {
             Ok(dirs) => dirs,
             Err(_) => return,
@@ -1580,7 +1586,7 @@ impl Backend {
     }
 
     #[allow(clippy::disallowed_types)]
-    async fn create_page_from_command(
+    pub async fn create_page_from_command(
         &self,
         arguments: Vec<serde_json::Value>,
     ) -> Result<serde_json::Value> {
@@ -1624,7 +1630,7 @@ impl Backend {
     }
 }
 
-fn resolve_initial_authoring_dirs(
+pub fn resolve_initial_authoring_dirs(
     startup_args: &LspStartupArgs,
     params: &InitializeParams,
 ) -> Result<Option<AuthoringDirs>> {
@@ -1647,7 +1653,7 @@ fn resolve_initial_authoring_dirs(
     Ok(cfg.map(|cfg| authoring_dirs_from_resolved_config(startup_args, cfg)))
 }
 
-fn resolve_authoring_dirs_for_document(
+pub fn resolve_authoring_dirs_for_document(
     startup_args: &LspStartupArgs,
     uri: &Url,
 ) -> Result<AuthoringDirs> {
@@ -1668,7 +1674,7 @@ fn resolve_authoring_dirs_for_document(
     Ok(authoring_dirs_from_resolved_config(startup_args, cfg))
 }
 
-fn authoring_dirs_from_resolved_config(
+pub fn authoring_dirs_from_resolved_config(
     startup_args: &LspStartupArgs,
     cfg: ResolvedConfig,
 ) -> AuthoringDirs {
@@ -1680,12 +1686,12 @@ fn authoring_dirs_from_resolved_config(
     authoring_dirs_from_config(content_dir)
 }
 
-fn authoring_dirs_from_config(content_dir: Utf8PathBuf) -> AuthoringDirs {
+pub fn authoring_dirs_from_config(content_dir: Utf8PathBuf) -> AuthoringDirs {
     AuthoringDirs { content_dir }
 }
 
 #[allow(deprecated)]
-fn project_path_from_initialize(params: &InitializeParams) -> Result<Option<String>> {
+pub fn project_path_from_initialize(params: &InitializeParams) -> Result<Option<String>> {
     if let Some(folder) = params
         .workspace_folders
         .as_ref()
@@ -1701,7 +1707,7 @@ fn project_path_from_initialize(params: &InitializeParams) -> Result<Option<Stri
     Ok(params.root_path.clone())
 }
 
-fn lsp_file_uri_to_utf8_path(uri: &Url) -> Result<Utf8PathBuf> {
+pub fn lsp_file_uri_to_utf8_path(uri: &Url) -> Result<Utf8PathBuf> {
     let path = uri
         .to_file_path()
         .map_err(|_| eyre!("LSP workspace URI is not a file URI: {uri}"))?;
@@ -1710,51 +1716,51 @@ fn lsp_file_uri_to_utf8_path(uri: &Url) -> Result<Utf8PathBuf> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct AuthoringDiagnostic {
-    source_file: String,
-    route: String,
-    kind: AuthoringDiagnosticKind,
-    target: String,
-    resolved_route: Option<String>,
-    message: String,
-    line: u32,
-    column: u32,
-    line_end: u32,
-    column_end: u32,
-    byte_start: usize,
-    byte_end: usize,
+pub struct AuthoringDiagnostic {
+    pub source_file: String,
+    pub route: String,
+    pub kind: AuthoringDiagnosticKind,
+    pub target: String,
+    pub resolved_route: Option<String>,
+    pub message: String,
+    pub line: u32,
+    pub column: u32,
+    pub line_end: u32,
+    pub column_end: u32,
+    pub byte_start: usize,
+    pub byte_end: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct RouteGraphNode {
-    route: String,
-    source_file: String,
-    title: String,
-    incoming: Vec<RouteGraphEdge>,
-    outgoing: Vec<RouteGraphEdge>,
+pub struct RouteGraphNode {
+    pub route: String,
+    pub source_file: String,
+    pub title: String,
+    pub incoming: Vec<RouteGraphEdge>,
+    pub outgoing: Vec<RouteGraphEdge>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct RouteGraphEdge {
-    kind: RouteGraphEdgeKind,
-    source_route: String,
-    source_file: String,
-    target_route: String,
-    target: String,
-    line: Option<u32>,
-    column: Option<u32>,
-    line_end: Option<u32>,
-    column_end: Option<u32>,
+pub struct RouteGraphEdge {
+    pub kind: RouteGraphEdgeKind,
+    pub source_route: String,
+    pub source_file: String,
+    pub target_route: String,
+    pub target: String,
+    pub line: Option<u32>,
+    pub column: Option<u32>,
+    pub line_end: Option<u32>,
+    pub column_end: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RouteGraphEdgeKind {
+pub enum RouteGraphEdgeKind {
     Markdown,
     RenderedHtml,
 }
 
 impl RouteGraphEdgeKind {
-    fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             RouteGraphEdgeKind::Markdown => "markdown",
             RouteGraphEdgeKind::RenderedHtml => "renderedHtml",
@@ -1763,79 +1769,79 @@ impl RouteGraphEdgeKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct TemplateRouteReference {
-    target: String,
-    target_route: String,
-    source_range: Range,
+pub struct TemplateRouteReference {
+    pub target: String,
+    pub target_route: String,
+    pub source_range: Range,
 }
 
 #[derive(Debug, Clone)]
-struct TemplateBlockOccurrence {
-    name: String,
-    source_range: Range,
+pub struct TemplateBlockOccurrence {
+    pub name: String,
+    pub source_range: Range,
 }
 
 #[derive(Debug, Clone)]
-struct TemplateMacroOccurrence {
-    name: String,
-    source_range: Range,
+pub struct TemplateMacroOccurrence {
+    pub name: String,
+    pub source_range: Range,
 }
 
 #[derive(Debug, Clone)]
-struct TemplateMacroCallOccurrence {
-    target_template_file: String,
-    macro_name: String,
-    source_range: Range,
+pub struct TemplateMacroCallOccurrence {
+    pub target_template_file: String,
+    pub macro_name: String,
+    pub source_range: Range,
 }
 
 #[derive(Debug, Clone)]
-struct TemplateAuthoringIndex {
-    templates: HashMap<String, IndexedTemplate>,
-    children_by_parent: HashMap<String, Vec<String>>,
+pub struct TemplateAuthoringIndex {
+    pub templates: HashMap<String, IndexedTemplate>,
+    pub children_by_parent: HashMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Clone)]
-struct IndexedTemplate {
-    path: Utf8PathBuf,
-    content: String,
-    semantic: Option<TemplateSemanticIndex>,
-    extends: Option<String>,
-    dependencies: Vec<String>,
-    diagnostics: Vec<AuthoringDiagnostic>,
-    document_targets: Vec<TemplateDocumentTarget>,
-    route_references: Vec<TemplateRouteReference>,
-    blocks: Vec<TemplateBlockOccurrence>,
-    macros: Vec<TemplateMacroOccurrence>,
-    macro_calls: Vec<TemplateMacroCallOccurrence>,
+pub struct IndexedTemplate {
+    pub path: Utf8PathBuf,
+    pub content: String,
+    pub semantic: Option<TemplateSemanticIndex>,
+    pub extends: Option<String>,
+    pub dependencies: Vec<String>,
+    pub diagnostics: Vec<AuthoringDiagnostic>,
+    pub document_targets: Vec<TemplateDocumentTarget>,
+    pub route_references: Vec<TemplateRouteReference>,
+    pub blocks: Vec<TemplateBlockOccurrence>,
+    pub macros: Vec<TemplateMacroOccurrence>,
+    pub macro_calls: Vec<TemplateMacroCallOccurrence>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct TemplateBlockReferenceTarget {
-    path: Utf8PathBuf,
-    range: Range,
+pub struct TemplateBlockReferenceTarget {
+    pub path: Utf8PathBuf,
+    pub range: Range,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct TemplateDocumentReferenceTarget {
-    path: Utf8PathBuf,
-    range: Range,
+pub struct TemplateDocumentReferenceTarget {
+    pub path: Utf8PathBuf,
+    pub range: Range,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct TemplateMacroReferenceQuery {
-    target_template_file: String,
-    macro_name: String,
-    source_range: Range,
+pub struct TemplateMacroReferenceQuery {
+    pub target_template_file: String,
+    pub macro_name: String,
+    pub source_range: Range,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct TemplateMacroReferenceTarget {
-    path: Utf8PathBuf,
-    range: Range,
+pub struct TemplateMacroReferenceTarget {
+    pub path: Utf8PathBuf,
+    pub range: Range,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AuthoringDiagnosticKind {
+pub enum AuthoringDiagnosticKind {
     Route,
     Anchor,
     Source,
@@ -1853,7 +1859,7 @@ enum AuthoringDiagnosticKind {
 }
 
 impl AuthoringDiagnostic {
-    fn range(&self) -> Range {
+    pub fn range(&self) -> Range {
         Range {
             start: Position {
                 line: self.line.saturating_sub(1),
@@ -1867,7 +1873,7 @@ impl AuthoringDiagnostic {
     }
 }
 
-fn load_authoring_diagnostics_for_world(world: &AuthoringWorld) -> Vec<AuthoringDiagnostic> {
+pub fn load_authoring_diagnostics_for_world(world: &AuthoringWorld) -> Vec<AuthoringDiagnostic> {
     let project = &world.project;
     let mut diagnostics = Vec::new();
 
@@ -1890,7 +1896,7 @@ fn load_authoring_diagnostics_for_world(world: &AuthoringWorld) -> Vec<Authoring
     diagnostics
 }
 
-fn diagnostics_for_uri(
+pub fn diagnostics_for_uri(
     content_dir: &Utf8Path,
     project: &AuthoringProject,
     uri: &Url,
@@ -1910,7 +1916,7 @@ fn diagnostics_for_uri(
     Ok(diagnostics_for_page(project, page, content))
 }
 
-fn diagnostics_for_page(
+pub fn diagnostics_for_page(
     project: &AuthoringProject,
     page: &AuthoringPage,
     content: &str,
@@ -1925,8 +1931,7 @@ fn diagnostics_for_page(
     diagnostics
 }
 
-#[cfg(test)]
-fn diagnostics_for_template(
+pub fn diagnostics_for_template(
     project: &AuthoringProject,
     template_file: &str,
     content: &str,
@@ -1938,7 +1943,7 @@ fn diagnostics_for_template(
     diagnostics_for_template_nodes(project, template_file, content, &template.body)
 }
 
-fn diagnostics_for_template_nodes(
+pub fn diagnostics_for_template_nodes(
     project: &AuthoringProject,
     template_file: &str,
     content: &str,
@@ -1960,7 +1965,7 @@ fn diagnostics_for_template_nodes(
     diagnostics
 }
 
-fn site_graph_diagnostics(project: &AuthoringProject) -> Vec<AuthoringDiagnostic> {
+pub fn site_graph_diagnostics(project: &AuthoringProject) -> Vec<AuthoringDiagnostic> {
     let mut diagnostics = Vec::new();
     diagnostics.extend(duplicate_title_diagnostics(project));
     diagnostics.extend(duplicate_route_diagnostics(project));
@@ -1968,7 +1973,7 @@ fn site_graph_diagnostics(project: &AuthoringProject) -> Vec<AuthoringDiagnostic
     diagnostics
 }
 
-fn route_graph_for_project(project: &AuthoringProject) -> Vec<RouteGraphNode> {
+pub fn route_graph_for_project(project: &AuthoringProject) -> Vec<RouteGraphNode> {
     let mut outgoing_by_route: HashMap<String, Vec<RouteGraphEdge>> = HashMap::new();
     let mut incoming_by_route: HashMap<String, Vec<RouteGraphEdge>> = HashMap::new();
     let mut seen_edges: HashSet<(String, String, String)> = HashSet::new();
@@ -2064,7 +2069,7 @@ fn route_graph_for_project(project: &AuthoringProject) -> Vec<RouteGraphNode> {
         .collect()
 }
 
-fn duplicate_title_diagnostics(project: &AuthoringProject) -> Vec<AuthoringDiagnostic> {
+pub fn duplicate_title_diagnostics(project: &AuthoringProject) -> Vec<AuthoringDiagnostic> {
     let mut by_title: HashMap<&str, Vec<&AuthoringPage>> = HashMap::new();
     for page in &project.pages {
         if !page.title.trim().is_empty() {
@@ -2090,7 +2095,7 @@ fn duplicate_title_diagnostics(project: &AuthoringProject) -> Vec<AuthoringDiagn
         .collect()
 }
 
-fn duplicate_route_diagnostics(project: &AuthoringProject) -> Vec<AuthoringDiagnostic> {
+pub fn duplicate_route_diagnostics(project: &AuthoringProject) -> Vec<AuthoringDiagnostic> {
     let mut by_route: HashMap<&str, Vec<&AuthoringPage>> = HashMap::new();
     for page in &project.pages {
         by_route.entry(page.route.as_str()).or_default().push(page);
@@ -2114,7 +2119,7 @@ fn duplicate_route_diagnostics(project: &AuthoringProject) -> Vec<AuthoringDiagn
         .collect()
 }
 
-fn inbound_link_diagnostics(project: &AuthoringProject) -> Vec<AuthoringDiagnostic> {
+pub fn inbound_link_diagnostics(project: &AuthoringProject) -> Vec<AuthoringDiagnostic> {
     let inbound_counts = inbound_link_counts(project);
     project
         .pages
@@ -2139,7 +2144,7 @@ fn inbound_link_diagnostics(project: &AuthoringProject) -> Vec<AuthoringDiagnost
         .collect()
 }
 
-fn inbound_link_counts(project: &AuthoringProject) -> HashMap<String, usize> {
+pub fn inbound_link_counts(project: &AuthoringProject) -> HashMap<String, usize> {
     let mut counts = HashMap::new();
     for page in &project.pages {
         let Some(content) = project.source_contents.get(&page.source_file) else {
@@ -2171,7 +2176,7 @@ fn inbound_link_counts(project: &AuthoringProject) -> HashMap<String, usize> {
     counts
 }
 
-fn rendered_href_target_route(
+pub fn rendered_href_target_route(
     project: &AuthoringProject,
     source_page: &AuthoringPage,
     href: &str,
@@ -2189,7 +2194,7 @@ fn rendered_href_target_route(
     project.route_exists(&target_route).then_some(target_route)
 }
 
-fn template_route_references(
+pub fn template_route_references(
     project: &AuthoringProject,
     template_file: &str,
     content: &str,
@@ -2234,7 +2239,7 @@ fn template_route_references(
     references
 }
 
-fn is_section_landing_with_children(project: &AuthoringProject, page: &AuthoringPage) -> bool {
+pub fn is_section_landing_with_children(project: &AuthoringProject, page: &AuthoringPage) -> bool {
     if page.kind != AuthoringPageKind::Section {
         return false;
     }
@@ -2249,7 +2254,7 @@ fn is_section_landing_with_children(project: &AuthoringProject, page: &Authoring
         .any(|candidate| candidate.route != page.route && candidate.route.starts_with(&prefix))
 }
 
-fn site_graph_diagnostic_for_page(
+pub fn site_graph_diagnostic_for_page(
     page: &AuthoringPage,
     content: &str,
     kind: AuthoringDiagnosticKind,
@@ -2275,7 +2280,7 @@ fn site_graph_diagnostic_for_page(
     }
 }
 
-fn site_graph_page_identity_byte_range(content: &str) -> (usize, usize) {
+pub fn site_graph_page_identity_byte_range(content: &str) -> (usize, usize) {
     if let Some(frontmatter_tail) = content.strip_prefix("+++\n") {
         let end = frontmatter_tail
             .find("\n+++")
@@ -2287,7 +2292,7 @@ fn site_graph_page_identity_byte_range(content: &str) -> (usize, usize) {
     (0, first_line_end)
 }
 
-fn collect_template_diagnostics(
+pub fn collect_template_diagnostics(
     project: &AuthoringProject,
     template_file: &str,
     content: &str,
@@ -2486,7 +2491,7 @@ fn collect_template_diagnostics(
     }
 }
 
-fn push_missing_template_diagnostic(
+pub fn push_missing_template_diagnostic(
     project: &AuthoringProject,
     template_file: &str,
     content: &str,
@@ -2508,7 +2513,7 @@ fn push_missing_template_diagnostic(
     ));
 }
 
-fn collect_template_expr_diagnostics(
+pub fn collect_template_expr_diagnostics(
     project: &AuthoringProject,
     template_file: &str,
     content: &str,
@@ -2748,7 +2753,7 @@ fn collect_template_expr_diagnostics(
     }
 }
 
-fn collect_template_literal_diagnostics(
+pub fn collect_template_literal_diagnostics(
     project: &AuthoringProject,
     template_file: &str,
     content: &str,
@@ -2797,7 +2802,7 @@ fn collect_template_literal_diagnostics(
     }
 }
 
-fn template_diagnostic_for_ident(
+pub fn template_diagnostic_for_ident(
     template_file: &str,
     content: &str,
     kind: AuthoringDiagnosticKind,
@@ -2815,7 +2820,7 @@ fn template_diagnostic_for_ident(
     )
 }
 
-fn template_diagnostic_for_span(
+pub fn template_diagnostic_for_span(
     template_file: &str,
     content: &str,
     kind: AuthoringDiagnosticKind,
@@ -2842,7 +2847,7 @@ fn template_diagnostic_for_span(
     }
 }
 
-fn best_effort_frontmatter_diagnostics_for_uri(
+pub fn best_effort_frontmatter_diagnostics_for_uri(
     content_dir: &Utf8Path,
     uri: &Url,
     content: &str,
@@ -2857,7 +2862,7 @@ fn best_effort_frontmatter_diagnostics_for_uri(
     ))
 }
 
-fn frontmatter_diagnostics_for_source(
+pub fn frontmatter_diagnostics_for_source(
     source_file: &str,
     route: &str,
     content: &str,
@@ -2932,7 +2937,7 @@ fn frontmatter_diagnostics_for_source(
     diagnostics
 }
 
-fn frontmatter_diagnostic(
+pub fn frontmatter_diagnostic(
     source_file: &str,
     route: &str,
     content: &str,
@@ -2959,7 +2964,7 @@ fn frontmatter_diagnostic(
     }
 }
 
-fn diagnostic_for_reference(
+pub fn diagnostic_for_reference(
     project: &AuthoringProject,
     page: &AuthoringPage,
     content: &str,
@@ -3020,7 +3025,7 @@ fn diagnostic_for_reference(
     Some(reference.diagnostic(page, content, kind, resolved_route, message))
 }
 
-fn missing_route_code_actions(
+pub fn missing_route_code_actions(
     uri: &Url,
     diagnostic: &AuthoringDiagnostic,
     lsp_diagnostics: &[Diagnostic],
@@ -3052,7 +3057,7 @@ fn missing_route_code_actions(
     })]
 }
 
-fn missing_template_code_actions(
+pub fn missing_template_code_actions(
     content_dir: &Utf8Path,
     diagnostic: &AuthoringDiagnostic,
     lsp_diagnostics: &[Diagnostic],
@@ -3090,14 +3095,14 @@ fn missing_template_code_actions(
     })])
 }
 
-fn is_creatable_template_path(path: &str) -> bool {
+pub fn is_creatable_template_path(path: &str) -> bool {
     !path.is_empty()
         && path.ends_with(".html")
         && !path.starts_with('/')
         && !path.split('/').any(|part| part.is_empty() || part == "..")
 }
 
-fn create_frontmatter_code_action(
+pub fn create_frontmatter_code_action(
     uri: &Url,
     page: &AuthoringPage,
     content: &str,
@@ -3130,7 +3135,7 @@ fn create_frontmatter_code_action(
     }))
 }
 
-fn missing_anchor_code_actions(
+pub fn missing_anchor_code_actions(
     content_dir: &Utf8Path,
     project: &AuthoringProject,
     source_content: &str,
@@ -3176,7 +3181,7 @@ fn missing_anchor_code_actions(
     actions
 }
 
-fn existing_anchor_code_actions(
+pub fn existing_anchor_code_actions(
     content_dir: &Utf8Path,
     target_page: &AuthoringPage,
     diagnostic: &AuthoringDiagnostic,
@@ -3225,7 +3230,7 @@ fn existing_anchor_code_actions(
         .collect()
 }
 
-fn create_anchor_code_action(
+pub fn create_anchor_code_action(
     content_dir: &Utf8Path,
     project: &AuthoringProject,
     target_page: &AuthoringPage,
@@ -3257,7 +3262,7 @@ fn create_anchor_code_action(
     }))
 }
 
-fn lsp_diagnostics_for_range(lsp_diagnostics: &[Diagnostic], range: Range) -> Vec<Diagnostic> {
+pub fn lsp_diagnostics_for_range(lsp_diagnostics: &[Diagnostic], range: Range) -> Vec<Diagnostic> {
     lsp_diagnostics
         .iter()
         .filter(|lsp_diagnostic| lsp_diagnostic.range == range)
@@ -3265,7 +3270,7 @@ fn lsp_diagnostics_for_range(lsp_diagnostics: &[Diagnostic], range: Range) -> Ve
         .collect()
 }
 
-fn extract_page_code_action(
+pub fn extract_page_code_action(
     content_dir: &Utf8Path,
     project: &AuthoringProject,
     uri: &Url,
@@ -3287,7 +3292,7 @@ fn extract_page_code_action(
     })))
 }
 
-fn link_hover_markdown(
+pub fn link_hover_markdown(
     project: &AuthoringProject,
     page: &AuthoringPage,
     content: &str,
@@ -3336,7 +3341,7 @@ fn link_hover_markdown(
     page_link_hover_markdown(project, target_page, fragment)
 }
 
-fn page_link_hover_markdown(
+pub fn page_link_hover_markdown(
     project: &AuthoringProject,
     page: &AuthoringPage,
     fragment: Option<&str>,
@@ -3371,7 +3376,7 @@ fn page_link_hover_markdown(
     sections.join("\n\n")
 }
 
-fn frontmatter_hover_markdown(
+pub fn frontmatter_hover_markdown(
     project: &AuthoringProject,
     template_index: &TemplateAuthoringIndex,
     page: &AuthoringPage,
@@ -3406,14 +3411,14 @@ fn frontmatter_hover_markdown(
     sections.join("\n\n")
 }
 
-fn page_hover_metadata_table(page: &AuthoringPage) -> String {
+pub fn page_hover_metadata_table(page: &AuthoringPage) -> String {
     format!(
         "| route | source | template | output |\n| --- | --- | --- | --- |\n| `{}` | `{}` | `{}` | `{}` |",
         page.route, page.source_file, page.template, page.output_path
     )
 }
 
-fn frontmatter_hover_metadata_table(page: &AuthoringPage, backlink_count: usize) -> String {
+pub fn frontmatter_hover_metadata_table(page: &AuthoringPage, backlink_count: usize) -> String {
     format!(
         "| route | source | headings | backlinks |\n| --- | --- | ---: | ---: |\n| `{}` | `{}` | `{}` | `{}` |",
         page.route,
@@ -3423,7 +3428,7 @@ fn frontmatter_hover_metadata_table(page: &AuthoringPage, backlink_count: usize)
     )
 }
 
-fn build_provenance_hover_table(
+pub fn build_provenance_hover_table(
     project: &AuthoringProject,
     template_index: &TemplateAuthoringIndex,
     page: &AuthoringPage,
@@ -3455,7 +3460,7 @@ fn build_provenance_hover_table(
     rows.join("\n")
 }
 
-fn markdown_content_excerpt(content: &str) -> Option<String> {
+pub fn markdown_content_excerpt(content: &str) -> Option<String> {
     let body = markdown_body_without_frontmatter(content).trim();
     if body.is_empty() {
         return None;
@@ -3482,7 +3487,7 @@ fn markdown_content_excerpt(content: &str) -> Option<String> {
     Some(format!("> {excerpt}"))
 }
 
-fn markdown_body_without_frontmatter(content: &str) -> &str {
+pub fn markdown_body_without_frontmatter(content: &str) -> &str {
     if !content.starts_with("+++\n") {
         return content;
     }
@@ -3497,24 +3502,24 @@ fn markdown_body_without_frontmatter(content: &str) -> &str {
         .unwrap_or(&content[after_delimiter..])
 }
 
-fn collapse_whitespace(input: &str) -> String {
+pub fn collapse_whitespace(input: &str) -> String {
     input.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn page_transform_chain(page: &AuthoringPage) -> &'static str {
+pub fn page_transform_chain(page: &AuthoringPage) -> &'static str {
     match page.kind {
         AuthoringPageKind::Page => "markdown -> page template -> html postprocess -> output",
         AuthoringPageKind::Section => "markdown -> section template -> html postprocess -> output",
     }
 }
 
-fn template_path_dependencies(nodes: &[Node]) -> Vec<String> {
+pub fn template_path_dependencies(nodes: &[Node]) -> Vec<String> {
     let mut dependencies = Vec::new();
     collect_template_path_dependencies(nodes, &mut dependencies);
     dependencies
 }
 
-fn collect_template_path_dependencies(nodes: &[Node], dependencies: &mut Vec<String>) {
+pub fn collect_template_path_dependencies(nodes: &[Node], dependencies: &mut Vec<String>) {
     for node in nodes {
         match node {
             Node::Extends(node) => dependencies.push(node.path.value.clone()),
@@ -3548,7 +3553,7 @@ fn collect_template_path_dependencies(nodes: &[Node], dependencies: &mut Vec<Str
     }
 }
 
-fn static_asset_references(
+pub fn static_asset_references(
     project: &AuthoringProject,
     page: &AuthoringPage,
     content: &str,
@@ -3569,7 +3574,7 @@ fn static_asset_references(
     assets
 }
 
-fn markdown_hover(markdown: String, range: Range) -> Hover {
+pub fn markdown_hover(markdown: String, range: Range) -> Hover {
     Hover {
         contents: HoverContents::Markup(MarkupContent {
             kind: MarkupKind::Markdown,
@@ -3579,7 +3584,7 @@ fn markdown_hover(markdown: String, range: Range) -> Hover {
     }
 }
 
-fn template_semantic_hover(
+pub fn template_semantic_hover(
     template_index: &TemplateAuthoringIndex,
     template_file: &str,
     position: Position,
@@ -3629,7 +3634,7 @@ fn template_semantic_hover(
     ))
 }
 
-fn template_semantic_prepare_rename(
+pub fn template_semantic_prepare_rename(
     template_index: &TemplateAuthoringIndex,
     template_file: &str,
     position: Position,
@@ -3649,7 +3654,7 @@ fn template_semantic_prepare_rename(
     })
 }
 
-fn template_semantic_rename_workspace_edit(
+pub fn template_semantic_rename_workspace_edit(
     template_index: &TemplateAuthoringIndex,
     template_file: &str,
     position: Position,
@@ -3705,7 +3710,7 @@ fn template_semantic_rename_workspace_edit(
     }))
 }
 
-fn template_symbol_can_rename(symbol: &TemplateSymbol) -> bool {
+pub fn template_symbol_can_rename(symbol: &TemplateSymbol) -> bool {
     symbol.span.is_some()
         && matches!(
             symbol.kind,
@@ -3717,7 +3722,7 @@ fn template_symbol_can_rename(symbol: &TemplateSymbol) -> bool {
         )
 }
 
-fn is_valid_template_rename_name(name: &str) -> bool {
+pub fn is_valid_template_rename_name(name: &str) -> bool {
     let mut chars = name.chars();
     chars
         .next()
@@ -3725,7 +3730,7 @@ fn is_valid_template_rename_name(name: &str) -> bool {
         && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
 }
 
-fn template_symbol_hover_markdown(symbol: &TemplateSymbol) -> String {
+pub fn template_symbol_hover_markdown(symbol: &TemplateSymbol) -> String {
     let info = template_symbol_info(symbol);
     format!(
         "**{}** `{}`\n\n{}",
@@ -3733,7 +3738,7 @@ fn template_symbol_hover_markdown(symbol: &TemplateSymbol) -> String {
     )
 }
 
-fn template_symbol_reference_hover_markdown(
+pub fn template_symbol_reference_hover_markdown(
     index: &TemplateSemanticIndex,
     symbol: &TemplateSymbol,
     access: TemplateReferenceAccess,
@@ -3751,7 +3756,7 @@ fn template_symbol_reference_hover_markdown(
     )
 }
 
-fn template_field_hover_markdown(
+pub fn template_field_hover_markdown(
     index: &TemplateSemanticIndex,
     reference: &gingembre::semantic::TemplateReference,
     offset: usize,
@@ -3766,11 +3771,14 @@ fn template_field_hover_markdown(
     template_item_hover_markdown(&reference.name, info)
 }
 
-fn template_item_hover_markdown(name: &str, info: TemplateItemInfo) -> String {
+pub fn template_item_hover_markdown(name: &str, info: TemplateItemInfo) -> String {
     format!("**{}** `{}`\n\n{}", info.detail, name, info.documentation)
 }
 
-fn template_semantic_tokens(index: &TemplateSemanticIndex, content: &str) -> Vec<SemanticToken> {
+pub fn template_semantic_tokens(
+    index: &TemplateSemanticIndex,
+    content: &str,
+) -> Vec<SemanticToken> {
     let mut spans = index.tokens.clone();
     spans.sort_by_key(|token| (token.span.offset(), token.span.len()));
     spans.dedup_by_key(|token| (token.span.offset(), token.span.len(), token.kind));
@@ -3806,7 +3814,7 @@ fn template_semantic_tokens(index: &TemplateSemanticIndex, content: &str) -> Vec
     result
 }
 
-fn template_semantic_tokens_legend() -> SemanticTokensLegend {
+pub fn template_semantic_tokens_legend() -> SemanticTokensLegend {
     SemanticTokensLegend {
         token_types: vec![
             SemanticTokenType::VARIABLE,
@@ -3822,7 +3830,7 @@ fn template_semantic_tokens_legend() -> SemanticTokensLegend {
     }
 }
 
-fn template_semantic_token_type(kind: TemplateSemanticTokenKind) -> u32 {
+pub fn template_semantic_token_type(kind: TemplateSemanticTokenKind) -> u32 {
     match kind {
         TemplateSemanticTokenKind::Variable => TEMPLATE_SEMANTIC_TOKEN_VARIABLE,
         TemplateSemanticTokenKind::Parameter => TEMPLATE_SEMANTIC_TOKEN_PARAMETER,
@@ -3836,7 +3844,7 @@ fn template_semantic_token_type(kind: TemplateSemanticTokenKind) -> u32 {
 }
 
 #[allow(deprecated)]
-fn document_symbol_for_page(page: &AuthoringPage, content: &str) -> DocumentSymbol {
+pub fn document_symbol_for_page(page: &AuthoringPage, content: &str) -> DocumentSymbol {
     let range = full_document_range(content);
     let selection_range = frontmatter_lsp_range(content).unwrap_or_else(|| one_line_range(0));
     let heading_lines = markdown_headings(content);
@@ -3877,7 +3885,7 @@ fn document_symbol_for_page(page: &AuthoringPage, content: &str) -> DocumentSymb
     }
 }
 
-fn workspace_symbols_for_project(
+pub fn workspace_symbols_for_project(
     content_dir: &Utf8Path,
     project: &AuthoringProject,
     query: &str,
@@ -3909,7 +3917,7 @@ fn workspace_symbols_for_project(
     symbols
 }
 
-fn workspace_page_matches(page: &AuthoringPage, query: &str) -> bool {
+pub fn workspace_page_matches(page: &AuthoringPage, query: &str) -> bool {
     if query.trim().is_empty() {
         return true;
     }
@@ -3920,9 +3928,9 @@ fn workspace_page_matches(page: &AuthoringPage, query: &str) -> bool {
     fuzzy_contains(&haystack, query)
 }
 
-fn workspace_heading_matches(
+pub fn workspace_heading_matches(
     page: &AuthoringPage,
-    heading: &crate::authoring_model::AuthoringHeading,
+    heading: &dodeca::authoring_model::AuthoringHeading,
     query: &str,
 ) -> bool {
     if query.trim().is_empty() {
@@ -3935,7 +3943,7 @@ fn workspace_heading_matches(
     fuzzy_contains(&haystack, query)
 }
 
-fn fuzzy_contains(haystack: &str, query: &str) -> bool {
+pub fn fuzzy_contains(haystack: &str, query: &str) -> bool {
     let haystack = haystack.to_lowercase();
     query
         .split_whitespace()
@@ -3944,7 +3952,7 @@ fn fuzzy_contains(haystack: &str, query: &str) -> bool {
 }
 
 #[allow(deprecated)]
-fn symbol_information_for_page(
+pub fn symbol_information_for_page(
     content_dir: &Utf8Path,
     project: &AuthoringProject,
     page: &AuthoringPage,
@@ -3963,7 +3971,7 @@ fn symbol_information_for_page(
 }
 
 #[allow(deprecated)]
-fn symbol_information_for_heading(
+pub fn symbol_information_for_heading(
     content_dir: &Utf8Path,
     project: &AuthoringProject,
     page: &AuthoringPage,
@@ -3983,7 +3991,7 @@ fn symbol_information_for_heading(
     })
 }
 
-fn location_for_page(
+pub fn location_for_page(
     content_dir: &Utf8Path,
     project: &AuthoringProject,
     page: &AuthoringPage,
@@ -3994,7 +4002,7 @@ fn location_for_page(
     Some(Location { uri, range })
 }
 
-fn location_for_page_heading(
+pub fn location_for_page_heading(
     content_dir: &Utf8Path,
     project: &AuthoringProject,
     page: &AuthoringPage,
@@ -4013,7 +4021,7 @@ fn location_for_page_heading(
     })
 }
 
-fn full_document_range(content: &str) -> Range {
+pub fn full_document_range(content: &str) -> Range {
     let (line, character) = byte_to_line_column(content, content.len());
     Range {
         start: Position {
@@ -4027,14 +4035,14 @@ fn full_document_range(content: &str) -> Range {
     }
 }
 
-fn one_line_range(line: u32) -> Range {
+pub fn one_line_range(line: u32) -> Range {
     Range {
         start: Position { line, character: 0 },
         end: Position { line, character: 0 },
     }
 }
 
-fn definition_for_reference(
+pub fn definition_for_reference(
     dirs: &AuthoringDirs,
     project: &AuthoringProject,
     page: &AuthoringPage,
@@ -4077,7 +4085,7 @@ fn definition_for_reference(
     location_for_source_path(&path, fragment)
 }
 
-fn references_to_page(
+pub fn references_to_page(
     content_dir: &Utf8Path,
     project: &AuthoringProject,
     target_page: &AuthoringPage,
@@ -4137,7 +4145,7 @@ fn references_to_page(
     Ok(locations)
 }
 
-fn location_for_rendered_href_origin(
+pub fn location_for_rendered_href_origin(
     content_dir: &Utf8Path,
     project: &AuthoringProject,
     origin: &RenderedHrefOrigin,
@@ -4166,7 +4174,7 @@ fn location_for_rendered_href_origin(
     })
 }
 
-fn references_to_heading(
+pub fn references_to_heading(
     content_dir: &Utf8Path,
     project: &AuthoringProject,
     target_page: &AuthoringPage,
@@ -4210,7 +4218,7 @@ fn references_to_heading(
     Ok(locations)
 }
 
-fn rename_heading_workspace_edit(
+pub fn rename_heading_workspace_edit(
     content_dir: &Utf8Path,
     project: &AuthoringProject,
     target_page: &AuthoringPage,
@@ -4288,7 +4296,7 @@ fn rename_heading_workspace_edit(
     Ok(Some(WorkspaceEdit::new(changes)))
 }
 
-fn heading_id_after_rename(
+pub fn heading_id_after_rename(
     content: &str,
     target: &HeadingRenameTarget,
     new_name: &str,
@@ -4304,7 +4312,7 @@ fn heading_id_after_rename(
         .map(|heading| heading.id)
 }
 
-fn fragment_range_for_target_context(
+pub fn fragment_range_for_target_context(
     content: &str,
     context: &MarkdownTargetContext,
     expected_fragment: &str,
@@ -4325,13 +4333,13 @@ fn fragment_range_for_target_context(
     ))
 }
 
-fn missing_anchor_fragment(target: &str) -> Option<&str> {
+pub fn missing_anchor_fragment(target: &str) -> Option<&str> {
     split_fragment(target)
         .1
         .filter(|fragment| !fragment.is_empty())
 }
 
-fn target_context_for_diagnostic(
+pub fn target_context_for_diagnostic(
     content: &str,
     diagnostic: &AuthoringDiagnostic,
 ) -> Option<MarkdownTargetContext> {
@@ -4344,7 +4352,7 @@ fn target_context_for_diagnostic(
         })
 }
 
-fn anchor_suggestion_score(fragment: &str, heading_id: &str, heading_title: &str) -> usize {
+pub fn anchor_suggestion_score(fragment: &str, heading_id: &str, heading_title: &str) -> usize {
     let fragment = fragment.to_lowercase();
     let heading_id = heading_id.to_lowercase();
     let heading_title = marq::slugify(heading_title);
@@ -4368,7 +4376,7 @@ fn anchor_suggestion_score(fragment: &str, heading_id: &str, heading_title: &str
     score
 }
 
-fn common_prefix_len(left: &str, right: &str) -> usize {
+pub fn common_prefix_len(left: &str, right: &str) -> usize {
     left.chars()
         .zip(right.chars())
         .take_while(|(left, right)| left == right)
@@ -4376,12 +4384,12 @@ fn common_prefix_len(left: &str, right: &str) -> usize {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct MissingAnchorHeadingEdit {
-    range: Range,
-    new_text: String,
+pub struct MissingAnchorHeadingEdit {
+    pub range: Range,
+    pub new_text: String,
 }
 
-fn create_missing_anchor_heading_edit(
+pub fn create_missing_anchor_heading_edit(
     page: &AuthoringPage,
     content: &str,
     missing_fragment: &str,
@@ -4398,7 +4406,7 @@ fn create_missing_anchor_heading_edit(
     })
 }
 
-fn missing_anchor_heading_insertion(
+pub fn missing_anchor_heading_insertion(
     page: &AuthoringPage,
     content: &str,
     local_headings: &[MarkdownHeading],
@@ -4430,14 +4438,14 @@ fn missing_anchor_heading_insertion(
     ))
 }
 
-fn missing_anchor_parent_and_leaf(fragment: &str) -> (Option<&str>, &str) {
+pub fn missing_anchor_parent_and_leaf(fragment: &str) -> (Option<&str>, &str) {
     match fragment.rfind("--") {
         Some(idx) => (Some(&fragment[..idx]), &fragment[idx + 2..]),
         None => (None, fragment),
     }
 }
 
-fn title_from_slug(slug: &str) -> Option<String> {
+pub fn title_from_slug(slug: &str) -> Option<String> {
     let words = slug
         .split('-')
         .filter(|word| !word.is_empty())
@@ -4452,7 +4460,7 @@ fn title_from_slug(slug: &str) -> Option<String> {
     (!words.is_empty()).then(|| words.join(" "))
 }
 
-fn insertion_position_after_line(content: &str, one_based_line: u32) -> Position {
+pub fn insertion_position_after_line(content: &str, one_based_line: u32) -> Position {
     let line_idx = one_based_line.saturating_sub(1) as usize;
     let byte = content
         .split_inclusive('\n')
@@ -4467,17 +4475,17 @@ fn insertion_position_after_line(content: &str, one_based_line: u32) -> Position
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ExtractPagePlan {
-    source_file: String,
-    new_source_file: String,
-    new_route: String,
-    title: String,
-    new_content: String,
-    replacement: String,
-    selection: Range,
+pub struct ExtractPagePlan {
+    pub source_file: String,
+    pub new_source_file: String,
+    pub new_route: String,
+    pub title: String,
+    pub new_content: String,
+    pub replacement: String,
+    pub selection: Range,
 }
 
-fn extract_page_plan(
+pub fn extract_page_plan(
     content_dir: &Utf8Path,
     project: &AuthoringProject,
     uri: &Url,
@@ -4531,13 +4539,13 @@ fn extract_page_plan(
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ExtractedPageContent {
-    title: String,
-    slug: String,
-    body: String,
+pub struct ExtractedPageContent {
+    pub title: String,
+    pub slug: String,
+    pub body: String,
 }
 
-fn extracted_page_content(selected: &str) -> ExtractedPageContent {
+pub fn extracted_page_content(selected: &str) -> ExtractedPageContent {
     if let Some((title, body)) = extract_leading_heading(selected) {
         let slug = marq::slugify(&title);
         return ExtractedPageContent {
@@ -4556,7 +4564,7 @@ fn extracted_page_content(selected: &str) -> ExtractedPageContent {
     }
 }
 
-fn extract_leading_heading(selected: &str) -> Option<(String, &str)> {
+pub fn extract_leading_heading(selected: &str) -> Option<(String, &str)> {
     let leading_len = selected.len() - selected.trim_start_matches([' ', '\t', '\n', '\r']).len();
     let after_leading = &selected[leading_len..];
     let line_end = after_leading.find('\n').unwrap_or(after_leading.len());
@@ -4566,7 +4574,7 @@ fn extract_leading_heading(selected: &str) -> Option<(String, &str)> {
     Some((title, &selected[body_start..]))
 }
 
-fn title_from_atx_heading_line(line: &str) -> Option<String> {
+pub fn title_from_atx_heading_line(line: &str) -> Option<String> {
     let line = line.trim();
     let marker_len = line.chars().take_while(|ch| *ch == '#').count();
     if marker_len == 0 || marker_len > 6 {
@@ -4584,7 +4592,7 @@ fn title_from_atx_heading_line(line: &str) -> Option<String> {
     (!title.is_empty()).then_some(title)
 }
 
-fn title_from_selection(selected: &str) -> String {
+pub fn title_from_selection(selected: &str) -> String {
     let text = selected
         .lines()
         .map(str::trim)
@@ -4610,7 +4618,7 @@ fn title_from_selection(selected: &str) -> String {
     }
 }
 
-fn normalize_extracted_body(body: &str) -> String {
+pub fn normalize_extracted_body(body: &str) -> String {
     let body = body.trim_matches(|ch| matches!(ch, '\n' | '\r'));
     if body.trim().is_empty() {
         "\n".to_string()
@@ -4619,7 +4627,7 @@ fn normalize_extracted_body(body: &str) -> String {
     }
 }
 
-fn unique_extracted_source_file(
+pub fn unique_extracted_source_file(
     content_dir: &Utf8Path,
     project: &AuthoringProject,
     source_file: &str,
@@ -4651,7 +4659,7 @@ fn unique_extracted_source_file(
     ))
 }
 
-fn workspace_edit_for_extract_page(
+pub fn workspace_edit_for_extract_page(
     content_dir: &Utf8Path,
     plan: &ExtractPagePlan,
 ) -> Result<WorkspaceEdit> {
@@ -4703,22 +4711,22 @@ fn workspace_edit_for_extract_page(
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct PageRouteRenamePlan {
-    old_route: String,
-    new_route: String,
-    old_source_file: String,
-    new_source_file: String,
-    text_edits: Vec<PageRouteTextEdit>,
+pub struct PageRouteRenamePlan {
+    pub old_route: String,
+    pub new_route: String,
+    pub old_source_file: String,
+    pub new_source_file: String,
+    pub text_edits: Vec<PageRouteTextEdit>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct PageRouteTextEdit {
-    path: AuthoringInputPath,
-    range: Range,
-    new_target: String,
+pub struct PageRouteTextEdit {
+    pub path: AuthoringInputPath,
+    pub range: Range,
+    pub new_target: String,
 }
 
-fn rename_page_route_workspace_edit(
+pub fn rename_page_route_workspace_edit(
     content_dir: &Utf8Path,
     project: &AuthoringProject,
     target_page: &AuthoringPage,
@@ -4733,7 +4741,7 @@ fn rename_page_route_workspace_edit(
     )?))
 }
 
-fn page_route_rename_plan(
+pub fn page_route_rename_plan(
     content_dir: &Utf8Path,
     project: &AuthoringProject,
     target_page: &AuthoringPage,
@@ -4808,12 +4816,15 @@ fn page_route_rename_plan(
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct PageRouteRenameTarget {
-    route: String,
-    source_file: String,
+pub struct PageRouteRenameTarget {
+    pub route: String,
+    pub source_file: String,
 }
 
-fn page_route_rename_target(page: &AuthoringPage, new_name: &str) -> Option<PageRouteRenameTarget> {
+pub fn page_route_rename_target(
+    page: &AuthoringPage,
+    new_name: &str,
+) -> Option<PageRouteRenameTarget> {
     let new_name = new_name.trim();
     if new_name.is_empty() || new_name.contains('\n') || new_name.contains('\r') {
         return None;
@@ -4838,7 +4849,7 @@ fn page_route_rename_target(page: &AuthoringPage, new_name: &str) -> Option<Page
     Some(PageRouteRenameTarget { route, source_file })
 }
 
-fn page_route_rendered_href_edit(
+pub fn page_route_rendered_href_edit(
     project: &AuthoringProject,
     source_page: &AuthoringPage,
     target_page: &AuthoringPage,
@@ -4865,7 +4876,7 @@ fn page_route_rendered_href_edit(
     })
 }
 
-fn rendered_href_origin_range(
+pub fn rendered_href_origin_range(
     project: &AuthoringProject,
     origin: &RenderedHrefOrigin,
 ) -> Option<Range> {
@@ -4883,7 +4894,7 @@ fn rendered_href_origin_range(
         .then(|| byte_range_to_lsp_range(content, origin.byte_start, origin.byte_end))
 }
 
-fn page_route_link_edit(
+pub fn page_route_link_edit(
     project: &AuthoringProject,
     page: &AuthoringPage,
     target_page: &AuthoringPage,
@@ -4942,7 +4953,7 @@ fn page_route_link_edit(
     })
 }
 
-fn page_route_text_edit_sort_key(path: &AuthoringInputPath) -> String {
+pub fn page_route_text_edit_sort_key(path: &AuthoringInputPath) -> String {
     match path {
         AuthoringInputPath::Source(path) => format!("source:{path}"),
         AuthoringInputPath::Template(path) => format!("template:{path}"),
@@ -4953,7 +4964,7 @@ fn page_route_text_edit_sort_key(path: &AuthoringInputPath) -> String {
     }
 }
 
-fn workspace_edit_for_page_route_rename(
+pub fn workspace_edit_for_page_route_rename(
     content_dir: &Utf8Path,
     plan: &PageRouteRenamePlan,
 ) -> Result<WorkspaceEdit> {
@@ -5001,7 +5012,7 @@ fn workspace_edit_for_page_route_rename(
     })
 }
 
-fn page_route_edit_uri(
+pub fn page_route_edit_uri(
     content_dir: &Utf8Path,
     path: &AuthoringInputPath,
     plan: &PageRouteRenamePlan,
@@ -5028,18 +5039,18 @@ fn page_route_edit_uri(
     }
 }
 
-fn source_file_uri(content_dir: &Utf8Path, source_file: &str) -> Result<Url> {
+pub fn source_file_uri(content_dir: &Utf8Path, source_file: &str) -> Result<Url> {
     Url::from_file_path(content_dir.join(source_file))
         .map_err(|_| eyre!("could not convert source file to URI: {source_file}"))
 }
 
-fn template_file_uri(content_dir: &Utf8Path, template_file: &str) -> Result<Url> {
+pub fn template_file_uri(content_dir: &Utf8Path, template_file: &str) -> Result<Url> {
     let project_dir = content_dir.parent().unwrap_or(content_dir);
     Url::from_file_path(project_dir.join("templates").join(template_file))
         .map_err(|_| eyre!("could not convert template file to URI: {template_file}"))
 }
 
-fn target_base_and_suffix(target: &str) -> (&str, &str) {
+pub fn target_base_and_suffix(target: &str) -> (&str, &str) {
     let suffix_start = [target.find('#'), target.find('?')]
         .into_iter()
         .flatten()
@@ -5048,14 +5059,14 @@ fn target_base_and_suffix(target: &str) -> (&str, &str) {
     (&target[..suffix_start], &target[suffix_start..])
 }
 
-fn source_file_for_page_route(route: &str, kind: AuthoringPageKind) -> Option<String> {
+pub fn source_file_for_page_route(route: &str, kind: AuthoringPageKind) -> Option<String> {
     match kind {
         AuthoringPageKind::Page => source_file_for_new_route(route),
         AuthoringPageKind::Section => source_file_for_new_section_route(route),
     }
 }
 
-fn source_file_for_new_section_route(route: &str) -> Option<String> {
+pub fn source_file_for_new_section_route(route: &str) -> Option<String> {
     let route = normalize_route(route);
     let relative = route.strip_prefix('/')?;
     if relative.is_empty() {
@@ -5065,7 +5076,7 @@ fn source_file_for_new_section_route(route: &str) -> Option<String> {
     Some(format!("{relative}/_index.md"))
 }
 
-fn validate_markdown_source_file(source_file: &str) -> Option<()> {
+pub fn validate_markdown_source_file(source_file: &str) -> Option<()> {
     source_file.ends_with(".md").then_some(())?;
     if source_file.starts_with('/') {
         return None;
@@ -5073,7 +5084,7 @@ fn validate_markdown_source_file(source_file: &str) -> Option<()> {
     validate_route_relative_path(source_file.strip_suffix(".md").unwrap_or(source_file))
 }
 
-fn validate_route_relative_path(relative: &str) -> Option<()> {
+pub fn validate_route_relative_path(relative: &str) -> Option<()> {
     if relative.is_empty() {
         return None;
     }
@@ -5090,14 +5101,14 @@ fn validate_route_relative_path(relative: &str) -> Option<()> {
     Some(())
 }
 
-fn link_base_route_for_route(route: &str, kind: AuthoringPageKind) -> String {
+pub fn link_base_route_for_route(route: &str, kind: AuthoringPageKind) -> String {
     match kind {
         AuthoringPageKind::Page => route_parent(route),
         AuthoringPageKind::Section => normalize_route(route),
     }
 }
 
-fn route_parent(route: &str) -> String {
+pub fn route_parent(route: &str) -> String {
     let route = normalize_route(route);
     let parts = route_segments(&route);
     if parts.len() <= 1 {
@@ -5107,7 +5118,7 @@ fn route_parent(route: &str) -> String {
     }
 }
 
-fn relative_source_path_from_source(source_file: &str, target_source_file: &str) -> String {
+pub fn relative_source_path_from_source(source_file: &str, target_source_file: &str) -> String {
     let source_parent = Utf8Path::new(source_file)
         .parent()
         .unwrap_or_else(|| Utf8Path::new(""));
@@ -5143,7 +5154,7 @@ fn relative_source_path_from_source(source_file: &str, target_source_file: &str)
     }
 }
 
-fn reference_target_route(
+pub fn reference_target_route(
     project: &AuthoringProject,
     page: &AuthoringPage,
     reference: &MarkdownReference,
@@ -5171,7 +5182,7 @@ fn reference_target_route(
     ))
 }
 
-fn location_for_markdown_reference(
+pub fn location_for_markdown_reference(
     content_dir: &Utf8Path,
     source_file: &str,
     content: &str,
@@ -5195,7 +5206,10 @@ fn location_for_markdown_reference(
     })
 }
 
-fn location_for_source_path(path: &Utf8Path, fragment: Option<&str>) -> Result<Option<Location>> {
+pub fn location_for_source_path(
+    path: &Utf8Path,
+    fragment: Option<&str>,
+) -> Result<Option<Location>> {
     if !path.exists() {
         return Ok(None);
     }
@@ -5215,7 +5229,7 @@ fn location_for_source_path(path: &Utf8Path, fragment: Option<&str>) -> Result<O
     Ok(location_for_path(path, line, 1))
 }
 
-fn location_for_path(path: &Utf8Path, line: u32, column: u32) -> Option<Location> {
+pub fn location_for_path(path: &Utf8Path, line: u32, column: u32) -> Option<Location> {
     let uri = Url::from_file_path(path).ok()?;
     let start = Position {
         line: line.saturating_sub(1),
@@ -5227,7 +5241,7 @@ fn location_for_path(path: &Utf8Path, line: u32, column: u32) -> Option<Location
     })
 }
 
-fn location_for_static_target(
+pub fn location_for_static_target(
     project: &AuthoringProject,
     source_file: &str,
     target: &str,
@@ -5251,7 +5265,7 @@ fn location_for_static_target(
         .and_then(|path| location_for_path(path, 1, 1))
 }
 
-fn route_for_link_target(
+pub fn route_for_link_target(
     project: &AuthoringProject,
     page: &AuthoringPage,
     target_without_fragment: &str,
@@ -5277,7 +5291,10 @@ fn route_for_link_target(
     }
 }
 
-fn source_target_for_relative_markdown_link(page: &AuthoringPage, target: &str) -> Option<String> {
+pub fn source_target_for_relative_markdown_link(
+    page: &AuthoringPage,
+    target: &str,
+) -> Option<String> {
     if !target.ends_with(".md") {
         return None;
     }
@@ -5287,7 +5304,7 @@ fn source_target_for_relative_markdown_link(page: &AuthoringPage, target: &str) 
     Some(normalize_relative_path(&source_parent.join(target)))
 }
 
-fn normalize_relative_path(path: &Utf8Path) -> String {
+pub fn normalize_relative_path(path: &Utf8Path) -> String {
     let mut parts = Vec::new();
     for segment in path.as_str().split('/') {
         match segment {
@@ -5301,7 +5318,7 @@ fn normalize_relative_path(path: &Utf8Path) -> String {
     parts.join("/")
 }
 
-fn ensure_trailing_slash(route: &str) -> String {
+pub fn ensure_trailing_slash(route: &str) -> String {
     if route == "/" || route.ends_with('/') {
         route.to_string()
     } else {
@@ -5310,21 +5327,21 @@ fn ensure_trailing_slash(route: &str) -> String {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MarkdownReferenceKind {
+pub enum MarkdownReferenceKind {
     Link,
     Image,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct MarkdownReference {
-    kind: MarkdownReferenceKind,
-    target: String,
-    byte_start: usize,
-    byte_end: usize,
+pub struct MarkdownReference {
+    pub kind: MarkdownReferenceKind,
+    pub target: String,
+    pub byte_start: usize,
+    pub byte_end: usize,
 }
 
 impl MarkdownReference {
-    fn diagnostic(
+    pub fn diagnostic(
         &self,
         page: &AuthoringPage,
         content: &str,
@@ -5351,7 +5368,7 @@ impl MarkdownReference {
     }
 }
 
-fn markdown_references(content: &str) -> Vec<MarkdownReference> {
+pub fn markdown_references(content: &str) -> Vec<MarkdownReference> {
     Parser::new_ext(content, Options::all())
         .into_offset_iter()
         .filter_map(|(event, range)| match event {
@@ -5372,7 +5389,7 @@ fn markdown_references(content: &str) -> Vec<MarkdownReference> {
         .collect()
 }
 
-fn reference_at_position(content: &str, position: Position) -> Option<MarkdownReference> {
+pub fn reference_at_position(content: &str, position: Position) -> Option<MarkdownReference> {
     let byte_offset = position_to_byte_offset(content, position)?;
     markdown_references(content)
         .into_iter()
@@ -5380,15 +5397,15 @@ fn reference_at_position(content: &str, position: Position) -> Option<MarkdownRe
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct MarkdownTargetContext {
-    kind: MarkdownReferenceKind,
-    target: String,
-    range: Range,
-    byte_start: usize,
-    byte_end: usize,
+pub struct MarkdownTargetContext {
+    pub kind: MarkdownReferenceKind,
+    pub target: String,
+    pub range: Range,
+    pub byte_start: usize,
+    pub byte_end: usize,
 }
 
-fn markdown_target_context_at_position(
+pub fn markdown_target_context_at_position(
     content: &str,
     position: Position,
 ) -> Option<MarkdownTargetContext> {
@@ -5405,7 +5422,7 @@ fn markdown_target_context_at_position(
         })
 }
 
-fn markdown_target_contexts(content: &str) -> Vec<MarkdownTargetContext> {
+pub fn markdown_target_contexts(content: &str) -> Vec<MarkdownTargetContext> {
     let mut contexts = Vec::new();
     let bytes = content.as_bytes();
     let mut cursor = 0;
@@ -5444,7 +5461,7 @@ fn markdown_target_contexts(content: &str) -> Vec<MarkdownTargetContext> {
     contexts
 }
 
-fn markdown_reference_kind_before_link_close(
+pub fn markdown_reference_kind_before_link_close(
     content: &str,
     link_close_byte: usize,
 ) -> MarkdownReferenceKind {
@@ -5464,7 +5481,7 @@ fn markdown_reference_kind_before_link_close(
     }
 }
 
-fn completion_items_for_markdown_target(
+pub fn completion_items_for_markdown_target(
     project: &AuthoringProject,
     page: &AuthoringPage,
     context: &MarkdownTargetContext,
@@ -5493,7 +5510,7 @@ fn completion_items_for_markdown_target(
     items
 }
 
-fn route_completion_items(
+pub fn route_completion_items(
     project: &AuthoringProject,
     page: &AuthoringPage,
     context: &MarkdownTargetContext,
@@ -5513,7 +5530,7 @@ fn route_completion_items(
         .collect()
 }
 
-fn source_completion_items(
+pub fn source_completion_items(
     project: &AuthoringProject,
     context: &MarkdownTargetContext,
 ) -> Vec<CompletionItem> {
@@ -5538,7 +5555,7 @@ fn source_completion_items(
         .collect()
 }
 
-fn static_completion_items(
+pub fn static_completion_items(
     project: &AuthoringProject,
     context: &MarkdownTargetContext,
 ) -> Vec<CompletionItem> {
@@ -5558,7 +5575,7 @@ fn static_completion_items(
         .collect()
 }
 
-fn heading_completion_items(
+pub fn heading_completion_items(
     project: &AuthoringProject,
     page: &AuthoringPage,
     context: &MarkdownTargetContext,
@@ -5601,7 +5618,7 @@ fn heading_completion_items(
         .collect()
 }
 
-fn completion_item(
+pub fn completion_item(
     insert_text: String,
     kind: CompletionItemKind,
     detail: String,
@@ -5620,7 +5637,7 @@ fn completion_item(
     }
 }
 
-fn template_completion_item(
+pub fn template_completion_item(
     insert_text: String,
     kind: CompletionItemKind,
     info: TemplateItemInfo,
@@ -5644,7 +5661,7 @@ fn template_completion_item(
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum TemplateCompletionKind {
+pub enum TemplateCompletionKind {
     Root,
     Field(Vec<String>),
     Filter,
@@ -5653,15 +5670,15 @@ enum TemplateCompletionKind {
 }
 
 #[derive(Debug, Clone)]
-struct TemplateCompletionContext {
-    kind: TemplateCompletionKind,
-    range: Range,
+pub struct TemplateCompletionContext {
+    pub kind: TemplateCompletionKind,
+    pub range: Range,
 }
 
-const TEMPLATE_ROOT_VALUES: &[&str] =
+pub const TEMPLATE_ROOT_VALUES: &[&str] =
     &["config", "page", "section", "current_path", "root", "data"];
-const TEMPLATE_CONFIG_FIELDS: &[&str] = &["title", "description", "base_url"];
-const TEMPLATE_PAGE_FIELDS: &[&str] = &[
+pub const TEMPLATE_CONFIG_FIELDS: &[&str] = &["title", "description", "base_url"];
+pub const TEMPLATE_PAGE_FIELDS: &[&str] = &[
     "title",
     "content",
     "permalink",
@@ -5673,7 +5690,7 @@ const TEMPLATE_PAGE_FIELDS: &[&str] = &[
     "description",
     "extra",
 ];
-const TEMPLATE_SECTION_FIELDS: &[&str] = &[
+pub const TEMPLATE_SECTION_FIELDS: &[&str] = &[
     "title",
     "content",
     "permalink",
@@ -5688,12 +5705,12 @@ const TEMPLATE_SECTION_FIELDS: &[&str] = &[
 ];
 
 #[derive(Debug, Clone, Copy)]
-struct TemplateItemInfo {
-    detail: &'static str,
-    documentation: &'static str,
+pub struct TemplateItemInfo {
+    pub detail: &'static str,
+    pub documentation: &'static str,
 }
 
-fn template_root_info(name: &str) -> TemplateItemInfo {
+pub fn template_root_info(name: &str) -> TemplateItemInfo {
     match name {
         "config" => TemplateItemInfo {
             detail: "Dodeca site configuration",
@@ -5726,7 +5743,7 @@ fn template_root_info(name: &str) -> TemplateItemInfo {
     }
 }
 
-fn template_field_info(path: &[String], name: &str) -> TemplateItemInfo {
+pub fn template_field_info(path: &[String], name: &str) -> TemplateItemInfo {
     let root = path.first().map(String::as_str).unwrap_or("");
     match (root, name) {
         (_, "title") => TemplateItemInfo {
@@ -5784,7 +5801,7 @@ fn template_field_info(path: &[String], name: &str) -> TemplateItemInfo {
     }
 }
 
-fn template_function_info(name: &str) -> TemplateItemInfo {
+pub fn template_function_info(name: &str) -> TemplateItemInfo {
     match name {
         "get_url" => TemplateItemInfo {
             detail: "Dodeca template function",
@@ -5821,7 +5838,7 @@ fn template_function_info(name: &str) -> TemplateItemInfo {
     }
 }
 
-fn template_filter_info(name: &str) -> TemplateItemInfo {
+pub fn template_filter_info(name: &str) -> TemplateItemInfo {
     builtin_filter(name)
         .map(template_builtin_info)
         .unwrap_or(TemplateItemInfo {
@@ -5830,7 +5847,7 @@ fn template_filter_info(name: &str) -> TemplateItemInfo {
         })
 }
 
-fn template_test_info(name: &str) -> TemplateItemInfo {
+pub fn template_test_info(name: &str) -> TemplateItemInfo {
     builtin_test(name)
         .map(template_builtin_info)
         .unwrap_or(TemplateItemInfo {
@@ -5839,14 +5856,14 @@ fn template_test_info(name: &str) -> TemplateItemInfo {
         })
 }
 
-fn template_builtin_info(info: &BuiltinItemInfo) -> TemplateItemInfo {
+pub fn template_builtin_info(info: &BuiltinItemInfo) -> TemplateItemInfo {
     TemplateItemInfo {
         detail: info.detail,
         documentation: info.documentation,
     }
 }
 
-fn template_symbol_info(symbol: &TemplateSymbol) -> TemplateItemInfo {
+pub fn template_symbol_info(symbol: &TemplateSymbol) -> TemplateItemInfo {
     match symbol.kind {
         TemplateSymbolKind::SetBinding => TemplateItemInfo {
             detail: "Gingembre local variable",
@@ -5873,7 +5890,7 @@ fn template_symbol_info(symbol: &TemplateSymbol) -> TemplateItemInfo {
     }
 }
 
-fn completion_kind_for_template_symbol(kind: TemplateSymbolKind) -> CompletionItemKind {
+pub fn completion_kind_for_template_symbol(kind: TemplateSymbolKind) -> CompletionItemKind {
     match kind {
         TemplateSymbolKind::Function => CompletionItemKind::FUNCTION,
         TemplateSymbolKind::ImportAlias => CompletionItemKind::MODULE,
@@ -5887,7 +5904,7 @@ fn completion_kind_for_template_symbol(kind: TemplateSymbolKind) -> CompletionIt
     }
 }
 
-fn template_completion_items(
+pub fn template_completion_items(
     project: &AuthoringProject,
     template_file: &str,
     content: &str,
@@ -5937,7 +5954,7 @@ fn template_completion_items(
     }
 }
 
-fn template_root_completion_items(
+pub fn template_root_completion_items(
     project: &AuthoringProject,
     template_file: &str,
     content: &str,
@@ -5995,24 +6012,24 @@ fn template_root_completion_items(
         ));
     }
 
-    if let Ok(template) = TemplateParser::new(template_file, content).parse() {
-        if top_level_macro_names(&template.body).next().is_some() {
-            items.push(template_completion_item(
-                "self".to_string(),
-                CompletionItemKind::MODULE,
-                TemplateItemInfo {
-                    detail: "Dodeca macro namespace",
-                    documentation: "`self` refers to macros declared in the current template.",
-                },
-                context.range,
-            ));
-        }
+    if let Ok(template) = TemplateParser::new(template_file, content).parse()
+        && top_level_macro_names(&template.body).next().is_some()
+    {
+        items.push(template_completion_item(
+            "self".to_string(),
+            CompletionItemKind::MODULE,
+            TemplateItemInfo {
+                detail: "Dodeca macro namespace",
+                documentation: "`self` refers to macros declared in the current template.",
+            },
+            context.range,
+        ));
     }
 
     items
 }
 
-fn template_field_completion_items(
+pub fn template_field_completion_items(
     project: &AuthoringProject,
     template_file: &str,
     path: &[String],
@@ -6058,7 +6075,7 @@ fn template_field_completion_items(
         .collect()
 }
 
-fn template_resolved_field_path(
+pub fn template_resolved_field_path(
     project: &AuthoringProject,
     template_file: &str,
     path: &[String],
@@ -6069,7 +6086,7 @@ fn template_resolved_field_path(
     resolve_template_expression_path(index, path, offset, 0)
 }
 
-fn resolve_template_expression_path(
+pub fn resolve_template_expression_path(
     index: &TemplateSemanticIndex,
     path: &[String],
     offset: usize,
@@ -6086,7 +6103,7 @@ fn resolve_template_expression_path(
     Some(resolved)
 }
 
-fn resolve_template_symbol_path(
+pub fn resolve_template_symbol_path(
     index: &TemplateSemanticIndex,
     symbol: &TemplateSymbol,
     offset: usize,
@@ -6110,7 +6127,7 @@ fn resolve_template_symbol_path(
     }
 }
 
-fn template_iteration_item_path(iter_path: &[String]) -> Option<Vec<String>> {
+pub fn template_iteration_item_path(iter_path: &[String]) -> Option<Vec<String>> {
     match iter_path {
         [root, field] if (root == "section" || root == "root") && field == "pages" => {
             Some(vec!["page".to_string()])
@@ -6122,7 +6139,7 @@ fn template_iteration_item_path(iter_path: &[String]) -> Option<Vec<String>> {
     }
 }
 
-fn template_macro_completion_items(
+pub fn template_macro_completion_items(
     project: &AuthoringProject,
     template_file: &str,
     content: &str,
@@ -6167,14 +6184,14 @@ fn template_macro_completion_items(
         .collect()
 }
 
-fn top_level_macro_names(nodes: &[Node]) -> impl Iterator<Item = String> + '_ {
+pub fn top_level_macro_names(nodes: &[Node]) -> impl Iterator<Item = String> + '_ {
     nodes.iter().filter_map(|node| match node {
         Node::Macro(node) => Some(node.name.name.clone()),
         _ => None,
     })
 }
 
-fn template_completion_context(
+pub fn template_completion_context(
     content: &str,
     position: Position,
 ) -> Option<TemplateCompletionContext> {
@@ -6223,7 +6240,7 @@ fn template_completion_context(
     })
 }
 
-fn template_macro_completion_namespace(tag_prefix: &str) -> Option<String> {
+pub fn template_macro_completion_namespace(tag_prefix: &str) -> Option<String> {
     let before_colons = tag_prefix.strip_suffix("::")?;
     let namespace_end = before_colons.len();
     let namespace_start = before_colons[..namespace_end]
@@ -6234,7 +6251,7 @@ fn template_macro_completion_namespace(tag_prefix: &str) -> Option<String> {
         .then(|| before_colons[namespace_start..namespace_end].to_string())
 }
 
-fn template_test_completion_requested(tag_prefix: &str) -> bool {
+pub fn template_test_completion_requested(tag_prefix: &str) -> bool {
     let Some(test_start) = tag_prefix.rfind(" is ") else {
         return tag_prefix.contains(" is not ");
     };
@@ -6244,7 +6261,7 @@ fn template_test_completion_requested(tag_prefix: &str) -> bool {
         .unwrap_or(true)
 }
 
-fn template_filter_completion_requested(tag_prefix: &str) -> bool {
+pub fn template_filter_completion_requested(tag_prefix: &str) -> bool {
     let Some(pipe) = tag_prefix.rfind('|') else {
         return false;
     };
@@ -6254,7 +6271,7 @@ fn template_filter_completion_requested(tag_prefix: &str) -> bool {
         .unwrap_or(true)
 }
 
-fn template_field_completion_path(
+pub fn template_field_completion_path(
     content: &str,
     line_start: usize,
     replace_start: usize,
@@ -6284,7 +6301,7 @@ fn template_field_completion_path(
     (!path.is_empty()).then_some(path)
 }
 
-fn scan_template_ident_start(content: &str, lower_bound: usize, offset: usize) -> usize {
+pub fn scan_template_ident_start(content: &str, lower_bound: usize, offset: usize) -> usize {
     let mut cursor = offset;
     while cursor > lower_bound {
         let Some(ch) = content[..cursor].chars().next_back() else {
@@ -6298,7 +6315,7 @@ fn scan_template_ident_start(content: &str, lower_bound: usize, offset: usize) -
     cursor
 }
 
-fn scan_template_ident_end(content: &str, offset: usize) -> usize {
+pub fn scan_template_ident_end(content: &str, offset: usize) -> usize {
     let mut cursor = offset;
     while cursor < content.len() {
         let Some(ch) = content[cursor..].chars().next() else {
@@ -6312,11 +6329,15 @@ fn scan_template_ident_end(content: &str, offset: usize) -> usize {
     cursor
 }
 
-fn is_template_ident_char(ch: char) -> bool {
+pub fn is_template_ident_char(ch: char) -> bool {
     ch == '_' || ch.is_ascii_alphanumeric()
 }
 
-fn route_completion_text(page: &AuthoringPage, current_target: &str, target_route: &str) -> String {
+pub fn route_completion_text(
+    page: &AuthoringPage,
+    current_target: &str,
+    target_route: &str,
+) -> String {
     if current_target.starts_with('/') {
         target_route.to_string()
     } else {
@@ -6324,7 +6345,7 @@ fn route_completion_text(page: &AuthoringPage, current_target: &str, target_rout
     }
 }
 
-fn relative_route_from_base(base_route: &str, target_route: &str) -> String {
+pub fn relative_route_from_base(base_route: &str, target_route: &str) -> String {
     if target_route == "/" {
         return "/".to_string();
     }
@@ -6354,7 +6375,7 @@ fn relative_route_from_base(base_route: &str, target_route: &str) -> String {
     }
 }
 
-fn route_segments(route: &str) -> Vec<&str> {
+pub fn route_segments(route: &str) -> Vec<&str> {
     route
         .trim_matches('/')
         .split('/')
@@ -6362,7 +6383,7 @@ fn route_segments(route: &str) -> Vec<&str> {
         .collect()
 }
 
-fn byte_range_to_lsp_range(content: &str, byte_start: usize, byte_end: usize) -> Range {
+pub fn byte_range_to_lsp_range(content: &str, byte_start: usize, byte_end: usize) -> Range {
     let (line, column) = byte_to_line_column(content, byte_start);
     let (line_end, column_end) = byte_to_line_column(content, byte_end);
     Range {
@@ -6377,17 +6398,17 @@ fn byte_range_to_lsp_range(content: &str, byte_start: usize, byte_end: usize) ->
     }
 }
 
-fn lsp_position_to_byte_offset(content: &str, position: Position) -> Option<usize> {
+pub fn lsp_position_to_byte_offset(content: &str, position: Position) -> Option<usize> {
     position_to_byte_offset(content, position)
 }
 
-fn lsp_range_to_byte_range(content: &str, range: Range) -> Option<(usize, usize)> {
+pub fn lsp_range_to_byte_range(content: &str, range: Range) -> Option<(usize, usize)> {
     let start = lsp_position_to_byte_offset(content, range.start)?;
     let end = lsp_position_to_byte_offset(content, range.end)?;
     (start <= end).then_some((start, end))
 }
 
-fn heading_id_at_position(
+pub fn heading_id_at_position(
     page: &AuthoringPage,
     content: &str,
     position: Position,
@@ -6400,14 +6421,14 @@ fn heading_id_at_position(
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct HeadingRenameTarget {
-    heading_id: String,
-    title: String,
-    line: u32,
-    title_range: Range,
+pub struct HeadingRenameTarget {
+    pub heading_id: String,
+    pub title: String,
+    pub line: u32,
+    pub title_range: Range,
 }
 
-fn heading_rename_target_at_position(
+pub fn heading_rename_target_at_position(
     page: &AuthoringPage,
     content: &str,
     position: Position,
@@ -6430,15 +6451,15 @@ fn heading_rename_target_at_position(
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct MarkdownHeading {
-    id: String,
-    title: String,
-    level: u8,
-    line: u32,
-    title_range: Range,
+pub struct MarkdownHeading {
+    pub id: String,
+    pub title: String,
+    pub level: u8,
+    pub line: u32,
+    pub title_range: Range,
 }
 
-fn markdown_headings(content: &str) -> Vec<MarkdownHeading> {
+pub fn markdown_headings(content: &str) -> Vec<MarkdownHeading> {
     let mut headings = Vec::new();
     let mut heading_stack: Vec<(u8, String)> = Vec::new();
     let mut current_heading: Option<(u8, usize, String)> = None;
@@ -6496,7 +6517,7 @@ fn markdown_headings(content: &str) -> Vec<MarkdownHeading> {
     headings
 }
 
-fn heading_title_range(content: &str, heading_byte_start: usize) -> Option<Range> {
+pub fn heading_title_range(content: &str, heading_byte_start: usize) -> Option<Range> {
     let line_start = content[..heading_byte_start]
         .rfind('\n')
         .map(|idx| idx + 1)
@@ -6563,7 +6584,7 @@ fn heading_title_range(content: &str, heading_byte_start: usize) -> Option<Range
     ))
 }
 
-fn frontmatter_lsp_range(content: &str) -> Option<Range> {
+pub fn frontmatter_lsp_range(content: &str) -> Option<Range> {
     content.strip_prefix("+++\n")?;
     let end = content[4..].find("\n+++")? + 4 + "\n+++".len();
     let (line_end, column_end) = byte_to_line_column(content, end);
@@ -6581,14 +6602,14 @@ fn frontmatter_lsp_range(content: &str) -> Option<Range> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FrontmatterFieldKind {
+pub enum FrontmatterFieldKind {
     String,
     Integer,
     Table,
 }
 
 impl FrontmatterFieldKind {
-    fn description(self) -> &'static str {
+    pub fn description(self) -> &'static str {
         match self {
             FrontmatterFieldKind::String => "a string",
             FrontmatterFieldKind::Integer => "an integer",
@@ -6598,38 +6619,38 @@ impl FrontmatterFieldKind {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct FrontmatterFieldSpec {
-    name: &'static str,
-    kind: FrontmatterFieldKind,
+pub struct FrontmatterFieldSpec {
+    pub name: &'static str,
+    pub kind: FrontmatterFieldKind,
 }
 
 #[derive(Debug, Clone)]
-struct FrontmatterEntry {
-    key: String,
-    key_start: usize,
-    key_end: usize,
-    value: String,
-    value_start: usize,
-    value_end: usize,
-    table: Option<String>,
+pub struct FrontmatterEntry {
+    pub key: String,
+    pub key_start: usize,
+    pub key_end: usize,
+    pub value: String,
+    pub value_start: usize,
+    pub value_end: usize,
+    pub table: Option<String>,
 }
 
 #[derive(Debug, Clone)]
-struct FrontmatterCompletionContext {
-    replace_range: Range,
-    present_fields: HashSet<String>,
-    current_table: Option<String>,
+pub struct FrontmatterCompletionContext {
+    pub replace_range: Range,
+    pub present_fields: HashSet<String>,
+    pub current_table: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FrontmatterDocumentKind {
+pub enum FrontmatterDocumentKind {
     Template,
     StaticAsset,
     DataFile,
 }
 
 impl FrontmatterDocumentKind {
-    fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             FrontmatterDocumentKind::Template => "template",
             FrontmatterDocumentKind::StaticAsset => "static asset",
@@ -6639,15 +6660,15 @@ impl FrontmatterDocumentKind {
 }
 
 #[derive(Debug, Clone)]
-struct FrontmatterDocumentTarget {
-    kind: FrontmatterDocumentKind,
-    path: String,
-    target_path: Utf8PathBuf,
-    source_range: Range,
+pub struct FrontmatterDocumentTarget {
+    pub kind: FrontmatterDocumentKind,
+    pub path: String,
+    pub target_path: Utf8PathBuf,
+    pub source_range: Range,
 }
 
 impl FrontmatterDocumentTarget {
-    fn target_uri(&self) -> Result<Url> {
+    pub fn target_uri(&self) -> Result<Url> {
         Url::from_file_path(self.target_path.as_std_path()).map_err(|_| {
             eyre!(
                 "could not convert {} path to URI: {}",
@@ -6657,11 +6678,11 @@ impl FrontmatterDocumentTarget {
         })
     }
 
-    fn tooltip(&self) -> String {
+    pub fn tooltip(&self) -> String {
         format!("Open Dodeca {} `{}`", self.kind.label(), self.path)
     }
 
-    fn hover_markdown(&self) -> String {
+    pub fn hover_markdown(&self) -> String {
         format!(
             "**Dodeca {}**\n\n`{}`\n\nSource: `{}`",
             self.kind.label(),
@@ -6672,14 +6693,14 @@ impl FrontmatterDocumentTarget {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TemplateDocumentKind {
+pub enum TemplateDocumentKind {
     Extends,
     Include,
     Import,
 }
 
 impl TemplateDocumentKind {
-    fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             TemplateDocumentKind::Extends => "extends",
             TemplateDocumentKind::Include => "include",
@@ -6689,15 +6710,15 @@ impl TemplateDocumentKind {
 }
 
 #[derive(Debug, Clone)]
-struct TemplateDocumentTarget {
-    kind: TemplateDocumentKind,
-    path: String,
-    target_path: Utf8PathBuf,
-    source_range: Range,
+pub struct TemplateDocumentTarget {
+    pub kind: TemplateDocumentKind,
+    pub path: String,
+    pub target_path: Utf8PathBuf,
+    pub source_range: Range,
 }
 
 impl TemplateDocumentTarget {
-    fn target_uri(&self) -> Result<Url> {
+    pub fn target_uri(&self) -> Result<Url> {
         Url::from_file_path(self.target_path.as_std_path()).map_err(|_| {
             eyre!(
                 "could not convert template path to URI: {}",
@@ -6706,11 +6727,11 @@ impl TemplateDocumentTarget {
         })
     }
 
-    fn tooltip(&self) -> String {
+    pub fn tooltip(&self) -> String {
         format!("Open Dodeca template {} `{}`", self.kind.label(), self.path)
     }
 
-    fn hover_markdown(&self) -> String {
+    pub fn hover_markdown(&self) -> String {
         format!(
             "**Dodeca template {}**\n\n`{}`\n\nSource: `{}`",
             self.kind.label(),
@@ -6721,7 +6742,7 @@ impl TemplateDocumentTarget {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TemplateDefinitionKind {
+pub enum TemplateDefinitionKind {
     Block,
     Macro,
     Filter,
@@ -6729,7 +6750,7 @@ enum TemplateDefinitionKind {
 }
 
 impl TemplateDefinitionKind {
-    fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             TemplateDefinitionKind::Block => "block",
             TemplateDefinitionKind::Macro => "macro",
@@ -6740,16 +6761,16 @@ impl TemplateDefinitionKind {
 }
 
 #[derive(Debug, Clone)]
-struct TemplateDefinitionTarget {
-    kind: TemplateDefinitionKind,
-    name: String,
-    source_range: Range,
-    target_path: Utf8PathBuf,
-    target_range: Range,
+pub struct TemplateDefinitionTarget {
+    pub kind: TemplateDefinitionKind,
+    pub name: String,
+    pub source_range: Range,
+    pub target_path: Utf8PathBuf,
+    pub target_range: Range,
 }
 
 impl TemplateDefinitionTarget {
-    fn location(&self) -> Result<Location> {
+    pub fn location(&self) -> Result<Location> {
         Ok(Location {
             uri: Url::from_file_path(self.target_path.as_std_path()).map_err(|_| {
                 eyre!(
@@ -6761,7 +6782,7 @@ impl TemplateDefinitionTarget {
         })
     }
 
-    fn hover_markdown(&self) -> String {
+    pub fn hover_markdown(&self) -> String {
         let info = match self.kind {
             TemplateDefinitionKind::Filter => builtin_filter(&self.name).map(template_builtin_info),
             TemplateDefinitionKind::Test => builtin_test(&self.name).map(template_builtin_info),
@@ -6782,7 +6803,7 @@ impl TemplateDefinitionTarget {
     }
 }
 
-fn frontmatter_field_specs() -> Vec<FrontmatterFieldSpec> {
+pub fn frontmatter_field_specs() -> Vec<FrontmatterFieldSpec> {
     let fields = match <Frontmatter as Facet>::SHAPE.ty {
         Type::User(UserType::Struct(struct_type)) => struct_type.fields,
         _ => return Vec::new(),
@@ -6798,7 +6819,7 @@ fn frontmatter_field_specs() -> Vec<FrontmatterFieldSpec> {
         .collect()
 }
 
-fn frontmatter_field_kind(
+pub fn frontmatter_field_kind(
     name: &'static str,
     shape: &'static facet::Shape,
 ) -> Option<FrontmatterFieldKind> {
@@ -6825,7 +6846,7 @@ fn frontmatter_field_kind(
     }
 }
 
-fn frontmatter_entries(content: &str) -> Vec<FrontmatterEntry> {
+pub fn frontmatter_entries(content: &str) -> Vec<FrontmatterEntry> {
     let Some(block) = frontmatter_content_byte_range(content) else {
         return Vec::new();
     };
@@ -6857,7 +6878,7 @@ fn frontmatter_entries(content: &str) -> Vec<FrontmatterEntry> {
     entries
 }
 
-fn frontmatter_entry_for_line(
+pub fn frontmatter_entry_for_line(
     content: &str,
     line_start: usize,
     line: &str,
@@ -6903,7 +6924,7 @@ fn frontmatter_entry_for_line(
     })
 }
 
-fn frontmatter_completion_context(
+pub fn frontmatter_completion_context(
     content: &str,
     position: Position,
 ) -> Option<FrontmatterCompletionContext> {
@@ -6934,7 +6955,7 @@ fn frontmatter_completion_context(
     })
 }
 
-fn completion_items_for_frontmatter(
+pub fn completion_items_for_frontmatter(
     source_file: &str,
     context: &FrontmatterCompletionContext,
 ) -> Vec<CompletionItem> {
@@ -6961,7 +6982,7 @@ fn completion_items_for_frontmatter(
         .collect()
 }
 
-fn frontmatter_document_targets(
+pub fn frontmatter_document_targets(
     project: &AuthoringProject,
     content: &str,
 ) -> Result<Vec<FrontmatterDocumentTarget>> {
@@ -6989,7 +7010,7 @@ fn frontmatter_document_targets(
     Ok(targets)
 }
 
-fn frontmatter_document_kind_for_entry(
+pub fn frontmatter_document_kind_for_entry(
     entry: &FrontmatterEntry,
 ) -> Option<FrontmatterDocumentKind> {
     if entry.table.is_some() {
@@ -7004,7 +7025,7 @@ fn frontmatter_document_kind_for_entry(
     }
 }
 
-fn frontmatter_static_target_path<'a>(
+pub fn frontmatter_static_target_path<'a>(
     project: &'a AuthoringProject,
     path: &str,
 ) -> Option<&'a Utf8PathBuf> {
@@ -7015,7 +7036,7 @@ fn frontmatter_static_target_path<'a>(
         .or_else(|| project.static_paths.get(path))
 }
 
-fn frontmatter_data_target_path<'a>(
+pub fn frontmatter_data_target_path<'a>(
     project: &'a AuthoringProject,
     path: &str,
 ) -> Option<&'a Utf8PathBuf> {
@@ -7026,7 +7047,10 @@ fn frontmatter_data_target_path<'a>(
         .or_else(|| project.data_paths.get(path))
 }
 
-fn frontmatter_string_value(content: &str, entry: &FrontmatterEntry) -> Option<(String, Range)> {
+pub fn frontmatter_string_value(
+    content: &str,
+    entry: &FrontmatterEntry,
+) -> Option<(String, Range)> {
     let value = entry.value.trim();
     let leading = entry.value.find(value)?;
     let start = entry.value_start + leading;
@@ -7046,7 +7070,7 @@ fn frontmatter_string_value(content: &str, entry: &FrontmatterEntry) -> Option<(
     ))
 }
 
-fn template_document_targets_for_nodes(
+pub fn template_document_targets_for_nodes(
     project: &AuthoringProject,
     content: &str,
     nodes: &[Node],
@@ -7056,7 +7080,7 @@ fn template_document_targets_for_nodes(
     targets
 }
 
-fn collect_template_document_targets(
+pub fn collect_template_document_targets(
     project: &AuthoringProject,
     content: &str,
     nodes: &[Node],
@@ -7117,7 +7141,7 @@ fn collect_template_document_targets(
     }
 }
 
-fn push_template_document_target(
+pub fn push_template_document_target(
     project: &AuthoringProject,
     content: &str,
     kind: TemplateDocumentKind,
@@ -7135,7 +7159,7 @@ fn push_template_document_target(
     });
 }
 
-fn template_string_range(content: &str, string: &StringLit) -> Range {
+pub fn template_string_range(content: &str, string: &StringLit) -> Range {
     byte_range_to_lsp_range(
         content,
         string.span.offset(),
@@ -7143,7 +7167,7 @@ fn template_string_range(content: &str, string: &StringLit) -> Range {
     )
 }
 
-fn template_ident_range(content: &str, ident: &Ident) -> Range {
+pub fn template_ident_range(content: &str, ident: &Ident) -> Range {
     byte_range_to_lsp_range(
         content,
         ident.span.offset(),
@@ -7152,7 +7176,7 @@ fn template_ident_range(content: &str, ident: &Ident) -> Range {
 }
 
 #[allow(deprecated)]
-fn template_document_symbols(
+pub fn template_document_symbols(
     project: &AuthoringProject,
     template_file: &str,
     content: &str,
@@ -7170,7 +7194,7 @@ fn template_document_symbols(
 }
 
 #[allow(deprecated)]
-fn collect_template_document_symbols(
+pub fn collect_template_document_symbols(
     content: &str,
     nodes: &[Node],
     symbols: &mut Vec<DocumentSymbol>,
@@ -7242,13 +7266,13 @@ fn collect_template_document_symbols(
     }
 }
 
-fn template_block_occurrences(content: &str, nodes: &[Node]) -> Vec<TemplateBlockOccurrence> {
+pub fn template_block_occurrences(content: &str, nodes: &[Node]) -> Vec<TemplateBlockOccurrence> {
     let mut occurrences = Vec::new();
     collect_template_block_occurrences(content, nodes, &mut occurrences);
     occurrences
 }
 
-fn collect_template_block_occurrences(
+pub fn collect_template_block_occurrences(
     content: &str,
     nodes: &[Node],
     occurrences: &mut Vec<TemplateBlockOccurrence>,
@@ -7295,7 +7319,7 @@ fn collect_template_block_occurrences(
 }
 
 impl TemplateAuthoringIndex {
-    fn new(project: &AuthoringProject) -> Self {
+    pub fn new(project: &AuthoringProject) -> Self {
         let mut templates = HashMap::new();
 
         for (template_file, template_path) in &project.template_paths {
@@ -7360,7 +7384,7 @@ impl TemplateAuthoringIndex {
         }
     }
 
-    fn block_occurrence_at_position(
+    pub fn block_occurrence_at_position(
         &self,
         template_file: &str,
         position: Position,
@@ -7373,14 +7397,14 @@ impl TemplateAuthoringIndex {
             .cloned()
     }
 
-    fn document_targets(&self, template_file: &str) -> &[TemplateDocumentTarget] {
+    pub fn document_targets(&self, template_file: &str) -> &[TemplateDocumentTarget] {
         self.templates
             .get(template_file)
             .map(|template| template.document_targets.as_slice())
             .unwrap_or_default()
     }
 
-    fn document_target_at_position(
+    pub fn document_target_at_position(
         &self,
         template_file: &str,
         position: Position,
@@ -7391,14 +7415,14 @@ impl TemplateAuthoringIndex {
             .cloned()
     }
 
-    fn route_references(&self, template_file: &str) -> &[TemplateRouteReference] {
+    pub fn route_references(&self, template_file: &str) -> &[TemplateRouteReference] {
         self.templates
             .get(template_file)
             .map(|template| template.route_references.as_slice())
             .unwrap_or_default()
     }
 
-    fn route_reference_at_position(
+    pub fn route_reference_at_position(
         &self,
         template_file: &str,
         position: Position,
@@ -7409,14 +7433,14 @@ impl TemplateAuthoringIndex {
             .cloned()
     }
 
-    fn diagnostics(&self, template_file: &str) -> &[AuthoringDiagnostic] {
+    pub fn diagnostics(&self, template_file: &str) -> &[AuthoringDiagnostic] {
         self.templates
             .get(template_file)
             .map(|template| template.diagnostics.as_slice())
             .unwrap_or_default()
     }
 
-    fn all_diagnostics(&self) -> Vec<AuthoringDiagnostic> {
+    pub fn all_diagnostics(&self) -> Vec<AuthoringDiagnostic> {
         let mut diagnostics = self
             .templates
             .values()
@@ -7431,7 +7455,7 @@ impl TemplateAuthoringIndex {
         diagnostics
     }
 
-    fn document_reference_targets(
+    pub fn document_reference_targets(
         &self,
         target_path: &Utf8Path,
     ) -> Vec<TemplateDocumentReferenceTarget> {
@@ -7458,7 +7482,7 @@ impl TemplateAuthoringIndex {
         targets
     }
 
-    fn block_definition_target(
+    pub fn block_definition_target(
         &self,
         template_file: &str,
         occurrence: &TemplateBlockOccurrence,
@@ -7486,7 +7510,7 @@ impl TemplateAuthoringIndex {
         None
     }
 
-    fn block_reference_targets(
+    pub fn block_reference_targets(
         &self,
         template_file: &str,
         block_name: &str,
@@ -7507,7 +7531,7 @@ impl TemplateAuthoringIndex {
         targets
     }
 
-    fn block_reference_owner(&self, template_file: &str, block_name: &str) -> Option<String> {
+    pub fn block_reference_owner(&self, template_file: &str, block_name: &str) -> Option<String> {
         let mut owner = self
             .template_declares_block(template_file, block_name)
             .then(|| template_file.to_string())?;
@@ -7533,7 +7557,7 @@ impl TemplateAuthoringIndex {
         Some(owner)
     }
 
-    fn collect_block_reference_targets(
+    pub fn collect_block_reference_targets(
         &self,
         template_file: &str,
         block_name: &str,
@@ -7559,13 +7583,13 @@ impl TemplateAuthoringIndex {
         }
     }
 
-    fn template_declares_block(&self, template_file: &str, block_name: &str) -> bool {
+    pub fn template_declares_block(&self, template_file: &str, block_name: &str) -> bool {
         self.templates
             .get(template_file)
             .is_some_and(|template| template.blocks.iter().any(|block| block.name == block_name))
     }
 
-    fn macro_reference_query(
+    pub fn macro_reference_query(
         &self,
         template_file: &str,
         position: Position,
@@ -7593,7 +7617,7 @@ impl TemplateAuthoringIndex {
             })
     }
 
-    fn macro_reference_targets(
+    pub fn macro_reference_targets(
         &self,
         target_template_file: &str,
         macro_name: &str,
@@ -7629,7 +7653,7 @@ impl TemplateAuthoringIndex {
         targets
     }
 
-    fn macro_definition_target(
+    pub fn macro_definition_target(
         &self,
         target_template_file: &str,
         macro_name: &str,
@@ -7645,14 +7669,14 @@ impl TemplateAuthoringIndex {
             })
     }
 
-    fn dependency_names(&self, root_template: &str) -> Vec<String> {
+    pub fn dependency_names(&self, root_template: &str) -> Vec<String> {
         let mut names = Vec::new();
         let mut seen = HashSet::new();
         self.collect_dependency_names(root_template, &mut seen, &mut names);
         names
     }
 
-    fn collect_dependency_names(
+    pub fn collect_dependency_names(
         &self,
         template_file: &str,
         seen: &mut HashSet<String>,
@@ -7670,7 +7694,7 @@ impl TemplateAuthoringIndex {
         }
     }
 
-    fn semantic_tokens(&self, template_file: &str) -> Option<SemanticTokens> {
+    pub fn semantic_tokens(&self, template_file: &str) -> Option<SemanticTokens> {
         let template = self.templates.get(template_file)?;
         let semantic = template.semantic.as_ref()?;
         Some(SemanticTokens {
@@ -7679,7 +7703,7 @@ impl TemplateAuthoringIndex {
         })
     }
 
-    fn semantic_definition(&self, template_file: &str, position: Position) -> Option<Location> {
+    pub fn semantic_definition(&self, template_file: &str, position: Position) -> Option<Location> {
         let template = self.templates.get(template_file)?;
         let offset = position_to_byte_offset(&template.content, position)?;
         let semantic = template.semantic.as_ref()?;
@@ -7695,7 +7719,7 @@ impl TemplateAuthoringIndex {
         })
     }
 
-    fn semantic_references(&self, template_file: &str, position: Position) -> Vec<Location> {
+    pub fn semantic_references(&self, template_file: &str, position: Position) -> Vec<Location> {
         let Some(template) = self.templates.get(template_file) else {
             return Vec::new();
         };
@@ -7740,7 +7764,7 @@ impl TemplateAuthoringIndex {
     }
 }
 
-fn template_block_hover_markdown(
+pub fn template_block_hover_markdown(
     index: &TemplateAuthoringIndex,
     template_file: &str,
     occurrence: &TemplateBlockOccurrence,
@@ -7761,7 +7785,7 @@ fn template_block_hover_markdown(
     sections.join("\n\n")
 }
 
-fn template_block_references(
+pub fn template_block_references(
     index: &TemplateAuthoringIndex,
     template_file: &str,
     block_name: &str,
@@ -7789,7 +7813,7 @@ fn template_block_references(
     Ok(locations)
 }
 
-fn template_block_rename_workspace_edit(
+pub fn template_block_rename_workspace_edit(
     index: &TemplateAuthoringIndex,
     template_file: &str,
     block_name: &str,
@@ -7830,7 +7854,7 @@ fn template_block_rename_workspace_edit(
     }))
 }
 
-fn template_macro_references(
+pub fn template_macro_references(
     index: &TemplateAuthoringIndex,
     target_template_file: &str,
     macro_name: &str,
@@ -7858,7 +7882,7 @@ fn template_macro_references(
     Ok(locations)
 }
 
-fn template_macro_rename_workspace_edit(
+pub fn template_macro_rename_workspace_edit(
     index: &TemplateAuthoringIndex,
     target_template_file: &str,
     macro_name: &str,
@@ -7899,13 +7923,13 @@ fn template_macro_rename_workspace_edit(
     }))
 }
 
-fn template_macro_occurrences(content: &str, nodes: &[Node]) -> Vec<TemplateMacroOccurrence> {
+pub fn template_macro_occurrences(content: &str, nodes: &[Node]) -> Vec<TemplateMacroOccurrence> {
     let mut occurrences = Vec::new();
     collect_template_macro_occurrences(content, nodes, &mut occurrences);
     occurrences
 }
 
-fn collect_template_macro_occurrences(
+pub fn collect_template_macro_occurrences(
     content: &str,
     nodes: &[Node],
     occurrences: &mut Vec<TemplateMacroOccurrence>,
@@ -7951,7 +7975,7 @@ fn collect_template_macro_occurrences(
     }
 }
 
-fn template_macro_call_occurrences(
+pub fn template_macro_call_occurrences(
     template_file: &str,
     content: &str,
     imports: &HashMap<String, String>,
@@ -7968,7 +7992,7 @@ fn template_macro_call_occurrences(
     occurrences
 }
 
-fn collect_template_macro_call_occurrences(
+pub fn collect_template_macro_call_occurrences(
     template_file: &str,
     content: &str,
     imports: &HashMap<String, String>,
@@ -8093,7 +8117,7 @@ fn collect_template_macro_call_occurrences(
     }
 }
 
-fn collect_expr_macro_call_occurrences(
+pub fn collect_expr_macro_call_occurrences(
     template_file: &str,
     content: &str,
     imports: &HashMap<String, String>,
@@ -8287,7 +8311,7 @@ fn collect_expr_macro_call_occurrences(
     }
 }
 
-fn collect_literal_macro_call_occurrences(
+pub fn collect_literal_macro_call_occurrences(
     template_file: &str,
     content: &str,
     imports: &HashMap<String, String>,
@@ -8332,7 +8356,7 @@ fn collect_literal_macro_call_occurrences(
     }
 }
 
-fn template_definition_target_at_position(
+pub fn template_definition_target_at_position(
     project: &AuthoringProject,
     template_file: &str,
     content: &str,
@@ -8345,7 +8369,7 @@ fn template_definition_target_at_position(
     )
 }
 
-fn template_definition_targets(
+pub fn template_definition_targets(
     project: &AuthoringProject,
     template_file: &str,
     content: &str,
@@ -8370,7 +8394,7 @@ fn template_definition_targets(
     Ok(targets)
 }
 
-fn collect_template_definition_targets(
+pub fn collect_template_definition_targets(
     project: &AuthoringProject,
     template_file: &str,
     content: &str,
@@ -8518,7 +8542,7 @@ fn collect_template_definition_targets(
     }
 }
 
-fn collect_expr_definition_targets(
+pub fn collect_expr_definition_targets(
     project: &AuthoringProject,
     template_file: &str,
     content: &str,
@@ -8749,7 +8773,7 @@ fn collect_expr_definition_targets(
     }
 }
 
-fn collect_literal_definition_targets(
+pub fn collect_literal_definition_targets(
     project: &AuthoringProject,
     template_file: &str,
     content: &str,
@@ -8798,13 +8822,16 @@ fn collect_literal_definition_targets(
     }
 }
 
-fn template_import_aliases(project: &AuthoringProject, nodes: &[Node]) -> HashMap<String, String> {
+pub fn template_import_aliases(
+    project: &AuthoringProject,
+    nodes: &[Node],
+) -> HashMap<String, String> {
     let mut imports = HashMap::new();
     collect_template_import_aliases(project, nodes, &mut imports);
     imports
 }
 
-fn collect_template_import_aliases(
+pub fn collect_template_import_aliases(
     project: &AuthoringProject,
     nodes: &[Node],
     imports: &mut HashMap<String, String>,
@@ -8846,7 +8873,7 @@ fn collect_template_import_aliases(
     }
 }
 
-fn template_block_definition_target(
+pub fn template_block_definition_target(
     project: &AuthoringProject,
     template_file: &str,
     content: &str,
@@ -8870,7 +8897,7 @@ fn template_block_definition_target(
     })
 }
 
-fn template_block_definition(
+pub fn template_block_definition(
     project: &AuthoringProject,
     template_file: &str,
     current_file: &str,
@@ -8899,14 +8926,14 @@ fn template_block_definition(
     None
 }
 
-fn top_level_block_ident(nodes: &[Node], name: &str) -> Option<Ident> {
+pub fn top_level_block_ident(nodes: &[Node], name: &str) -> Option<Ident> {
     nodes.iter().find_map(|node| match node {
         Node::Block(node) if node.name.name == name => Some(node.name.clone()),
         _ => None,
     })
 }
 
-fn template_extends_path(
+pub fn template_extends_path(
     template_file: &str,
     content: &str,
     seen: &mut HashSet<String>,
@@ -8918,7 +8945,7 @@ fn template_extends_path(
     template_extends_path_from_nodes(&template.body)
 }
 
-fn template_extends_path_from_nodes(nodes: &[Node]) -> Option<String> {
+pub fn template_extends_path_from_nodes(nodes: &[Node]) -> Option<String> {
     for node in nodes {
         match node {
             Node::Extends(node) => return Some(node.path.value.clone()),
@@ -8929,7 +8956,7 @@ fn template_extends_path_from_nodes(nodes: &[Node]) -> Option<String> {
     None
 }
 
-fn template_macro_definition_target(
+pub fn template_macro_definition_target(
     project: &AuthoringProject,
     template_file: &str,
     content: &str,
@@ -8956,14 +8983,14 @@ fn template_macro_definition_target(
     })
 }
 
-fn top_level_macro_ident(nodes: &[Node], name: &str) -> Option<Ident> {
+pub fn top_level_macro_ident(nodes: &[Node], name: &str) -> Option<Ident> {
     nodes.iter().find_map(|node| match node {
         Node::Macro(node) if node.name.name == name => Some(node.name.clone()),
         _ => None,
     })
 }
 
-fn template_content(
+pub fn template_content(
     project: &AuthoringProject,
     template_file: &str,
     current_file: &str,
@@ -8976,7 +9003,7 @@ fn template_content(
     }
 }
 
-fn builtin_template_definition_target(
+pub fn builtin_template_definition_target(
     kind: TemplateDefinitionKind,
     ident: &Ident,
     content: &str,
@@ -8993,12 +9020,23 @@ fn builtin_template_definition_target(
     })
 }
 
-fn gingembre_eval_source_path() -> Option<Utf8PathBuf> {
-    let dodeca_manifest_dir = Utf8PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    Some(dodeca_manifest_dir.parent()?.join("gingembre/src/eval.rs"))
+pub fn gingembre_eval_source_path() -> Option<Utf8PathBuf> {
+    let manifest_dir = Utf8PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    for ancestor in manifest_dir.ancestors() {
+        let workspace_candidate = ancestor.join("crates/gingembre/src/eval.rs");
+        if workspace_candidate.exists() {
+            return Some(workspace_candidate);
+        }
+
+        let crate_sibling_candidate = ancestor.join("gingembre/src/eval.rs");
+        if crate_sibling_candidate.exists() {
+            return Some(crate_sibling_candidate);
+        }
+    }
+    None
 }
 
-fn builtin_template_definition_range(
+pub fn builtin_template_definition_range(
     source: &str,
     kind: TemplateDefinitionKind,
     name: &str,
@@ -9018,14 +9056,14 @@ fn builtin_template_definition_range(
     ))
 }
 
-fn frontmatter_completion_label(spec: FrontmatterFieldSpec) -> &'static str {
+pub fn frontmatter_completion_label(spec: FrontmatterFieldSpec) -> &'static str {
     match spec.kind {
         FrontmatterFieldKind::Table => "[extra]",
         _ => spec.name,
     }
 }
 
-fn frontmatter_completion_text(source_file: &str, spec: FrontmatterFieldSpec) -> String {
+pub fn frontmatter_completion_text(source_file: &str, spec: FrontmatterFieldSpec) -> String {
     match (spec.name, spec.kind) {
         ("title", FrontmatterFieldKind::String) => {
             format!(
@@ -9050,7 +9088,7 @@ fn frontmatter_completion_text(source_file: &str, spec: FrontmatterFieldSpec) ->
     }
 }
 
-fn frontmatter_value_matches_kind(value: &str, kind: FrontmatterFieldKind) -> bool {
+pub fn frontmatter_value_matches_kind(value: &str, kind: FrontmatterFieldKind) -> bool {
     let value = value.trim();
     match kind {
         FrontmatterFieldKind::String => value.starts_with('"') || value.starts_with('\''),
@@ -9059,7 +9097,7 @@ fn frontmatter_value_matches_kind(value: &str, kind: FrontmatterFieldKind) -> bo
     }
 }
 
-fn frontmatter_value_is_integer(value: &str) -> bool {
+pub fn frontmatter_value_is_integer(value: &str) -> bool {
     let value = value.strip_prefix(['+', '-']).unwrap_or(value);
     let mut previous_underscore = false;
     let mut saw_digit = false;
@@ -9079,12 +9117,12 @@ fn frontmatter_value_is_integer(value: &str) -> bool {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct FrontmatterContentByteRange {
-    start: usize,
-    end: usize,
+pub struct FrontmatterContentByteRange {
+    pub start: usize,
+    pub end: usize,
 }
 
-fn frontmatter_content_byte_range(content: &str) -> Option<FrontmatterContentByteRange> {
+pub fn frontmatter_content_byte_range(content: &str) -> Option<FrontmatterContentByteRange> {
     content.strip_prefix("+++\n")?;
     let closing_start = content[4..].find("\n+++")? + 4;
     Some(FrontmatterContentByteRange {
@@ -9093,12 +9131,12 @@ fn frontmatter_content_byte_range(content: &str) -> Option<FrontmatterContentByt
     })
 }
 
-fn frontmatter_table_name(trimmed_line: &str) -> Option<String> {
+pub fn frontmatter_table_name(trimmed_line: &str) -> Option<String> {
     let inner = trimmed_line.strip_prefix('[')?.strip_suffix(']')?.trim();
     (!inner.is_empty()).then(|| inner.to_string())
 }
 
-fn frontmatter_table_at_offset(content: &str, offset: usize) -> Option<String> {
+pub fn frontmatter_table_at_offset(content: &str, offset: usize) -> Option<String> {
     let block = frontmatter_content_byte_range(content)?;
     let mut table = None;
     let mut line_start = block.start;
@@ -9118,7 +9156,7 @@ fn frontmatter_table_at_offset(content: &str, offset: usize) -> Option<String> {
     table
 }
 
-fn frontmatter_has_extra_table(content: &str) -> bool {
+pub fn frontmatter_has_extra_table(content: &str) -> bool {
     let Some(block) = frontmatter_content_byte_range(content) else {
         return false;
     };
@@ -9128,11 +9166,11 @@ fn frontmatter_has_extra_table(content: &str) -> bool {
         .any(|table| table == "extra")
 }
 
-fn is_frontmatter_key_char(ch: char) -> bool {
+pub fn is_frontmatter_key_char(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || ch == '_' || ch == '-'
 }
 
-fn leading_whitespace_len(input: &str) -> usize {
+pub fn leading_whitespace_len(input: &str) -> usize {
     input
         .char_indices()
         .find(|(_, ch)| !ch.is_whitespace())
@@ -9140,11 +9178,11 @@ fn leading_whitespace_len(input: &str) -> usize {
         .unwrap_or(input.len())
 }
 
-fn trailing_whitespace_len(input: &str) -> usize {
+pub fn trailing_whitespace_len(input: &str) -> usize {
     input.len() - input.trim_end_matches(char::is_whitespace).len()
 }
 
-fn line_comment_start(input: &str) -> Option<usize> {
+pub fn line_comment_start(input: &str) -> Option<usize> {
     let mut in_string = false;
     let mut quote = '\0';
     let mut escaped = false;
@@ -9169,7 +9207,7 @@ fn line_comment_start(input: &str) -> Option<usize> {
     None
 }
 
-fn line_bounds_at_offset(content: &str, offset: usize) -> (usize, usize) {
+pub fn line_bounds_at_offset(content: &str, offset: usize) -> (usize, usize) {
     let start = content[..offset]
         .rfind('\n')
         .map(|idx| idx + 1)
@@ -9181,7 +9219,7 @@ fn line_bounds_at_offset(content: &str, offset: usize) -> (usize, usize) {
     (start, end)
 }
 
-fn scan_frontmatter_key_start(content: &str, line_start: usize, offset: usize) -> usize {
+pub fn scan_frontmatter_key_start(content: &str, line_start: usize, offset: usize) -> usize {
     let mut start = offset;
     while start > line_start {
         let previous = content.as_bytes()[start - 1] as char;
@@ -9193,7 +9231,7 @@ fn scan_frontmatter_key_start(content: &str, line_start: usize, offset: usize) -
     start
 }
 
-fn scan_frontmatter_key_end(content: &str, offset: usize, line_end: usize) -> usize {
+pub fn scan_frontmatter_key_end(content: &str, offset: usize, line_end: usize) -> usize {
     let mut end = offset;
     while end < line_end {
         let next = content.as_bytes()[end] as char;
@@ -9205,14 +9243,14 @@ fn scan_frontmatter_key_end(content: &str, offset: usize, line_end: usize) -> us
     end
 }
 
-fn source_file_for_path(content_dir: &Utf8Path, path: &Utf8Path) -> Result<String> {
+pub fn source_file_for_path(content_dir: &Utf8Path, path: &Utf8Path) -> Result<String> {
     Ok(path
         .strip_prefix(content_dir)
         .map_err(|_| eyre!("content file is outside content root: {path}"))?
         .to_string())
 }
 
-fn template_file_for_path(content_dir: &Utf8Path, path: &Utf8Path) -> Result<Option<String>> {
+pub fn template_file_for_path(content_dir: &Utf8Path, path: &Utf8Path) -> Result<Option<String>> {
     let project_dir = content_dir.parent().unwrap_or(content_dir);
     let templates_dir = project_dir.join("templates");
     match path.strip_prefix(&templates_dir) {
@@ -9221,7 +9259,7 @@ fn template_file_for_path(content_dir: &Utf8Path, path: &Utf8Path) -> Result<Opt
     }
 }
 
-fn is_content_markdown_document(content_dir: &Utf8Path, uri: &Url) -> bool {
+pub fn is_content_markdown_document(content_dir: &Utf8Path, uri: &Url) -> bool {
     lsp_file_uri_to_utf8_path(uri)
         .ok()
         .filter(|path| path.extension() == Some("md"))
@@ -9229,7 +9267,7 @@ fn is_content_markdown_document(content_dir: &Utf8Path, uri: &Url) -> bool {
         .is_some()
 }
 
-fn missing_anchor_message(
+pub fn missing_anchor_message(
     project: &AuthoringProject,
     target_route: &str,
     fragment: Option<&str>,
@@ -9242,7 +9280,7 @@ fn missing_anchor_message(
     }
 }
 
-fn is_special_target(target: &str) -> bool {
+pub fn is_special_target(target: &str) -> bool {
     target.starts_with("http://")
         || target.starts_with("https://")
         || target.starts_with("mailto:")
@@ -9252,7 +9290,7 @@ fn is_special_target(target: &str) -> bool {
         || target.starts_with("/__")
 }
 
-fn split_fragment(target: &str) -> (&str, Option<&str>) {
+pub fn split_fragment(target: &str) -> (&str, Option<&str>) {
     let target = strip_query(target);
     match target.find('#') {
         Some(idx) => (&target[..idx], Some(&target[idx + 1..])),
@@ -9260,11 +9298,11 @@ fn split_fragment(target: &str) -> (&str, Option<&str>) {
     }
 }
 
-fn strip_query(target: &str) -> &str {
+pub fn strip_query(target: &str) -> &str {
     target.split('?').next().unwrap_or(target)
 }
 
-fn is_likely_static_file(path: &str) -> bool {
+pub fn is_likely_static_file(path: &str) -> bool {
     let extensions = [
         ".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".woff2", ".ttf",
         ".eot", ".pdf", ".zip", ".tar", ".gz", ".webp", ".jxl", ".xml", ".txt", ".wasm",
@@ -9272,7 +9310,7 @@ fn is_likely_static_file(path: &str) -> bool {
     extensions.iter().any(|ext| path.ends_with(ext))
 }
 
-fn normalize_route(path: &str) -> String {
+pub fn normalize_route(path: &str) -> String {
     let mut parts = Vec::new();
 
     for part in path.split('/') {
@@ -9292,7 +9330,7 @@ fn normalize_route(path: &str) -> String {
     }
 }
 
-fn byte_to_line_column(content: &str, byte_offset: usize) -> (u32, u32) {
+pub fn byte_to_line_column(content: &str, byte_offset: usize) -> (u32, u32) {
     let mut line = 1;
     let mut column = 1;
     for (idx, ch) in content.char_indices() {
@@ -9309,7 +9347,7 @@ fn byte_to_line_column(content: &str, byte_offset: usize) -> (u32, u32) {
     (line, column)
 }
 
-fn position_to_byte_offset(content: &str, position: Position) -> Option<usize> {
+pub fn position_to_byte_offset(content: &str, position: Position) -> Option<usize> {
     let target_line = position.line as usize;
     let target_character = position.character as usize;
     let line_start = content
@@ -9335,7 +9373,7 @@ fn position_to_byte_offset(content: &str, position: Position) -> Option<usize> {
     (chars_seen == target_character).then_some(line_start + line_without_newline.len())
 }
 
-fn authoring_diagnostic_to_lsp(diagnostic: &AuthoringDiagnostic) -> Diagnostic {
+pub fn authoring_diagnostic_to_lsp(diagnostic: &AuthoringDiagnostic) -> Diagnostic {
     Diagnostic {
         range: diagnostic.range(),
         severity: Some(DiagnosticSeverity::WARNING),
@@ -9348,25 +9386,25 @@ fn authoring_diagnostic_to_lsp(diagnostic: &AuthoringDiagnostic) -> Diagnostic {
     }
 }
 
-fn ranges_overlap(left: &Range, right: &Range) -> bool {
+pub fn ranges_overlap(left: &Range, right: &Range) -> bool {
     position_le(left.start, right.end) && position_le(right.start, left.end)
 }
 
-fn range_contains_position(range: &Range, position: Position) -> bool {
+pub fn range_contains_position(range: &Range, position: Position) -> bool {
     position_le(range.start, position) && position_le(position, range.end)
 }
 
-fn position_le(left: Position, right: Position) -> bool {
+pub fn position_le(left: Position, right: Position) -> bool {
     left.line < right.line || (left.line == right.line && left.character <= right.character)
 }
 
-fn position_cmp(left: Position, right: Position) -> std::cmp::Ordering {
+pub fn position_cmp(left: Position, right: Position) -> std::cmp::Ordering {
     left.line
         .cmp(&right.line)
         .then_with(|| left.character.cmp(&right.character))
 }
 
-fn source_file_for_new_route(route: &str) -> Option<String> {
+pub fn source_file_for_new_route(route: &str) -> Option<String> {
     let route = normalize_route(route);
     let relative = route.strip_prefix('/')?;
     if relative.is_empty() {
@@ -9389,14 +9427,14 @@ fn source_file_for_new_route(route: &str) -> Option<String> {
     Some(format!("{}.md", segments.join("/")))
 }
 
-fn page_frontmatter(title: &str) -> String {
+pub fn page_frontmatter(title: &str) -> String {
     format!(
         "+++\ntitle = \"{}\"\n+++\n",
         toml_basic_string_escape(title)
     )
 }
 
-fn toml_basic_string_escape(input: &str) -> String {
+pub fn toml_basic_string_escape(input: &str) -> String {
     let mut escaped = String::new();
     for c in input.chars() {
         match c {
@@ -9414,7 +9452,7 @@ fn toml_basic_string_escape(input: &str) -> String {
 
 // tower-lsp command arguments are JSON-RPC values; keep JSON use at this edge.
 #[allow(clippy::disallowed_types)]
-fn create_page_command_arguments(source_uri: &Url, route: &str) -> Vec<serde_json::Value> {
+pub fn create_page_command_arguments(source_uri: &Url, route: &str) -> Vec<serde_json::Value> {
     vec![serde_json::json!({
         "sourceUri": source_uri.as_str(),
         "route": route,
@@ -9422,7 +9460,9 @@ fn create_page_command_arguments(source_uri: &Url, route: &str) -> Vec<serde_jso
 }
 
 #[allow(clippy::disallowed_types)]
-fn parse_create_page_command_arguments(arguments: &[serde_json::Value]) -> Result<(Url, String)> {
+pub fn parse_create_page_command_arguments(
+    arguments: &[serde_json::Value],
+) -> Result<(Url, String)> {
     let argument = arguments
         .first()
         .ok_or_else(|| eyre!("missing create page command arguments"))?;
@@ -9439,7 +9479,7 @@ fn parse_create_page_command_arguments(arguments: &[serde_json::Value]) -> Resul
 
 // tower-lsp command replies are JSON-RPC values; keep JSON use at this edge.
 #[allow(clippy::disallowed_types)]
-fn created_page_to_json(source_file: &str, route: &str, uri: &Url) -> serde_json::Value {
+pub fn created_page_to_json(source_file: &str, route: &str, uri: &Url) -> serde_json::Value {
     serde_json::json!({
         "sourceFile": source_file,
         "route": route,
@@ -9449,7 +9489,7 @@ fn created_page_to_json(source_file: &str, route: &str, uri: &Url) -> serde_json
 
 // tower-lsp command replies are JSON-RPC values; keep JSON use at this edge.
 #[allow(clippy::disallowed_types)]
-fn pages_to_json(pages: &[AuthoringPage]) -> serde_json::Value {
+pub fn pages_to_json(pages: &[AuthoringPage]) -> serde_json::Value {
     serde_json::Value::Array(
         pages
             .iter()
@@ -9475,7 +9515,7 @@ fn pages_to_json(pages: &[AuthoringPage]) -> serde_json::Value {
 
 // tower-lsp command replies are JSON-RPC values; keep JSON use at this edge.
 #[allow(clippy::disallowed_types)]
-fn diagnostics_to_json(diagnostics: &[AuthoringDiagnostic]) -> serde_json::Value {
+pub fn diagnostics_to_json(diagnostics: &[AuthoringDiagnostic]) -> serde_json::Value {
     serde_json::Value::Array(
         diagnostics
             .iter()
@@ -9503,7 +9543,7 @@ fn diagnostics_to_json(diagnostics: &[AuthoringDiagnostic]) -> serde_json::Value
 
 // tower-lsp command replies are JSON-RPC values; keep JSON use at this edge.
 #[allow(clippy::disallowed_types)]
-fn route_graph_to_json(graph: &[RouteGraphNode]) -> serde_json::Value {
+pub fn route_graph_to_json(graph: &[RouteGraphNode]) -> serde_json::Value {
     serde_json::Value::Array(
         graph
             .iter()
@@ -9522,7 +9562,7 @@ fn route_graph_to_json(graph: &[RouteGraphNode]) -> serde_json::Value {
 
 // tower-lsp command replies are JSON-RPC values; keep JSON use at this edge.
 #[allow(clippy::disallowed_types)]
-fn route_graph_edges_to_json(edges: &[RouteGraphEdge]) -> serde_json::Value {
+pub fn route_graph_edges_to_json(edges: &[RouteGraphEdge]) -> serde_json::Value {
     serde_json::Value::Array(
         edges
             .iter()
@@ -9542,7 +9582,7 @@ fn route_graph_edges_to_json(edges: &[RouteGraphEdge]) -> serde_json::Value {
 
 // tower-lsp command replies are JSON-RPC values; keep JSON use at this edge.
 #[allow(clippy::disallowed_types)]
-fn route_graph_edge_span_to_json(edge: &RouteGraphEdge) -> serde_json::Value {
+pub fn route_graph_edge_span_to_json(edge: &RouteGraphEdge) -> serde_json::Value {
     match (edge.line, edge.line_end, edge.column, edge.column_end) {
         (Some(line), Some(line_end), Some(column), Some(column_end)) => {
             serde_json::json!({
@@ -9556,7 +9596,7 @@ fn route_graph_edge_span_to_json(edge: &RouteGraphEdge) -> serde_json::Value {
     }
 }
 
-fn diagnostic_kind_name(kind: AuthoringDiagnosticKind) -> &'static str {
+pub fn diagnostic_kind_name(kind: AuthoringDiagnosticKind) -> &'static str {
     match kind {
         AuthoringDiagnosticKind::Route => "missingRoute",
         AuthoringDiagnosticKind::Anchor => "missingAnchor",
@@ -9572,2568 +9612,5 @@ fn diagnostic_kind_name(kind: AuthoringDiagnosticKind) -> &'static str {
         AuthoringDiagnosticKind::DuplicateRoute => "duplicateRoute",
         AuthoringDiagnosticKind::OrphanPage => "orphanPage",
         AuthoringDiagnosticKind::NoInboundLinks => "noInboundLinks",
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::authoring_model::AuthoringInputPath;
-
-    use super::*;
-    use crate::authoring_model::load_authoring_project;
-    use std::time::{SystemTime, UNIX_EPOCH};
-    use tower_lsp::lsp_types::{ClientCapabilities, WorkspaceFolder};
-
-    fn temp_dir(name: &str) -> Utf8PathBuf {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time")
-            .as_nanos();
-        Utf8PathBuf::from_path_buf(std::env::temp_dir().join(format!(
-            "dodeca-authoring-lsp-{name}-{}-{nonce}",
-            std::process::id()
-        )))
-        .expect("utf8 temp path")
-    }
-
-    fn position_for(content: &str, needle: &str) -> Position {
-        let byte = content.find(needle).expect("needle in content");
-        let (line, column) = byte_to_line_column(content, byte);
-        Position {
-            line: line - 1,
-            character: column - 1,
-        }
-    }
-
-    fn position_for_nth(content: &str, needle: &str, occurrence: usize) -> Position {
-        let mut search_start = 0;
-        for _ in 0..occurrence {
-            let relative = content[search_start..]
-                .find(needle)
-                .expect("needle occurrence in content");
-            search_start += relative + needle.len();
-        }
-        let relative = content[search_start..]
-            .find(needle)
-            .expect("needle occurrence in content");
-        let byte = search_start + relative;
-        let (line, column) = byte_to_line_column(content, byte);
-        Position {
-            line: line - 1,
-            character: column - 1,
-        }
-    }
-
-    fn range_for(content: &str, needle: &str) -> Range {
-        let start_byte = content.find(needle).expect("needle in content");
-        let end_byte = start_byte + needle.len();
-        byte_range_to_lsp_range(content, start_byte, end_byte)
-    }
-
-    #[allow(deprecated)]
-    fn initialize_params_for_workspace(project_dir: &Utf8Path) -> InitializeParams {
-        let uri = Url::from_directory_path(project_dir.as_std_path()).expect("workspace uri");
-        InitializeParams {
-            process_id: None,
-            root_path: None,
-            root_uri: None,
-            initialization_options: None,
-            capabilities: ClientCapabilities::default(),
-            trace: None,
-            workspace_folders: Some(vec![WorkspaceFolder {
-                uri,
-                name: "dodeca-site".to_string(),
-            }]),
-            client_info: None,
-            locale: None,
-        }
-    }
-
-    #[allow(deprecated)]
-    fn empty_initialize_params() -> InitializeParams {
-        InitializeParams {
-            process_id: None,
-            root_path: None,
-            root_uri: None,
-            initialization_options: None,
-            capabilities: ClientCapabilities::default(),
-            trace: None,
-            workspace_folders: None,
-            client_info: None,
-            locale: None,
-        }
-    }
-
-    fn default_startup_args() -> LspStartupArgs {
-        LspStartupArgs {
-            content: None,
-            output: None,
-        }
-    }
-
-    #[test]
-    fn maps_missing_route_to_new_page_source_file() {
-        assert_eq!(source_file_for_new_route("/ij"), Some("ij.md".to_string()));
-        assert_eq!(
-            source_file_for_new_route("/ops/deploy"),
-            Some("ops/deploy.md".to_string())
-        );
-        assert_eq!(source_file_for_new_route("/"), None);
-        assert_eq!(source_file_for_new_route("/bad:route"), None);
-    }
-
-    #[test]
-    fn creates_pages_with_frontmatter_only() {
-        assert_eq!(
-            page_frontmatter("New \"Page\""),
-            "+++\ntitle = \"New \\\"Page\\\"\"\n+++\n"
-        );
-    }
-
-    #[test]
-    fn code_action_creates_frontmatter_without_duplicate_markup_title() {
-        let uri = Url::from_file_path("/tmp/dodeca/content/guide.md").expect("source uri");
-        let page = AuthoringPage {
-            kind: AuthoringPageKind::Page,
-            route: "/guide".to_string(),
-            source_file: "guide.md".to_string(),
-            title: "Guide".to_string(),
-            description: None,
-            template: "page.html".to_string(),
-            output_path: "guide/index.html".to_string(),
-            headings: Vec::new(),
-            heading_ids: Vec::new(),
-            link_base_route: "/".to_string(),
-        };
-        let action = create_frontmatter_code_action(
-            &uri,
-            &page,
-            "# Guide\n\nBody\n",
-            Range {
-                start: Position::new(0, 0),
-                end: Position::new(0, 0),
-            },
-        )
-        .expect("frontmatter action");
-        let CodeActionOrCommand::CodeAction(action) = action else {
-            panic!("expected code action");
-        };
-        let edit = action.edit.expect("workspace edit");
-        let edits = edit
-            .changes
-            .expect("changes")
-            .remove(&uri)
-            .expect("source edits");
-        assert_eq!(edits.len(), 1);
-        assert_eq!(edits[0].new_text, "+++\ntitle = \"Guide\"\n+++\n\n");
-        assert!(!edits[0].new_text.contains("# Guide"));
-    }
-
-    #[test]
-    fn recognizes_frontmatter_as_page_identity_range() {
-        let content = "+++\ntitle = \"Guide\"\n+++\n\nBody\n";
-        let range = frontmatter_lsp_range(content).expect("frontmatter range");
-
-        assert!(range_contains_position(
-            &range,
-            position_for(content, "title")
-        ));
-        assert!(!range_contains_position(
-            &range,
-            position_for(content, "Body")
-        ));
-    }
-
-    #[test]
-    fn validates_frontmatter_against_typed_fields() {
-        let content = "+++\ntitl = \"Typo\"\ntitle = \"Guide\"\ntitle = \"Duplicate\"\nweight = \"heavy\"\ntemplate = 42\n[extra]\ncustom = true\n+++\n";
-        let diagnostics = frontmatter_diagnostics_for_source("guide.md", "/guide", content);
-        let messages = diagnostics
-            .iter()
-            .map(|diagnostic| diagnostic.message.as_str())
-            .collect::<Vec<_>>();
-
-        assert!(messages.contains(&"unknown Dodeca frontmatter field 'titl'"));
-        assert!(messages.contains(&"duplicate Dodeca frontmatter field 'title'"));
-        assert!(messages.contains(&"frontmatter field 'weight' expects an integer"));
-        assert!(messages.contains(&"frontmatter field 'template' expects a string"));
-        assert!(!messages.iter().any(|message| message.contains("custom")));
-        assert!(
-            diagnostics
-                .iter()
-                .all(|diagnostic| diagnostic.kind == AuthoringDiagnosticKind::Frontmatter)
-        );
-    }
-
-    #[test]
-    fn completes_missing_frontmatter_fields_from_schema() {
-        let content = "+++\ntitle = \"Guide\"\n\n+++\n";
-        let context =
-            frontmatter_completion_context(content, Position::new(2, 0)).expect("context");
-        let items = completion_items_for_frontmatter("guide.md", &context);
-        let labels = items
-            .iter()
-            .map(|item| item.label.as_str())
-            .collect::<Vec<_>>();
-
-        assert!(!labels.contains(&"title"));
-        assert!(labels.contains(&"description"));
-        assert!(labels.contains(&"weight"));
-        assert!(labels.contains(&"template"));
-        assert!(labels.contains(&"[extra]"));
-        assert!(items.iter().any(|item| {
-            item.text_edit.as_ref().is_some_and(|edit| match edit {
-                CompletionTextEdit::Edit(edit) => edit.new_text == "template = \"page.html\"",
-                CompletionTextEdit::InsertAndReplace(_) => false,
-            })
-        }));
-    }
-
-    #[tokio::test]
-    async fn resolves_frontmatter_template_document_targets_from_authoring_model() {
-        let dir = temp_dir("frontmatter-template-link");
-        let content_dir = dir.join("content");
-        let templates_dir = dir.join("templates");
-        let static_dir = dir.join("static");
-        let data_dir = dir.join("data");
-        std::fs::create_dir_all(&content_dir).expect("create content dir");
-        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
-        std::fs::create_dir_all(&static_dir).expect("create static dir");
-        std::fs::create_dir_all(&data_dir).expect("create data dir");
-        std::fs::write(templates_dir.join("custom.html"), "{{ page.content }}")
-            .expect("write template");
-        std::fs::write(static_dir.join("logo.png"), "png").expect("write static asset");
-        std::fs::write(data_dir.join("versions.toml"), "stable = \"1.0\"").expect("write data");
-
-        let content = "+++\ntitle = \"Guide\"\ntemplate = \"custom.html\"\nasset = \"/logo.png\"\ndata = \"versions.toml\"\n+++\n";
-        std::fs::write(content_dir.join("guide.md"), content).expect("write page");
-        let project = load_authoring_project(&content_dir, &[])
-            .await
-            .expect("load project");
-        let world = AuthoringWorld::new(project).expect("authoring world");
-
-        let targets = world.source_document_targets("guide.md");
-        assert_eq!(targets.len(), 3);
-
-        let template_target = targets
-            .iter()
-            .find(|target| target.kind == FrontmatterDocumentKind::Template)
-            .expect("template target");
-        assert_eq!(template_target.path, "custom.html");
-        assert_eq!(
-            template_target.target_path,
-            templates_dir.join("custom.html")
-        );
-        assert!(range_contains_position(
-            &template_target.source_range,
-            position_for(content, "custom.html")
-        ));
-
-        let asset_target = targets
-            .iter()
-            .find(|target| target.kind == FrontmatterDocumentKind::StaticAsset)
-            .expect("asset target");
-        assert_eq!(asset_target.path, "/logo.png");
-        assert_eq!(asset_target.target_path, static_dir.join("logo.png"));
-        assert!(range_contains_position(
-            &asset_target.source_range,
-            position_for(content, "logo.png")
-        ));
-
-        let data_target = targets
-            .iter()
-            .find(|target| target.kind == FrontmatterDocumentKind::DataFile)
-            .expect("data target");
-        assert_eq!(data_target.path, "versions.toml");
-        assert_eq!(data_target.target_path, data_dir.join("versions.toml"));
-        assert!(range_contains_position(
-            &data_target.source_range,
-            position_for(content, "versions.toml")
-        ));
-
-        let target = world
-            .source_document_target_at_position("guide.md", position_for(content, "custom.html"))
-            .expect("target");
-        assert_eq!(target.kind, FrontmatterDocumentKind::Template);
-        assert_eq!(
-            target.target_uri().expect("target uri"),
-            Url::from_file_path(templates_dir.join("custom.html").as_std_path())
-                .expect("expected uri")
-        );
-
-        std::fs::remove_dir_all(&dir).expect("remove temp dir");
-    }
-
-    #[tokio::test]
-    async fn resolves_template_path_document_targets_from_authoring_model() {
-        let dir = temp_dir("template-path-links");
-        let content_dir = dir.join("content");
-        let templates_dir = dir.join("templates");
-        std::fs::create_dir_all(&content_dir).expect("create content dir");
-        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
-        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
-        let source = "+++\ntitle = \"Uses Base\"\ntemplate = \"base.html\"\n+++\n\n# Uses Base\n";
-        std::fs::write(content_dir.join("uses-base.md"), source).expect("write source");
-        std::fs::write(
-            templates_dir.join("base.html"),
-            "{% block content %}{% endblock %}",
-        )
-        .expect("write base");
-        std::fs::write(templates_dir.join("partial.html"), "<p>Partial</p>")
-            .expect("write partial");
-        std::fs::write(
-            templates_dir.join("macros.html"),
-            "{% macro card(title) %}{{ title }}{% endmacro %}",
-        )
-        .expect("write macros");
-
-        let child = "{% extends \"base.html\" %}\n{% include \"partial.html\" %}\n{% import \"macros.html\" as macros %}\n";
-        std::fs::write(templates_dir.join("child.html"), child).expect("write child");
-        let project = load_authoring_project(&content_dir, &[])
-            .await
-            .expect("load project");
-        let world = AuthoringWorld::new(project).expect("authoring world");
-
-        let targets = world.template_index.document_targets("child.html");
-        assert_eq!(targets.len(), 3);
-        assert_eq!(targets[0].kind, TemplateDocumentKind::Extends);
-        assert_eq!(targets[0].path, "base.html");
-        assert_eq!(targets[0].target_path, templates_dir.join("base.html"));
-        assert_eq!(targets[1].kind, TemplateDocumentKind::Include);
-        assert_eq!(targets[1].path, "partial.html");
-        assert_eq!(targets[1].target_path, templates_dir.join("partial.html"));
-        assert_eq!(targets[2].kind, TemplateDocumentKind::Import);
-        assert_eq!(targets[2].path, "macros.html");
-        assert_eq!(targets[2].target_path, templates_dir.join("macros.html"));
-        let references = world
-            .template_document_references(&content_dir, &targets[0].target_path)
-            .expect("template document references");
-        assert_eq!(
-            references
-                .iter()
-                .map(|location| {
-                    Utf8PathBuf::from_path_buf(location.uri.to_file_path().expect("file uri"))
-                        .expect("utf8 path")
-                        .strip_prefix(&dir)
-                        .expect("project relative")
-                        .to_string()
-                })
-                .collect::<Vec<_>>(),
-            vec![
-                "content/uses-base.md".to_string(),
-                "templates/child.html".to_string(),
-            ]
-        );
-
-        let target = world
-            .template_index
-            .document_target_at_position("child.html", position_for(child, "partial.html"))
-            .expect("target");
-        assert_eq!(target.kind, TemplateDocumentKind::Include);
-        assert_eq!(
-            target.target_uri().expect("target uri"),
-            Url::from_file_path(templates_dir.join("partial.html").as_std_path())
-                .expect("expected uri")
-        );
-
-        std::fs::remove_dir_all(&dir).expect("remove temp dir");
-    }
-
-    #[tokio::test]
-    async fn resolves_template_definition_targets_from_authoring_model() {
-        let dir = temp_dir("template-definitions");
-        let content_dir = dir.join("content");
-        let templates_dir = dir.join("templates");
-        std::fs::create_dir_all(&content_dir).expect("create content dir");
-        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
-        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
-
-        let base = "{% block content %}Base{% endblock %}\n";
-        let macros = "{% macro card(title) %}{{ title }}{% endmacro %}\n";
-        let child = "{% extends \"base.html\" %}\n{% import \"macros.html\" as macros %}\n{% block content %}{{ macros::card(\"Hi\") }} {{ title | trim }}{% if title is string %}ok{% endif %}{% endblock %}\n";
-
-        std::fs::write(templates_dir.join("base.html"), base).expect("write base");
-        std::fs::write(templates_dir.join("macros.html"), macros).expect("write macros");
-        std::fs::write(templates_dir.join("child.html"), child).expect("write child");
-
-        let project = load_authoring_project(&content_dir, &[])
-            .await
-            .expect("load project");
-        let targets =
-            template_definition_targets(&project, "child.html", child).expect("definition targets");
-
-        let block = targets
-            .iter()
-            .find(|target| target.kind == TemplateDefinitionKind::Block && target.name == "content")
-            .expect("block target");
-        assert!(range_contains_position(
-            &block.source_range,
-            position_for(child, "content")
-        ));
-        assert_eq!(block.target_path, templates_dir.join("base.html"));
-        assert!(range_contains_position(
-            &block.target_range,
-            position_for(base, "content")
-        ));
-
-        let macro_target = targets
-            .iter()
-            .find(|target| {
-                target.kind == TemplateDefinitionKind::Macro && target.name == "macros::card"
-            })
-            .expect("macro target");
-        assert!(range_contains_position(
-            &macro_target.source_range,
-            position_for(child, "card")
-        ));
-        assert_eq!(macro_target.target_path, templates_dir.join("macros.html"));
-        assert!(range_contains_position(
-            &macro_target.target_range,
-            position_for(macros, "card")
-        ));
-
-        let filter = targets
-            .iter()
-            .find(|target| target.kind == TemplateDefinitionKind::Filter && target.name == "trim")
-            .expect("filter target");
-        assert!(range_contains_position(
-            &filter.source_range,
-            position_for(child, "trim")
-        ));
-        assert!(filter.target_path.ends_with("gingembre/src/eval.rs"));
-        assert!(
-            filter
-                .hover_markdown()
-                .contains("Removes leading and trailing whitespace")
-        );
-
-        let test = targets
-            .iter()
-            .find(|target| target.kind == TemplateDefinitionKind::Test && target.name == "string")
-            .expect("test target");
-        assert!(range_contains_position(
-            &test.source_range,
-            position_for(child, "string")
-        ));
-        assert!(test.target_path.ends_with("gingembre/src/eval.rs"));
-        assert!(test.hover_markdown().contains("value is a string"));
-
-        std::fs::remove_dir_all(&dir).expect("remove temp dir");
-    }
-
-    #[tokio::test]
-    async fn finds_imported_template_macro_references() {
-        let dir = temp_dir("template-macro-references");
-        let content_dir = dir.join("content");
-        let templates_dir = dir.join("templates");
-        std::fs::create_dir_all(&content_dir).expect("create content dir");
-        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
-        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
-
-        let macros = "{% macro card(title) %}{{ title }}{% endmacro %}\n";
-        let page = "{% import \"macros.html\" as ui %}\n{{ ui::card(\"Hi\") }}\n";
-        let other = "{% import \"macros.html\" as kit %}\n{% set rendered = kit::card(\"Yo\") %}\n";
-        std::fs::write(templates_dir.join("macros.html"), macros).expect("write macros");
-        std::fs::write(templates_dir.join("page.html"), page).expect("write page");
-        std::fs::write(templates_dir.join("other.html"), other).expect("write other");
-
-        let project = load_authoring_project(&content_dir, &[])
-            .await
-            .expect("load project");
-
-        let index = TemplateAuthoringIndex::new(&project);
-        let definition_query = index
-            .macro_reference_query("macros.html", position_for(macros, "card"))
-            .expect("definition query");
-        assert_eq!(definition_query.target_template_file, "macros.html");
-        assert_eq!(definition_query.macro_name, "card");
-        assert!(range_contains_position(
-            &definition_query.source_range,
-            position_for(macros, "card")
-        ));
-
-        let call_query = index
-            .macro_reference_query("page.html", position_for(page, "card"))
-            .expect("call query");
-        assert_eq!(call_query.target_template_file, "macros.html");
-        assert_eq!(call_query.macro_name, "card");
-        assert!(range_contains_position(
-            &call_query.source_range,
-            position_for(page, "card")
-        ));
-        let definition_target = index
-            .macro_definition_target("macros.html", "card")
-            .expect("macro definition target");
-        assert_eq!(definition_target.path, templates_dir.join("macros.html"));
-        assert!(range_contains_position(
-            &definition_target.range,
-            position_for(macros, "card")
-        ));
-
-        let references =
-            template_macro_references(&index, "macros.html", "card").expect("references");
-        assert_eq!(
-            references
-                .iter()
-                .map(|location| {
-                    Utf8PathBuf::from_path_buf(location.uri.to_file_path().expect("file uri"))
-                        .expect("utf8 path")
-                        .strip_prefix(&templates_dir)
-                        .expect("template relative")
-                        .to_string()
-                })
-                .collect::<Vec<_>>(),
-            vec![
-                "macros.html".to_string(),
-                "other.html".to_string(),
-                "page.html".to_string(),
-            ]
-        );
-        for (content, index) in [(macros, 0), (other, 0), (page, 0)] {
-            assert!(references.iter().any(|location| range_contains_position(
-                &location.range,
-                position_for_nth(content, "card", index)
-            )));
-        }
-
-        let edit = template_macro_rename_workspace_edit(&index, "macros.html", "card", "panel")
-            .expect("rename edit")
-            .expect("rename edit");
-        let changes = edit.changes.expect("changes");
-        let mut changed_paths = changes
-            .iter()
-            .map(|(uri, edits)| {
-                let path = Utf8PathBuf::from_path_buf(uri.to_file_path().expect("file uri"))
-                    .expect("utf8 path")
-                    .strip_prefix(&templates_dir)
-                    .expect("template relative")
-                    .to_string();
-                assert_eq!(edits.len(), 1);
-                assert_eq!(edits[0].new_text, "panel");
-                path
-            })
-            .collect::<Vec<_>>();
-        changed_paths.sort();
-        assert_eq!(
-            changed_paths,
-            vec![
-                "macros.html".to_string(),
-                "other.html".to_string(),
-                "page.html".to_string(),
-            ]
-        );
-
-        std::fs::remove_dir_all(&dir).expect("remove temp dir");
-    }
-
-    #[tokio::test]
-    async fn resolves_template_block_references() {
-        let dir = temp_dir("template-block-references");
-        let content_dir = dir.join("content");
-        let templates_dir = dir.join("templates");
-        std::fs::create_dir_all(&content_dir).expect("create content dir");
-        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
-        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
-
-        let base = "{% block breadcrumbs %}Base{% endblock %}\n";
-        let child = "{% extends \"base.html\" %}\n{% block breadcrumbs %}Child{% endblock %}\n";
-        let sibling = "{% extends \"base.html\" %}\n{% block breadcrumbs %}Sibling{% endblock %}\n";
-        std::fs::write(templates_dir.join("base.html"), base).expect("write base");
-        std::fs::write(templates_dir.join("child.html"), child).expect("write child");
-        std::fs::write(templates_dir.join("sibling.html"), sibling).expect("write sibling");
-
-        let project = load_authoring_project(&content_dir, &[])
-            .await
-            .expect("load project");
-        let index = TemplateAuthoringIndex::new(&project);
-        let occurrence = index
-            .block_occurrence_at_position("child.html", position_for(child, "breadcrumbs"))
-            .expect("block occurrence");
-        assert_eq!(occurrence.name, "breadcrumbs");
-
-        let target = index
-            .block_definition_target("child.html", &occurrence)
-            .expect("parent block target");
-        assert_eq!(target.target_path, templates_dir.join("base.html"));
-        assert!(range_contains_position(
-            &target.target_range,
-            position_for(base, "breadcrumbs")
-        ));
-
-        let hover = template_block_hover_markdown(&index, "child.html", &occurrence);
-        assert!(hover.contains("Overrides"));
-        assert!(hover.contains("3 matching block declaration"));
-
-        let references = template_block_references(&index, "child.html", "breadcrumbs")
-            .expect("block references");
-        assert_eq!(references.len(), 3);
-        assert_eq!(
-            references
-                .iter()
-                .map(|location| {
-                    Utf8PathBuf::from_path_buf(location.uri.to_file_path().expect("file uri"))
-                        .expect("utf8 path")
-                        .strip_prefix(&templates_dir)
-                        .expect("template relative")
-                        .to_string()
-                })
-                .collect::<Vec<_>>(),
-            vec![
-                "base.html".to_string(),
-                "child.html".to_string(),
-                "sibling.html".to_string(),
-            ]
-        );
-
-        let edit =
-            template_block_rename_workspace_edit(&index, "child.html", "breadcrumbs", "trail")
-                .expect("rename edit")
-                .expect("rename edit");
-        let changes = edit.changes.expect("changes");
-        let mut changed_paths = changes
-            .iter()
-            .map(|(uri, edits)| {
-                let path = Utf8PathBuf::from_path_buf(uri.to_file_path().expect("file uri"))
-                    .expect("utf8 path")
-                    .strip_prefix(&templates_dir)
-                    .expect("template relative")
-                    .to_string();
-                assert_eq!(edits.len(), 1);
-                assert_eq!(edits[0].new_text, "trail");
-                path
-            })
-            .collect::<Vec<_>>();
-        changed_paths.sort();
-        assert_eq!(
-            changed_paths,
-            vec![
-                "base.html".to_string(),
-                "child.html".to_string(),
-                "sibling.html".to_string(),
-            ]
-        );
-
-        std::fs::remove_dir_all(&dir).expect("remove temp dir");
-    }
-
-    #[tokio::test]
-    async fn resolves_template_block_references_by_inheritance_tree() {
-        let dir = temp_dir("template-block-inheritance-references");
-        let content_dir = dir.join("content");
-        let templates_dir = dir.join("templates");
-        std::fs::create_dir_all(&content_dir).expect("create content dir");
-        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
-        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
-
-        let base = "{% block breadcrumbs %}Base{% endblock %}\n";
-        let child = "{% extends \"base.html\" %}\n{% block breadcrumbs %}Child{% endblock %}\n";
-        let grandchild =
-            "{% extends \"child.html\" %}\n{% block breadcrumbs %}Grandchild{% endblock %}\n";
-        let other_base = "{% block breadcrumbs %}Other base{% endblock %}\n";
-        let other_child =
-            "{% extends \"other-base.html\" %}\n{% block breadcrumbs %}Other child{% endblock %}\n";
-        std::fs::write(templates_dir.join("base.html"), base).expect("write base");
-        std::fs::write(templates_dir.join("child.html"), child).expect("write child");
-        std::fs::write(templates_dir.join("grandchild.html"), grandchild)
-            .expect("write grandchild");
-        std::fs::write(templates_dir.join("other-base.html"), other_base)
-            .expect("write other base");
-        std::fs::write(templates_dir.join("other-child.html"), other_child)
-            .expect("write other child");
-
-        let project = load_authoring_project(&content_dir, &[])
-            .await
-            .expect("load project");
-        let index = TemplateAuthoringIndex::new(&project);
-
-        let child_occurrence = index
-            .block_occurrence_at_position("child.html", position_for(child, "breadcrumbs"))
-            .expect("child block occurrence");
-        let target = index
-            .block_definition_target("child.html", &child_occurrence)
-            .expect("child parent block");
-        assert_eq!(target.target_path, templates_dir.join("base.html"));
-
-        let references =
-            template_block_references(&index, "child.html", "breadcrumbs").expect("references");
-        assert_eq!(
-            references
-                .iter()
-                .map(|location| {
-                    Utf8PathBuf::from_path_buf(location.uri.to_file_path().expect("file uri"))
-                        .expect("utf8 path")
-                        .strip_prefix(&templates_dir)
-                        .expect("template relative")
-                        .to_string()
-                })
-                .collect::<Vec<_>>(),
-            vec![
-                "base.html".to_string(),
-                "child.html".to_string(),
-                "grandchild.html".to_string(),
-            ]
-        );
-
-        let other_index = TemplateAuthoringIndex::new(&project);
-        let other_references =
-            template_block_references(&other_index, "other-child.html", "breadcrumbs")
-                .expect("other references");
-        assert_eq!(
-            other_references
-                .iter()
-                .map(|location| {
-                    Utf8PathBuf::from_path_buf(location.uri.to_file_path().expect("file uri"))
-                        .expect("utf8 path")
-                        .strip_prefix(&templates_dir)
-                        .expect("template relative")
-                        .to_string()
-                })
-                .collect::<Vec<_>>(),
-            vec![
-                "other-base.html".to_string(),
-                "other-child.html".to_string(),
-            ]
-        );
-
-        std::fs::remove_dir_all(&dir).expect("remove temp dir");
-    }
-
-    #[tokio::test]
-    async fn template_block_index_uses_current_template_content() {
-        let dir = temp_dir("template-block-live-content");
-        let content_dir = dir.join("content");
-        let templates_dir = dir.join("templates");
-        std::fs::create_dir_all(&content_dir).expect("create content dir");
-        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
-        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
-
-        let base = "{% block breadcrumbs %}Base{% endblock %}\n";
-        let other_base = "{% block breadcrumbs %}Other base{% endblock %}\n";
-        let disk_child =
-            "{% extends \"base.html\" %}\n{% block breadcrumbs %}Child{% endblock %}\n";
-        let live_child =
-            "{% extends \"other-base.html\" %}\n{% block breadcrumbs %}Child{% endblock %}\n";
-        std::fs::write(templates_dir.join("base.html"), base).expect("write base");
-        std::fs::write(templates_dir.join("other-base.html"), other_base)
-            .expect("write other base");
-        std::fs::write(templates_dir.join("child.html"), disk_child).expect("write child");
-
-        let project = load_authoring_project(
-            &content_dir,
-            &[AuthoringDocumentOverlay {
-                path: AuthoringInputPath::Template("child.html".to_string()),
-                content: live_child.to_string(),
-            }],
-        )
-        .await
-        .expect("load project");
-        let index = TemplateAuthoringIndex::new(&project);
-        let references =
-            template_block_references(&index, "child.html", "breadcrumbs").expect("references");
-
-        assert_eq!(
-            references
-                .iter()
-                .map(|location| {
-                    Utf8PathBuf::from_path_buf(location.uri.to_file_path().expect("file uri"))
-                        .expect("utf8 path")
-                        .strip_prefix(&templates_dir)
-                        .expect("template relative")
-                        .to_string()
-                })
-                .collect::<Vec<_>>(),
-            vec!["child.html".to_string(), "other-base.html".to_string()]
-        );
-
-        std::fs::remove_dir_all(&dir).expect("remove temp dir");
-    }
-
-    #[tokio::test]
-    async fn exposes_template_document_symbols() {
-        let dir = temp_dir("template-symbols");
-        let content_dir = dir.join("content");
-        let templates_dir = dir.join("templates");
-        std::fs::create_dir_all(&content_dir).expect("create content dir");
-        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
-        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
-
-        let template =
-            "{% block content %}{% macro card(title) %}{{ title }}{% endmacro %}{% endblock %}\n";
-        std::fs::write(templates_dir.join("page.html"), template).expect("write template");
-        let project = load_authoring_project(&content_dir, &[])
-            .await
-            .expect("load project");
-
-        let symbols =
-            template_document_symbols(&project, "page.html", template).expect("document symbols");
-        assert_eq!(symbols.len(), 1);
-        assert_eq!(symbols[0].name, "content");
-        assert_eq!(symbols[0].kind, SymbolKind::MODULE);
-        let children = symbols[0].children.as_ref().expect("block children");
-        assert_eq!(children.len(), 1);
-        assert_eq!(children[0].name, "card");
-        assert_eq!(children[0].kind, SymbolKind::FUNCTION);
-
-        std::fs::remove_dir_all(&dir).expect("remove temp dir");
-    }
-
-    #[tokio::test]
-    async fn uses_template_semantic_index_for_editor_features() {
-        let dir = temp_dir("template-semantic-editor-features");
-        let content_dir = dir.join("content");
-        let templates_dir = dir.join("templates");
-        std::fs::create_dir_all(&content_dir).expect("create content dir");
-        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
-        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
-
-        let template = "{% set local_route = \"/\" %}\n{{ local_route }}\n{% for item in section.pages %}\n{{ item.path | path_parent }}\n{% endfor %}\n{% for child in section.subsections %}\n{{ child.pages }}\n{% endfor %}\n{% macro label(title) %}{{ title }}{% endmacro %}\n";
-        std::fs::write(templates_dir.join("page.html"), template).expect("write template");
-        let project = load_authoring_project(&content_dir, &[])
-            .await
-            .expect("load project");
-        let template_index = TemplateAuthoringIndex::new(&project);
-        let semantic_index = template_index
-            .templates
-            .get("page.html")
-            .and_then(|template| template.semantic.as_ref())
-            .expect("template semantics");
-
-        let hover =
-            template_semantic_hover(&template_index, "page.html", position_for(template, "path"))
-                .expect("field hover");
-        let HoverContents::Markup(markup) = hover.contents else {
-            panic!("expected markdown hover");
-        };
-        assert!(markup.value.contains("Route path"));
-        assert!(markup.value.contains("Site-relative route"));
-
-        let filter_hover = template_semantic_hover(
-            &template_index,
-            "page.html",
-            position_for(template, "path_parent"),
-        )
-        .expect("filter hover");
-        let HoverContents::Markup(markup) = filter_hover.contents else {
-            panic!("expected filter markdown hover");
-        };
-        assert!(markup.value.contains("Gingembre filter"));
-        assert!(markup.value.contains("Returns the parent path"));
-
-        let section_field_hover = template_semantic_hover(
-            &template_index,
-            "page.html",
-            position_for_nth(template, "pages", 1),
-        )
-        .expect("section field hover through loop binding");
-        let HoverContents::Markup(markup) = section_field_hover.contents else {
-            panic!("expected section field markdown hover");
-        };
-        assert!(markup.value.contains("Section pages"));
-        assert!(markup.value.contains("nearest parent section"));
-
-        let local_hover = template_semantic_hover(
-            &template_index,
-            "page.html",
-            position_for_nth(template, "local_route", 1),
-        )
-        .expect("local variable hover");
-        let HoverContents::Markup(markup) = local_hover.contents else {
-            panic!("expected local variable markdown hover");
-        };
-        assert!(markup.value.contains("Read reference"));
-        assert!(markup.value.contains("1 read reference"));
-        assert!(markup.value.contains("0 write reference"));
-
-        let definition = template_index
-            .semantic_definition("page.html", position_for_nth(template, "local_route", 1))
-            .expect("local binding definition");
-        assert!(range_contains_position(
-            &definition.range,
-            position_for(template, "local_route")
-        ));
-
-        let references = template_index
-            .semantic_references("page.html", position_for_nth(template, "local_route", 1));
-        assert_eq!(references.len(), 2);
-        assert!(references.iter().any(|location| range_contains_position(
-            &location.range,
-            position_for(template, "local_route")
-        )));
-        assert!(references.iter().any(|location| range_contains_position(
-            &location.range,
-            position_for_nth(template, "local_route", 1)
-        )));
-
-        let prepared = template_semantic_prepare_rename(
-            &template_index,
-            "page.html",
-            position_for_nth(template, "local_route", 1),
-        )
-        .expect("prepare rename");
-        let PrepareRenameResponse::RangeWithPlaceholder { placeholder, .. } = prepared else {
-            panic!("expected range with placeholder");
-        };
-        assert_eq!(placeholder, "local_route");
-
-        let uri = Url::from_file_path(templates_dir.join("page.html").as_std_path())
-            .expect("template uri");
-        let edit = template_semantic_rename_workspace_edit(
-            &template_index,
-            "page.html",
-            position_for_nth(template, "local_route", 1),
-            "route_path",
-        )
-        .expect("rename edit")
-        .expect("rename edit");
-        let mut changes = edit.changes.expect("rename changes");
-        let edits = changes.remove(&uri).expect("template edits");
-        assert_eq!(edits.len(), 2);
-        assert!(edits.iter().all(|edit| edit.new_text == "route_path"));
-
-        let token_types = template_semantic_tokens(semantic_index, template)
-            .into_iter()
-            .map(|token| token.token_type)
-            .collect::<Vec<_>>();
-        assert!(token_types.contains(&TEMPLATE_SEMANTIC_TOKEN_VARIABLE));
-        assert!(token_types.contains(&TEMPLATE_SEMANTIC_TOKEN_PARAMETER));
-        assert!(token_types.contains(&TEMPLATE_SEMANTIC_TOKEN_PROPERTY));
-        assert!(token_types.contains(&TEMPLATE_SEMANTIC_TOKEN_MACRO));
-
-        std::fs::remove_dir_all(&dir).expect("remove temp dir");
-    }
-
-    #[tokio::test]
-    async fn repeated_template_set_bindings_share_references() {
-        let dir = temp_dir("template-repeated-set-references");
-        let content_dir = dir.join("content");
-        let templates_dir = dir.join("templates");
-        std::fs::create_dir_all(&content_dir).expect("create content dir");
-        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
-        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
-
-        let template = "{% set current_path = \"/\" %}\n{% if section is defined %}{% set current_path = section.path %}{% endif %}\n{% if page is defined %}{% set current_path = page.path %}{% endif %}\n<a class=\"{% if current_path is eq(\"/\") %}is-active{% endif %}\">{{ current_path }}</a>\n";
-        std::fs::write(templates_dir.join("base.html"), template).expect("write template");
-        let project = load_authoring_project(&content_dir, &[])
-            .await
-            .expect("load project");
-        let template_index = TemplateAuthoringIndex::new(&project);
-
-        let first_definition = template_index
-            .semantic_definition("base.html", position_for(template, "current_path"))
-            .expect("first definition");
-        let second_definition = template_index
-            .semantic_definition("base.html", position_for_nth(template, "current_path", 1))
-            .expect("second definition");
-        assert_eq!(first_definition.range, second_definition.range);
-        assert!(range_contains_position(
-            &first_definition.range,
-            position_for(template, "current_path")
-        ));
-
-        let first_references =
-            template_index.semantic_references("base.html", position_for(template, "current_path"));
-        let second_references = template_index
-            .semantic_references("base.html", position_for_nth(template, "current_path", 1));
-        assert_eq!(first_references, second_references);
-        assert_eq!(first_references.len(), 5);
-        for index in 0..5 {
-            assert!(
-                first_references
-                    .iter()
-                    .any(|location| range_contains_position(
-                        &location.range,
-                        position_for_nth(template, "current_path", index)
-                    ))
-            );
-        }
-
-        let uri =
-            Url::from_file_path(templates_dir.join("base.html").as_std_path()).expect("file uri");
-        let edit = template_semantic_rename_workspace_edit(
-            &template_index,
-            "base.html",
-            position_for(template, "current_path"),
-            "active_path",
-        )
-        .expect("rename edit")
-        .expect("rename edit");
-        let edits = edit
-            .changes
-            .expect("changes")
-            .remove(&uri)
-            .expect("template edits");
-        assert_eq!(edits.len(), 5);
-
-        std::fs::remove_dir_all(&dir).expect("remove temp dir");
-    }
-
-    #[tokio::test]
-    async fn reports_template_diagnostics_from_authoring_model() {
-        let dir = temp_dir("template-diagnostics");
-        let content_dir = dir.join("content");
-        let templates_dir = dir.join("templates");
-        std::fs::create_dir_all(&content_dir).expect("create content dir");
-        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
-        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
-
-        std::fs::write(
-            templates_dir.join("base.html"),
-            "{% block title %}Title{% endblock %}\n",
-        )
-        .expect("write base");
-        std::fs::write(
-            templates_dir.join("macros.html"),
-            "{% macro card(title) %}{{ title }}{% endmacro %}\n",
-        )
-        .expect("write macros");
-        let child = "{% extends \"base.html\" %}\n{% include \"missing.html\" %}\n{% import \"macros.html\" as macros %}\n{% block content %}{{ macros::missing(\"Hi\") | nope }}{% if title is frobnicate %}ok{% endif %}{% endblock %}\n";
-        std::fs::write(templates_dir.join("child.html"), child).expect("write child");
-
-        let project = load_authoring_project(&content_dir, &[])
-            .await
-            .expect("load project");
-        let diagnostics = diagnostics_for_template(&project, "child.html", child);
-        let kinds = diagnostics
-            .iter()
-            .map(|diagnostic| diagnostic.kind)
-            .collect::<Vec<_>>();
-
-        assert!(kinds.contains(&AuthoringDiagnosticKind::MissingTemplate));
-        assert!(kinds.contains(&AuthoringDiagnosticKind::MissingBlock));
-        assert!(kinds.contains(&AuthoringDiagnosticKind::UnknownMacro));
-        assert!(kinds.contains(&AuthoringDiagnosticKind::UnknownFilter));
-        assert!(kinds.contains(&AuthoringDiagnosticKind::UnknownTest));
-        assert!(diagnostics.iter().any(|diagnostic| {
-            diagnostic.kind == AuthoringDiagnosticKind::MissingTemplate
-                && diagnostic.target == "missing.html"
-        }));
-        assert!(diagnostics.iter().any(|diagnostic| {
-            diagnostic.kind == AuthoringDiagnosticKind::MissingBlock
-                && diagnostic.target == "content"
-        }));
-        assert!(diagnostics.iter().any(|diagnostic| {
-            diagnostic.kind == AuthoringDiagnosticKind::UnknownMacro
-                && diagnostic.target == "missing"
-        }));
-        assert!(diagnostics.iter().any(|diagnostic| {
-            diagnostic.kind == AuthoringDiagnosticKind::UnknownFilter && diagnostic.target == "nope"
-        }));
-        assert!(diagnostics.iter().any(|diagnostic| {
-            diagnostic.kind == AuthoringDiagnosticKind::UnknownTest
-                && diagnostic.target == "frobnicate"
-        }));
-        let lsp_diagnostics = diagnostics
-            .iter()
-            .map(authoring_diagnostic_to_lsp)
-            .collect::<Vec<_>>();
-        let missing_template = diagnostics
-            .iter()
-            .find(|diagnostic| diagnostic.kind == AuthoringDiagnosticKind::MissingTemplate)
-            .expect("missing template diagnostic");
-        let actions =
-            missing_template_code_actions(&content_dir, missing_template, &lsp_diagnostics)
-                .expect("missing template code actions");
-        let action = actions
-            .iter()
-            .find_map(|action| match action {
-                CodeActionOrCommand::CodeAction(action) => Some(action),
-                CodeActionOrCommand::Command(_) => None,
-            })
-            .expect("code action");
-        assert_eq!(action.title, "Create template 'missing.html'");
-        let edit = action.edit.as_ref().expect("workspace edit");
-        let operations = match edit.document_changes.as_ref().expect("document changes") {
-            DocumentChanges::Operations(operations) => operations,
-            DocumentChanges::Edits(_) => panic!("expected document change operations"),
-        };
-        assert!(matches!(
-            &operations[..],
-            [DocumentChangeOperation::Op(ResourceOp::Create(CreateFile { uri, .. }))]
-                if *uri == template_file_uri(&content_dir, "missing.html").expect("template uri")
-        ));
-
-        std::fs::remove_dir_all(&dir).expect("remove temp dir");
-    }
-
-    #[tokio::test]
-    async fn completes_template_context_filters_tests_data_and_macros() {
-        let dir = temp_dir("template-completions");
-        let content_dir = dir.join("content");
-        let templates_dir = dir.join("templates");
-        let data_dir = dir.join("data");
-        std::fs::create_dir_all(&content_dir).expect("create content dir");
-        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
-        std::fs::create_dir_all(&data_dir).expect("create data dir");
-        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
-        std::fs::write(data_dir.join("versions.toml"), "dodeca = \"0.1.0\"\n").expect("write data");
-        std::fs::write(
-            templates_dir.join("macros.html"),
-            "{% macro card(title) %}{{ title }}{% endmacro %}\n",
-        )
-        .expect("write macros");
-
-        let template = "{% import \"macros.html\" as macros %}\n{% set local_route = \"/\" %}\n{% set current_page = page %}\n{{ loc }}\n{{ pa }}\n{{ page.ti }}\n{{ current_page.pa }}\n{% for item in section.pages %}\n{{ item.pa }}\n{% endfor %}\n{{ data.ver }}\n{{ title | tr }}\n{% if title is str %}ok{% endif %}\n{{ macros::card() }}\n";
-        std::fs::write(templates_dir.join("page.html"), template).expect("write template");
-        let project = load_authoring_project(&content_dir, &[])
-            .await
-            .expect("load project");
-
-        let labels = |position| {
-            template_completion_items(&project, "page.html", template, position)
-                .into_iter()
-                .map(|item| item.label)
-                .collect::<Vec<_>>()
-        };
-
-        let root_items = template_completion_items(
-            &project,
-            "page.html",
-            template,
-            position_for(template, "pa"),
-        );
-        let page_item = root_items
-            .iter()
-            .find(|item| item.label == "page")
-            .expect("page completion item");
-        assert_eq!(page_item.detail.as_deref(), Some("Current page"));
-        let Some(Documentation::MarkupContent(documentation)) = &page_item.documentation else {
-            panic!("expected page completion docs");
-        };
-        assert!(documentation.value.contains("currently being rendered"));
-
-        assert!(
-            labels(position_for(template, "loc")).contains(&"local_route".to_string()),
-            "root completion should include live Gingembre local symbols"
-        );
-        assert!(labels(position_for(template, "pa")).contains(&"page".to_string()));
-        assert!(
-            labels(position_for(template, "ti")).contains(&"title".to_string()),
-            "page field completion should include title"
-        );
-        let current_page_field_byte = template
-            .find("current_page.pa")
-            .expect("current page alias field")
-            + "current_page.".len();
-        let (line, column) = byte_to_line_column(template, current_page_field_byte);
-        assert!(
-            labels(Position::new(line - 1, column - 1)).contains(&"path".to_string()),
-            "set aliases should complete fields from their source value"
-        );
-        let loop_item_field_byte =
-            template.find("item.pa").expect("loop item field") + "item.".len();
-        let (line, column) = byte_to_line_column(template, loop_item_field_byte);
-        assert!(
-            labels(Position::new(line - 1, column - 1)).contains(&"permalink".to_string()),
-            "loop bindings over section.pages should complete page fields"
-        );
-        assert!(
-            labels(position_for(template, "ver")).contains(&"versions".to_string()),
-            "data completion should include data file stem"
-        );
-        assert!(
-            labels(position_for(template, "tr")).contains(&"trim".to_string()),
-            "filter completion should include trim"
-        );
-        let filter_items = template_completion_items(
-            &project,
-            "page.html",
-            template,
-            position_for(template, "tr"),
-        );
-        let trim_item = filter_items
-            .iter()
-            .find(|item| item.label == "trim")
-            .expect("trim completion item");
-        let Some(Documentation::MarkupContent(documentation)) = &trim_item.documentation else {
-            panic!("expected trim completion docs");
-        };
-        assert!(
-            documentation
-                .value
-                .contains("Removes leading and trailing whitespace")
-        );
-        assert!(
-            labels(position_for(template, "str")).contains(&"string".to_string()),
-            "test completion should include string"
-        );
-        let macro_byte = template.find("macros::").expect("macro call") + "macros::".len();
-        let (line, column) = byte_to_line_column(template, macro_byte);
-        assert!(
-            labels(Position::new(line - 1, column - 1)).contains(&"card".to_string()),
-            "macro completion should include imported macro"
-        );
-
-        std::fs::remove_dir_all(&dir).expect("remove temp dir");
-    }
-
-    #[test]
-    fn resolves_authoring_dirs_from_lsp_workspace_folder() {
-        let dir = temp_dir("initialize-root");
-        std::fs::create_dir_all(dir.join(".config")).expect("create config dir");
-        std::fs::create_dir_all(dir.join("content")).expect("create content dir");
-        std::fs::write(
-            dir.join(".config/dodeca.styx"),
-            "content content\noutput public\n",
-        )
-        .expect("write config");
-
-        let params = initialize_params_for_workspace(&dir);
-        let dirs = resolve_initial_authoring_dirs(&default_startup_args(), &params)
-            .expect("resolve dirs")
-            .expect("workspace config");
-
-        assert_eq!(dirs.content_dir, dir.join("content"));
-
-        std::fs::remove_dir_all(&dir).expect("remove temp dir");
-    }
-
-    #[test]
-    fn initializes_without_lsp_workspace() {
-        let dirs =
-            resolve_initial_authoring_dirs(&default_startup_args(), &empty_initialize_params())
-                .expect("initialize without workspace");
-
-        assert!(dirs.is_none());
-    }
-
-    #[test]
-    fn resolves_authoring_dirs_from_lsp_workspace_descendant() {
-        let project = temp_dir("initialize-descendant");
-        let content_dir = project.join("content");
-        std::fs::create_dir_all(project.join(".config")).expect("create config dir");
-        std::fs::create_dir_all(&content_dir).expect("create content dir");
-        std::fs::write(
-            project.join(".config/dodeca.styx"),
-            "content content\noutput public\n",
-        )
-        .expect("write config");
-
-        let params = initialize_params_for_workspace(&content_dir);
-        let dirs = resolve_initial_authoring_dirs(&default_startup_args(), &params)
-            .expect("resolve dirs")
-            .expect("workspace config");
-
-        assert_eq!(dirs.content_dir, content_dir);
-
-        std::fs::remove_dir_all(&project).expect("remove temp dir");
-    }
-
-    #[test]
-    fn resolves_authoring_dirs_from_document_ancestor_config() {
-        let workspace = temp_dir("document-root");
-        let project = workspace.join("kb.vixen.rs");
-        std::fs::create_dir_all(project.join(".config")).expect("create config dir");
-        std::fs::create_dir_all(project.join("content/ops")).expect("create content dir");
-        std::fs::write(
-            project.join(".config/dodeca.styx"),
-            "content content\noutput public\n",
-        )
-        .expect("write config");
-        let document = project.join("content/ops/deploy.md");
-        std::fs::write(&document, "# Deploy\n").expect("write document");
-        let uri = Url::from_file_path(document.as_std_path()).expect("document uri");
-
-        let dirs = resolve_authoring_dirs_for_document(&default_startup_args(), &uri)
-            .expect("resolve document dirs");
-
-        assert_eq!(dirs.content_dir, project.join("content"));
-
-        std::fs::remove_dir_all(&workspace).expect("remove temp dir");
-    }
-
-    #[tokio::test]
-    async fn lists_pages_and_sections_from_content_dir() {
-        let dir = temp_dir("list-pages");
-        let content_dir = dir.join("content");
-        std::fs::create_dir_all(content_dir.join("guide")).expect("create dirs");
-        std::fs::write(
-            content_dir.join("_index.md"),
-            "+++\ntitle = \"Knowledge Base\"\n+++\n\n# Home\n",
-        )
-        .expect("write root");
-        std::fs::write(
-            content_dir.join("guide/intro.md"),
-            "+++\ntitle = \"Intro\"\n+++\n\n# Intro\n## Details\n",
-        )
-        .expect("write page");
-
-        let pages = load_authoring_project(&content_dir, &[])
-            .await
-            .expect("load project")
-            .pages;
-
-        assert_eq!(
-            pages,
-            vec![
-                AuthoringPage {
-                    kind: AuthoringPageKind::Section,
-                    route: "/".to_string(),
-                    source_file: "_index.md".to_string(),
-                    title: "Knowledge Base".to_string(),
-                    description: None,
-                    template: "index.html".to_string(),
-                    output_path: "index.html".to_string(),
-                    headings: vec![crate::authoring_model::AuthoringHeading {
-                        id: "home".to_string(),
-                        title: "Home".to_string(),
-                        level: 1,
-                    }],
-                    heading_ids: vec!["home".to_string()],
-                    link_base_route: "/".to_string(),
-                },
-                AuthoringPage {
-                    kind: AuthoringPageKind::Page,
-                    route: "/guide/intro".to_string(),
-                    source_file: "guide/intro.md".to_string(),
-                    title: "Intro".to_string(),
-                    description: None,
-                    template: "page.html".to_string(),
-                    output_path: "guide/intro/index.html".to_string(),
-                    headings: vec![
-                        crate::authoring_model::AuthoringHeading {
-                            id: "intro".to_string(),
-                            title: "Intro".to_string(),
-                            level: 1,
-                        },
-                        crate::authoring_model::AuthoringHeading {
-                            id: "intro--details".to_string(),
-                            title: "Details".to_string(),
-                            level: 2,
-                        },
-                    ],
-                    heading_ids: vec!["intro".to_string(), "intro--details".to_string()],
-                    link_base_route: "/".to_string(),
-                },
-            ]
-        );
-
-        std::fs::remove_dir_all(&dir).expect("remove temp dir");
-    }
-
-    #[tokio::test]
-    async fn reports_missing_routes_anchors_sources_and_static_assets() {
-        let dir = temp_dir("diagnostics");
-        let content_dir = dir.join("content");
-        let static_dir = dir.join("static");
-        std::fs::create_dir_all(content_dir.join("guide")).expect("create content dirs");
-        std::fs::create_dir_all(&static_dir).expect("create static dir");
-        std::fs::write(static_dir.join("logo.png"), b"png").expect("write static");
-        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
-        std::fs::write(content_dir.join("guide/intro.md"), "# Intro\n").expect("write target");
-        let source = "\
-# Source
-
-[ok](/guide/intro#intro)
-[missing route](/missing)
-[missing anchor](/guide/intro#nope)
-[missing source](@/guide/missing.md)
-![missing image](/missing.png)
-![ok image](/logo.png)
-";
-        std::fs::write(content_dir.join("guide/source.md"), source).expect("write source");
-
-        let project = load_authoring_project(&content_dir, &[])
-            .await
-            .expect("load project");
-        let source_page = project
-            .page_for_source_file("guide/source.md")
-            .expect("source page");
-        let diagnostics = diagnostics_for_page(&project, source_page, source);
-        let kinds = diagnostics
-            .iter()
-            .map(|diagnostic| diagnostic.kind)
-            .collect::<Vec<_>>();
-
-        assert_eq!(
-            kinds,
-            vec![
-                AuthoringDiagnosticKind::Route,
-                AuthoringDiagnosticKind::Anchor,
-                AuthoringDiagnosticKind::Source,
-                AuthoringDiagnosticKind::StaticAsset,
-            ]
-        );
-        assert_eq!(diagnostics[0].source_file, "guide/source.md");
-        assert_eq!(diagnostics[0].resolved_route.as_deref(), Some("/missing"));
-
-        std::fs::remove_dir_all(&dir).expect("remove temp dir");
-    }
-
-    #[tokio::test]
-    async fn reports_site_graph_diagnostics() {
-        let dir = temp_dir("site-graph-diagnostics");
-        let content_dir = dir.join("content");
-        let templates_dir = dir.join("templates");
-        std::fs::create_dir_all(content_dir.join("empty")).expect("create empty section");
-        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
-        std::fs::write(
-            templates_dir.join("section.html"),
-            "<nav><a href=\"/rendered\">Rendered</a></nav>{{ section.content | safe }}",
-        )
-        .expect("write section template");
-        std::fs::write(templates_dir.join("page.html"), "{{ page.content | safe }}")
-            .expect("write page template");
-        std::fs::write(
-            content_dir.join("_index.md"),
-            "+++\ntitle = \"Home\"\ntemplate = \"section.html\"\n+++\n\n[linked](/linked)\n[same a](/same-a)\n[same b](/same-b)\n",
-        )
-        .expect("write root");
-        std::fs::write(
-            content_dir.join("linked.md"),
-            "+++\ntitle = \"Linked\"\n+++\n",
-        )
-        .expect("write linked");
-        std::fs::write(
-            content_dir.join("orphan.md"),
-            "+++\ntitle = \"Orphan\"\n+++\n",
-        )
-        .expect("write orphan");
-        std::fs::write(
-            content_dir.join("rendered.md"),
-            "+++\ntitle = \"Rendered\"\n+++\n",
-        )
-        .expect("write rendered-nav page");
-        std::fs::write(
-            content_dir.join("same-a.md"),
-            "+++\ntitle = \"Same\"\n+++\n",
-        )
-        .expect("write same a");
-        std::fs::write(
-            content_dir.join("same-b.md"),
-            "+++\ntitle = \"Same\"\n+++\n",
-        )
-        .expect("write same b");
-        std::fs::write(
-            content_dir.join("empty/_index.md"),
-            "+++\ntitle = \"Empty\"\n+++\n",
-        )
-        .expect("write empty section");
-
-        let mut project = load_authoring_project(&content_dir, &[])
-            .await
-            .expect("load project");
-        assert!(
-            project
-                .rendered_hrefs_by_route
-                .get("/")
-                .is_some_and(|hrefs| hrefs.iter().any(|href| href.href == "/rendered"))
-        );
-        let duplicate_route_source = project
-            .pages
-            .iter()
-            .find(|page| page.source_file == "same-b.md")
-            .map(|page| page.route.clone())
-            .expect("same-b route");
-        for page in &mut project.pages {
-            if page.source_file == "same-b.md" {
-                page.route = "/same-a".to_string();
-            }
-        }
-
-        let diagnostics = site_graph_diagnostics(&project);
-        let has = |kind, target: &str| {
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.kind == kind && diagnostic.target == target)
-        };
-
-        assert!(has(AuthoringDiagnosticKind::DuplicateTitle, "Same"));
-        assert!(has(AuthoringDiagnosticKind::DuplicateRoute, "/same-a"));
-        assert!(has(AuthoringDiagnosticKind::OrphanPage, "/orphan"));
-        assert!(
-            has(AuthoringDiagnosticKind::NoInboundLinks, "/empty/")
-                || has(AuthoringDiagnosticKind::NoInboundLinks, "/empty")
-        );
-        assert!(!has(AuthoringDiagnosticKind::OrphanPage, "/linked"));
-        assert!(!has(AuthoringDiagnosticKind::OrphanPage, "/rendered"));
-        assert_ne!(duplicate_route_source, "/same-a");
-
-        std::fs::remove_dir_all(&dir).expect("remove temp dir");
-    }
-
-    #[tokio::test]
-    async fn exposes_route_graph_edges() {
-        let dir = temp_dir("route-graph");
-        let content_dir = dir.join("content");
-        let templates_dir = dir.join("templates");
-        std::fs::create_dir_all(&content_dir).expect("create content dir");
-        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
-        std::fs::write(
-            templates_dir.join("section.html"),
-            "<nav><a href=\"/rendered\">Rendered</a></nav>{{ section.content | safe }}",
-        )
-        .expect("write section template");
-        std::fs::write(templates_dir.join("page.html"), "{{ page.content | safe }}")
-            .expect("write page template");
-        std::fs::write(
-            content_dir.join("_index.md"),
-            "+++\ntitle = \"Home\"\ntemplate = \"section.html\"\n+++\n\n[guide](/guide)\n",
-        )
-        .expect("write root");
-        std::fs::write(
-            content_dir.join("guide.md"),
-            "+++\ntitle = \"Guide\"\n+++\n\n[home](/)\n",
-        )
-        .expect("write guide");
-        std::fs::write(
-            content_dir.join("rendered.md"),
-            "+++\ntitle = \"Rendered\"\n+++\n",
-        )
-        .expect("write rendered");
-
-        let project = load_authoring_project(&content_dir, &[])
-            .await
-            .expect("load project");
-        let graph = route_graph_for_project(&project);
-        let home = graph
-            .iter()
-            .find(|node| node.route == "/")
-            .expect("home node");
-        let guide = graph
-            .iter()
-            .find(|node| node.route == "/guide")
-            .expect("guide node");
-        let rendered = graph
-            .iter()
-            .find(|node| node.route == "/rendered")
-            .expect("rendered node");
-
-        assert!(home.outgoing.iter().any(|edge| {
-            edge.kind == RouteGraphEdgeKind::Markdown && edge.target_route == "/guide"
-        }));
-        assert!(home.outgoing.iter().any(|edge| {
-            edge.kind == RouteGraphEdgeKind::RenderedHtml && edge.target_route == "/rendered"
-        }));
-        assert_eq!(guide.incoming.len(), 1);
-        assert_eq!(guide.incoming[0].source_route, "/");
-        assert_eq!(guide.outgoing.len(), 1);
-        assert_eq!(guide.outgoing[0].target_route, "/");
-        assert_eq!(rendered.incoming.len(), 1);
-        assert_eq!(rendered.incoming[0].kind, RouteGraphEdgeKind::RenderedHtml);
-
-        let json = route_graph_to_json(&graph);
-        assert!(json.as_array().is_some_and(|nodes| nodes.len() == 3));
-        assert!(
-            json.to_string().contains("\"kind\":\"renderedHtml\""),
-            "route graph JSON should preserve rendered edge provenance"
-        );
-
-        std::fs::remove_dir_all(&dir).expect("remove temp dir");
-    }
-
-    #[tokio::test]
-    async fn code_actions_fix_missing_anchors_from_authoring_headings() {
-        let dir = temp_dir("anchor-actions");
-        let content_dir = dir.join("content");
-        std::fs::create_dir_all(content_dir.join("guide")).expect("create content dirs");
-        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
-        let target = "\
-# Intro
-
-## Details
-";
-        std::fs::write(content_dir.join("guide/intro.md"), target).expect("write target");
-        let source = "\
-# Source
-
-[typo](/guide/intro#intro--detals)
-[new](/guide/intro#intro--appendix)
-";
-        std::fs::write(content_dir.join("guide/source.md"), source).expect("write source");
-
-        let project = load_authoring_project(&content_dir, &[])
-            .await
-            .expect("load project");
-        let source_page = project
-            .page_for_source_file("guide/source.md")
-            .expect("source page");
-        let diagnostics = diagnostics_for_page(&project, source_page, source);
-        let lsp_diagnostics = diagnostics
-            .iter()
-            .map(authoring_diagnostic_to_lsp)
-            .collect::<Vec<_>>();
-        let typo_diagnostic = diagnostics
-            .iter()
-            .find(|diagnostic| diagnostic.target.contains("intro--detals"))
-            .expect("typo diagnostic");
-        let actions = missing_anchor_code_actions(
-            &content_dir,
-            &project,
-            source,
-            typo_diagnostic,
-            &lsp_diagnostics,
-        );
-
-        let titles = actions
-            .iter()
-            .filter_map(|action| match action {
-                CodeActionOrCommand::CodeAction(action) => Some(action.title.as_str()),
-                CodeActionOrCommand::Command(_) => None,
-            })
-            .collect::<Vec<_>>();
-        assert!(titles.contains(&"Change anchor to '#intro--details'"));
-        assert!(titles.contains(&"Create heading for '#intro--detals'"));
-
-        let source_uri =
-            Url::from_file_path(content_dir.join("guide/source.md")).expect("source uri");
-        let replacement = actions
-            .iter()
-            .filter_map(|action| match action {
-                CodeActionOrCommand::CodeAction(action)
-                    if action.title == "Change anchor to '#intro--details'" =>
-                {
-                    action.edit.as_ref()
-                }
-                _ => None,
-            })
-            .next()
-            .expect("replacement edit");
-        let replacement_edits = replacement
-            .changes
-            .as_ref()
-            .and_then(|changes| changes.get(&source_uri))
-            .expect("source replacement edits");
-        assert_eq!(replacement_edits.len(), 1);
-        assert_eq!(replacement_edits[0].new_text, "intro--details");
-
-        let target_uri =
-            Url::from_file_path(content_dir.join("guide/intro.md")).expect("target uri");
-        let creation = actions
-            .iter()
-            .filter_map(|action| match action {
-                CodeActionOrCommand::CodeAction(action)
-                    if action.title == "Create heading for '#intro--detals'" =>
-                {
-                    action.edit.as_ref()
-                }
-                _ => None,
-            })
-            .next()
-            .expect("creation edit");
-        let creation_edits = creation
-            .changes
-            .as_ref()
-            .and_then(|changes| changes.get(&target_uri))
-            .expect("target creation edits");
-        assert_eq!(creation_edits.len(), 1);
-        assert_eq!(creation_edits[0].new_text, "\n\n## Detals\n");
-
-        std::fs::remove_dir_all(&dir).expect("remove temp dir");
-    }
-
-    #[tokio::test]
-    async fn code_action_extracts_selection_to_page_without_duplicate_title() {
-        let dir = temp_dir("extract-page");
-        let content_dir = dir.join("content");
-        std::fs::create_dir_all(content_dir.join("guide")).expect("create content dirs");
-        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
-        std::fs::write(content_dir.join("guide/_index.md"), "# Guide\n").expect("write guide");
-        let source = "\
-+++
-title = \"Source\"
-+++
-
-# Source
-
-Keep this.
-
-## Extract Me
-
-This moves.
-";
-        std::fs::write(content_dir.join("guide/source.md"), source).expect("write source");
-
-        let project = load_authoring_project(&content_dir, &[])
-            .await
-            .expect("load project");
-        let uri = Url::from_file_path(content_dir.join("guide/source.md")).expect("source uri");
-        let selection = range_for(source, "## Extract Me\n\nThis moves.");
-        let plan = extract_page_plan(&content_dir, &project, &uri, source, selection)
-            .expect("extract plan")
-            .expect("extract action");
-
-        assert_eq!(plan.source_file, "guide/source.md");
-        assert_eq!(plan.new_source_file, "guide/extract-me.md");
-        assert_eq!(plan.new_route, "/guide/extract-me");
-        assert_eq!(plan.title, "Extract Me");
-        assert_eq!(
-            plan.new_content,
-            "+++\ntitle = \"Extract Me\"\n+++\n\nThis moves.\n"
-        );
-        assert_eq!(plan.replacement, "[Extract Me](extract-me)");
-        assert!(!plan.new_content.contains("## Extract Me"));
-
-        let edit = workspace_edit_for_extract_page(&content_dir, &plan).expect("workspace edit");
-        let operations = match edit.document_changes.expect("document changes") {
-            DocumentChanges::Operations(operations) => operations,
-            DocumentChanges::Edits(_) => panic!("expected document change operations"),
-        };
-        assert_eq!(operations.len(), 3);
-        match &operations[0] {
-            DocumentChangeOperation::Op(ResourceOp::Create(create)) => {
-                assert_eq!(
-                    create.uri,
-                    Url::from_file_path(content_dir.join("guide/extract-me.md"))
-                        .expect("created uri")
-                );
-            }
-            _ => panic!("expected create file operation"),
-        }
-
-        std::fs::remove_dir_all(&dir).expect("remove temp dir");
-    }
-
-    #[tokio::test]
-    async fn resolves_definition_locations_for_links_and_static_assets() {
-        let dir = temp_dir("definition");
-        let content_dir = dir.join("content");
-        let static_dir = dir.join("static");
-        std::fs::create_dir_all(content_dir.join("guide")).expect("create content dirs");
-        std::fs::create_dir_all(&static_dir).expect("create static dir");
-        std::fs::write(static_dir.join("logo.png"), b"png").expect("write static");
-        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
-        std::fs::write(
-            content_dir.join("guide/intro.md"),
-            "# Intro\n\n## Details\n",
-        )
-        .expect("write target");
-        std::fs::write(content_dir.join("guide/_index.md"), "# Guide\n").expect("write section");
-        let source = "\
-# Source
-
-[route](/guide/intro#intro--details)
-[source](@/guide/intro.md#intro)
-[relative](intro#intro)
-![logo](/logo.png)
-";
-        std::fs::write(content_dir.join("guide/source.md"), source).expect("write source");
-
-        let dirs = AuthoringDirs {
-            content_dir: content_dir.clone(),
-        };
-        let project = load_authoring_project(&content_dir, &[])
-            .await
-            .expect("load project");
-        let page = project
-            .page_for_source_file("guide/source.md")
-            .expect("source page");
-
-        let route_reference =
-            reference_at_position(source, position_for(source, "/guide/intro#intro--details"))
-                .expect("route reference");
-        let route_location = definition_for_reference(&dirs, &project, page, &route_reference)
-            .expect("route definition")
-            .expect("route location");
-        assert_eq!(
-            route_location.uri,
-            Url::from_file_path(content_dir.join("guide/intro.md")).expect("target uri")
-        );
-        assert_eq!(route_location.range.start.line, 2);
-
-        let source_reference =
-            reference_at_position(source, position_for(source, "@/guide/intro.md#intro"))
-                .expect("source reference");
-        let source_location = definition_for_reference(&dirs, &project, page, &source_reference)
-            .expect("source definition")
-            .expect("source location");
-        assert_eq!(source_location.range.start.line, 0);
-
-        let relative_reference = reference_at_position(source, position_for(source, "[relative]"))
-            .expect("relative reference");
-        let relative_location =
-            definition_for_reference(&dirs, &project, page, &relative_reference)
-                .expect("relative definition")
-                .expect("relative location");
-        assert_eq!(
-            relative_location.uri,
-            Url::from_file_path(content_dir.join("guide/intro.md")).expect("target uri")
-        );
-
-        let static_reference = reference_at_position(source, position_for(source, "/logo.png"))
-            .expect("image reference");
-        let static_location = definition_for_reference(&dirs, &project, page, &static_reference)
-            .expect("static definition")
-            .expect("static location");
-        assert_eq!(
-            static_location.uri,
-            Url::from_file_path(static_dir.join("logo.png")).expect("static uri")
-        );
-
-        std::fs::remove_dir_all(&dir).expect("remove temp dir");
-    }
-
-    #[tokio::test]
-    async fn finds_references_to_page_routes_and_source_links() {
-        let dir = temp_dir("references");
-        let content_dir = dir.join("content");
-        let templates_dir = dir.join("templates");
-        std::fs::create_dir_all(content_dir.join("nested")).expect("create content dirs");
-        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
-        let section_template =
-            "<nav><a href=\"/target\">Target</a></nav>{{ section.content | safe }}";
-        std::fs::write(templates_dir.join("section.html"), section_template)
-            .expect("write section template");
-        std::fs::write(templates_dir.join("page.html"), "{{ page.content | safe }}")
-            .expect("write page template");
-        std::fs::write(
-            content_dir.join("target.md"),
-            "+++\ntitle = \"Target\"\n+++\n\n# Target\n",
-        )
-        .expect("write target");
-        std::fs::write(
-            content_dir.join("_index.md"),
-            "\
-+++
-title = \"Home\"
-template = \"section.html\"
-+++
-
-# Home
-
-[route](/target)
-[source](@/target.md)
-[anchor](/target#target)
-![asset](/target.png)
-",
-        )
-        .expect("write root");
-        std::fs::write(
-            content_dir.join("nested/source.md"),
-            "\
-# Source
-
-[relative](../target)
-",
-        )
-        .expect("write nested source");
-
-        let project = load_authoring_project(&content_dir, &[])
-            .await
-            .expect("load project");
-        let world = AuthoringWorld::new(project.clone()).expect("authoring world");
-        let target_page = project
-            .page_for_source_file("target.md")
-            .expect("target page");
-        let template_reference = world
-            .template_index
-            .route_reference_at_position("section.html", position_for(section_template, "/target"))
-            .expect("template route reference");
-        assert_eq!(template_reference.target_route, "/target");
-        assert!(range_contains_position(
-            &template_reference.source_range,
-            position_for(section_template, "/target")
-        ));
-
-        let references =
-            references_to_page(&content_dir, &project, target_page).expect("references");
-
-        assert_eq!(references.len(), 5);
-        assert_eq!(
-            references
-                .iter()
-                .map(|location| {
-                    let path =
-                        Utf8PathBuf::from_path_buf(location.uri.to_file_path().expect("file uri"))
-                            .expect("utf8 path");
-                    path.strip_prefix(&dir)
-                        .expect("project relative")
-                        .to_string()
-                })
-                .collect::<Vec<_>>(),
-            vec![
-                "content/_index.md".to_string(),
-                "content/_index.md".to_string(),
-                "content/_index.md".to_string(),
-                "content/nested/source.md".to_string(),
-                "templates/section.html".to_string(),
-            ]
-        );
-        let template_reference = references
-            .iter()
-            .find(|location| {
-                location.uri.to_file_path().is_ok_and(|path| {
-                    Utf8PathBuf::from_path_buf(path)
-                        .ok()
-                        .is_some_and(|path| path.ends_with("templates/section.html"))
-                })
-            })
-            .expect("template rendered reference");
-        assert!(range_contains_position(
-            &template_reference.range,
-            position_for(section_template, "/target")
-        ));
-
-        std::fs::remove_dir_all(&dir).expect("remove temp dir");
-    }
-
-    #[tokio::test]
-    async fn finds_references_to_exact_heading_fragments() {
-        let dir = temp_dir("heading-references");
-        let content_dir = dir.join("content");
-        std::fs::create_dir_all(content_dir.join("nested")).expect("create content dirs");
-        let target = "\
-+++
-title = \"Target\"
-+++
-
-# Target
-
-## Details
-";
-        std::fs::write(content_dir.join("target.md"), target).expect("write target");
-        std::fs::write(
-            content_dir.join("_index.md"),
-            "\
-# Home
-
-[page](/target)
-[route heading](/target#target--details)
-[source heading](@/target.md#target--details)
-[wrong heading](/target#target)
-",
-        )
-        .expect("write root");
-        std::fs::write(
-            content_dir.join("nested/source.md"),
-            "\
-# Source
-
-[relative heading](../target#target--details)
-",
-        )
-        .expect("write nested source");
-
-        let project = load_authoring_project(&content_dir, &[])
-            .await
-            .expect("load project");
-        let target_page = project
-            .page_for_source_file("target.md")
-            .expect("target page");
-        let heading_id =
-            heading_id_at_position(target_page, target, position_for(target, "Details"))
-                .expect("heading id");
-        let references = references_to_heading(&content_dir, &project, target_page, &heading_id)
-            .expect("heading references");
-
-        assert_eq!(heading_id, "target--details");
-        assert_eq!(references.len(), 3);
-        assert_eq!(
-            references
-                .iter()
-                .map(|location| {
-                    Utf8PathBuf::from_path_buf(location.uri.to_file_path().expect("file uri"))
-                        .expect("utf8 path")
-                        .strip_prefix(&content_dir)
-                        .expect("content relative")
-                        .to_string()
-                })
-                .collect::<Vec<_>>(),
-            vec![
-                "_index.md".to_string(),
-                "_index.md".to_string(),
-                "nested/source.md".to_string(),
-            ]
-        );
-
-        std::fs::remove_dir_all(&dir).expect("remove temp dir");
-    }
-
-    #[tokio::test]
-    async fn renames_heading_and_exact_fragment_links() {
-        let dir = temp_dir("heading-rename");
-        let content_dir = dir.join("content");
-        std::fs::create_dir_all(content_dir.join("nested")).expect("create content dirs");
-        let target = "\
-+++
-title = \"Target\"
-+++
-
-# Target
-
-## Details
-";
-        std::fs::write(content_dir.join("target.md"), target).expect("write target");
-        let index = "\
-# Home
-
-[page](/target)
-[route heading](/target#target--details)
-[source heading](@/target.md#target--details)
-[wrong heading](/target#target)
-";
-        std::fs::write(content_dir.join("_index.md"), index).expect("write root");
-        let nested = "\
-# Source
-
-[relative heading](../target#target--details)
-";
-        std::fs::write(content_dir.join("nested/source.md"), nested).expect("write nested source");
-
-        let project = load_authoring_project(&content_dir, &[])
-            .await
-            .expect("load project");
-        let target_page = project
-            .page_for_source_file("target.md")
-            .expect("target page");
-        let target_position = position_for(target, "Details");
-        let target = heading_rename_target_at_position(target_page, target, target_position)
-            .expect("rename target");
-        assert_eq!(target.heading_id, "target--details");
-        assert_eq!(target.title, "Details");
-
-        let edit = rename_heading_workspace_edit(
-            &content_dir,
-            &project,
-            target_page,
-            "target.md",
-            project
-                .source_contents
-                .get("target.md")
-                .expect("target content"),
-            &target,
-            "Deep Details",
-        )
-        .expect("rename edit")
-        .expect("workspace edit");
-        let changes = edit.changes.expect("workspace changes");
-
-        let target_uri = Url::from_file_path(content_dir.join("target.md")).expect("target uri");
-        let index_uri = Url::from_file_path(content_dir.join("_index.md")).expect("index uri");
-        let nested_uri =
-            Url::from_file_path(content_dir.join("nested/source.md")).expect("nested uri");
-
-        let target_edits = changes.get(&target_uri).expect("target edits");
-        assert_eq!(target_edits.len(), 1);
-        assert_eq!(target_edits[0].new_text, "Deep Details");
-        assert_eq!(target_edits[0].range, target.title_range);
-
-        let index_edits = changes.get(&index_uri).expect("index edits");
-        assert_eq!(
-            index_edits
-                .iter()
-                .map(|edit| edit.new_text.as_str())
-                .collect::<Vec<_>>(),
-            vec!["target--deep-details", "target--deep-details"]
-        );
-
-        let nested_edits = changes.get(&nested_uri).expect("nested edits");
-        assert_eq!(nested_edits.len(), 1);
-        assert_eq!(nested_edits[0].new_text, "target--deep-details");
-        assert_eq!(changes.len(), 3);
-
-        std::fs::remove_dir_all(&dir).expect("remove temp dir");
-    }
-
-    #[tokio::test]
-    async fn renames_page_route_source_file_and_resolved_links() {
-        let dir = temp_dir("page-route-rename");
-        let content_dir = dir.join("content");
-        let templates_dir = dir.join("templates");
-        std::fs::create_dir_all(content_dir.join("guide")).expect("create guide dir");
-        std::fs::create_dir_all(content_dir.join("nested")).expect("create nested dir");
-        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
-        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
-        std::fs::write(content_dir.join("guide/_index.md"), "# Guide\n").expect("write guide");
-        std::fs::write(content_dir.join("nested/_index.md"), "# Nested\n").expect("write nested");
-        std::fs::write(
-            templates_dir.join("page.html"),
-            "<nav><a href=\"/guide/intro#intro\">Intro</a><a href=\"/elsewhere\">Elsewhere</a></nav>{{ page.content | safe }}",
-        )
-        .expect("write page template");
-        std::fs::write(
-            content_dir.join("guide/intro.md"),
-            "\
-+++
-title = \"Intro\"
-+++
-
-# Intro
-
-[local](#intro)
-[absolute self](/guide/intro#intro)
-[source self](@/guide/intro.md#intro)
-",
-        )
-        .expect("write target");
-        std::fs::write(
-            content_dir.join("guide/source.md"),
-            "\
-# Source
-
-[relative route](intro#intro)
-[relative source](intro.md#intro)
-[wrong](/guide/other)
-",
-        )
-        .expect("write guide source");
-        std::fs::write(
-            content_dir.join("nested/source.md"),
-            "\
-# Source
-
-[absolute](/guide/intro#intro)
-[absolute source](@/guide/intro.md#intro)
-[relative route](../guide/intro#intro)
-[relative source](../guide/intro.md#intro)
-",
-        )
-        .expect("write nested source");
-
-        let project = load_authoring_project(&content_dir, &[])
-            .await
-            .expect("load project");
-        let target_page = project
-            .page_for_source_file("guide/intro.md")
-            .expect("target page");
-        let plan = page_route_rename_plan(&content_dir, &project, target_page, "/manual/setup")
-            .expect("rename plan")
-            .expect("page route rename");
-
-        assert_eq!(plan.old_route, "/guide/intro");
-        assert_eq!(plan.new_route, "/manual/setup");
-        assert_eq!(plan.old_source_file, "guide/intro.md");
-        assert_eq!(plan.new_source_file, "manual/setup.md");
-        assert_eq!(
-            plan.text_edits
-                .iter()
-                .map(|edit| (
-                    page_route_text_edit_sort_key(&edit.path),
-                    edit.new_target.as_str()
-                ))
-                .collect::<Vec<_>>(),
-            vec![
-                (
-                    "source:guide/source.md".to_string(),
-                    "../manual/setup#intro"
-                ),
-                (
-                    "source:guide/source.md".to_string(),
-                    "../manual/setup.md#intro"
-                ),
-                ("source:manual/setup.md".to_string(), "/manual/setup#intro"),
-                (
-                    "source:manual/setup.md".to_string(),
-                    "@/manual/setup.md#intro"
-                ),
-                ("source:nested/source.md".to_string(), "/manual/setup#intro"),
-                (
-                    "source:nested/source.md".to_string(),
-                    "@/manual/setup.md#intro"
-                ),
-                (
-                    "source:nested/source.md".to_string(),
-                    "../manual/setup#intro"
-                ),
-                (
-                    "source:nested/source.md".to_string(),
-                    "../manual/setup.md#intro"
-                ),
-                ("template:page.html".to_string(), "/manual/setup#intro"),
-            ]
-        );
-
-        let workspace_edit =
-            workspace_edit_for_page_route_rename(&content_dir, &plan).expect("workspace edit");
-        let operations = match workspace_edit.document_changes.expect("document changes") {
-            DocumentChanges::Operations(operations) => operations,
-            DocumentChanges::Edits(_) => panic!("expected document change operations"),
-        };
-        match &operations[0] {
-            DocumentChangeOperation::Op(ResourceOp::Rename(rename)) => {
-                assert_eq!(
-                    rename.old_uri,
-                    Url::from_file_path(content_dir.join("guide/intro.md")).expect("old uri")
-                );
-                assert_eq!(
-                    rename.new_uri,
-                    Url::from_file_path(content_dir.join("manual/setup.md")).expect("new uri")
-                );
-            }
-            _ => panic!("expected file rename operation"),
-        }
-        assert_eq!(operations.len(), 5);
-
-        std::fs::remove_dir_all(&dir).expect("remove temp dir");
-    }
-
-    #[tokio::test]
-    async fn completes_routes_sources_static_assets_and_headings_from_authoring_project() {
-        let dir = temp_dir("completions");
-        let content_dir = dir.join("content");
-        let static_dir = dir.join("static");
-        std::fs::create_dir_all(content_dir.join("guide")).expect("create content dirs");
-        std::fs::create_dir_all(&static_dir).expect("create static dir");
-        std::fs::write(static_dir.join("logo.png"), b"png").expect("write static");
-        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
-        std::fs::write(content_dir.join("guide/_index.md"), "# Guide\n").expect("write section");
-        std::fs::write(
-            content_dir.join("guide/intro.md"),
-            "# Intro\n\n## Details\n",
-        )
-        .expect("write intro");
-        let source = "\
-# Source
-
-[absolute](/)
-[source](@/)
-[relative]()
-[heading](/guide/intro#)
-[local](#)
-![image](/)
-";
-        std::fs::write(content_dir.join("guide/source.md"), source).expect("write source");
-
-        let project = load_authoring_project(&content_dir, &[])
-            .await
-            .expect("load project");
-        let page = project
-            .page_for_source_file("guide/source.md")
-            .expect("source page");
-        let contexts = markdown_target_contexts(source);
-
-        assert!(
-            completion_new_texts(&project, page, &contexts[0]).contains(&"/guide/intro".into())
-        );
-        assert!(
-            completion_new_texts(&project, page, &contexts[1]).contains(&"@/guide/intro.md".into())
-        );
-        assert!(completion_new_texts(&project, page, &contexts[2]).contains(&"intro".into()));
-        assert!(
-            completion_new_texts(&project, page, &contexts[3])
-                .contains(&"/guide/intro#intro--details".into())
-        );
-        assert!(completion_new_texts(&project, page, &contexts[4]).contains(&"#source".into()));
-        assert!(completion_new_texts(&project, page, &contexts[5]).contains(&"/logo.png".into()));
-
-        std::fs::remove_dir_all(&dir).expect("remove temp dir");
-    }
-
-    fn completion_new_texts(
-        project: &AuthoringProject,
-        page: &AuthoringPage,
-        context: &MarkdownTargetContext,
-    ) -> Vec<String> {
-        completion_items_for_markdown_target(project, page, context)
-            .into_iter()
-            .filter_map(|item| match item.text_edit {
-                Some(CompletionTextEdit::Edit(edit)) => Some(edit.new_text),
-                _ => None,
-            })
-            .collect()
-    }
-
-    #[tokio::test]
-    async fn hovers_links_and_frontmatter_from_authoring_project() {
-        let dir = temp_dir("hovers");
-        let content_dir = dir.join("content");
-        let static_dir = dir.join("static");
-        std::fs::create_dir_all(content_dir.join("guide")).expect("create content dirs");
-        std::fs::create_dir_all(&static_dir).expect("create static dir");
-        std::fs::write(static_dir.join("logo.png"), b"png").expect("write static");
-        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
-        std::fs::write(
-            content_dir.join("guide/intro.md"),
-            "+++\ntitle = \"Intro\"\n+++\n\n# Intro\n\n## Details\n",
-        )
-        .expect("write intro");
-        let source = "\
-+++
-title = \"Source\"
-+++
-
-[intro](/guide/intro#intro--details)
-[missing](/missing)
-![logo](/logo.png)
-";
-        std::fs::write(content_dir.join("guide/source.md"), source).expect("write source");
-
-        let project = load_authoring_project(&content_dir, &[])
-            .await
-            .expect("load project");
-        let template_index = TemplateAuthoringIndex::new(&project);
-        let page = project
-            .page_for_source_file("guide/source.md")
-            .expect("source page");
-
-        let intro_reference = reference_at_position(source, position_for(source, "/guide/intro"))
-            .expect("intro reference");
-        let intro_hover = link_hover_markdown(&project, page, source, &intro_reference);
-        assert!(intro_hover.contains("**Dodeca Intro**"));
-        assert!(intro_hover.contains("> # Intro ## Details"));
-        assert!(intro_hover.contains("**Heading**: H2 `Details` (`#intro--details`)"));
-        assert!(intro_hover.contains("| `/guide/intro` | `guide/intro.md` |"));
-
-        let missing_reference = reference_at_position(source, position_for(source, "/missing"))
-            .expect("missing reference");
-        let missing_hover = link_hover_markdown(&project, page, source, &missing_reference);
-        assert!(missing_hover.contains("route '/missing' not found"));
-
-        let logo_reference = reference_at_position(source, position_for(source, "/logo.png"))
-            .expect("logo reference");
-        let logo_hover = link_hover_markdown(&project, page, source, &logo_reference);
-        assert!(logo_hover.contains("Dodeca static asset"));
-        assert!(logo_hover.contains("static/logo.png"));
-
-        let frontmatter_hover =
-            frontmatter_hover_markdown(&project, &template_index, page, source, 3);
-        assert!(frontmatter_hover.contains("**Dodeca page: Source**"));
-        assert!(frontmatter_hover.contains("> [intro](/guide/intro#intro--details)"));
-        assert!(frontmatter_hover.contains("| route | source | headings | backlinks |"));
-        assert!(frontmatter_hover.contains("| `/guide/source` | `guide/source.md` |"));
-        assert!(frontmatter_hover.contains("| transforms | `markdown -> page template"));
-        assert!(frontmatter_hover.contains("| static assets | `logo.png` |"));
-
-        std::fs::remove_dir_all(&dir).expect("remove temp dir");
-    }
-
-    #[tokio::test]
-    async fn symbols_list_pages_and_headings_from_authoring_project() {
-        let dir = temp_dir("symbols");
-        let content_dir = dir.join("content");
-        std::fs::create_dir_all(content_dir.join("guide")).expect("create content dirs");
-        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
-        std::fs::write(
-            content_dir.join("guide/intro.md"),
-            "+++\ntitle = \"Intro\"\n+++\n\n# Intro\n\n## Details\n",
-        )
-        .expect("write intro");
-        std::fs::write(content_dir.join("guide/source.md"), "# Source\n").expect("write source");
-
-        let project = load_authoring_project(
-            &content_dir,
-            &[AuthoringDocumentOverlay {
-                path: AuthoringInputPath::Source("guide/draft.md".to_string()),
-                content: "+++\ntitle = \"Draft\"\n+++\n\n# Draft\n".to_string(),
-            }],
-        )
-        .await
-        .expect("load project");
-        let intro = project
-            .page_for_source_file("guide/intro.md")
-            .expect("intro page");
-        let intro_content = project
-            .source_contents
-            .get("guide/intro.md")
-            .expect("intro content");
-
-        let document_symbols = document_symbol_for_page(intro, intro_content);
-        let children = document_symbols.children.expect("heading children");
-        assert_eq!(document_symbols.name, "Intro");
-        assert_eq!(
-            children
-                .iter()
-                .map(|symbol| symbol.name.as_str())
-                .collect::<Vec<_>>(),
-            vec!["Intro", "Details"]
-        );
-
-        let route_symbols = workspace_symbols_for_project(&content_dir, &project, "/guide/intro");
-        assert!(route_symbols.iter().any(|symbol| symbol.name == "Intro"));
-
-        let source_symbols = workspace_symbols_for_project(&content_dir, &project, "draft.md");
-        assert!(source_symbols.iter().any(|symbol| symbol.name == "Draft"));
-
-        let heading_symbols =
-            workspace_symbols_for_project(&content_dir, &project, "intro--details");
-        assert!(heading_symbols.iter().any(|symbol| {
-            symbol.name == "Details"
-                && symbol
-                    .container_name
-                    .as_deref()
-                    .is_some_and(|container| container.contains("/guide/intro"))
-        }));
-
-        std::fs::remove_dir_all(&dir).expect("remove temp dir");
-    }
-
-    #[tokio::test]
-    async fn authoring_project_uses_open_document_overlays() {
-        let dir = temp_dir("overlays");
-        let content_dir = dir.join("content");
-        std::fs::create_dir_all(&content_dir).expect("create content dir");
-        std::fs::write(content_dir.join("_index.md"), "[target](/target)\n").expect("write root");
-        std::fs::write(content_dir.join("target.md"), "# Target\n").expect("write target");
-
-        let disk_project = load_authoring_project(&content_dir, &[])
-            .await
-            .expect("load disk project");
-        assert!(disk_project.route_exists("/target"));
-
-        let overlay_project = load_authoring_project(
-            &content_dir,
-            &[AuthoringDocumentOverlay {
-                path: AuthoringInputPath::Source("draft.md".to_string()),
-                content: "+++\ntitle = \"Draft\"\n+++\n".to_string(),
-            }],
-        )
-        .await
-        .expect("load overlay project");
-
-        assert!(overlay_project.route_exists("/target"));
-        assert!(overlay_project.route_exists("/draft"));
-        assert_eq!(
-            overlay_project.source_file_for_route("/draft"),
-            Some("draft.md")
-        );
-
-        std::fs::remove_dir_all(&dir).expect("remove temp dir");
-    }
-
-    #[tokio::test]
-    async fn authoring_workspace_updates_open_document_overlays() {
-        let dir = temp_dir("workspace-overlays");
-        let content_dir = dir.join("content");
-        std::fs::create_dir_all(&content_dir).expect("create content dir");
-        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
-
-        let mut workspace = AuthoringWorkspace::new(&content_dir).expect("workspace");
-        assert!(
-            !workspace
-                .inputs()
-                .project()
-                .await
-                .expect("project")
-                .route_exists("/draft")
-        );
-
-        workspace
-            .apply_overlays(&[AuthoringDocumentOverlay {
-                path: AuthoringInputPath::Source("draft.md".to_string()),
-                content: "+++\ntitle = \"Draft\"\n+++\n".to_string(),
-            }])
-            .expect("apply overlay");
-        assert!(
-            workspace
-                .inputs()
-                .project()
-                .await
-                .expect("project")
-                .route_exists("/draft")
-        );
-
-        workspace.apply_overlays(&[]).expect("clear overlay");
-        assert!(
-            !workspace
-                .inputs()
-                .project()
-                .await
-                .expect("project")
-                .route_exists("/draft")
-        );
-
-        std::fs::remove_dir_all(&dir).expect("remove temp dir");
-    }
-
-    #[tokio::test]
-    async fn authoring_workspace_updates_template_overlays() {
-        let dir = temp_dir("workspace-template-overlays");
-        let content_dir = dir.join("content");
-        let templates_dir = dir.join("templates");
-        std::fs::create_dir_all(&content_dir).expect("create content dir");
-        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
-        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
-
-        let mut workspace = AuthoringWorkspace::new(&content_dir).expect("workspace");
-        assert!(
-            !workspace
-                .inputs()
-                .project()
-                .await
-                .expect("project")
-                .template_paths
-                .contains_key("custom.html")
-        );
-
-        workspace
-            .apply_overlays(&[AuthoringDocumentOverlay {
-                path: AuthoringInputPath::Template("custom.html".to_string()),
-                content: "{% set alpha = \"/\" %}{{ alpha }}".to_string(),
-            }])
-            .expect("apply template overlay");
-        let alpha_project = workspace.inputs().project().await.expect("alpha project");
-        assert!(alpha_project.template_paths.contains_key("custom.html"));
-        let alpha_index = alpha_project
-            .template_semantics
-            .get("custom.html")
-            .expect("alpha template semantics");
-        assert!(
-            alpha_index
-                .symbols
-                .iter()
-                .any(|symbol| symbol.name == "alpha")
-        );
-
-        workspace
-            .apply_overlays(&[AuthoringDocumentOverlay {
-                path: AuthoringInputPath::Template("custom.html".to_string()),
-                content: "{% set beta = \"/\" %}{{ beta".to_string(),
-            }])
-            .expect("update template overlay");
-        let beta_project = workspace.inputs().project().await.expect("beta project");
-        let beta_index = beta_project
-            .template_semantics
-            .get("custom.html")
-            .expect("beta template semantics");
-        assert!(
-            beta_index
-                .symbols
-                .iter()
-                .any(|symbol| symbol.name == "beta")
-        );
-        assert!(
-            !beta_index
-                .symbols
-                .iter()
-                .any(|symbol| symbol.name == "alpha")
-        );
-
-        workspace.apply_overlays(&[]).expect("clear overlay");
-        let cleared_project = workspace.inputs().project().await.expect("cleared project");
-        assert!(!cleared_project.template_paths.contains_key("custom.html"));
-        assert!(
-            !cleared_project
-                .template_semantics
-                .contains_key("custom.html")
-        );
-
-        std::fs::remove_dir_all(&dir).expect("remove temp dir");
-    }
-
-    #[tokio::test]
-    async fn authoring_workspace_updates_disk_source_changes() {
-        let dir = temp_dir("workspace-disk-source-changes");
-        let content_dir = dir.join("content");
-        std::fs::create_dir_all(&content_dir).expect("create content dir");
-        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
-
-        let mut workspace = AuthoringWorkspace::new(&content_dir).expect("workspace");
-        workspace
-            .apply_file_change(
-                &AuthoringInputPath::Source("draft.md".to_string()),
-                Some("+++\ntitle = \"Draft\"\n+++\n"),
-            )
-            .expect("apply source change");
-        assert!(
-            workspace
-                .inputs()
-                .project()
-                .await
-                .expect("project")
-                .route_exists("/draft")
-        );
-
-        workspace
-            .apply_file_change(&AuthoringInputPath::Source("draft.md".to_string()), None)
-            .expect("apply source removal");
-        assert!(
-            !workspace
-                .inputs()
-                .project()
-                .await
-                .expect("project")
-                .route_exists("/draft")
-        );
-
-        std::fs::remove_dir_all(&dir).expect("remove temp dir");
     }
 }

@@ -1,0 +1,31 @@
+[package]
+autobins = false
+name = "cell-authoring-lsp"
+version = "0.6.1"
+edition = "2024"
+rust-version = "1.91"
+
+[package.metadata.docs.rs]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+[lib]
+name = "ddc_cell_authoring_lsp"
+crate-type = ["cdylib", "rlib"]
+path = "src/main.rs"
+
+[dependencies]
+camino.workspace = true
+cell-authoring-lsp-proto = { path = "../cell-authoring-lsp-proto" }
+dodeca = { path = "../../crates/dodeca" }
+dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }
+eyre.workspace = true
+facet.workspace = true
+gingembre = { path = "../../crates/gingembre" }
+marq.workspace = true
+pulldown-cmark.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tower-lsp.workspace = true

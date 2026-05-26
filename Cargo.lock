@@ -1476,6 +1476,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "cell-authoring-lsp"
+version = "0.6.1"
+dependencies = [
+ "camino",
+ "cell-authoring-lsp-proto",
+ "dodeca",
+ "dodeca-cell-runtime",
+ "eyre",
+ "facet",
+ "gingembre",
+ "marq",
+ "pulldown-cmark",
+ "serde_json",
+ "tokio",
+ "tower-lsp",
+]
+
+[[package]]
+name = "cell-authoring-lsp-proto"
+version = "0.6.1"
+dependencies = [
+ "facet",
+ "vox 0.8.1",
+]
+
+[[package]]
 name = "cell-code-execution"
 version = "0.6.1"
 dependencies = [
@@ -2798,6 +2824,7 @@ dependencies = [
  "arborium-theme",
  "ariadne 0.5.1",
  "camino",
+ "cell-authoring-lsp-proto",
  "cell-code-execution-proto",
  "cell-css-proto",
  "cell-data-proto",
@@ -2832,7 +2859,6 @@ dependencies = [
  "facet-json",
  "facet-postcard",
  "facet-styx",
- "facet-toml",
  "facet-value",
  "figue",
  "futures-util",
@@ -2849,14 +2875,11 @@ dependencies = [
  "open",
  "owo-colors",
  "picante",
- "pulldown-cmark",
  "rapidhash 4.4.1",
- "serde_json",
  "strid",
  "styx-embed",
  "styx-tree",
  "tokio",
- "tower-lsp",
  "tracing",
  "tracing-subscriber",
  "ur-taking-me-with-you",
@@ -4649,6 +4672,9 @@ dependencies = [
 name = "integration-tests"
 version = "0.6.1"
 dependencies = [
+ "camino",
+ "cell-authoring-lsp",
+ "dodeca",
  "dodeca-search-format",
  "facet-json",
  "facet-value",
@@ -4659,6 +4685,7 @@ dependencies = [
  "regex",
  "tempfile",
  "tokio",
+ "tower-lsp",
  "tracing",
  "tracing-subscriber",
  "ur-taking-me-with-you",

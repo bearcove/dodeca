@@ -241,6 +241,10 @@ impl_cell_client!(
     cell_code_execution_proto::CodeExecutorClient,
     "code-execution"
 );
+impl_cell_client!(
+    cell_authoring_lsp_proto::AuthoringLspClient,
+    "authoring-lsp"
+);
 impl_cell_client!(cell_http_proto::TcpTunnelClient, "http");
 impl_cell_client!(cell_gingembre_proto::TemplateRendererClient, "gingembre");
 impl_cell_client!(cell_tui_proto::TuiDisplayClient, "tui");
