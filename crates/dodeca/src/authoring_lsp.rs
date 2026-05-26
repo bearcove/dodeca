@@ -39,7 +39,7 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 use crate::authoring_model::{
     AuthoringDocumentOverlay, AuthoringInputPath, AuthoringPage, AuthoringPageKind,
-    AuthoringProject, AuthoringWorkspace, RenderedHrefOrigin,
+    AuthoringProject, AuthoringWorkspace, RenderedHref, RenderedHrefOrigin,
 };
 use crate::config::ResolvedConfig;
 use crate::queries::{Frontmatter, default_title_from_source_path};
@@ -4355,7 +4355,7 @@ struct PageRouteRenamePlan {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PageRouteTextEdit {
-    source_file: String,
+    path: AuthoringInputPath,
     range: Range,
     new_target: String,
 }
@@ -4416,12 +4416,28 @@ fn page_route_rename_plan(
             }
         }
     }
+    for (source_route, hrefs) in &project.rendered_hrefs_by_route {
+        let Some(source_page) = project.page_for_route(source_route) else {
+            continue;
+        };
+        for href in hrefs {
+            if let Some(edit) =
+                page_route_rendered_href_edit(project, source_page, target_page, &target, href)
+            {
+                text_edits.push(edit);
+            }
+        }
+    }
 
     text_edits.sort_by(|a, b| {
-        a.source_file
-            .cmp(&b.source_file)
+        page_route_text_edit_sort_key(&a.path)
+            .cmp(&page_route_text_edit_sort_key(&b.path))
             .then_with(|| position_cmp(a.range.start, b.range.start))
             .then_with(|| position_cmp(a.range.end, b.range.end))
+            .then_with(|| a.new_target.cmp(&b.new_target))
+    });
+    text_edits.dedup_by(|left, right| {
+        left.path == right.path && left.range == right.range && left.new_target == right.new_target
     });
 
     Ok(Some(PageRouteRenamePlan {
@@ -4462,6 +4478,51 @@ fn page_route_rename_target(page: &AuthoringPage, new_name: &str) -> Option<Page
     let route = normalize_route(new_name);
     let source_file = source_file_for_page_route(&route, page.kind)?;
     Some(PageRouteRenameTarget { route, source_file })
+}
+
+fn page_route_rendered_href_edit(
+    project: &AuthoringProject,
+    source_page: &AuthoringPage,
+    target_page: &AuthoringPage,
+    target: &PageRouteRenameTarget,
+    href: &RenderedHref,
+) -> Option<PageRouteTextEdit> {
+    let origin = href.origin.as_ref()?;
+    let target_route = rendered_href_target_route(project, source_page, &href.href)?;
+    if !project.routes_refer_to_same_page(&target_route, &target_page.route) {
+        return None;
+    }
+    let (base, suffix) = target_base_and_suffix(&href.href);
+    if base.is_empty() || !base.starts_with('/') {
+        return None;
+    }
+    let new_target = format!("{}{}", target.route, suffix);
+    if new_target == href.href {
+        return None;
+    }
+    Some(PageRouteTextEdit {
+        path: origin.path.clone(),
+        range: rendered_href_origin_range(project, origin)?,
+        new_target,
+    })
+}
+
+fn rendered_href_origin_range(
+    project: &AuthoringProject,
+    origin: &RenderedHrefOrigin,
+) -> Option<Range> {
+    let content = match &origin.path {
+        AuthoringInputPath::Source(source_file) => project.source_contents.get(source_file)?,
+        AuthoringInputPath::Template(template_file) => {
+            project.template_contents.get(template_file)?
+        }
+        AuthoringInputPath::Sass(_)
+        | AuthoringInputPath::Static(_)
+        | AuthoringInputPath::Dist(_)
+        | AuthoringInputPath::Data(_) => return None,
+    };
+    (origin.byte_end <= content.len())
+        .then(|| byte_range_to_lsp_range(content, origin.byte_start, origin.byte_end))
 }
 
 fn page_route_link_edit(
@@ -4513,14 +4574,25 @@ fn page_route_link_edit(
     }
 
     Some(PageRouteTextEdit {
-        source_file: if page.source_file == target_page.source_file {
+        path: AuthoringInputPath::Source(if page.source_file == target_page.source_file {
             target.source_file.clone()
         } else {
             page.source_file.clone()
-        },
+        }),
         range: context.range,
         new_target,
     })
+}
+
+fn page_route_text_edit_sort_key(path: &AuthoringInputPath) -> String {
+    match path {
+        AuthoringInputPath::Source(path) => format!("source:{path}"),
+        AuthoringInputPath::Template(path) => format!("template:{path}"),
+        AuthoringInputPath::Sass(path) => format!("sass:{path}"),
+        AuthoringInputPath::Static(path) => format!("static:{path}"),
+        AuthoringInputPath::Dist(path) => format!("dist:{path}"),
+        AuthoringInputPath::Data(path) => format!("data:{path}"),
+    }
 }
 
 fn workspace_edit_for_page_route_rename(
@@ -4541,23 +4613,19 @@ fn workspace_edit_for_page_route_rename(
         },
     ))];
 
-    let mut edits_by_source: HashMap<String, Vec<TextEdit>> = HashMap::new();
+    let mut edits_by_path: HashMap<AuthoringInputPath, Vec<TextEdit>> = HashMap::new();
     for edit in &plan.text_edits {
-        edits_by_source
-            .entry(edit.source_file.clone())
+        edits_by_path
+            .entry(edit.path.clone())
             .or_default()
             .push(TextEdit::new(edit.range, edit.new_target.clone()));
     }
 
-    let mut source_files = edits_by_source.keys().cloned().collect::<Vec<_>>();
-    source_files.sort();
-    for source_file in source_files {
-        let uri = if source_file == plan.new_source_file {
-            new_uri.clone()
-        } else {
-            source_file_uri(content_dir, &source_file)?
-        };
-        let mut edits = edits_by_source.remove(&source_file).unwrap_or_default();
+    let mut paths = edits_by_path.keys().cloned().collect::<Vec<_>>();
+    paths.sort_by_key(page_route_text_edit_sort_key);
+    for path in paths {
+        let uri = page_route_edit_uri(content_dir, &path, plan)?;
+        let mut edits = edits_by_path.remove(&path).unwrap_or_default();
         edits.sort_by(|a, b| {
             position_cmp(a.range.start, b.range.start)
                 .then_with(|| position_cmp(a.range.end, b.range.end))
@@ -4573,6 +4641,33 @@ fn workspace_edit_for_page_route_rename(
         document_changes: Some(DocumentChanges::Operations(operations)),
         change_annotations: None,
     })
+}
+
+fn page_route_edit_uri(
+    content_dir: &Utf8Path,
+    path: &AuthoringInputPath,
+    plan: &PageRouteRenamePlan,
+) -> Result<Url> {
+    match path {
+        AuthoringInputPath::Source(source_file) if source_file == &plan.new_source_file => {
+            Ok(source_file_uri(content_dir, &plan.new_source_file)?)
+        }
+        AuthoringInputPath::Source(source_file) => source_file_uri(content_dir, source_file),
+        AuthoringInputPath::Template(template_file) => Url::from_file_path(
+            content_dir
+                .parent()
+                .unwrap_or(content_dir)
+                .join("templates")
+                .join(template_file),
+        )
+        .map_err(|_| eyre!("could not convert template file to URI: {template_file}")),
+        AuthoringInputPath::Sass(path)
+        | AuthoringInputPath::Static(path)
+        | AuthoringInputPath::Dist(path)
+        | AuthoringInputPath::Data(path) => Err(eyre!(
+            "page route rename cannot edit unsupported authoring input: {path}"
+        )),
+    }
 }
 
 fn source_file_uri(content_dir: &Utf8Path, source_file: &str) -> Result<Url> {
@@ -9634,11 +9729,18 @@ title = \"Target\"
     async fn renames_page_route_source_file_and_resolved_links() {
         let dir = temp_dir("page-route-rename");
         let content_dir = dir.join("content");
+        let templates_dir = dir.join("templates");
         std::fs::create_dir_all(content_dir.join("guide")).expect("create guide dir");
         std::fs::create_dir_all(content_dir.join("nested")).expect("create nested dir");
+        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
         std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
         std::fs::write(content_dir.join("guide/_index.md"), "# Guide\n").expect("write guide");
         std::fs::write(content_dir.join("nested/_index.md"), "# Nested\n").expect("write nested");
+        std::fs::write(
+            templates_dir.join("page.html"),
+            "<nav><a href=\"/guide/intro#intro\">Intro</a><a href=\"/elsewhere\">Elsewhere</a></nav>{{ page.content | safe }}",
+        )
+        .expect("write page template");
         std::fs::write(
             content_dir.join("guide/intro.md"),
             "\
@@ -9695,17 +9797,39 @@ title = \"Intro\"
         assert_eq!(
             plan.text_edits
                 .iter()
-                .map(|edit| (edit.source_file.as_str(), edit.new_target.as_str()))
+                .map(|edit| (
+                    page_route_text_edit_sort_key(&edit.path),
+                    edit.new_target.as_str()
+                ))
                 .collect::<Vec<_>>(),
             vec![
-                ("guide/source.md", "../manual/setup#intro"),
-                ("guide/source.md", "../manual/setup.md#intro"),
-                ("manual/setup.md", "/manual/setup#intro"),
-                ("manual/setup.md", "@/manual/setup.md#intro"),
-                ("nested/source.md", "/manual/setup#intro"),
-                ("nested/source.md", "@/manual/setup.md#intro"),
-                ("nested/source.md", "../manual/setup#intro"),
-                ("nested/source.md", "../manual/setup.md#intro"),
+                (
+                    "source:guide/source.md".to_string(),
+                    "../manual/setup#intro"
+                ),
+                (
+                    "source:guide/source.md".to_string(),
+                    "../manual/setup.md#intro"
+                ),
+                ("source:manual/setup.md".to_string(), "/manual/setup#intro"),
+                (
+                    "source:manual/setup.md".to_string(),
+                    "@/manual/setup.md#intro"
+                ),
+                ("source:nested/source.md".to_string(), "/manual/setup#intro"),
+                (
+                    "source:nested/source.md".to_string(),
+                    "@/manual/setup.md#intro"
+                ),
+                (
+                    "source:nested/source.md".to_string(),
+                    "../manual/setup#intro"
+                ),
+                (
+                    "source:nested/source.md".to_string(),
+                    "../manual/setup.md#intro"
+                ),
+                ("template:page.html".to_string(), "/manual/setup#intro"),
             ]
         );
 
@@ -9728,7 +9852,7 @@ title = \"Intro\"
             }
             _ => panic!("expected file rename operation"),
         }
-        assert_eq!(operations.len(), 4);
+        assert_eq!(operations.len(), 5);
 
         std::fs::remove_dir_all(&dir).expect("remove temp dir");
     }
