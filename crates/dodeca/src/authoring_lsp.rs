@@ -800,6 +800,14 @@ impl Backend {
         let path = lsp_file_uri_to_utf8_path(uri)?;
         let project = self.current_project(&dirs).await?;
         if let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? {
+            if let Some(occurrence) =
+                template_block_occurrence_at_position(&project, &template_file, &content, position)
+            {
+                return Ok(Some(markdown_hover(
+                    template_block_hover_markdown(&project, &template_file, &content, &occurrence),
+                    occurrence.source_range,
+                )));
+            }
             if let Some(reference) =
                 template_route_reference_at_position(&project, &template_file, &content, position)
                 && let Some(target_page) = project.page_for_route(&reference.target_route)
@@ -980,6 +988,31 @@ impl Backend {
         let path = lsp_file_uri_to_utf8_path(uri)?;
 
         if let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? {
+            if let Some(occurrence) =
+                template_block_occurrence_at_position(&project, &template_file, &content, position)
+            {
+                if let Some(target) = template_block_definition_target(
+                    &project,
+                    &template_file,
+                    &content,
+                    &occurrence.ident,
+                ) {
+                    return Ok(Some(target.location()?));
+                }
+                return Ok(Some(Location {
+                    uri: Url::from_file_path(
+                        project
+                            .template_paths
+                            .get(&template_file)
+                            .ok_or_else(|| eyre!("missing template path for {template_file}"))?
+                            .as_std_path(),
+                    )
+                    .map_err(|_| {
+                        eyre!("could not convert template path to URI: {template_file}")
+                    })?,
+                    range: occurrence.source_range,
+                }));
+            }
             if let Some(reference) =
                 template_route_reference_at_position(&project, &template_file, &content, position)
             {
@@ -1043,6 +1076,16 @@ impl Backend {
         let path = lsp_file_uri_to_utf8_path(uri)?;
         let project = self.current_project(&dirs).await?;
         if let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? {
+            if let Some(occurrence) =
+                template_block_occurrence_at_position(&project, &template_file, &content, position)
+            {
+                return template_block_references(
+                    &project,
+                    &template_file,
+                    &content,
+                    &occurrence.name,
+                );
+            }
             if let Some(reference) =
                 template_route_reference_at_position(&project, &template_file, &content, position)
                 && let Some(target_page) = project.page_for_route(&reference.target_route)
@@ -1474,6 +1517,13 @@ impl RouteGraphEdgeKind {
 struct TemplateRouteReference {
     target: String,
     target_route: String,
+    source_range: Range,
+}
+
+#[derive(Debug, Clone)]
+struct TemplateBlockOccurrence {
+    name: String,
+    ident: Ident,
     source_range: Range,
 }
 
@@ -6906,6 +6956,162 @@ fn collect_template_document_symbols(
     }
 }
 
+fn template_block_occurrence_at_position(
+    project: &AuthoringProject,
+    template_file: &str,
+    content: &str,
+    position: Position,
+) -> Option<TemplateBlockOccurrence> {
+    if !project.template_contents.contains_key(template_file) {
+        return None;
+    }
+    let template = TemplateParser::new(template_file, content).parse().ok()?;
+    template_block_occurrences(content, &template.body)
+        .into_iter()
+        .find(|occurrence| range_contains_position(&occurrence.source_range, position))
+}
+
+fn template_block_occurrences(content: &str, nodes: &[Node]) -> Vec<TemplateBlockOccurrence> {
+    let mut occurrences = Vec::new();
+    collect_template_block_occurrences(content, nodes, &mut occurrences);
+    occurrences
+}
+
+fn collect_template_block_occurrences(
+    content: &str,
+    nodes: &[Node],
+    occurrences: &mut Vec<TemplateBlockOccurrence>,
+) {
+    for node in nodes {
+        match node {
+            Node::Block(node) => {
+                occurrences.push(TemplateBlockOccurrence {
+                    name: node.name.name.clone(),
+                    ident: node.name.clone(),
+                    source_range: template_ident_range(content, &node.name),
+                });
+                collect_template_block_occurrences(content, &node.body, occurrences);
+            }
+            Node::If(node) => {
+                collect_template_block_occurrences(content, &node.then_body, occurrences);
+                for branch in &node.elif_branches {
+                    collect_template_block_occurrences(content, &branch.body, occurrences);
+                }
+                if let Some(body) = &node.else_body {
+                    collect_template_block_occurrences(content, body, occurrences);
+                }
+            }
+            Node::For(node) => {
+                collect_template_block_occurrences(content, &node.body, occurrences);
+                if let Some(body) = &node.else_body {
+                    collect_template_block_occurrences(content, body, occurrences);
+                }
+            }
+            Node::Macro(node) => {
+                collect_template_block_occurrences(content, &node.body, occurrences)
+            }
+            Node::Text(_)
+            | Node::Print(_)
+            | Node::Include(_)
+            | Node::Extends(_)
+            | Node::Comment(_)
+            | Node::Set(_)
+            | Node::Import(_)
+            | Node::Continue(_)
+            | Node::Break(_)
+            | Node::CallBlock(_) => {}
+        }
+    }
+}
+
+fn template_block_hover_markdown(
+    project: &AuthoringProject,
+    template_file: &str,
+    content: &str,
+    occurrence: &TemplateBlockOccurrence,
+) -> String {
+    let mut sections = vec![format!("**Dodeca template block** `{}`", occurrence.name)];
+    if let Some(target) =
+        template_block_definition_target(project, template_file, content, &occurrence.ident)
+    {
+        sections.push(format!(
+            "Overrides `{}` in `{}`.",
+            occurrence.name, target.target_path
+        ));
+    } else {
+        sections.push("Defines a block that child templates may override.".to_string());
+    }
+    let reference_count =
+        template_block_reference_targets(project, template_file, content, &occurrence.name).len();
+    sections.push(format!("{reference_count} matching block declaration(s)."));
+    sections.join("\n\n")
+}
+
+fn template_block_references(
+    project: &AuthoringProject,
+    current_file: &str,
+    current_content: &str,
+    block_name: &str,
+) -> Result<Vec<Location>> {
+    let mut locations = Vec::new();
+    for target in
+        template_block_reference_targets(project, current_file, current_content, block_name)
+    {
+        locations.push(Location {
+            uri: Url::from_file_path(target.path.as_std_path()).map_err(|_| {
+                eyre!(
+                    "could not convert template block reference path to URI: {}",
+                    target.path
+                )
+            })?,
+            range: target.range,
+        });
+    }
+    locations.sort_by(|a, b| {
+        a.uri
+            .as_str()
+            .cmp(b.uri.as_str())
+            .then_with(|| position_cmp(a.range.start, b.range.start))
+            .then_with(|| position_cmp(a.range.end, b.range.end))
+    });
+    locations.dedup_by(|left, right| left.uri == right.uri && left.range == right.range);
+    Ok(locations)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TemplateBlockReferenceTarget {
+    path: Utf8PathBuf,
+    range: Range,
+}
+
+fn template_block_reference_targets(
+    project: &AuthoringProject,
+    current_file: &str,
+    current_content: &str,
+    block_name: &str,
+) -> Vec<TemplateBlockReferenceTarget> {
+    let mut targets = Vec::new();
+    for (template_file, template_path) in &project.template_paths {
+        let Some(content) = template_content(project, template_file, current_file, current_content)
+        else {
+            continue;
+        };
+        let Ok(template) = TemplateParser::new(template_file, &content).parse() else {
+            continue;
+        };
+        targets.extend(
+            template_block_occurrences(&content, &template.body)
+                .into_iter()
+                .filter(|occurrence| occurrence.name == block_name)
+                .map(|occurrence| TemplateBlockReferenceTarget {
+                    path: template_path.clone(),
+                    range: occurrence.source_range,
+                }),
+        );
+    }
+    targets
+}
+
 fn template_definition_target_at_position(
     project: &AuthoringProject,
     template_file: &str,
@@ -8534,6 +8740,71 @@ mod tests {
         ));
         assert!(test.target_path.ends_with("gingembre/src/eval.rs"));
         assert!(test.hover_markdown().contains("value is a string"));
+
+        std::fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[tokio::test]
+    async fn resolves_template_block_references() {
+        let dir = temp_dir("template-block-references");
+        let content_dir = dir.join("content");
+        let templates_dir = dir.join("templates");
+        std::fs::create_dir_all(&content_dir).expect("create content dir");
+        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
+        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
+
+        let base = "{% block breadcrumbs %}Base{% endblock %}\n";
+        let child = "{% extends \"base.html\" %}\n{% block breadcrumbs %}Child{% endblock %}\n";
+        let sibling = "{% extends \"base.html\" %}\n{% block breadcrumbs %}Sibling{% endblock %}\n";
+        std::fs::write(templates_dir.join("base.html"), base).expect("write base");
+        std::fs::write(templates_dir.join("child.html"), child).expect("write child");
+        std::fs::write(templates_dir.join("sibling.html"), sibling).expect("write sibling");
+
+        let project = load_authoring_project(&content_dir, &[])
+            .await
+            .expect("load project");
+        let occurrence = template_block_occurrence_at_position(
+            &project,
+            "child.html",
+            child,
+            position_for(child, "breadcrumbs"),
+        )
+        .expect("block occurrence");
+        assert_eq!(occurrence.name, "breadcrumbs");
+
+        let target =
+            template_block_definition_target(&project, "child.html", child, &occurrence.ident)
+                .expect("parent block target");
+        assert_eq!(target.target_path, templates_dir.join("base.html"));
+        assert!(range_contains_position(
+            &target.target_range,
+            position_for(base, "breadcrumbs")
+        ));
+
+        let hover = template_block_hover_markdown(&project, "child.html", child, &occurrence);
+        assert!(hover.contains("Overrides"));
+        assert!(hover.contains("3 matching block declaration"));
+
+        let references = template_block_references(&project, "child.html", child, "breadcrumbs")
+            .expect("block references");
+        assert_eq!(references.len(), 3);
+        assert_eq!(
+            references
+                .iter()
+                .map(|location| {
+                    Utf8PathBuf::from_path_buf(location.uri.to_file_path().expect("file uri"))
+                        .expect("utf8 path")
+                        .strip_prefix(&templates_dir)
+                        .expect("template relative")
+                        .to_string()
+                })
+                .collect::<Vec<_>>(),
+            vec![
+                "base.html".to_string(),
+                "child.html".to_string(),
+                "sibling.html".to_string(),
+            ]
+        );
 
         std::fs::remove_dir_all(&dir).expect("remove temp dir");
     }
