@@ -44,7 +44,7 @@ Status values:
 | `lsp-016` | `done` | Template diagnostics | Warn on missing templates, missing blocks, unknown macros, and unavailable filters/tests. | Uses Gingembre AST spans, template inheritance/import resolution, and exported Gingembre built-in filter/test registries. |
 | `lsp-017` | `done` | Template completions | Complete `page`, `section`, `config`, `data`, filters, tests, functions, and imported macros in templates. | Data keys come from the authoring model, functions from the template host, and filters/tests from Gingembre registries. |
 | `lsp-018` | `done` | Site graph diagnostics | Report orphan pages, duplicate titles, duplicate routes, and pages with no inbound links. | Root is exempt; section landing pages with children are exempt; leaf pages/sections without inbound Markdown links warn. |
-| `lsp-019` | `todo` | Route graph view | Expose incoming and outgoing page links through editor-native views. | Could begin with references/document symbols before custom UI. |
+| `lsp-019` | `done` | Route graph view | Expose incoming and outgoing page links through editor-native views. | `dodeca.routeGraph` returns per-page incoming/outgoing Markdown link edges with source spans for editor extensions. |
 | `lsp-020` | `todo` | Build provenance hover | Explain which template, assets, transforms, and output path a page uses. | Best powered by reusable build/provenance data, not an LSP-only model. |
 
 ## Suggested implementation order

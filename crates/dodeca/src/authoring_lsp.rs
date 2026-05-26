@@ -42,6 +42,7 @@ use crate::types::SourcePath;
 const LIST_PAGES_COMMAND: &str = "dodeca.listPages";
 const DIAGNOSTICS_COMMAND: &str = "dodeca.authoringDiagnostics";
 const CREATE_PAGE_COMMAND: &str = "dodeca.createPage";
+const ROUTE_GRAPH_COMMAND: &str = "dodeca.routeGraph";
 
 pub async fn run(content: Option<String>, output: Option<String>) -> Result<()> {
     let state = Arc::new(Mutex::new(AuthoringState {
@@ -128,6 +129,7 @@ impl LanguageServer for Backend {
                         LIST_PAGES_COMMAND.to_string(),
                         DIAGNOSTICS_COMMAND.to_string(),
                         CREATE_PAGE_COMMAND.to_string(),
+                        ROUTE_GRAPH_COMMAND.to_string(),
                     ],
                     ..Default::default()
                 }),
@@ -239,6 +241,15 @@ impl LanguageServer for Backend {
             },
             DIAGNOSTICS_COMMAND => match self.authoring_diagnostics().await {
                 Ok(diagnostics) => Ok(Some(diagnostics_to_json(&diagnostics))),
+                Err(err) => {
+                    self.client
+                        .log_message(MessageType::ERROR, err.to_string())
+                        .await;
+                    Err(tower_lsp::jsonrpc::Error::internal_error())
+                }
+            },
+            ROUTE_GRAPH_COMMAND => match self.authoring_route_graph().await {
+                Ok(graph) => Ok(Some(route_graph_to_json(&graph))),
                 Err(err) => {
                     self.client
                         .log_message(MessageType::ERROR, err.to_string())
@@ -539,6 +550,12 @@ impl Backend {
         let dirs = self.dirs()?;
         let project = self.current_project(&dirs).await?;
         Ok(load_authoring_diagnostics(&project))
+    }
+
+    async fn authoring_route_graph(&self) -> Result<Vec<RouteGraphNode>> {
+        let dirs = self.dirs()?;
+        let project = self.current_project(&dirs).await?;
+        Ok(route_graph_for_project(&project))
     }
 
     fn set_document(&self, uri: Url, content: String) {
@@ -1273,6 +1290,27 @@ struct AuthoringDiagnostic {
     byte_end: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RouteGraphNode {
+    route: String,
+    source_file: String,
+    title: String,
+    incoming: Vec<RouteGraphEdge>,
+    outgoing: Vec<RouteGraphEdge>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RouteGraphEdge {
+    source_route: String,
+    source_file: String,
+    target_route: String,
+    target: String,
+    line: u32,
+    column: u32,
+    line_end: u32,
+    column_end: u32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AuthoringDiagnosticKind {
     Route,
@@ -1396,6 +1434,57 @@ fn site_graph_diagnostics(project: &AuthoringProject) -> Vec<AuthoringDiagnostic
     diagnostics.extend(duplicate_route_diagnostics(project));
     diagnostics.extend(inbound_link_diagnostics(project));
     diagnostics
+}
+
+fn route_graph_for_project(project: &AuthoringProject) -> Vec<RouteGraphNode> {
+    let mut outgoing_by_route: HashMap<String, Vec<RouteGraphEdge>> = HashMap::new();
+    let mut incoming_by_route: HashMap<String, Vec<RouteGraphEdge>> = HashMap::new();
+
+    for page in &project.pages {
+        let Some(content) = project.source_contents.get(&page.source_file) else {
+            continue;
+        };
+        for reference in markdown_references(content) {
+            let Some(target_route) = reference_target_route(project, page, &reference) else {
+                continue;
+            };
+            if !project.route_exists(&target_route) {
+                continue;
+            }
+            let (line, column) = byte_to_line_column(content, reference.byte_start);
+            let (line_end, column_end) = byte_to_line_column(content, reference.byte_end);
+            let edge = RouteGraphEdge {
+                source_route: page.route.clone(),
+                source_file: page.source_file.clone(),
+                target_route: target_route.clone(),
+                target: reference.target,
+                line,
+                column,
+                line_end,
+                column_end,
+            };
+            outgoing_by_route
+                .entry(page.route.clone())
+                .or_default()
+                .push(edge.clone());
+            incoming_by_route
+                .entry(target_route)
+                .or_default()
+                .push(edge);
+        }
+    }
+
+    project
+        .pages
+        .iter()
+        .map(|page| RouteGraphNode {
+            route: page.route.clone(),
+            source_file: page.source_file.clone(),
+            title: page.title.clone(),
+            incoming: incoming_by_route.remove(&page.route).unwrap_or_default(),
+            outgoing: outgoing_by_route.remove(&page.route).unwrap_or_default(),
+        })
+        .collect()
 }
 
 fn duplicate_title_diagnostics(project: &AuthoringProject) -> Vec<AuthoringDiagnostic> {
@@ -6691,6 +6780,49 @@ fn diagnostics_to_json(diagnostics: &[AuthoringDiagnostic]) -> serde_json::Value
     )
 }
 
+// tower-lsp command replies are JSON-RPC values; keep JSON use at this edge.
+#[allow(clippy::disallowed_types)]
+fn route_graph_to_json(graph: &[RouteGraphNode]) -> serde_json::Value {
+    serde_json::Value::Array(
+        graph
+            .iter()
+            .map(|node| {
+                serde_json::json!({
+                    "route": node.route,
+                    "sourceFile": node.source_file,
+                    "title": node.title,
+                    "incoming": route_graph_edges_to_json(&node.incoming),
+                    "outgoing": route_graph_edges_to_json(&node.outgoing),
+                })
+            })
+            .collect(),
+    )
+}
+
+// tower-lsp command replies are JSON-RPC values; keep JSON use at this edge.
+#[allow(clippy::disallowed_types)]
+fn route_graph_edges_to_json(edges: &[RouteGraphEdge]) -> serde_json::Value {
+    serde_json::Value::Array(
+        edges
+            .iter()
+            .map(|edge| {
+                serde_json::json!({
+                    "sourceRoute": edge.source_route,
+                    "sourceFile": edge.source_file,
+                    "targetRoute": edge.target_route,
+                    "target": edge.target,
+                    "span": {
+                        "lineStart": edge.line,
+                        "lineEnd": edge.line_end,
+                        "columnStart": edge.column,
+                        "columnEnd": edge.column_end,
+                    },
+                })
+            })
+            .collect(),
+    )
+}
+
 fn diagnostic_kind_name(kind: AuthoringDiagnosticKind) -> &'static str {
     match kind {
         AuthoringDiagnosticKind::Route => "missingRoute",
@@ -7444,6 +7576,48 @@ mod tests {
         );
         assert!(!has(AuthoringDiagnosticKind::OrphanPage, "/linked"));
         assert_ne!(duplicate_route_source, "/same-a");
+
+        std::fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[tokio::test]
+    async fn exposes_route_graph_edges() {
+        let dir = temp_dir("route-graph");
+        let content_dir = dir.join("content");
+        std::fs::create_dir_all(&content_dir).expect("create content dir");
+        std::fs::write(
+            content_dir.join("_index.md"),
+            "+++\ntitle = \"Home\"\n+++\n\n[guide](/guide)\n",
+        )
+        .expect("write root");
+        std::fs::write(
+            content_dir.join("guide.md"),
+            "+++\ntitle = \"Guide\"\n+++\n\n[home](/)\n",
+        )
+        .expect("write guide");
+
+        let project = load_authoring_project(&content_dir, &[])
+            .await
+            .expect("load project");
+        let graph = route_graph_for_project(&project);
+        let home = graph
+            .iter()
+            .find(|node| node.route == "/")
+            .expect("home node");
+        let guide = graph
+            .iter()
+            .find(|node| node.route == "/guide")
+            .expect("guide node");
+
+        assert_eq!(home.outgoing.len(), 1);
+        assert_eq!(home.outgoing[0].target_route, "/guide");
+        assert_eq!(guide.incoming.len(), 1);
+        assert_eq!(guide.incoming[0].source_route, "/");
+        assert_eq!(guide.outgoing.len(), 1);
+        assert_eq!(guide.outgoing[0].target_route, "/");
+
+        let json = route_graph_to_json(&graph);
+        assert!(json.as_array().is_some_and(|nodes| nodes.len() == 2));
 
         std::fs::remove_dir_all(&dir).expect("remove temp dir");
     }
