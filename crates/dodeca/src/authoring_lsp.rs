@@ -1403,14 +1403,30 @@ struct RouteGraphNode {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RouteGraphEdge {
+    kind: RouteGraphEdgeKind,
     source_route: String,
     source_file: String,
     target_route: String,
     target: String,
-    line: u32,
-    column: u32,
-    line_end: u32,
-    column_end: u32,
+    line: Option<u32>,
+    column: Option<u32>,
+    line_end: Option<u32>,
+    column_end: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RouteGraphEdgeKind {
+    Markdown,
+    RenderedHtml,
+}
+
+impl RouteGraphEdgeKind {
+    fn label(self) -> &'static str {
+        match self {
+            RouteGraphEdgeKind::Markdown => "markdown",
+            RouteGraphEdgeKind::RenderedHtml => "renderedHtml",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1541,6 +1557,7 @@ fn site_graph_diagnostics(project: &AuthoringProject) -> Vec<AuthoringDiagnostic
 fn route_graph_for_project(project: &AuthoringProject) -> Vec<RouteGraphNode> {
     let mut outgoing_by_route: HashMap<String, Vec<RouteGraphEdge>> = HashMap::new();
     let mut incoming_by_route: HashMap<String, Vec<RouteGraphEdge>> = HashMap::new();
+    let mut seen_edges: HashSet<(String, String, String)> = HashSet::new();
 
     for page in &project.pages {
         let Some(content) = project.source_contents.get(&page.source_file) else {
@@ -1556,17 +1573,56 @@ fn route_graph_for_project(project: &AuthoringProject) -> Vec<RouteGraphNode> {
             let (line, column) = byte_to_line_column(content, reference.byte_start);
             let (line_end, column_end) = byte_to_line_column(content, reference.byte_end);
             let edge = RouteGraphEdge {
+                kind: RouteGraphEdgeKind::Markdown,
                 source_route: page.route.clone(),
                 source_file: page.source_file.clone(),
                 target_route: target_route.clone(),
                 target: reference.target,
-                line,
-                column,
-                line_end,
-                column_end,
+                line: Some(line),
+                column: Some(column),
+                line_end: Some(line_end),
+                column_end: Some(column_end),
             };
+            seen_edges.insert((
+                edge.source_route.clone(),
+                edge.target_route.clone(),
+                edge.target.clone(),
+            ));
             outgoing_by_route
                 .entry(page.route.clone())
+                .or_default()
+                .push(edge.clone());
+            incoming_by_route
+                .entry(target_route)
+                .or_default()
+                .push(edge);
+        }
+    }
+
+    for (source_route, hrefs) in &project.rendered_hrefs_by_route {
+        let Some(source_page) = project.page_for_route(source_route) else {
+            continue;
+        };
+        for href in hrefs {
+            let Some(target_route) = rendered_href_target_route(project, source_page, href) else {
+                continue;
+            };
+            if !seen_edges.insert((source_route.clone(), target_route.clone(), href.clone())) {
+                continue;
+            }
+            let edge = RouteGraphEdge {
+                kind: RouteGraphEdgeKind::RenderedHtml,
+                source_route: source_route.clone(),
+                source_file: source_page.source_file.clone(),
+                target_route: target_route.clone(),
+                target: href.clone(),
+                line: None,
+                column: None,
+                line_end: None,
+                column_end: None,
+            };
+            outgoing_by_route
+                .entry(source_route.clone())
                 .or_default()
                 .push(edge.clone());
             incoming_by_route
@@ -7785,20 +7841,32 @@ fn route_graph_edges_to_json(edges: &[RouteGraphEdge]) -> serde_json::Value {
             .iter()
             .map(|edge| {
                 serde_json::json!({
+                    "kind": edge.kind.label(),
                     "sourceRoute": edge.source_route,
                     "sourceFile": edge.source_file,
                     "targetRoute": edge.target_route,
                     "target": edge.target,
-                    "span": {
-                        "lineStart": edge.line,
-                        "lineEnd": edge.line_end,
-                        "columnStart": edge.column,
-                        "columnEnd": edge.column_end,
-                    },
+                    "span": route_graph_edge_span_to_json(edge),
                 })
             })
             .collect(),
     )
+}
+
+// tower-lsp command replies are JSON-RPC values; keep JSON use at this edge.
+#[allow(clippy::disallowed_types)]
+fn route_graph_edge_span_to_json(edge: &RouteGraphEdge) -> serde_json::Value {
+    match (edge.line, edge.line_end, edge.column, edge.column_end) {
+        (Some(line), Some(line_end), Some(column), Some(column_end)) => {
+            serde_json::json!({
+                "lineStart": line,
+                "lineEnd": line_end,
+                "columnStart": column,
+                "columnEnd": column_end,
+            })
+        }
+        _ => serde_json::Value::Null,
+    }
 }
 
 fn diagnostic_kind_name(kind: AuthoringDiagnosticKind) -> &'static str {
@@ -8829,10 +8897,19 @@ mod tests {
     async fn exposes_route_graph_edges() {
         let dir = temp_dir("route-graph");
         let content_dir = dir.join("content");
+        let templates_dir = dir.join("templates");
         std::fs::create_dir_all(&content_dir).expect("create content dir");
+        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
+        std::fs::write(
+            templates_dir.join("section.html"),
+            "<nav><a href=\"/rendered\">Rendered</a></nav>{{ section.content | safe }}",
+        )
+        .expect("write section template");
+        std::fs::write(templates_dir.join("page.html"), "{{ page.content | safe }}")
+            .expect("write page template");
         std::fs::write(
             content_dir.join("_index.md"),
-            "+++\ntitle = \"Home\"\n+++\n\n[guide](/guide)\n",
+            "+++\ntitle = \"Home\"\ntemplate = \"section.html\"\n+++\n\n[guide](/guide)\n",
         )
         .expect("write root");
         std::fs::write(
@@ -8840,6 +8917,11 @@ mod tests {
             "+++\ntitle = \"Guide\"\n+++\n\n[home](/)\n",
         )
         .expect("write guide");
+        std::fs::write(
+            content_dir.join("rendered.md"),
+            "+++\ntitle = \"Rendered\"\n+++\n",
+        )
+        .expect("write rendered");
 
         let project = load_authoring_project(&content_dir, &[])
             .await
@@ -8853,16 +8935,30 @@ mod tests {
             .iter()
             .find(|node| node.route == "/guide")
             .expect("guide node");
+        let rendered = graph
+            .iter()
+            .find(|node| node.route == "/rendered")
+            .expect("rendered node");
 
-        assert_eq!(home.outgoing.len(), 1);
-        assert_eq!(home.outgoing[0].target_route, "/guide");
+        assert!(home.outgoing.iter().any(|edge| {
+            edge.kind == RouteGraphEdgeKind::Markdown && edge.target_route == "/guide"
+        }));
+        assert!(home.outgoing.iter().any(|edge| {
+            edge.kind == RouteGraphEdgeKind::RenderedHtml && edge.target_route == "/rendered"
+        }));
         assert_eq!(guide.incoming.len(), 1);
         assert_eq!(guide.incoming[0].source_route, "/");
         assert_eq!(guide.outgoing.len(), 1);
         assert_eq!(guide.outgoing[0].target_route, "/");
+        assert_eq!(rendered.incoming.len(), 1);
+        assert_eq!(rendered.incoming[0].kind, RouteGraphEdgeKind::RenderedHtml);
 
         let json = route_graph_to_json(&graph);
-        assert!(json.as_array().is_some_and(|nodes| nodes.len() == 2));
+        assert!(json.as_array().is_some_and(|nodes| nodes.len() == 3));
+        assert!(
+            json.to_string().contains("\"kind\":\"renderedHtml\""),
+            "route graph JSON should preserve rendered edge provenance"
+        );
 
         std::fs::remove_dir_all(&dir).expect("remove temp dir");
     }
