@@ -1155,15 +1155,26 @@ impl Backend {
         let dirs = self.dirs_for_uri(uri)?;
         let content = self.document_content(uri)?;
         let path = lsp_file_uri_to_utf8_path(uri)?;
-        let project = self.current_project(&dirs).await?;
         if let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? {
+            let world = self.current_world(&dirs).await?;
+            if let Some(query) = world
+                .template_index
+                .macro_reference_query(&template_file, position)
+            {
+                return Ok(Some(PrepareRenameResponse::RangeWithPlaceholder {
+                    range: query.source_range,
+                    placeholder: query.macro_name,
+                }));
+            }
             return Ok(template_semantic_prepare_rename(
-                &project,
+                &world.project,
                 &template_file,
                 &content,
                 position,
             ));
         }
+
+        let project = self.current_project(&dirs).await?;
 
         let source_file = source_file_for_path(&dirs.content_dir, &path)?;
         let page = project
@@ -1198,17 +1209,30 @@ impl Backend {
         let dirs = self.dirs_for_uri(uri)?;
         let content = self.document_content(uri)?;
         let path = lsp_file_uri_to_utf8_path(uri)?;
-        let project = self.current_project(&dirs).await?;
         if let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? {
+            let world = self.current_world(&dirs).await?;
+            if let Some(query) = world
+                .template_index
+                .macro_reference_query(&template_file, position)
+            {
+                return template_macro_rename_workspace_edit(
+                    &world.template_index,
+                    &query.target_template_file,
+                    &query.macro_name,
+                    new_name,
+                );
+            }
             return template_semantic_rename_workspace_edit(
                 uri,
-                &project,
+                &world.project,
                 &template_file,
                 &content,
                 position,
                 new_name,
             );
         }
+
+        let project = self.current_project(&dirs).await?;
 
         let source_file = source_file_for_path(&dirs.content_dir, &path)?;
         let page = project
@@ -1592,6 +1616,7 @@ struct TemplateBlockReferenceTarget {
 struct TemplateMacroReferenceQuery {
     target_template_file: String,
     macro_name: String,
+    source_range: Range,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7313,6 +7338,7 @@ impl TemplateAuthoringIndex {
             return Some(TemplateMacroReferenceQuery {
                 target_template_file: template_file.to_string(),
                 macro_name: occurrence.name.clone(),
+                source_range: occurrence.source_range,
             });
         }
         template
@@ -7322,6 +7348,7 @@ impl TemplateAuthoringIndex {
             .map(|occurrence| TemplateMacroReferenceQuery {
                 target_template_file: occurrence.target_template_file.clone(),
                 macro_name: occurrence.macro_name.clone(),
+                source_range: occurrence.source_range,
             })
     }
 
@@ -7446,6 +7473,47 @@ fn template_macro_references(
     });
     locations.dedup_by(|left, right| left.uri == right.uri && left.range == right.range);
     Ok(locations)
+}
+
+fn template_macro_rename_workspace_edit(
+    index: &TemplateAuthoringIndex,
+    target_template_file: &str,
+    macro_name: &str,
+    new_name: &str,
+) -> Result<Option<WorkspaceEdit>> {
+    if !is_valid_template_rename_name(new_name) {
+        return Ok(None);
+    }
+
+    let mut changes = HashMap::<Url, Vec<TextEdit>>::new();
+    for target in index.macro_reference_targets(target_template_file, macro_name) {
+        let uri = Url::from_file_path(target.path.as_std_path()).map_err(|_| {
+            eyre!(
+                "could not convert template macro rename path to URI: {}",
+                target.path
+            )
+        })?;
+        changes.entry(uri).or_default().push(TextEdit {
+            range: target.range,
+            new_text: new_name.to_string(),
+        });
+    }
+    if changes.is_empty() {
+        return Ok(None);
+    }
+    for edits in changes.values_mut() {
+        edits.sort_by(|left, right| {
+            position_cmp(left.range.start, right.range.start)
+                .then_with(|| position_cmp(left.range.end, right.range.end))
+        });
+        edits.dedup_by(|left, right| left.range == right.range && left.new_text == right.new_text);
+    }
+
+    Ok(Some(WorkspaceEdit {
+        changes: Some(changes),
+        document_changes: None,
+        change_annotations: None,
+    }))
 }
 
 fn template_macro_occurrences(content: &str, nodes: &[Node]) -> Vec<TemplateMacroOccurrence> {
@@ -9562,24 +9630,22 @@ mod tests {
         let definition_query = index
             .macro_reference_query("macros.html", position_for(macros, "card"))
             .expect("definition query");
-        assert_eq!(
-            definition_query,
-            TemplateMacroReferenceQuery {
-                target_template_file: "macros.html".to_string(),
-                macro_name: "card".to_string()
-            }
-        );
+        assert_eq!(definition_query.target_template_file, "macros.html");
+        assert_eq!(definition_query.macro_name, "card");
+        assert!(range_contains_position(
+            &definition_query.source_range,
+            position_for(macros, "card")
+        ));
 
         let call_query = index
             .macro_reference_query("page.html", position_for(page, "card"))
             .expect("call query");
-        assert_eq!(
-            call_query,
-            TemplateMacroReferenceQuery {
-                target_template_file: "macros.html".to_string(),
-                macro_name: "card".to_string()
-            }
-        );
+        assert_eq!(call_query.target_template_file, "macros.html");
+        assert_eq!(call_query.macro_name, "card");
+        assert!(range_contains_position(
+            &call_query.source_range,
+            position_for(page, "card")
+        ));
 
         let references =
             template_macro_references(&index, "macros.html", "card").expect("references");
@@ -9606,6 +9672,33 @@ mod tests {
                 position_for_nth(content, "card", index)
             )));
         }
+
+        let edit = template_macro_rename_workspace_edit(&index, "macros.html", "card", "panel")
+            .expect("rename edit")
+            .expect("rename edit");
+        let changes = edit.changes.expect("changes");
+        let mut changed_paths = changes
+            .iter()
+            .map(|(uri, edits)| {
+                let path = Utf8PathBuf::from_path_buf(uri.to_file_path().expect("file uri"))
+                    .expect("utf8 path")
+                    .strip_prefix(&templates_dir)
+                    .expect("template relative")
+                    .to_string();
+                assert_eq!(edits.len(), 1);
+                assert_eq!(edits[0].new_text, "panel");
+                path
+            })
+            .collect::<Vec<_>>();
+        changed_paths.sort();
+        assert_eq!(
+            changed_paths,
+            vec![
+                "macros.html".to_string(),
+                "other.html".to_string(),
+                "page.html".to_string(),
+            ]
+        );
 
         std::fs::remove_dir_all(&dir).expect("remove temp dir");
     }
