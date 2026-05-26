@@ -800,6 +800,16 @@ impl Backend {
         let path = lsp_file_uri_to_utf8_path(uri)?;
         let project = self.current_project(&dirs).await?;
         if let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? {
+            if let Some(reference) =
+                template_route_reference_at_position(&project, &template_file, &content, position)
+                && let Some(target_page) = project.page_for_route(&reference.target_route)
+            {
+                let (_, fragment) = split_fragment(&reference.target);
+                return Ok(Some(markdown_hover(
+                    page_link_hover_markdown(&project, target_page, fragment),
+                    reference.source_range,
+                )));
+            }
             if let Some(target) =
                 template_document_target_at_position(&project, &template_file, &content, position)?
             {
@@ -868,7 +878,7 @@ impl Backend {
         let path = lsp_file_uri_to_utf8_path(&uri)?;
 
         if let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? {
-            return template_document_targets(&project, &template_file, &content)?
+            let mut links = template_document_targets(&project, &template_file, &content)?
                 .into_iter()
                 .map(|target| {
                     Ok(DocumentLink {
@@ -878,7 +888,23 @@ impl Backend {
                         data: None,
                     })
                 })
-                .collect();
+                .collect::<Result<Vec<_>>>()?;
+            links.extend(
+                template_route_references(&project, &template_file, &content)
+                    .into_iter()
+                    .filter_map(|reference| {
+                        let source_file = project.source_file_for_route(&reference.target_route)?;
+                        Some(DocumentLink {
+                            range: reference.source_range,
+                            target: Some(
+                                Url::from_file_path(dirs.content_dir.join(source_file)).ok()?,
+                            ),
+                            tooltip: Some(format!("Open Dodeca page `{}`", reference.target_route)),
+                            data: None,
+                        })
+                    }),
+            );
+            return Ok(links);
         }
 
         frontmatter_document_targets(&project, &content)?
@@ -954,6 +980,15 @@ impl Backend {
         let path = lsp_file_uri_to_utf8_path(uri)?;
 
         if let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? {
+            if let Some(reference) =
+                template_route_reference_at_position(&project, &template_file, &content, position)
+            {
+                let (_, fragment) = split_fragment(&reference.target);
+                if let Some(source_file) = project.source_file_for_route(&reference.target_route) {
+                    let path = dirs.content_dir.join(source_file);
+                    return location_for_source_path(&path, fragment);
+                }
+            }
             if let Some(target) =
                 template_document_target_at_position(&project, &template_file, &content, position)?
             {
@@ -1008,6 +1043,12 @@ impl Backend {
         let path = lsp_file_uri_to_utf8_path(uri)?;
         let project = self.current_project(&dirs).await?;
         if let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? {
+            if let Some(reference) =
+                template_route_reference_at_position(&project, &template_file, &content, position)
+                && let Some(target_page) = project.page_for_route(&reference.target_route)
+            {
+                return references_to_page(&dirs.content_dir, &project, target_page);
+            }
             return Ok(template_semantic_references(
                 &dirs.content_dir,
                 &project,
@@ -1429,6 +1470,13 @@ impl RouteGraphEdgeKind {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TemplateRouteReference {
+    target: String,
+    target_route: String,
+    source_range: Range,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AuthoringDiagnosticKind {
     Route,
@@ -1773,6 +1821,62 @@ fn rendered_href_target_route(
 
     let target_route = route_for_link_target(project, source_page, target_without_fragment);
     project.route_exists(&target_route).then_some(target_route)
+}
+
+fn template_route_reference_at_position(
+    project: &AuthoringProject,
+    template_file: &str,
+    content: &str,
+    position: Position,
+) -> Option<TemplateRouteReference> {
+    template_route_references(project, template_file, content)
+        .into_iter()
+        .find(|reference| range_contains_position(&reference.source_range, position))
+}
+
+fn template_route_references(
+    project: &AuthoringProject,
+    template_file: &str,
+    content: &str,
+) -> Vec<TemplateRouteReference> {
+    let mut references = Vec::new();
+    let mut seen = HashSet::new();
+
+    for (source_route, hrefs) in &project.rendered_hrefs_by_route {
+        let Some(source_page) = project.page_for_route(source_route) else {
+            continue;
+        };
+        for href in hrefs {
+            let Some(origin) = &href.origin else {
+                continue;
+            };
+            let AuthoringInputPath::Template(origin_template_file) = &origin.path else {
+                continue;
+            };
+            if origin_template_file != template_file || origin.byte_end > content.len() {
+                continue;
+            }
+            let Some(target_route) = rendered_href_target_route(project, source_page, &href.href)
+            else {
+                continue;
+            };
+            if !seen.insert((
+                origin.byte_start,
+                origin.byte_end,
+                href.href.clone(),
+                target_route.clone(),
+            )) {
+                continue;
+            }
+            references.push(TemplateRouteReference {
+                target: href.href.clone(),
+                target_route,
+                source_range: byte_range_to_lsp_range(content, origin.byte_start, origin.byte_end),
+            });
+        }
+    }
+
+    references
 }
 
 fn is_section_landing_with_children(project: &AuthoringProject, page: &AuthoringPage) -> bool {
@@ -9269,11 +9373,10 @@ This moves.
         let templates_dir = dir.join("templates");
         std::fs::create_dir_all(content_dir.join("nested")).expect("create content dirs");
         std::fs::create_dir_all(&templates_dir).expect("create templates dir");
-        std::fs::write(
-            templates_dir.join("section.html"),
-            "<nav><a href=\"/target\">Target</a></nav>{{ section.content | safe }}",
-        )
-        .expect("write section template");
+        let section_template =
+            "<nav><a href=\"/target\">Target</a></nav>{{ section.content | safe }}";
+        std::fs::write(templates_dir.join("section.html"), section_template)
+            .expect("write section template");
         std::fs::write(templates_dir.join("page.html"), "{{ page.content | safe }}")
             .expect("write page template");
         std::fs::write(
@@ -9314,6 +9417,19 @@ template = \"section.html\"
         let target_page = project
             .page_for_source_file("target.md")
             .expect("target page");
+        let template_reference = template_route_reference_at_position(
+            &project,
+            "section.html",
+            section_template,
+            position_for(section_template, "/target"),
+        )
+        .expect("template route reference");
+        assert_eq!(template_reference.target_route, "/target");
+        assert!(range_contains_position(
+            &template_reference.source_range,
+            position_for(section_template, "/target")
+        ));
+
         let references =
             references_to_page(&content_dir, &project, target_page).expect("references");
 
@@ -9350,10 +9466,7 @@ template = \"section.html\"
             .expect("template rendered reference");
         assert!(range_contains_position(
             &template_reference.range,
-            position_for(
-                "<nav><a href=\"/target\">Target</a></nav>{{ section.content | safe }}",
-                "/target"
-            )
+            position_for(section_template, "/target")
         ));
 
         std::fs::remove_dir_all(&dir).expect("remove temp dir");
