@@ -56,8 +56,15 @@ pub struct TemplateReference {
     pub name: String,
     pub span: Span,
     pub kind: TemplateReferenceKind,
+    pub access: TemplateReferenceAccess,
     pub symbol_id: Option<usize>,
     pub path: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TemplateReferenceAccess {
+    Read,
+    Write,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -267,11 +274,22 @@ impl SemanticBuilder {
     }
 
     fn reference(&mut self, scope: usize, ident: &Ident, kind: TemplateReferenceKind) {
+        self.reference_with_access(scope, ident, kind, TemplateReferenceAccess::Read);
+    }
+
+    fn reference_with_access(
+        &mut self,
+        scope: usize,
+        ident: &Ident,
+        kind: TemplateReferenceKind,
+        access: TemplateReferenceAccess,
+    ) {
         let symbol_id = self.resolve(scope, &ident.name);
         self.index.references.push(TemplateReference {
             name: ident.name.clone(),
             span: ident.span,
             kind,
+            access,
             symbol_id,
             path: vec![ident.name.clone()],
         });
@@ -382,6 +400,7 @@ impl SemanticBuilder {
                 name: ident.name.clone(),
                 span: ident.span,
                 kind: TemplateReferenceKind::Variable,
+                access: TemplateReferenceAccess::Write,
                 symbol_id: Some(symbol_id),
                 path: vec![ident.name.clone()],
             });
@@ -460,6 +479,7 @@ impl SemanticBuilder {
                     name: expr.field.name.clone(),
                     span: expr.field.span,
                     kind: TemplateReferenceKind::Field,
+                    access: TemplateReferenceAccess::Read,
                     symbol_id: None,
                     path: field_expr_path(expr).unwrap_or_else(|| vec![expr.field.name.clone()]),
                 });
@@ -488,6 +508,7 @@ impl SemanticBuilder {
             name: expr.filter.name.clone(),
             span: expr.filter.span,
             kind: TemplateReferenceKind::Filter,
+            access: TemplateReferenceAccess::Read,
             symbol_id: None,
             path: vec![expr.filter.name.clone()],
         });
@@ -542,6 +563,7 @@ impl SemanticBuilder {
             name: expr.test_name.name.clone(),
             span: expr.test_name.span,
             kind: TemplateReferenceKind::Test,
+            access: TemplateReferenceAccess::Read,
             symbol_id: None,
             path: vec![expr.test_name.name.clone()],
         });
@@ -564,6 +586,7 @@ impl SemanticBuilder {
             name: expr.macro_name.name.clone(),
             span: expr.macro_name.span,
             kind: TemplateReferenceKind::Macro,
+            access: TemplateReferenceAccess::Read,
             symbol_id: None,
             path: vec![expr.namespace.name.clone(), expr.macro_name.name.clone()],
         });
@@ -762,5 +785,33 @@ mod tests {
         }
 
         assert_eq!(index.references_to_symbol(symbol.id).len(), 3);
+    }
+
+    #[test]
+    fn classifies_symbol_references_as_reads_or_writes() {
+        let source = "{% set current_path = \"/\" %}\n{% set current_path = section.path %}\n{{ current_path }}";
+        let index = semantic_index(source);
+        let offsets = source
+            .match_indices("current_path")
+            .map(|(offset, _)| offset)
+            .collect::<Vec<_>>();
+        assert_eq!(offsets.len(), 3);
+
+        let symbol = index
+            .symbol_for_offset(offsets[0])
+            .expect("first set binding");
+        let references = index.references_to_symbol(symbol.id);
+        assert_eq!(
+            references
+                .iter()
+                .map(|reference| reference.access)
+                .collect::<Vec<_>>(),
+            vec![
+                TemplateReferenceAccess::Write,
+                TemplateReferenceAccess::Read
+            ]
+        );
+        assert_eq!(references[0].span.offset(), offsets[1]);
+        assert_eq!(references[1].span.offset(), offsets[2]);
     }
 }
