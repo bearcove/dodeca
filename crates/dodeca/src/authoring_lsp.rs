@@ -36,6 +36,7 @@ use crate::authoring_model::{
 };
 use crate::config::ResolvedConfig;
 use crate::queries::{Frontmatter, default_title_from_source_path};
+use crate::template_host::TEMPLATE_FUNCTION_NAMES;
 use crate::types::SourcePath;
 
 const LIST_PAGES_COMMAND: &str = "dodeca.listPages";
@@ -697,8 +698,18 @@ impl Backend {
         let position = params.text_document_position.position;
         let dirs = self.dirs_for_uri(&uri)?;
         let content = self.document_content(&uri)?;
+        let path = lsp_file_uri_to_utf8_path(&uri)?;
+        if let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? {
+            let project = self.current_project(&dirs).await?;
+            return Ok(template_completion_items(
+                &project,
+                &template_file,
+                &content,
+                position,
+            ));
+        }
+
         if let Some(context) = frontmatter_completion_context(&content, position) {
-            let path = lsp_file_uri_to_utf8_path(&uri)?;
             let source_file = source_file_for_path(&dirs.content_dir, &path)?;
             return Ok(completion_items_for_frontmatter(&source_file, &context));
         }
@@ -707,7 +718,6 @@ impl Backend {
             return Ok(Vec::new());
         };
 
-        let path = lsp_file_uri_to_utf8_path(&uri)?;
         let source_file = source_file_for_path(&dirs.content_dir, &path)?;
         let project = self.current_project(&dirs).await?;
         let page = project
@@ -4049,6 +4059,408 @@ fn completion_item(
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TemplateCompletionKind {
+    Root,
+    Field(Vec<String>),
+    Filter,
+    Test,
+    Macro(String),
+}
+
+#[derive(Debug, Clone)]
+struct TemplateCompletionContext {
+    kind: TemplateCompletionKind,
+    range: Range,
+}
+
+const TEMPLATE_ROOT_VALUES: &[&str] =
+    &["config", "page", "section", "current_path", "root", "data"];
+const TEMPLATE_CONFIG_FIELDS: &[&str] = &["title", "description", "base_url"];
+const TEMPLATE_PAGE_FIELDS: &[&str] = &[
+    "title",
+    "content",
+    "permalink",
+    "path",
+    "weight",
+    "toc",
+    "ancestors",
+    "last_updated",
+    "description",
+    "extra",
+];
+const TEMPLATE_SECTION_FIELDS: &[&str] = &[
+    "title",
+    "content",
+    "permalink",
+    "path",
+    "weight",
+    "last_updated",
+    "ancestors",
+    "pages",
+    "subsections",
+    "toc",
+    "extra",
+];
+
+fn template_completion_items(
+    project: &AuthoringProject,
+    template_file: &str,
+    content: &str,
+    position: Position,
+) -> Vec<CompletionItem> {
+    let Some(context) = template_completion_context(content, position) else {
+        return Vec::new();
+    };
+
+    match &context.kind {
+        TemplateCompletionKind::Root => {
+            template_root_completion_items(project, template_file, content, &context)
+        }
+        TemplateCompletionKind::Field(path) => {
+            template_field_completion_items(project, path, context.range)
+        }
+        TemplateCompletionKind::Filter => BUILTIN_FILTER_NAMES
+            .iter()
+            .map(|name| {
+                completion_item(
+                    (*name).to_string(),
+                    CompletionItemKind::FUNCTION,
+                    "Gingembre filter".to_string(),
+                    context.range,
+                )
+            })
+            .collect(),
+        TemplateCompletionKind::Test => BUILTIN_TEST_NAMES
+            .iter()
+            .map(|name| {
+                completion_item(
+                    (*name).to_string(),
+                    CompletionItemKind::FUNCTION,
+                    "Gingembre test".to_string(),
+                    context.range,
+                )
+            })
+            .collect(),
+        TemplateCompletionKind::Macro(namespace) => template_macro_completion_items(
+            project,
+            template_file,
+            content,
+            namespace,
+            context.range,
+        ),
+    }
+}
+
+fn template_root_completion_items(
+    project: &AuthoringProject,
+    template_file: &str,
+    content: &str,
+    context: &TemplateCompletionContext,
+) -> Vec<CompletionItem> {
+    let mut items = Vec::new();
+    for name in TEMPLATE_ROOT_VALUES {
+        items.push(completion_item(
+            (*name).to_string(),
+            CompletionItemKind::VARIABLE,
+            "Dodeca template context".to_string(),
+            context.range,
+        ));
+    }
+    for name in TEMPLATE_FUNCTION_NAMES {
+        items.push(completion_item(
+            (*name).to_string(),
+            CompletionItemKind::FUNCTION,
+            "Dodeca template function".to_string(),
+            context.range,
+        ));
+    }
+
+    let import_aliases = TemplateParser::new(template_file, content)
+        .parse()
+        .map(|template| template_import_aliases(project, &template.body))
+        .unwrap_or_else(|_| template_import_aliases_from_content(project, content));
+    for alias in import_aliases.keys() {
+        items.push(completion_item(
+            alias.clone(),
+            CompletionItemKind::MODULE,
+            "Imported template macros".to_string(),
+            context.range,
+        ));
+    }
+
+    if let Ok(template) = TemplateParser::new(template_file, content).parse() {
+        if top_level_macro_names(&template.body).next().is_some() {
+            items.push(completion_item(
+                "self".to_string(),
+                CompletionItemKind::MODULE,
+                "Current template macros".to_string(),
+                context.range,
+            ));
+        }
+    }
+
+    items
+}
+
+fn template_field_completion_items(
+    project: &AuthoringProject,
+    path: &[String],
+    range: Range,
+) -> Vec<CompletionItem> {
+    let names = match path {
+        [root] if root == "config" => TEMPLATE_CONFIG_FIELDS,
+        [root] if root == "page" => TEMPLATE_PAGE_FIELDS,
+        [root] if root == "section" || root == "root" => TEMPLATE_SECTION_FIELDS,
+        [root] if root == "data" => {
+            return project
+                .data_keys
+                .iter()
+                .map(|name| {
+                    completion_item(
+                        name.clone(),
+                        CompletionItemKind::FIELD,
+                        "Dodeca data file".to_string(),
+                        range,
+                    )
+                })
+                .collect();
+        }
+        _ => return Vec::new(),
+    };
+
+    names
+        .iter()
+        .map(|name| {
+            completion_item(
+                (*name).to_string(),
+                CompletionItemKind::FIELD,
+                "Dodeca template field".to_string(),
+                range,
+            )
+        })
+        .collect()
+}
+
+fn template_macro_completion_items(
+    project: &AuthoringProject,
+    template_file: &str,
+    content: &str,
+    namespace: &str,
+    range: Range,
+) -> Vec<CompletionItem> {
+    let target_file = if namespace == "self" {
+        Some(template_file.to_string())
+    } else {
+        TemplateParser::new(template_file, content)
+            .parse()
+            .map(|template| template_import_aliases(project, &template.body))
+            .unwrap_or_else(|_| template_import_aliases_from_content(project, content))
+            .get(namespace)
+            .cloned()
+    };
+    let Some(target_file) = target_file else {
+        return Vec::new();
+    };
+    let Some(target_content) = template_content(project, &target_file, template_file, content)
+    else {
+        return Vec::new();
+    };
+    let Ok(template) = TemplateParser::new(target_file, target_content).parse() else {
+        return Vec::new();
+    };
+
+    top_level_macro_names(&template.body)
+        .map(|name| {
+            completion_item(
+                name,
+                CompletionItemKind::FUNCTION,
+                "Dodeca template macro".to_string(),
+                range,
+            )
+        })
+        .collect()
+}
+
+fn template_import_aliases_from_content(
+    project: &AuthoringProject,
+    content: &str,
+) -> HashMap<String, String> {
+    let mut aliases = HashMap::new();
+    for line in content.lines() {
+        let Some(after_import) = line.split_once("{% import ").map(|(_, value)| value) else {
+            continue;
+        };
+        let Some((quoted_path, after_path)) = after_import.split_once(" as ") else {
+            continue;
+        };
+        let path = quoted_path.trim().trim_matches('"').trim_matches('\'');
+        if !project.template_paths.contains_key(path) {
+            continue;
+        }
+        let alias = after_path
+            .trim()
+            .trim_end_matches("%}")
+            .trim()
+            .split(|ch: char| !is_template_ident_char(ch))
+            .next()
+            .unwrap_or("");
+        if !alias.is_empty() {
+            aliases.insert(alias.to_string(), path.to_string());
+        }
+    }
+    aliases
+}
+
+fn top_level_macro_names(nodes: &[Node]) -> impl Iterator<Item = String> + '_ {
+    nodes.iter().filter_map(|node| match node {
+        Node::Macro(node) => Some(node.name.name.clone()),
+        _ => None,
+    })
+}
+
+fn template_completion_context(
+    content: &str,
+    position: Position,
+) -> Option<TemplateCompletionContext> {
+    let offset = position_to_byte_offset(content, position)?;
+    let (line_start, _) = line_bounds_at_offset(content, offset);
+    let replace_start = scan_template_ident_start(content, line_start, offset);
+    let replace_end = scan_template_ident_end(content, offset);
+    let range = byte_range_to_lsp_range(content, replace_start, replace_end);
+    let before_replace = &content[line_start..replace_start];
+    let tag_start = before_replace
+        .rfind("{{")
+        .or_else(|| before_replace.rfind("{%"))?;
+    let tag_prefix = &before_replace[tag_start..];
+
+    if let Some(namespace) = template_macro_completion_namespace(tag_prefix) {
+        return Some(TemplateCompletionContext {
+            kind: TemplateCompletionKind::Macro(namespace),
+            range,
+        });
+    }
+
+    if template_test_completion_requested(tag_prefix) {
+        return Some(TemplateCompletionContext {
+            kind: TemplateCompletionKind::Test,
+            range,
+        });
+    }
+
+    if template_filter_completion_requested(tag_prefix) {
+        return Some(TemplateCompletionContext {
+            kind: TemplateCompletionKind::Filter,
+            range,
+        });
+    }
+
+    if let Some(path) = template_field_completion_path(content, line_start, replace_start) {
+        return Some(TemplateCompletionContext {
+            kind: TemplateCompletionKind::Field(path),
+            range,
+        });
+    }
+
+    Some(TemplateCompletionContext {
+        kind: TemplateCompletionKind::Root,
+        range,
+    })
+}
+
+fn template_macro_completion_namespace(tag_prefix: &str) -> Option<String> {
+    let before_colons = tag_prefix.strip_suffix("::")?;
+    let namespace_end = before_colons.len();
+    let namespace_start = before_colons[..namespace_end]
+        .rfind(|c: char| !is_template_ident_char(c))
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    (namespace_start < namespace_end)
+        .then(|| before_colons[namespace_start..namespace_end].to_string())
+}
+
+fn template_test_completion_requested(tag_prefix: &str) -> bool {
+    let Some(test_start) = tag_prefix.rfind(" is ") else {
+        return tag_prefix.contains(" is not ");
+    };
+    tag_prefix
+        .rfind('|')
+        .map(|pipe| test_start > pipe)
+        .unwrap_or(true)
+}
+
+fn template_filter_completion_requested(tag_prefix: &str) -> bool {
+    let Some(pipe) = tag_prefix.rfind('|') else {
+        return false;
+    };
+    tag_prefix
+        .rfind(" is ")
+        .map(|test_start| pipe > test_start)
+        .unwrap_or(true)
+}
+
+fn template_field_completion_path(
+    content: &str,
+    line_start: usize,
+    replace_start: usize,
+) -> Option<Vec<String>> {
+    if replace_start == line_start {
+        return None;
+    }
+    let mut start = replace_start;
+    while start > line_start {
+        let previous = content[..start].chars().next_back()?;
+        if is_template_ident_char(previous) || previous == '.' {
+            start -= previous.len_utf8();
+        } else {
+            break;
+        }
+    }
+    let raw_expr = &content[start..replace_start];
+    if !raw_expr.contains('.') {
+        return None;
+    }
+    let expr = raw_expr.trim_end_matches('.');
+    let path = expr
+        .split('.')
+        .filter(|part| !part.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    (!path.is_empty()).then_some(path)
+}
+
+fn scan_template_ident_start(content: &str, lower_bound: usize, offset: usize) -> usize {
+    let mut cursor = offset;
+    while cursor > lower_bound {
+        let Some(ch) = content[..cursor].chars().next_back() else {
+            break;
+        };
+        if !is_template_ident_char(ch) {
+            break;
+        }
+        cursor -= ch.len_utf8();
+    }
+    cursor
+}
+
+fn scan_template_ident_end(content: &str, offset: usize) -> usize {
+    let mut cursor = offset;
+    while cursor < content.len() {
+        let Some(ch) = content[cursor..].chars().next() else {
+            break;
+        };
+        if !is_template_ident_char(ch) {
+            break;
+        }
+        cursor += ch.len_utf8();
+    }
+    cursor
+}
+
+fn is_template_ident_char(ch: char) -> bool {
+    ch == '_' || ch.is_ascii_alphanumeric()
+}
+
 fn route_completion_text(page: &AuthoringPage, current_target: &str, target_route: &str) -> String {
     if current_target.starts_with('/') {
         target_route.to_string()
@@ -6546,6 +6958,61 @@ mod tests {
             diagnostic.kind == AuthoringDiagnosticKind::UnknownTest
                 && diagnostic.target == "frobnicate"
         }));
+
+        std::fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[tokio::test]
+    async fn completes_template_context_filters_tests_data_and_macros() {
+        let dir = temp_dir("template-completions");
+        let content_dir = dir.join("content");
+        let templates_dir = dir.join("templates");
+        let data_dir = dir.join("data");
+        std::fs::create_dir_all(&content_dir).expect("create content dir");
+        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
+        std::fs::create_dir_all(&data_dir).expect("create data dir");
+        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
+        std::fs::write(data_dir.join("versions.toml"), "dodeca = \"0.1.0\"\n").expect("write data");
+        std::fs::write(
+            templates_dir.join("macros.html"),
+            "{% macro card(title) %}{{ title }}{% endmacro %}\n",
+        )
+        .expect("write macros");
+
+        let template = "{% import \"macros.html\" as macros %}\n{{ pa }}\n{{ page.ti }}\n{{ data.ver }}\n{{ title | tr }}\n{% if title is str %}ok{% endif %}\n{{ macros:: }}\n";
+        std::fs::write(templates_dir.join("page.html"), template).expect("write template");
+        let project = load_authoring_project(&content_dir, &[])
+            .await
+            .expect("load project");
+
+        let labels = |position| {
+            template_completion_items(&project, "page.html", template, position)
+                .into_iter()
+                .map(|item| item.label)
+                .collect::<Vec<_>>()
+        };
+
+        assert!(labels(position_for(template, "pa")).contains(&"page".to_string()));
+        assert!(
+            labels(position_for(template, "ti")).contains(&"title".to_string()),
+            "page field completion should include title"
+        );
+        assert!(
+            labels(position_for(template, "ver")).contains(&"versions".to_string()),
+            "data completion should include data file stem"
+        );
+        assert!(
+            labels(position_for(template, "tr")).contains(&"trim".to_string()),
+            "filter completion should include trim"
+        );
+        assert!(
+            labels(position_for(template, "str")).contains(&"string".to_string()),
+            "test completion should include string"
+        );
+        assert!(
+            labels(Position::new(6, 11)).contains(&"card".to_string()),
+            "macro completion should include imported macro"
+        );
 
         std::fs::remove_dir_all(&dir).expect("remove temp dir");
     }

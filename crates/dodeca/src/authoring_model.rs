@@ -33,6 +33,7 @@ pub(crate) struct AuthoringWorkspaceInputs {
     sources: std::collections::BTreeMap<SourcePath, SourceFile>,
     templates: std::collections::BTreeMap<TemplatePath, TemplateFile>,
     static_files: std::collections::BTreeMap<StaticPath, StaticFile>,
+    data_files: std::collections::BTreeMap<DataPath, DataFile>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -56,6 +57,7 @@ pub(crate) struct AuthoringProject {
     pub template_paths: HashMap<String, Utf8PathBuf>,
     pub template_contents: HashMap<String, String>,
     pub static_paths: HashMap<String, Utf8PathBuf>,
+    pub data_keys: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -186,6 +188,7 @@ impl AuthoringWorkspace {
             sources: self.ctx.sources.clone(),
             templates: self.ctx.templates.clone(),
             static_files: self.ctx.static_files.clone(),
+            data_files: self.ctx.data_files.clone(),
         }
     }
 
@@ -592,6 +595,13 @@ async fn build_authoring_project_from_inputs(
                 .map(|source_path| (path.as_str().to_string(), source_path))
         })
         .collect();
+    let mut data_keys = inputs
+        .data_files
+        .keys()
+        .map(|path| data_completion_key(path.as_str()))
+        .collect::<Vec<_>>();
+    data_keys.sort();
+    data_keys.dedup();
 
     Ok(AuthoringProject {
         pages,
@@ -603,6 +613,7 @@ async fn build_authoring_project_from_inputs(
         template_paths,
         template_contents,
         static_paths,
+        data_keys,
     })
 }
 
@@ -767,6 +778,13 @@ fn static_source_path(content_dir: &Utf8Path, relative: &str) -> Option<Utf8Path
     }
     let dist_path = project_dir.join("dist").join(relative);
     dist_path.exists().then_some(dist_path)
+}
+
+fn data_completion_key(path: &str) -> String {
+    Utf8Path::new(path)
+        .file_stem()
+        .map(str::to_string)
+        .unwrap_or_else(|| path.to_string())
 }
 
 fn section_template_name(route: &str, template: &Option<String>) -> String {
