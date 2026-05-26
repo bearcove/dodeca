@@ -1,7 +1,8 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use eyre::{Result, eyre};
+use gingembre::ast::{Node, Span};
 use gingembre::parser::Parser as TemplateParser;
 use gingembre::semantic::TemplateSemanticIndex;
 use hotmeal::{Document, NodeId, NodeKind, StrTendril, parse};
@@ -65,7 +66,7 @@ pub(crate) struct AuthoringProject {
     pub static_paths: HashMap<String, Utf8PathBuf>,
     pub data_paths: HashMap<String, Utf8PathBuf>,
     pub data_keys: Vec<String>,
-    pub rendered_hrefs_by_route: HashMap<String, Vec<String>>,
+    pub rendered_hrefs_by_route: HashMap<String, Vec<RenderedHref>>,
 }
 
 const TEMPLATE_CONTEXT_ROOTS: &[&str] =
@@ -96,6 +97,19 @@ pub(crate) struct AuthoringHeading {
 pub(crate) enum AuthoringPageKind {
     Page,
     Section,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RenderedHref {
+    pub href: String,
+    pub origin: Option<RenderedHrefOrigin>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RenderedHrefOrigin {
+    pub path: AuthoringInputPath,
+    pub byte_start: usize,
+    pub byte_end: usize,
 }
 
 #[cfg(test)]
@@ -576,6 +590,40 @@ async fn build_authoring_project_from_inputs(
             )
         })
         .collect();
+    let project_dir = inputs
+        .content_dir
+        .parent()
+        .unwrap_or(&inputs.content_dir)
+        .to_path_buf();
+    let template_paths = inputs
+        .templates
+        .keys()
+        .map(|path| {
+            (
+                path.as_str().to_string(),
+                project_dir.join("templates").join(path.as_str()),
+            )
+        })
+        .collect();
+    let mut template_contents = HashMap::new();
+    let mut template_semantics = HashMap::new();
+    for (template_path, template) in &inputs.templates {
+        let path = template_path.as_str().to_string();
+        let content = template.content(&*inputs.db)?.as_str().to_string();
+        let parsed_template = TemplateParser::new(&path, &content)
+            .parse_recovered()
+            .template;
+        template_semantics.insert(
+            path.clone(),
+            TemplateSemanticIndex::build(
+                &parsed_template,
+                TEMPLATE_CONTEXT_ROOTS,
+                TEMPLATE_FUNCTION_NAMES,
+            ),
+        );
+        template_contents.insert(path, content);
+    }
+    let static_template_href_origins = static_template_href_origins(&template_contents);
     let mut rendered_hrefs_by_route = HashMap::new();
     let render_templates = load_all_templates(&*inputs.db).await?;
     for page in &pages {
@@ -607,41 +655,11 @@ async fn build_authoring_project_from_inputs(
             }
         };
         if let Some(html) = rendered {
-            rendered_hrefs_by_route.insert(page.route.clone(), rendered_html_hrefs(&html));
+            rendered_hrefs_by_route.insert(
+                page.route.clone(),
+                rendered_html_hrefs(&html, &static_template_href_origins),
+            );
         }
-    }
-    let project_dir = inputs
-        .content_dir
-        .parent()
-        .unwrap_or(&inputs.content_dir)
-        .to_path_buf();
-    let template_paths = inputs
-        .templates
-        .keys()
-        .map(|path| {
-            (
-                path.as_str().to_string(),
-                project_dir.join("templates").join(path.as_str()),
-            )
-        })
-        .collect();
-    let mut template_contents = HashMap::new();
-    let mut template_semantics = HashMap::new();
-    for (template_path, template) in &inputs.templates {
-        let path = template_path.as_str().to_string();
-        let content = template.content(&*inputs.db)?.as_str().to_string();
-        let template = TemplateParser::new(&path, &content)
-            .parse_recovered()
-            .template;
-        template_semantics.insert(
-            path.clone(),
-            TemplateSemanticIndex::build(
-                &template,
-                TEMPLATE_CONTEXT_ROOTS,
-                TEMPLATE_FUNCTION_NAMES,
-            ),
-        );
-        template_contents.insert(path, content);
     }
     let static_paths = inputs
         .static_files
@@ -856,12 +874,37 @@ fn data_completion_key(path: &str) -> String {
         .unwrap_or_else(|| path.to_string())
 }
 
-fn rendered_html_hrefs(html: &str) -> Vec<String> {
+fn rendered_html_hrefs(
+    html: &str,
+    static_template_href_origins: &HashMap<String, Vec<RenderedHrefOrigin>>,
+) -> Vec<RenderedHref> {
     let input = StrTendril::from(html);
     let doc = parse(&input);
     let mut hrefs = Vec::new();
     collect_rendered_html_hrefs(&doc, doc.root, &mut hrefs);
+    let mut origins = static_template_href_origins
+        .iter()
+        .map(|(href, origins)| {
+            (
+                href.clone(),
+                origins.iter().cloned().collect::<VecDeque<_>>(),
+            )
+        })
+        .collect::<HashMap<_, _>>();
     hrefs
+        .into_iter()
+        .map(|href| {
+            let origin = origins
+                .get_mut(&href)
+                .and_then(VecDeque::pop_front)
+                .or_else(|| {
+                    static_template_href_origins
+                        .get(&href)
+                        .and_then(|origins| origins.first().cloned())
+                });
+            RenderedHref { href, origin }
+        })
+        .collect()
 }
 
 fn collect_rendered_html_hrefs(doc: &Document<'_>, node_id: NodeId, hrefs: &mut Vec<String>) {
@@ -880,6 +923,205 @@ fn collect_rendered_html_hrefs(doc: &Document<'_>, node_id: NodeId, hrefs: &mut 
     for child_id in node_id.children(&doc.arena) {
         collect_rendered_html_hrefs(doc, child_id, hrefs);
     }
+}
+
+fn static_template_href_origins(
+    template_contents: &HashMap<String, String>,
+) -> HashMap<String, Vec<RenderedHrefOrigin>> {
+    let mut origins = HashMap::new();
+    for (template_file, content) in template_contents {
+        let template = TemplateParser::new(template_file, content)
+            .parse_recovered()
+            .template;
+        collect_template_href_origins(&template.body, template_file, &mut origins);
+    }
+    origins
+}
+
+fn collect_template_href_origins(
+    nodes: &[Node],
+    template_file: &str,
+    origins: &mut HashMap<String, Vec<RenderedHrefOrigin>>,
+) {
+    for node in nodes {
+        match node {
+            Node::Text(text) => {
+                for href in literal_anchor_hrefs(&text.text, text.span) {
+                    origins
+                        .entry(href.href)
+                        .or_default()
+                        .push(RenderedHrefOrigin {
+                            path: AuthoringInputPath::Template(template_file.to_string()),
+                            byte_start: href.byte_start,
+                            byte_end: href.byte_end,
+                        });
+                }
+            }
+            Node::If(node) => {
+                collect_template_href_origins(&node.then_body, template_file, origins);
+                for branch in &node.elif_branches {
+                    collect_template_href_origins(&branch.body, template_file, origins);
+                }
+                if let Some(body) = &node.else_body {
+                    collect_template_href_origins(body, template_file, origins);
+                }
+            }
+            Node::For(node) => {
+                collect_template_href_origins(&node.body, template_file, origins);
+                if let Some(body) = &node.else_body {
+                    collect_template_href_origins(body, template_file, origins);
+                }
+            }
+            Node::Block(node) => collect_template_href_origins(&node.body, template_file, origins),
+            Node::Macro(node) => collect_template_href_origins(&node.body, template_file, origins),
+            Node::Print(_)
+            | Node::Include(_)
+            | Node::Extends(_)
+            | Node::Comment(_)
+            | Node::Set(_)
+            | Node::Import(_)
+            | Node::Continue(_)
+            | Node::Break(_)
+            | Node::CallBlock(_) => {}
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LiteralHref {
+    href: String,
+    byte_start: usize,
+    byte_end: usize,
+}
+
+fn literal_anchor_hrefs(text: &str, span: Span) -> Vec<LiteralHref> {
+    let base_offset = span.offset();
+    let bytes = text.as_bytes();
+    let mut hrefs = Vec::new();
+    let mut cursor = 0;
+    while cursor < bytes.len() {
+        let Some(tag_start) = bytes[cursor..].iter().position(|byte| *byte == b'<') else {
+            break;
+        };
+        let tag_start = cursor + tag_start;
+        let mut name_start = tag_start + 1;
+        if matches!(bytes.get(name_start), Some(b'/') | Some(b'!') | Some(b'?')) {
+            cursor = name_start + 1;
+            continue;
+        }
+        while bytes.get(name_start).is_some_and(u8::is_ascii_whitespace) {
+            name_start += 1;
+        }
+        let name_end = scan_html_name(bytes, name_start);
+        if !text[name_start..name_end].eq_ignore_ascii_case("a") {
+            cursor = name_end.max(tag_start + 1);
+            continue;
+        }
+        let Some(tag_end) = scan_html_tag_end(bytes, name_end) else {
+            break;
+        };
+        collect_href_attrs(text, bytes, name_end, tag_end, base_offset, &mut hrefs);
+        cursor = tag_end + 1;
+    }
+    hrefs
+}
+
+fn collect_href_attrs(
+    text: &str,
+    bytes: &[u8],
+    mut cursor: usize,
+    tag_end: usize,
+    base_offset: usize,
+    hrefs: &mut Vec<LiteralHref>,
+) {
+    while cursor < tag_end {
+        while cursor < tag_end
+            && (bytes[cursor].is_ascii_whitespace() || matches!(bytes[cursor], b'/'))
+        {
+            cursor += 1;
+        }
+        let name_start = cursor;
+        let name_end = scan_html_name(bytes, name_start);
+        if name_end == name_start {
+            cursor += 1;
+            continue;
+        }
+        cursor = name_end;
+        while cursor < tag_end && bytes[cursor].is_ascii_whitespace() {
+            cursor += 1;
+        }
+        if cursor >= tag_end || bytes[cursor] != b'=' {
+            continue;
+        }
+        cursor += 1;
+        while cursor < tag_end && bytes[cursor].is_ascii_whitespace() {
+            cursor += 1;
+        }
+        let Some((value_start, value_end, next_cursor)) =
+            scan_html_attr_value(bytes, cursor, tag_end)
+        else {
+            break;
+        };
+        if text[name_start..name_end].eq_ignore_ascii_case("href") {
+            hrefs.push(LiteralHref {
+                href: text[value_start..value_end].to_string(),
+                byte_start: base_offset + value_start,
+                byte_end: base_offset + value_end,
+            });
+        }
+        cursor = next_cursor;
+    }
+}
+
+fn scan_html_name(bytes: &[u8], mut cursor: usize) -> usize {
+    while bytes
+        .get(cursor)
+        .is_some_and(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b':' | b'_'))
+    {
+        cursor += 1;
+    }
+    cursor
+}
+
+fn scan_html_tag_end(bytes: &[u8], mut cursor: usize) -> Option<usize> {
+    let mut quote = None;
+    while cursor < bytes.len() {
+        let byte = bytes[cursor];
+        match quote {
+            Some(active) if byte == active => quote = None,
+            Some(_) => {}
+            None if matches!(byte, b'\'' | b'"') => quote = Some(byte),
+            None if byte == b'>' => return Some(cursor),
+            None => {}
+        }
+        cursor += 1;
+    }
+    None
+}
+
+fn scan_html_attr_value(
+    bytes: &[u8],
+    cursor: usize,
+    tag_end: usize,
+) -> Option<(usize, usize, usize)> {
+    let quote = *bytes.get(cursor)?;
+    if matches!(quote, b'\'' | b'"') {
+        let value_start = cursor + 1;
+        let relative_end = bytes[value_start..tag_end]
+            .iter()
+            .position(|byte| *byte == quote)?;
+        let value_end = value_start + relative_end;
+        return Some((value_start, value_end, value_end + 1));
+    }
+    let value_start = cursor;
+    let mut value_end = cursor;
+    while value_end < tag_end
+        && !bytes[value_end].is_ascii_whitespace()
+        && !matches!(bytes[value_end], b'>')
+    {
+        value_end += 1;
+    }
+    (value_end > value_start).then_some((value_start, value_end, value_end))
 }
 
 fn section_template_name(route: &str, template: &Option<String>) -> String {

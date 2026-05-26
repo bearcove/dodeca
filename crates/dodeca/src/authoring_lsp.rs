@@ -39,7 +39,7 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 use crate::authoring_model::{
     AuthoringDocumentOverlay, AuthoringInputPath, AuthoringPage, AuthoringPageKind,
-    AuthoringProject, AuthoringWorkspace,
+    AuthoringProject, AuthoringWorkspace, RenderedHrefOrigin,
 };
 use crate::config::ResolvedConfig;
 use crate::queries::{Frontmatter, default_title_from_source_path};
@@ -1604,10 +1604,15 @@ fn route_graph_for_project(project: &AuthoringProject) -> Vec<RouteGraphNode> {
             continue;
         };
         for href in hrefs {
-            let Some(target_route) = rendered_href_target_route(project, source_page, href) else {
+            let Some(target_route) = rendered_href_target_route(project, source_page, &href.href)
+            else {
                 continue;
             };
-            if !seen_edges.insert((source_route.clone(), target_route.clone(), href.clone())) {
+            if !seen_edges.insert((
+                source_route.clone(),
+                target_route.clone(),
+                href.href.clone(),
+            )) {
                 continue;
             }
             let edge = RouteGraphEdge {
@@ -1615,7 +1620,7 @@ fn route_graph_for_project(project: &AuthoringProject) -> Vec<RouteGraphNode> {
                 source_route: source_route.clone(),
                 source_file: source_page.source_file.clone(),
                 target_route: target_route.clone(),
-                target: href.clone(),
+                target: href.href.clone(),
                 line: None,
                 column: None,
                 line_end: None,
@@ -1740,7 +1745,8 @@ fn inbound_link_counts(project: &AuthoringProject) -> HashMap<String, usize> {
             continue;
         };
         for href in hrefs {
-            let Some(target_route) = rendered_href_target_route(project, source_page, href) else {
+            let Some(target_route) = rendered_href_target_route(project, source_page, &href.href)
+            else {
                 continue;
             };
             if project.route_exists(&target_route) && target_route != source_page.route {
@@ -3636,6 +3642,28 @@ fn references_to_page(
         }
     }
 
+    for (source_route, hrefs) in &project.rendered_hrefs_by_route {
+        let Some(source_page) = project.page_for_route(source_route) else {
+            continue;
+        };
+        for href in hrefs {
+            let Some(target_route) = rendered_href_target_route(project, source_page, &href.href)
+            else {
+                continue;
+            };
+            if !project.routes_refer_to_same_page(&target_route, &target_page.route) {
+                continue;
+            }
+            let Some(origin) = &href.origin else {
+                continue;
+            };
+            if let Some(location) = location_for_rendered_href_origin(content_dir, project, origin)
+            {
+                locations.push(location);
+            }
+        }
+    }
+
     locations.sort_by(|a, b| {
         a.uri
             .as_str()
@@ -3643,7 +3671,37 @@ fn references_to_page(
             .then_with(|| position_cmp(a.range.start, b.range.start))
             .then_with(|| position_cmp(a.range.end, b.range.end))
     });
+    locations.dedup_by(|left, right| left.uri == right.uri && left.range == right.range);
     Ok(locations)
+}
+
+fn location_for_rendered_href_origin(
+    content_dir: &Utf8Path,
+    project: &AuthoringProject,
+    origin: &RenderedHrefOrigin,
+) -> Option<Location> {
+    let (path, content) = match &origin.path {
+        AuthoringInputPath::Source(source_file) => (
+            content_dir.join(source_file),
+            project.source_contents.get(source_file)?,
+        ),
+        AuthoringInputPath::Template(template_file) => (
+            content_dir
+                .parent()
+                .unwrap_or(content_dir)
+                .join("templates")
+                .join(template_file),
+            project.template_contents.get(template_file)?,
+        ),
+        AuthoringInputPath::Sass(_)
+        | AuthoringInputPath::Static(_)
+        | AuthoringInputPath::Dist(_)
+        | AuthoringInputPath::Data(_) => return None,
+    };
+    Some(Location {
+        uri: Url::from_file_path(path.as_std_path()).ok()?,
+        range: byte_range_to_lsp_range(content, origin.byte_start, origin.byte_end),
+    })
 }
 
 fn references_to_heading(
@@ -8858,7 +8916,7 @@ mod tests {
             project
                 .rendered_hrefs_by_route
                 .get("/")
-                .is_some_and(|hrefs| hrefs.iter().any(|href| href == "/rendered"))
+                .is_some_and(|hrefs| hrefs.iter().any(|href| href.href == "/rendered"))
         );
         let duplicate_route_source = project
             .pages
@@ -9208,7 +9266,16 @@ This moves.
     async fn finds_references_to_page_routes_and_source_links() {
         let dir = temp_dir("references");
         let content_dir = dir.join("content");
+        let templates_dir = dir.join("templates");
         std::fs::create_dir_all(content_dir.join("nested")).expect("create content dirs");
+        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
+        std::fs::write(
+            templates_dir.join("section.html"),
+            "<nav><a href=\"/target\">Target</a></nav>{{ section.content | safe }}",
+        )
+        .expect("write section template");
+        std::fs::write(templates_dir.join("page.html"), "{{ page.content | safe }}")
+            .expect("write page template");
         std::fs::write(
             content_dir.join("target.md"),
             "+++\ntitle = \"Target\"\n+++\n\n# Target\n",
@@ -9217,6 +9284,11 @@ This moves.
         std::fs::write(
             content_dir.join("_index.md"),
             "\
++++
+title = \"Home\"
+template = \"section.html\"
++++
+
 # Home
 
 [route](/target)
@@ -9245,25 +9317,44 @@ This moves.
         let references =
             references_to_page(&content_dir, &project, target_page).expect("references");
 
-        assert_eq!(references.len(), 4);
+        assert_eq!(references.len(), 5);
         assert_eq!(
             references
                 .iter()
                 .map(|location| {
-                    Utf8PathBuf::from_path_buf(location.uri.to_file_path().expect("file uri"))
-                        .expect("utf8 path")
-                        .strip_prefix(&content_dir)
-                        .expect("content relative")
+                    let path =
+                        Utf8PathBuf::from_path_buf(location.uri.to_file_path().expect("file uri"))
+                            .expect("utf8 path");
+                    path.strip_prefix(&dir)
+                        .expect("project relative")
                         .to_string()
                 })
                 .collect::<Vec<_>>(),
             vec![
-                "_index.md".to_string(),
-                "_index.md".to_string(),
-                "_index.md".to_string(),
-                "nested/source.md".to_string(),
+                "content/_index.md".to_string(),
+                "content/_index.md".to_string(),
+                "content/_index.md".to_string(),
+                "content/nested/source.md".to_string(),
+                "templates/section.html".to_string(),
             ]
         );
+        let template_reference = references
+            .iter()
+            .find(|location| {
+                location.uri.to_file_path().is_ok_and(|path| {
+                    Utf8PathBuf::from_path_buf(path)
+                        .ok()
+                        .is_some_and(|path| path.ends_with("templates/section.html"))
+                })
+            })
+            .expect("template rendered reference");
+        assert!(range_contains_position(
+            &template_reference.range,
+            position_for(
+                "<nav><a href=\"/target\">Target</a></nav>{{ section.content | safe }}",
+                "/target"
+            )
+        ));
 
         std::fs::remove_dir_all(&dir).expect("remove temp dir");
     }
