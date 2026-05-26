@@ -5,7 +5,7 @@ experimental = ["wrapper-scripts", "setup-scripts"]
 
 # Setup script to build cells before running tests
 [scripts.setup.build-cells]
-command = 'cargo build --workspace --exclude dodeca-devtools'
+command = 'scripts/nextest-build-cells.sh'
 
 # Default profile - excludes integration tests (use `cargo xtask integration` instead)
 [profile.default]
@@ -15,7 +15,7 @@ test-threads = 4
 default-filter = 'not test(serve::)'
 
 [[profile.default.scripts]]
-platform = 'cfg(target_os = "linux")'
+platform = 'cfg(unix)'
 filter = 'not test(serve::)'
 setup = 'build-cells'
 
