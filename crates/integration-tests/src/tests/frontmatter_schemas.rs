@@ -15,6 +15,18 @@ page-types {
 }
 "#;
 
+const ENUM_CONFIG: &str = r#"
+content content
+output public
+
+page-types {
+  Vision @object{
+    type @string
+    status @enum{living, archived}
+  }
+}
+"#;
+
 pub fn typed_frontmatter_link_to_same_type_passes() {
     let site = TestSite::with_files(
         "sample-site",
@@ -114,4 +126,79 @@ supersedes = ["note-a"]
     let html = site.get("/decision-b/");
     html.assert_ok();
     html.assert_contains("target 'note-a' has wrong type; expected Decision");
+}
+
+pub fn toml_scalar_status_validates_against_unit_enum() {
+    let site = TestSite::with_files(
+        "sample-site",
+        &[
+            (".config/dodeca.styx", ENUM_CONFIG),
+            (
+                "content/vision.md",
+                r#"+++
+title = "Vision"
+
+[extra]
+type = "Vision"
+status = "living"
++++
+
+Vision body.
+"#,
+            ),
+        ],
+    );
+
+    site.get("/vision/").assert_ok();
+}
+
+pub fn toml_scalar_status_rejects_unknown_enum_variant() {
+    let site = TestSite::with_files(
+        "sample-site",
+        &[
+            (".config/dodeca.styx", ENUM_CONFIG),
+            (
+                "content/vision.md",
+                r#"+++
+title = "Vision"
+
+[extra]
+type = "Vision"
+status = "bogus"
++++
+
+Vision body.
+"#,
+            ),
+        ],
+    );
+
+    let html = site.get("/vision/");
+    html.assert_ok();
+    html.assert_contains("frontmatter schema 'Vision'");
+    html.assert_contains("unknown enum variant");
+    html.assert_contains("bogus");
+}
+
+pub fn yaml_tagged_status_validates_against_unit_enum() {
+    let site = TestSite::with_files(
+        "sample-site",
+        &[
+            (".config/dodeca.styx", ENUM_CONFIG),
+            (
+                "content/vision.md",
+                r#"---
+title: Vision
+extra:
+  type: Vision
+  status: !living
+---
+
+Vision body.
+"#,
+            ),
+        ],
+    );
+
+    site.get("/vision/").assert_ok();
 }

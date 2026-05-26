@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use dodeca_config::PageTypeSchema;
-use facet_styx::{Meta, SchemaFile, Validator};
+use facet_styx::{Meta, Schema, SchemaFile, Validator};
 use facet_value::{DestructuredRef, Value};
 use styx_tree::{
     Entry as StyxEntry, Object as StyxObject, Payload as StyxPayload, Sequence as StyxSequence,
@@ -50,7 +50,7 @@ pub fn validate(parsed: &[ParsedData]) -> Vec<FrontmatterSchemaError> {
             continue;
         };
 
-        let styx_value = facet_value_to_styx(&data.extra);
+        let mut styx_value = facet_value_to_styx(&data.extra);
         let Some(styx_schema) = schema_file.schema.get(&Some(page_type.to_string())) else {
             errors.push(FrontmatterSchemaError {
                 source_path: data.source_path.to_string(),
@@ -58,6 +58,7 @@ pub fn validate(parsed: &[ParsedData]) -> Vec<FrontmatterSchemaError> {
             });
             continue;
         };
+        coerce_enum_scalars(&mut styx_value, styx_schema);
 
         let result = validator.validate_value(&styx_value, styx_schema, "");
         for error in result.errors {
@@ -473,6 +474,94 @@ fn display_path(path: &str) -> String {
         "<root>".to_string()
     } else {
         path.to_string()
+    }
+}
+
+/// Lift untagged scalars to tagged variants where the schema slot is an enum
+/// whose matching variant is unit-shaped. TOML/YAML can't produce styx tags;
+/// this pass bridges format-poor frontmatter to the unweakened styx schema.
+fn coerce_enum_scalars(value: &mut StyxValue, schema: &Schema) {
+    match schema {
+        Schema::Enum(enum_schema) => {
+            if value.tag.is_some() {
+                return;
+            }
+            let Some(text) = value.scalar_text() else {
+                return;
+            };
+            let text = text.to_string();
+            let all_unit_variants = enum_schema
+                .0
+                .iter()
+                .all(|(_, schema)| schema_is_unit_variant(schema));
+            for (variant_name, variant_schema) in &enum_schema.0 {
+                if variant_name.value != text {
+                    continue;
+                }
+                if schema_is_unit_variant(variant_schema) {
+                    *value = StyxValue::tag(variant_name.value.clone());
+                }
+                return;
+            }
+            if all_unit_variants {
+                *value = StyxValue::tag(text);
+            }
+        }
+        Schema::Optional(opt) => coerce_enum_scalars(value, &opt.0.0.value),
+        Schema::Default(d) => coerce_enum_scalars(value, &d.0.1.value),
+        Schema::Deprecated(d) => coerce_enum_scalars(value, &d.0.1.value),
+        Schema::Object(obj_schema) => {
+            let Some(StyxPayload::Object(object)) = value.payload.as_mut() else {
+                return;
+            };
+            let additional_schema = obj_schema
+                .0
+                .iter()
+                .find_map(|(key, value)| key.value.tag.is_some().then_some(value));
+            for entry in &mut object.entries {
+                let Some(field_name) = entry.key.scalar_text() else {
+                    continue;
+                };
+                let field_name = field_name.to_string();
+                let field_schema = obj_schema
+                    .0
+                    .iter()
+                    .find_map(|(key, schema)| {
+                        (key.value.name() == Some(field_name.as_str())).then_some(schema)
+                    })
+                    .or(additional_schema);
+                if let Some(field_schema) = field_schema {
+                    coerce_enum_scalars(&mut entry.value, field_schema);
+                }
+            }
+        }
+        Schema::Seq(seq) => {
+            let Some(StyxPayload::Sequence(seq_payload)) = value.payload.as_mut() else {
+                return;
+            };
+            let item_schema = &seq.0.0.value;
+            for item in &mut seq_payload.items {
+                coerce_enum_scalars(item, item_schema);
+            }
+        }
+        Schema::Tuple(tuple) => {
+            let Some(StyxPayload::Sequence(seq_payload)) = value.payload.as_mut() else {
+                return;
+            };
+            for (item, item_schema) in seq_payload.items.iter_mut().zip(tuple.0.iter()) {
+                coerce_enum_scalars(item, &item_schema.value);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn schema_is_unit_variant(schema: &Schema) -> bool {
+    match schema {
+        Schema::Unit => true,
+        Schema::Type { name: None } => true,
+        Schema::Type { name: Some(n) } if n == "unit" => true,
+        _ => false,
     }
 }
 
