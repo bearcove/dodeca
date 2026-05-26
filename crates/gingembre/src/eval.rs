@@ -1240,7 +1240,28 @@ fn value_in(needle: &Value, haystack: &Value) -> bool {
     }
 }
 
-/// Helper for selectattr/rejectattr filters
+/// Look up a (possibly dotted) attribute path on a value. Each segment must
+/// resolve to an object until the last; the last segment's value is returned.
+/// Returns `None` if any segment is missing or non-traversable.
+fn lookup_attr_path(root: &Value, path: &str) -> Option<Value> {
+    let mut current = root.clone();
+    for segment in path.split('.') {
+        let next = match current.destructure_ref() {
+            DestructuredRef::Object(obj) => obj.get(segment).cloned(),
+            _ => return None,
+        };
+        current = next?;
+    }
+    Some(current)
+}
+
+/// Helper for selectattr/rejectattr filters.
+///
+/// Accepts both positional and kwarg invocations:
+/// - `selectattr("field")` — keep items where field is truthy
+/// - `selectattr("field", "eq", value)` — keep items where field equals value
+/// - `selectattr(attribute="field", value=value)` — kwarg form, defaults test to "eq"
+/// - `selectattr("a.b.c", ...)` — dotted path traverses nested objects
 fn filter_by_attr<'a>(
     value: &Value,
     args: &[Value],
@@ -1249,30 +1270,42 @@ fn filter_by_attr<'a>(
 ) -> Value {
     match value.destructure_ref() {
         DestructuredRef::Array(arr) => {
-            // args[0] = attribute name (required)
-            // args[1] = test name (optional, default "truthy")
-            // args[2] = test value (optional, for comparison tests)
-            let attr_name = match args.first().and_then(|v| v.as_string()) {
-                Some(s) => s.to_string(),
+            // attribute: args[0] or kwarg "attribute" (required)
+            let attr_name = match args
+                .first()
+                .and_then(|v| v.as_string())
+                .map(|s| s.to_string())
+                .or_else(|| {
+                    get_kwarg("attribute")
+                        .and_then(|v| v.as_string())
+                        .map(|s| s.to_string())
+                }) {
+                Some(s) => s,
                 None => return value.clone(),
             };
 
+            // value: args[2] or kwarg "value" (optional)
+            let test_value = args.get(2).cloned().or_else(|| get_kwarg("value").cloned());
+
+            // test: args[1] (optional); defaults to "eq" if a value is present,
+            // otherwise to "truthy". Matches Jinja2/Tera convention so that
+            // `selectattr("x", value=y)` and `selectattr("x", "eq", y)` agree.
             let test_name = args
                 .get(1)
                 .and_then(|v| v.as_string())
                 .map(|s| s.to_string())
-                .unwrap_or_else(|| "truthy".to_string());
-
-            let test_value = args.get(2).cloned().or_else(|| get_kwarg("value").cloned());
+                .unwrap_or_else(|| {
+                    if test_value.is_some() {
+                        "eq".to_string()
+                    } else {
+                        "truthy".to_string()
+                    }
+                });
 
             let filtered: Vec<Value> = arr
                 .iter()
                 .filter(|item| {
-                    let attr_val = if let DestructuredRef::Object(obj) = item.destructure_ref() {
-                        obj.get(attr_name.as_str()).cloned()
-                    } else {
-                        None
-                    };
+                    let attr_val = lookup_attr_path(item, attr_name.as_str());
 
                     let passes = match test_name.as_str() {
                         "truthy" => attr_val.as_ref().map(|v| v.is_truthy()).unwrap_or(false),
@@ -1576,18 +1609,13 @@ fn apply_filter(
         // r[impl filter.map]
         "map" => {
             // Extract an attribute from each item: map(attribute="field")
+            // Dotted paths traverse nested objects: map(attribute="user.name").
             match value.destructure_ref() {
                 DestructuredRef::Array(arr) => {
                     if let Some(attr) = get_kwarg("attribute").and_then(|v| v.as_string()) {
                         let mapped: Vec<Value> = arr
                             .iter()
-                            .filter_map(|item| {
-                                if let DestructuredRef::Object(obj) = item.destructure_ref() {
-                                    obj.get(attr.as_str()).cloned()
-                                } else {
-                                    None
-                                }
-                            })
+                            .filter_map(|item| lookup_attr_path(item, attr.as_str()))
                             .collect();
                         VArray::from_iter(mapped).into()
                     } else {
@@ -1616,13 +1644,9 @@ fn apply_filter(
                         // Use Vec to maintain insertion order
                         let mut groups: Vec<(String, Vec<Value>)> = Vec::new();
                         for item in arr.iter() {
-                            let key = if let DestructuredRef::Object(obj) = item.destructure_ref() {
-                                obj.get(attr.as_str())
-                                    .map(|v| v.render_to_string())
-                                    .unwrap_or_default()
-                            } else {
-                                String::new()
-                            };
+                            let key = lookup_attr_path(item, attr.as_str())
+                                .map(|v| v.render_to_string())
+                                .unwrap_or_default();
                             // Find or create group
                             if let Some((_, items)) = groups.iter_mut().find(|(k, _)| k == &key) {
                                 items.push(item.clone());

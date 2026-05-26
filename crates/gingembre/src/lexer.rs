@@ -184,10 +184,17 @@ impl Lexer {
         self.source[self.pos..].chars().next()
     }
 
-    /// Peek at the next n bytes as a string slice
+    /// Peek at the next `n` bytes as a string slice, or `None` if the window
+    /// would extend past the end of the source or split a UTF-8 character.
+    ///
+    /// Callers use this to test for ASCII delimiters (`{{`, `}}`, `{%`, `%}`,
+    /// `{#`, `#}`); a window that lands mid-char by definition can't match an
+    /// ASCII delimiter, so returning `None` is the correct behaviour rather
+    /// than panicking on a non-boundary slice.
     fn peek_n(&self, n: usize) -> Option<&str> {
-        if self.pos + n <= self.source.len() {
-            Some(&self.source[self.pos..self.pos + n])
+        let end = self.pos + n;
+        if end <= self.source.len() && self.source.is_char_boundary(end) {
+            Some(&self.source[self.pos..end])
         } else {
             None
         }
@@ -678,6 +685,46 @@ mod tests {
             vec![
                 TokenKind::ExprOpen,
                 TokenKind::Int(42),
+                TokenKind::ExprClose,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_multibyte_text() {
+        // Multi-byte UTF-8 characters in text mode must not panic the lexer.
+        // The character `✦` is 3 bytes; `—` is 3 bytes; `←` is 3 bytes.
+        assert_eq!(
+            lex("hello ✦ — ← world"),
+            vec![TokenKind::Text("hello ✦ — ← world".to_string())]
+        );
+    }
+
+    #[test]
+    fn test_multibyte_around_delimiter() {
+        // The lexer's 2-byte delimiter probe must skip past multi-byte
+        // characters cleanly. The `✦` sits immediately before `{{`.
+        assert_eq!(
+            lex("✦{{ x }}"),
+            vec![
+                TokenKind::Text("✦".to_string()),
+                TokenKind::ExprOpen,
+                TokenKind::Ident("x".to_string()),
+                TokenKind::ExprClose,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_multibyte_in_string_literal() {
+        // Multi-byte characters inside a quoted string literal must lex
+        // verbatim. This is the case that crashed gingembre when a template
+        // declared `{% set marks = ["✦"] %}`.
+        assert_eq!(
+            lex("{{ \"✦\" }}"),
+            vec![
+                TokenKind::ExprOpen,
+                TokenKind::String("✦".to_string()),
                 TokenKind::ExprClose,
             ]
         );

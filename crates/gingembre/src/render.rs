@@ -1501,6 +1501,57 @@ mod tests {
     }
 
     // r[verify filter.selectattr]
+    /// `selectattr(attribute="x", value=y)` is the kwarg-shaped equivalent of
+    /// `selectattr("x", "eq", y)`. When a value is supplied without an explicit
+    /// test name, the default becomes `eq` (Jinja2/Tera convention).
+    #[tokio::test]
+    async fn test_selectattr_kwargs_attribute_and_value() {
+        let t = Template::parse(
+            "test",
+            "{% for x in items | selectattr(attribute=\"status\", value=\"active\") %}{{ x.name }}{% endfor %}",
+        )
+        .unwrap();
+
+        let mut item1 = VObject::new();
+        item1.insert(VString::from("name"), Value::from("Alice"));
+        item1.insert(VString::from("status"), Value::from("active"));
+        let mut item2 = VObject::new();
+        item2.insert(VString::from("name"), Value::from("Bob"));
+        item2.insert(VString::from("status"), Value::from("inactive"));
+
+        let items: Value = VArray::from_iter([Value::from(item1), Value::from(item2)]).into();
+        assert_eq!(t.render_with([("items", items)]).await.unwrap(), "Alice");
+    }
+
+    // r[verify filter.selectattr]
+    /// Dotted attribute paths traverse nested objects: `selectattr("a.b", ...)`
+    /// reads `item.a.b`. Critical for matching against frontmatter fields like
+    /// `extra.type` in dodeca pages.
+    #[tokio::test]
+    async fn test_selectattr_dotted_path() {
+        let t = Template::parse(
+            "test",
+            "{% for x in items | selectattr(\"meta.kind\", \"eq\", \"vision\") %}{{ x.name }}{% endfor %}",
+        )
+        .unwrap();
+
+        let mut meta1 = VObject::new();
+        meta1.insert(VString::from("kind"), Value::from("vision"));
+        let mut item1 = VObject::new();
+        item1.insert(VString::from("name"), Value::from("Alpha"));
+        item1.insert(VString::from("meta"), Value::from(meta1));
+
+        let mut meta2 = VObject::new();
+        meta2.insert(VString::from("kind"), Value::from("decision"));
+        let mut item2 = VObject::new();
+        item2.insert(VString::from("name"), Value::from("Beta"));
+        item2.insert(VString::from("meta"), Value::from(meta2));
+
+        let items: Value = VArray::from_iter([Value::from(item1), Value::from(item2)]).into();
+        assert_eq!(t.render_with([("items", items)]).await.unwrap(), "Alpha");
+    }
+
+    // r[verify filter.selectattr]
     // r[verify test.starting-with]
     #[tokio::test]
     async fn test_selectattr_starting_with() {
