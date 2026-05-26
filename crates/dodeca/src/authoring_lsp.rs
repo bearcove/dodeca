@@ -9638,7 +9638,7 @@ title = \"Source\"
         workspace
             .apply_overlays(&[AuthoringDocumentOverlay {
                 path: AuthoringInputPath::Template("custom.html".to_string()),
-                content: "{% set beta = \"/\" %}{{ beta }}".to_string(),
+                content: "{% set beta = \"/\" %}{{ beta".to_string(),
             }])
             .expect("update template overlay");
         let beta_project = workspace.inputs().project().await.expect("beta project");

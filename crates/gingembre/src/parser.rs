@@ -10,6 +10,11 @@ use std::sync::Arc;
 /// Parsed call arguments: (positional args, keyword args)
 type CallArgs = (Vec<Expr>, Vec<(Ident, Expr)>);
 
+#[derive(Debug, Clone)]
+pub struct RecoveredTemplate {
+    pub template: Template,
+}
+
 /// Parser state
 pub struct Parser {
     lexer: Lexer,
@@ -20,6 +25,9 @@ pub struct Parser {
     previous: Token,
     /// Pending token (for lookahead pushback)
     pending: Option<Token>,
+    /// Parse editor-incomplete templates by preserving every AST node that can
+    /// still be interpreted.
+    recovering: bool,
 }
 
 impl Parser {
@@ -36,6 +44,7 @@ impl Parser {
             current: current.clone(),
             previous: current,
             pending: None,
+            recovering: false,
         }
     }
 
@@ -53,6 +62,7 @@ impl Parser {
             current: current.clone(),
             previous: current,
             pending: None,
+            recovering: false,
         }
     }
 
@@ -66,6 +76,20 @@ impl Parser {
             body,
             span: span(start.offset(), end.offset() + end.len() - start.offset()),
         })
+    }
+
+    pub fn parse_recovered(mut self) -> RecoveredTemplate {
+        self.recovering = true;
+        let start = self.current.span;
+        let body = self.parse_body(&[]).unwrap_or_default();
+        let end = self.previous.span;
+
+        RecoveredTemplate {
+            template: Template {
+                body,
+                span: span(start.offset(), end.offset() + end.len() - start.offset()),
+            },
+        }
     }
 
     /// Parse a standalone expression (for REPL evaluation)
@@ -110,12 +134,19 @@ impl Parser {
                 self.previous = saved_current;
                 // Now current is the token after {% (like If, For, etc.)
                 // We need to parse the tag body
-                let node = self.parse_tag_body()?;
-                nodes.push(node);
+                match self.parse_tag_body() {
+                    Ok(node) => nodes.push(node),
+                    Err(err) if self.recovering => self.recover_after_node_error(err),
+                    Err(err) => return Err(err),
+                }
                 continue;
             }
 
-            nodes.push(self.parse_node()?);
+            match self.parse_node() {
+                Ok(node) => nodes.push(node),
+                Err(err) if self.recovering => self.recover_after_node_error(err),
+                Err(err) => return Err(err),
+            }
         }
 
         Ok(nodes)
@@ -181,7 +212,7 @@ impl Parser {
 
         let expr = self.parse_expr()?;
 
-        self.expect(&TokenKind::ExprClose)?;
+        self.expect_expr_close()?;
         let end = self.previous.span;
 
         Ok(Node::Print(PrintNode {
@@ -231,7 +262,7 @@ impl Parser {
         self.expect(&TokenKind::If)?;
 
         let condition = self.parse_expr()?;
-        self.expect(&TokenKind::TagClose)?;
+        self.expect_tag_close()?;
 
         let then_body = self.parse_body(&[TokenKind::Elif, TokenKind::Else, TokenKind::Endif])?;
 
@@ -247,7 +278,7 @@ impl Parser {
             self.advance(); // consume TagOpen
             self.advance(); // consume Elif (from pending)
             let elif_cond = self.parse_expr()?;
-            self.expect(&TokenKind::TagClose)?;
+            self.expect_tag_close()?;
 
             let elif_body =
                 self.parse_body(&[TokenKind::Elif, TokenKind::Else, TokenKind::Endif])?;
@@ -272,16 +303,19 @@ impl Parser {
         {
             self.advance(); // consume TagOpen
             self.advance(); // consume Else (from pending)
-            self.expect(&TokenKind::TagClose)?;
+            self.expect_tag_close()?;
             Some(self.parse_body(&[TokenKind::Endif])?)
         } else {
             None
         };
 
-        // Expect {% endif %}
-        self.expect(&TokenKind::TagOpen)?;
-        self.expect(&TokenKind::Endif)?;
-        self.expect(&TokenKind::TagClose)?;
+        if self.check(&TokenKind::TagOpen) {
+            self.expect(&TokenKind::TagOpen)?;
+            self.expect(&TokenKind::Endif)?;
+            self.expect_tag_close()?;
+        } else if !self.recovering {
+            self.expect(&TokenKind::TagOpen)?;
+        }
 
         let end = self.previous.span;
 
@@ -305,7 +339,7 @@ impl Parser {
         self.expect(&TokenKind::In)?;
 
         let iter = self.parse_expr()?;
-        self.expect(&TokenKind::TagClose)?;
+        self.expect_tag_close()?;
 
         let body = self.parse_body(&[TokenKind::Else, TokenKind::Endfor])?;
 
@@ -318,7 +352,7 @@ impl Parser {
             {
                 self.advance(); // consume TagOpen
                 self.advance(); // consume Else (from pending)
-                self.expect(&TokenKind::TagClose)?;
+                self.expect_tag_close()?;
                 Some(self.parse_body(&[TokenKind::Endfor])?)
             } else {
                 None
@@ -327,10 +361,13 @@ impl Parser {
             None
         };
 
-        // Expect {% endfor %}
-        self.expect(&TokenKind::TagOpen)?;
-        self.expect(&TokenKind::Endfor)?;
-        self.expect(&TokenKind::TagClose)?;
+        if self.check(&TokenKind::TagOpen) {
+            self.expect(&TokenKind::TagOpen)?;
+            self.expect(&TokenKind::Endfor)?;
+            self.expect_tag_close()?;
+        } else if !self.recovering {
+            self.expect(&TokenKind::TagOpen)?;
+        }
 
         let end = self.previous.span;
 
@@ -377,17 +414,21 @@ impl Parser {
         self.expect(&TokenKind::Block)?;
 
         let name = self.expect_ident()?;
-        self.expect(&TokenKind::TagClose)?;
+        self.expect_tag_close()?;
 
         let body = self.parse_body(&[TokenKind::Endblock])?;
 
-        self.expect(&TokenKind::TagOpen)?;
-        self.expect(&TokenKind::Endblock)?;
-        // Optional block name after endblock (e.g., {% endblock title %})
-        if matches!(&self.current.kind, TokenKind::Ident(_)) {
-            self.advance();
+        if self.check(&TokenKind::TagOpen) {
+            self.expect(&TokenKind::TagOpen)?;
+            self.expect(&TokenKind::Endblock)?;
+            // Optional block name after endblock (e.g., {% endblock title %})
+            if matches!(&self.current.kind, TokenKind::Ident(_)) {
+                self.advance();
+            }
+            self.expect_tag_close()?;
+        } else if !self.recovering {
+            self.expect(&TokenKind::TagOpen)?;
         }
-        self.expect(&TokenKind::TagClose)?;
 
         let end = self.previous.span;
 
@@ -404,7 +445,7 @@ impl Parser {
         self.expect(&TokenKind::Extends)?;
 
         let path = self.expect_string()?;
-        self.expect(&TokenKind::TagClose)?;
+        self.expect_tag_close()?;
 
         let end = self.previous.span;
 
@@ -420,7 +461,7 @@ impl Parser {
         self.expect(&TokenKind::Include)?;
 
         let path = self.expect_string()?;
-        self.expect(&TokenKind::TagClose)?;
+        self.expect_tag_close()?;
 
         let end = self.previous.span;
 
@@ -439,7 +480,7 @@ impl Parser {
         let name = self.expect_ident()?;
         self.expect(&TokenKind::Assign)?;
         let value = self.parse_expr()?;
-        self.expect(&TokenKind::TagClose)?;
+        self.expect_tag_close()?;
 
         let end = self.previous.span;
 
@@ -458,7 +499,7 @@ impl Parser {
         let path = self.expect_string()?;
         self.expect(&TokenKind::As)?;
         let alias = self.expect_ident()?;
-        self.expect(&TokenKind::TagClose)?;
+        self.expect_tag_close()?;
 
         let end = self.previous.span;
 
@@ -479,16 +520,19 @@ impl Parser {
         // Parse parameters
         self.expect(&TokenKind::LParen)?;
         let params = self.parse_macro_params()?;
-        self.expect(&TokenKind::RParen)?;
-        self.expect(&TokenKind::TagClose)?;
+        self.expect_rparen()?;
+        self.expect_tag_close()?;
 
         // Parse body
         let body = self.parse_body(&[TokenKind::Endmacro])?;
 
-        // Expect {% endmacro %}
-        self.expect(&TokenKind::TagOpen)?;
-        self.expect(&TokenKind::Endmacro)?;
-        self.expect(&TokenKind::TagClose)?;
+        if self.check(&TokenKind::TagOpen) {
+            self.expect(&TokenKind::TagOpen)?;
+            self.expect(&TokenKind::Endmacro)?;
+            self.expect_tag_close()?;
+        } else if !self.recovering {
+            self.expect(&TokenKind::TagOpen)?;
+        }
 
         let end = self.previous.span;
 
@@ -504,7 +548,7 @@ impl Parser {
     /// Parse continue statement: {% continue %}
     fn parse_continue(&mut self, start: Span) -> Result<Node, TemplateError> {
         self.expect(&TokenKind::Continue)?;
-        self.expect(&TokenKind::TagClose)?;
+        self.expect_tag_close()?;
 
         let end = self.previous.span;
 
@@ -517,7 +561,7 @@ impl Parser {
     /// Parse break statement: {% break %}
     fn parse_break(&mut self, start: Span) -> Result<Node, TemplateError> {
         self.expect(&TokenKind::Break)?;
-        self.expect(&TokenKind::TagClose)?;
+        self.expect_tag_close()?;
 
         let end = self.previous.span;
 
@@ -538,8 +582,8 @@ impl Parser {
         // Parse kwargs: func(key=value, ...)
         self.expect(&TokenKind::LParen)?;
         let (_args, kwargs) = self.parse_call_args()?;
-        self.expect(&TokenKind::RParen)?;
-        self.expect(&TokenKind::TagClose)?;
+        self.expect_rparen()?;
+        self.expect_tag_close()?;
 
         // Record where content starts (right after the closing %})
         let content_start = self.previous.span.offset() + self.previous.span.len();
@@ -802,7 +846,7 @@ impl Parser {
                             args.push(self.parse_expr()?);
                         }
                     }
-                    self.expect(&TokenKind::RParen)?;
+                    self.expect_rparen()?;
                     args
                 } else {
                     Vec::new()
@@ -1011,13 +1055,17 @@ impl Parser {
 
         while self.check(&TokenKind::Pipe) {
             self.advance();
-            let filter = self.expect_ident()?;
+            let filter = match self.expect_ident() {
+                Ok(filter) => filter,
+                Err(_err) if self.recovering && self.expression_boundary() => return Ok(expr),
+                Err(err) => return Err(err),
+            };
 
             // Optional filter arguments (with kwargs support)
             let (args, kwargs) = if self.check(&TokenKind::LParen) {
                 self.advance();
                 let result = self.parse_call_args()?;
-                self.expect(&TokenKind::RParen)?;
+                self.expect_rparen()?;
                 result
             } else {
                 (Vec::new(), Vec::new())
@@ -1050,7 +1098,11 @@ impl Parser {
         loop {
             if self.check(&TokenKind::Dot) {
                 self.advance();
-                let field = self.expect_ident()?;
+                let field = match self.expect_ident() {
+                    Ok(field) => field,
+                    Err(_err) if self.recovering && self.expression_boundary() => return Ok(expr),
+                    Err(err) => return Err(err),
+                };
                 let span = span(
                     expr.span().offset(),
                     field.span.offset() + field.span.len() - expr.span().offset(),
@@ -1062,8 +1114,12 @@ impl Parser {
                 });
             } else if self.check(&TokenKind::LBracket) {
                 self.advance();
-                let index = self.parse_expr()?;
-                self.expect(&TokenKind::RBracket)?;
+                let index = match self.parse_expr() {
+                    Ok(index) => index,
+                    Err(_err) if self.recovering && self.expression_boundary() => return Ok(expr),
+                    Err(err) => return Err(err),
+                };
+                self.expect_rbracket()?;
                 let span = span(
                     expr.span().offset(),
                     self.previous.span.offset() + self.previous.span.len() - expr.span().offset(),
@@ -1076,7 +1132,7 @@ impl Parser {
             } else if self.check(&TokenKind::LParen) {
                 self.advance();
                 let (args, kwargs) = self.parse_call_args()?;
-                self.expect(&TokenKind::RParen)?;
+                self.expect_rparen()?;
                 let span = span(
                     expr.span().offset(),
                     self.previous.span.offset() + self.previous.span.len() - expr.span().offset(),
@@ -1149,10 +1205,25 @@ impl Parser {
                 // Check for macro call: namespace::macro_name(args)
                 if self.check(&TokenKind::DoubleColon) {
                     self.advance(); // consume ::
-                    let macro_name = self.expect_ident()?;
+                    let macro_name = match self.expect_ident() {
+                        Ok(macro_name) => macro_name,
+                        Err(_err) if self.recovering && self.expression_boundary() => {
+                            return Ok(Expr::Var(Ident {
+                                name,
+                                span: start_span,
+                            }));
+                        }
+                        Err(err) => return Err(err),
+                    };
+                    if self.recovering && self.expression_boundary() {
+                        return Ok(Expr::Var(Ident {
+                            name,
+                            span: start_span,
+                        }));
+                    }
                     self.expect(&TokenKind::LParen)?;
                     let (args, kwargs) = self.parse_call_args()?;
-                    self.expect(&TokenKind::RParen)?;
+                    self.expect_rparen()?;
 
                     let end = self.previous.span;
                     Ok(Expr::MacroCall(MacroCallExpr {
@@ -1178,13 +1249,13 @@ impl Parser {
             TokenKind::LParen => {
                 self.advance();
                 let expr = self.parse_expr()?;
-                self.expect(&TokenKind::RParen)?;
+                self.expect_rparen()?;
                 Ok(expr)
             }
             TokenKind::LBracket => {
                 self.advance();
                 let elements = self.parse_list_elements()?;
-                self.expect(&TokenKind::RBracket)?;
+                self.expect_rbracket()?;
                 let span = span(
                     token.span.offset(),
                     self.previous.span.offset() + self.previous.span.len() - token.span.offset(),
@@ -1194,7 +1265,7 @@ impl Parser {
             TokenKind::LBrace => {
                 self.advance();
                 let entries = self.parse_dict_entries()?;
-                self.expect(&TokenKind::RBrace)?;
+                self.expect_rbrace()?;
                 let span = span(
                     token.span.offset(),
                     self.previous.span.offset() + self.previous.span.len() - token.span.offset(),
@@ -1241,7 +1312,13 @@ impl Parser {
                     self.advance();
                     if self.check(&TokenKind::Assign) {
                         self.advance();
-                        let value = self.parse_expr()?;
+                        let value = match self.parse_expr() {
+                            Ok(value) => value,
+                            Err(_err) if self.recovering && self.expression_boundary() => {
+                                return Ok((args, kwargs));
+                            }
+                            Err(err) => return Err(err),
+                        };
                         kwargs.push((
                             Ident {
                                 name,
@@ -1258,7 +1335,13 @@ impl Parser {
                         }));
                     }
                 } else {
-                    args.push(self.parse_expr()?);
+                    match self.parse_expr() {
+                        Ok(expr) => args.push(expr),
+                        Err(_err) if self.recovering && self.expression_boundary() => {
+                            return Ok((args, kwargs));
+                        }
+                        Err(err) => return Err(err),
+                    }
                 }
 
                 if !self.check(&TokenKind::Comma) {
@@ -1278,13 +1361,23 @@ impl Parser {
         let mut elements = Vec::new();
 
         if !self.check(&TokenKind::RBracket) {
-            elements.push(self.parse_expr()?);
+            match self.parse_expr() {
+                Ok(expr) => elements.push(expr),
+                Err(_err) if self.recovering && self.expression_boundary() => return Ok(elements),
+                Err(err) => return Err(err),
+            }
             while self.check(&TokenKind::Comma) {
                 self.advance();
                 if self.check(&TokenKind::RBracket) {
                     break;
                 }
-                elements.push(self.parse_expr()?);
+                match self.parse_expr() {
+                    Ok(expr) => elements.push(expr),
+                    Err(_err) if self.recovering && self.expression_boundary() => {
+                        return Ok(elements);
+                    }
+                    Err(err) => return Err(err),
+                }
             }
         }
 
@@ -1345,6 +1438,79 @@ impl Parser {
                 expected: format!("{kind:?}"),
                 loc: SourceLocation::new(self.current.span, self.source.named_source()),
             })?
+        }
+    }
+
+    fn expect_tag_close(&mut self) -> Result<(), TemplateError> {
+        self.expect_recoverable_close(&TokenKind::TagClose)
+    }
+
+    fn expect_expr_close(&mut self) -> Result<(), TemplateError> {
+        self.expect_recoverable_close(&TokenKind::ExprClose)
+    }
+
+    fn expect_rparen(&mut self) -> Result<(), TemplateError> {
+        self.expect_recoverable_close(&TokenKind::RParen)
+    }
+
+    fn expect_rbracket(&mut self) -> Result<(), TemplateError> {
+        self.expect_recoverable_close(&TokenKind::RBracket)
+    }
+
+    fn expect_rbrace(&mut self) -> Result<(), TemplateError> {
+        self.expect_recoverable_close(&TokenKind::RBrace)
+    }
+
+    fn expect_recoverable_close(&mut self, kind: &TokenKind) -> Result<(), TemplateError> {
+        if self.check(kind) {
+            self.advance();
+            return Ok(());
+        }
+        if self.recovering && self.recovery_boundary() {
+            return Ok(());
+        }
+        self.expect(kind)
+    }
+
+    fn expression_boundary(&self) -> bool {
+        matches!(
+            self.current.kind,
+            TokenKind::Comma
+                | TokenKind::RParen
+                | TokenKind::RBracket
+                | TokenKind::RBrace
+                | TokenKind::ExprClose
+                | TokenKind::TagClose
+                | TokenKind::Eof
+        )
+    }
+
+    fn recovery_boundary(&self) -> bool {
+        matches!(
+            self.current.kind,
+            TokenKind::Text(_)
+                | TokenKind::ExprOpen
+                | TokenKind::TagOpen
+                | TokenKind::ExprClose
+                | TokenKind::TagClose
+                | TokenKind::Eof
+        ) || self.expression_boundary()
+    }
+
+    fn recover_after_node_error(&mut self, _err: TemplateError) {
+        if self.is_at_end() {
+            return;
+        }
+        self.advance();
+        while !self.is_at_end() {
+            match self.current.kind {
+                TokenKind::Text(_) | TokenKind::ExprOpen | TokenKind::TagOpen => break,
+                TokenKind::ExprClose | TokenKind::TagClose => {
+                    self.advance();
+                    break;
+                }
+                _ => self.advance(),
+            }
         }
     }
 
@@ -1411,6 +1577,10 @@ mod tests {
 
     fn parse(s: &str) -> Result<Template, TemplateError> {
         Parser::new("test", s).parse()
+    }
+
+    fn parse_recovered(s: &str) -> Template {
+        Parser::new("test", s).parse_recovered().template
     }
 
     #[test]
@@ -1525,6 +1695,31 @@ mod tests {
             }
         } else {
             panic!("Expected print node");
+        }
+    }
+
+    #[test]
+    fn test_recovered_parse_keeps_unclosed_print_expr() {
+        let template = parse_recovered("{{ page.path | path_parent");
+        assert_eq!(template.body.len(), 1);
+        if let Node::Print(print) = &template.body[0] {
+            assert!(
+                matches!(&print.expr, Expr::Filter(filter) if filter.filter.name == "path_parent")
+            );
+        } else {
+            panic!("Expected print node");
+        }
+    }
+
+    #[test]
+    fn test_recovered_parse_keeps_unclosed_for_body_symbols() {
+        let template = parse_recovered("{% for item in section.pages %}{{ item.path }}");
+        assert_eq!(template.body.len(), 1);
+        if let Node::For(for_node) = &template.body[0] {
+            assert!(matches!(&for_node.target, Target::Single { name, .. } if name == "item"));
+            assert_eq!(for_node.body.len(), 1);
+        } else {
+            panic!("Expected for node");
         }
     }
 }

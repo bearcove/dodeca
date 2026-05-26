@@ -630,16 +630,17 @@ async fn build_authoring_project_from_inputs(
     for (template_path, template) in &inputs.templates {
         let path = template_path.as_str().to_string();
         let content = template.content(&*inputs.db)?.as_str().to_string();
-        if let Ok(template) = TemplateParser::new(&path, &content).parse() {
-            template_semantics.insert(
-                path.clone(),
-                TemplateSemanticIndex::build(
-                    &template,
-                    TEMPLATE_CONTEXT_ROOTS,
-                    TEMPLATE_FUNCTION_NAMES,
-                ),
-            );
-        }
+        let template = TemplateParser::new(&path, &content)
+            .parse_recovered()
+            .template;
+        template_semantics.insert(
+            path.clone(),
+            TemplateSemanticIndex::build(
+                &template,
+                TEMPLATE_CONTEXT_ROOTS,
+                TEMPLATE_FUNCTION_NAMES,
+            ),
+        );
         template_contents.insert(path, content);
     }
     let static_paths = inputs
