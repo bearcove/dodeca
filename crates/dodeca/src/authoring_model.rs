@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use eyre::{Result, eyre};
+use hotmeal::{Document, NodeId, NodeKind, StrTendril, parse};
 use ignore::WalkBuilder;
 
 use crate::BuildContext;
@@ -9,7 +10,8 @@ use crate::db::{
     DataFile, DataRegistry, Database, MarkdownRenderSettings, SassFile, SassRegistry, SourceFile,
     SourceRegistry, StaticFile, StaticRegistry, TemplateFile, TemplateRegistry,
 };
-use crate::queries::{build_tree, source_to_route_map};
+use crate::queries::{build_tree, load_all_templates, source_to_route_map};
+use crate::render::{Renderable, render_authoring_html};
 use crate::types::{
     DataContent, DataPath, Route, SassContent, SassPath, SourceContent, SourcePath, StaticPath,
     TemplateContent, TemplatePath,
@@ -59,6 +61,7 @@ pub(crate) struct AuthoringProject {
     pub static_paths: HashMap<String, Utf8PathBuf>,
     pub data_paths: HashMap<String, Utf8PathBuf>,
     pub data_keys: Vec<String>,
+    pub rendered_hrefs_by_route: HashMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -566,6 +569,40 @@ async fn build_authoring_project_from_inputs(
             )
         })
         .collect();
+    let mut rendered_hrefs_by_route = HashMap::new();
+    let render_templates = load_all_templates(&*inputs.db).await?;
+    for page in &pages {
+        let route = Route::new(page.route.clone());
+        let rendered = match page.kind {
+            AuthoringPageKind::Section => {
+                if let Some(section) = site_tree.sections.get(&route) {
+                    render_authoring_html(
+                        Renderable::Section(section),
+                        &site_tree,
+                        render_templates.clone(),
+                    )
+                    .await
+                } else {
+                    None
+                }
+            }
+            AuthoringPageKind::Page => {
+                if let Some(page) = site_tree.pages.get(&route) {
+                    render_authoring_html(
+                        Renderable::Page(page),
+                        &site_tree,
+                        render_templates.clone(),
+                    )
+                    .await
+                } else {
+                    None
+                }
+            }
+        };
+        if let Some(html) = rendered {
+            rendered_hrefs_by_route.insert(page.route.clone(), rendered_html_hrefs(&html));
+        }
+    }
     let project_dir = inputs
         .content_dir
         .parent()
@@ -626,6 +663,7 @@ async fn build_authoring_project_from_inputs(
         static_paths,
         data_paths,
         data_keys,
+        rendered_hrefs_by_route,
     })
 }
 
@@ -797,6 +835,32 @@ fn data_completion_key(path: &str) -> String {
         .file_stem()
         .map(str::to_string)
         .unwrap_or_else(|| path.to_string())
+}
+
+fn rendered_html_hrefs(html: &str) -> Vec<String> {
+    let input = StrTendril::from(html);
+    let doc = parse(&input);
+    let mut hrefs = Vec::new();
+    collect_rendered_html_hrefs(&doc, doc.root, &mut hrefs);
+    hrefs
+}
+
+fn collect_rendered_html_hrefs(doc: &Document<'_>, node_id: NodeId, hrefs: &mut Vec<String>) {
+    if let NodeKind::Element(element) = &doc.get(node_id).kind
+        && element.tag.as_ref() == "a"
+    {
+        hrefs.extend(
+            element
+                .attrs
+                .iter()
+                .filter(|(name, _)| name.local.as_ref() == "href")
+                .map(|(_, value)| value.as_ref().to_string()),
+        );
+    }
+
+    for child_id in node_id.children(&doc.arena) {
+        collect_rendered_html_hrefs(doc, child_id, hrefs);
+    }
 }
 
 fn section_template_name(route: &str, template: &Option<String>) -> String {

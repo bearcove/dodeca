@@ -6,7 +6,8 @@ use crate::db::{
 use crate::template_host::{RenderContext, RenderContextGuard};
 use crate::types::Route;
 use crate::url_rewrite::mark_dead_links;
-use facet_value::{VArray, VObject, VString, Value};
+use facet_value::{DestructuredRef, VArray, VObject, VString, Value};
+use gingembre::ValueExt;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -708,6 +709,49 @@ pub async fn render_section_via_cell(
     templates: HashMap<String, String>,
 ) -> Result<String, cell_gingembre_proto::TemplateRenderError> {
     try_render_via_cell(Renderable::Section(section), site_tree, templates).await
+}
+
+pub(crate) async fn render_authoring_html(
+    renderable: Renderable<'_>,
+    site_tree: &SiteTree,
+    templates: HashMap<String, String>,
+) -> Option<String> {
+    let template_name = renderable.template_name().to_string();
+    let mut loader = gingembre::InMemoryLoader::new();
+    for (name, source) in templates {
+        loader.add(name, source);
+    }
+
+    let mut context = context_from_template_value(renderable.build_context(site_tree));
+    register_authoring_template_fallbacks(&mut context);
+    let mut engine = gingembre::Engine::new(loader);
+    engine.render(&template_name, &context).await.ok()
+}
+
+fn register_authoring_template_fallbacks(context: &mut gingembre::Context) {
+    context.register_fn(
+        "get_url",
+        Box::new(|args: &[Value], kwargs: &[(String, Value)]| {
+            let path = kwargs
+                .iter()
+                .find(|(name, _)| name == "path")
+                .map(|(_, value)| value.render_to_string())
+                .or_else(|| args.first().map(Value::render_to_string))
+                .unwrap_or_default();
+            Box::pin(async move { Ok(Value::from(path.as_str())) })
+        }),
+    );
+}
+
+fn context_from_template_value(value: Value) -> gingembre::Context {
+    let mut context = gingembre::Context::new();
+    let DestructuredRef::Object(object) = value.destructure_ref() else {
+        return context;
+    };
+    for (name, value) in object.iter() {
+        context.set(name.as_str(), value.clone());
+    }
+    context
 }
 
 /// Convert a heading to a Value dict with children field

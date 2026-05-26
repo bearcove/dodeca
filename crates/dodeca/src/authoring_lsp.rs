@@ -1577,7 +1577,38 @@ fn inbound_link_counts(project: &AuthoringProject) -> HashMap<String, usize> {
             }
         }
     }
+    for (source_route, hrefs) in &project.rendered_hrefs_by_route {
+        let Some(source_page) = project.page_for_route(source_route) else {
+            continue;
+        };
+        for href in hrefs {
+            let Some(target_route) = rendered_href_target_route(project, source_page, href) else {
+                continue;
+            };
+            if project.route_exists(&target_route) && target_route != source_page.route {
+                *counts.entry(target_route).or_insert(0) += 1;
+            }
+        }
+    }
     counts
+}
+
+fn rendered_href_target_route(
+    project: &AuthoringProject,
+    source_page: &AuthoringPage,
+    href: &str,
+) -> Option<String> {
+    if is_special_target(href) {
+        return None;
+    }
+
+    let (target_without_fragment, _) = split_fragment(href);
+    if target_without_fragment.is_empty() || is_likely_static_file(target_without_fragment) {
+        return None;
+    }
+
+    let target_route = route_for_link_target(project, source_page, target_without_fragment);
+    project.route_exists(&target_route).then_some(target_route)
 }
 
 fn is_section_landing_with_children(project: &AuthoringProject, page: &AuthoringPage) -> bool {
@@ -2609,35 +2640,34 @@ fn page_link_hover_markdown(
     page: &AuthoringPage,
     fragment: Option<&str>,
 ) -> String {
-    let mut lines = vec![
-        "**Dodeca page**".to_string(),
-        String::new(),
-        format!("Title: `{}`", page.title),
-        format!("Route: `{}`", page.route),
-        format!("Source: `{}`", page.source_file),
-        format!("Template: `{}`", page.template),
-        format!("Output: `{}`", page.output_path),
-    ];
+    let mut sections = vec![format!("**Dodeca {}**", page.title)];
 
     if let Some(description) = page
         .description
         .as_deref()
         .filter(|description| !description.is_empty())
     {
-        lines.push(format!("Description: {description}"));
+        sections.push(description.to_string());
+    }
+
+    if let Some(content) = project.source_contents.get(&page.source_file)
+        && let Some(excerpt) = markdown_content_excerpt(content)
+    {
+        sections.push(excerpt);
     }
 
     if let Some(fragment) = fragment.filter(|fragment| !fragment.is_empty()) {
         match project.heading_for_route(&page.route, fragment) {
-            Some(heading) => lines.push(format!(
-                "Heading: `{}` H{} `{}`",
-                heading.id, heading.level, heading.title
+            Some(heading) => sections.push(format!(
+                "**Heading**: H{} `{}` (`#{}`)",
+                heading.level, heading.title, heading.id
             )),
-            None => lines.push(format!("Heading not found: `#{fragment}`")),
+            None => sections.push(format!("**Heading not found**: `#{fragment}`")),
         }
     }
 
-    lines.join("\n\n")
+    sections.push(page_hover_metadata_table(page));
+    sections.join("\n\n")
 }
 
 fn frontmatter_hover_markdown(
@@ -2650,56 +2680,117 @@ fn frontmatter_hover_markdown(
         AuthoringPageKind::Page => "page",
         AuthoringPageKind::Section => "section",
     };
-    let mut lines = vec![
-        "**Dodeca frontmatter**".to_string(),
-        String::new(),
-        format!("Kind: `{kind}`"),
-        format!("Title: `{}`", page.title),
-        format!("Route: `{}`", page.route),
-        format!("Source: `{}`", page.source_file),
-        format!("Template: `{}`", page.template),
-        format!("Output: `{}`", page.output_path),
-        format!("Headings: `{}`", page.heading_ids.len()),
-        format!("Backlinks: `{backlink_count}`"),
-    ];
-    lines.extend(build_provenance_hover_lines(project, page, content));
+    let mut sections = vec![format!("**Dodeca {kind}: {}**", page.title)];
 
     if let Some(description) = page
         .description
         .as_deref()
         .filter(|description| !description.is_empty())
     {
-        lines.push(format!("Description: {description}"));
+        sections.push(description.to_string());
     }
 
-    lines.join("\n\n")
+    if let Some(excerpt) = markdown_content_excerpt(content) {
+        sections.push(excerpt);
+    }
+
+    sections.push(frontmatter_hover_metadata_table(page, backlink_count));
+    sections.push(build_provenance_hover_table(project, page, content));
+    sections.join("\n\n")
 }
 
-fn build_provenance_hover_lines(
+fn page_hover_metadata_table(page: &AuthoringPage) -> String {
+    format!(
+        "| route | source | template | output |\n| --- | --- | --- | --- |\n| `{}` | `{}` | `{}` | `{}` |",
+        page.route, page.source_file, page.template, page.output_path
+    )
+}
+
+fn frontmatter_hover_metadata_table(page: &AuthoringPage, backlink_count: usize) -> String {
+    format!(
+        "| route | source | headings | backlinks |\n| --- | --- | ---: | ---: |\n| `{}` | `{}` | `{}` | `{}` |",
+        page.route,
+        page.source_file,
+        page.heading_ids.len(),
+        backlink_count
+    )
+}
+
+fn build_provenance_hover_table(
     project: &AuthoringProject,
     page: &AuthoringPage,
     content: &str,
-) -> Vec<String> {
-    let mut lines = vec![
-        "Build provenance:".to_string(),
-        format!("Transforms: `{}`", page_transform_chain(page)),
+) -> String {
+    let mut rows = vec![
+        "| build | value |".to_string(),
+        "| --- | --- |".to_string(),
+        format!("| transforms | `{}` |", page_transform_chain(page)),
     ];
 
     let templates = template_dependency_names(project, &page.template);
     if !templates.is_empty() {
-        lines.push(format!("Templates: `{}`", templates.join("`, `")));
+        rows.push(format!("| templates | `{}` |", templates.join("`, `")));
     }
 
     let assets = static_asset_references(project, page, content);
     if !assets.is_empty() {
-        lines.push(format!("Static assets: `{}`", assets.join("`, `")));
+        rows.push(format!("| static assets | `{}` |", assets.join("`, `")));
     }
 
     if !project.data_keys.is_empty() {
-        lines.push(format!("Data keys: `{}`", project.data_keys.join("`, `")));
+        rows.push(format!(
+            "| data keys | `{}` |",
+            project.data_keys.join("`, `")
+        ));
     }
 
-    lines
+    rows.join("\n")
+}
+
+fn markdown_content_excerpt(content: &str) -> Option<String> {
+    let body = markdown_body_without_frontmatter(content).trim();
+    if body.is_empty() {
+        return None;
+    }
+
+    let mut excerpt = body
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .take(4)
+        .collect::<Vec<_>>()
+        .join(" ");
+    excerpt = collapse_whitespace(&excerpt);
+
+    const MAX_EXCERPT_CHARS: usize = 260;
+    if excerpt.chars().count() > MAX_EXCERPT_CHARS {
+        excerpt = excerpt
+            .chars()
+            .take(MAX_EXCERPT_CHARS.saturating_sub(3))
+            .collect::<String>();
+        excerpt.push_str("...");
+    }
+
+    Some(format!("> {excerpt}"))
+}
+
+fn markdown_body_without_frontmatter(content: &str) -> &str {
+    if !content.starts_with("+++\n") {
+        return content;
+    }
+
+    let rest = &content[4..];
+    let Some(end) = rest.find("\n+++") else {
+        return content;
+    };
+    let after_delimiter = 4 + end + "\n+++".len();
+    content[after_delimiter..]
+        .strip_prefix('\n')
+        .unwrap_or(&content[after_delimiter..])
+}
+
+fn collapse_whitespace(input: &str) -> String {
+    input.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn page_transform_chain(page: &AuthoringPage) -> &'static str {
@@ -7723,10 +7814,19 @@ mod tests {
     async fn reports_site_graph_diagnostics() {
         let dir = temp_dir("site-graph-diagnostics");
         let content_dir = dir.join("content");
+        let templates_dir = dir.join("templates");
         std::fs::create_dir_all(content_dir.join("empty")).expect("create empty section");
+        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
+        std::fs::write(
+            templates_dir.join("section.html"),
+            "<nav><a href=\"/rendered\">Rendered</a></nav>{{ section.content | safe }}",
+        )
+        .expect("write section template");
+        std::fs::write(templates_dir.join("page.html"), "{{ page.content | safe }}")
+            .expect("write page template");
         std::fs::write(
             content_dir.join("_index.md"),
-            "+++\ntitle = \"Home\"\n+++\n\n[linked](/linked)\n[same a](/same-a)\n[same b](/same-b)\n",
+            "+++\ntitle = \"Home\"\ntemplate = \"section.html\"\n+++\n\n[linked](/linked)\n[same a](/same-a)\n[same b](/same-b)\n",
         )
         .expect("write root");
         std::fs::write(
@@ -7739,6 +7839,11 @@ mod tests {
             "+++\ntitle = \"Orphan\"\n+++\n",
         )
         .expect("write orphan");
+        std::fs::write(
+            content_dir.join("rendered.md"),
+            "+++\ntitle = \"Rendered\"\n+++\n",
+        )
+        .expect("write rendered-nav page");
         std::fs::write(
             content_dir.join("same-a.md"),
             "+++\ntitle = \"Same\"\n+++\n",
@@ -7758,6 +7863,12 @@ mod tests {
         let mut project = load_authoring_project(&content_dir, &[])
             .await
             .expect("load project");
+        assert!(
+            project
+                .rendered_hrefs_by_route
+                .get("/")
+                .is_some_and(|hrefs| hrefs.iter().any(|href| href == "/rendered"))
+        );
         let duplicate_route_source = project
             .pages
             .iter()
@@ -7785,6 +7896,7 @@ mod tests {
                 || has(AuthoringDiagnosticKind::NoInboundLinks, "/empty")
         );
         assert!(!has(AuthoringDiagnosticKind::OrphanPage, "/linked"));
+        assert!(!has(AuthoringDiagnosticKind::OrphanPage, "/rendered"));
         assert_ne!(duplicate_route_source, "/same-a");
 
         std::fs::remove_dir_all(&dir).expect("remove temp dir");
@@ -8499,9 +8611,10 @@ title = \"Source\"
         let intro_reference = reference_at_position(source, position_for(source, "/guide/intro"))
             .expect("intro reference");
         let intro_hover = link_hover_markdown(&project, page, source, &intro_reference);
-        assert!(intro_hover.contains("Title: `Intro`"));
-        assert!(intro_hover.contains("Heading: `intro--details` H2 `Details`"));
-        assert!(intro_hover.contains("Output: `guide/intro/index.html`"));
+        assert!(intro_hover.contains("**Dodeca Intro**"));
+        assert!(intro_hover.contains("> # Intro ## Details"));
+        assert!(intro_hover.contains("**Heading**: H2 `Details` (`#intro--details`)"));
+        assert!(intro_hover.contains("| `/guide/intro` | `guide/intro.md` |"));
 
         let missing_reference = reference_at_position(source, position_for(source, "/missing"))
             .expect("missing reference");
@@ -8515,13 +8628,12 @@ title = \"Source\"
         assert!(logo_hover.contains("static/logo.png"));
 
         let frontmatter_hover = frontmatter_hover_markdown(&project, page, source, 3);
-        assert!(frontmatter_hover.contains("Title: `Source`"));
-        assert!(frontmatter_hover.contains("Route: `/guide/source`"));
-        assert!(frontmatter_hover.contains("Template: `page.html`"));
-        assert!(frontmatter_hover.contains("Backlinks: `3`"));
-        assert!(frontmatter_hover.contains("Build provenance:"));
-        assert!(frontmatter_hover.contains("Transforms: `markdown -> page template"));
-        assert!(frontmatter_hover.contains("Static assets: `logo.png`"));
+        assert!(frontmatter_hover.contains("**Dodeca page: Source**"));
+        assert!(frontmatter_hover.contains("> [intro](/guide/intro#intro--details)"));
+        assert!(frontmatter_hover.contains("| route | source | headings | backlinks |"));
+        assert!(frontmatter_hover.contains("| `/guide/source` | `guide/source.md` |"));
+        assert!(frontmatter_hover.contains("| transforms | `markdown -> page template"));
+        assert!(frontmatter_hover.contains("| static assets | `logo.png` |"));
 
         std::fs::remove_dir_all(&dir).expect("remove temp dir");
     }
