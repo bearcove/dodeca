@@ -41,14 +41,8 @@ fn build_wasm_crate(name: &str) {
 
     // Try to build with wasm-pack (use separate target dir to avoid deadlock)
     let status = Command::new("wasm-pack")
-        .args([
-            "build",
-            "--target",
-            "web",
-            "--target-dir",
-            "target-wasm",
-            &crate_path,
-        ])
+        .current_dir(&crate_path)
+        .args(["build", "--target", "web", "--target-dir", "target-wasm"])
         .status();
 
     match status {

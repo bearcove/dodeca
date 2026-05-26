@@ -21,7 +21,9 @@ use crate::db::{
     TemplateRegistry,
 };
 use crate::image::{InputFormat, OutputFormat, add_width_suffix};
-use crate::queries::{build_tree, css_output, process_image, serve_html, static_file_output};
+use crate::queries::{
+    build_tree, css_output, process_image, render_page_markdown, serve_html, static_file_output,
+};
 use crate::render::{RenderOptions, inject_livereload_with_build_info};
 use crate::types::Route;
 use std::collections::HashSet;
@@ -998,7 +1000,50 @@ impl SiteServer {
             None
         };
 
-        // 1. Try to serve as HTML page (by route)
+        // 1. Try to serve rendered markdown for page.md requests.
+        if let Some(markdown_route) = markdown_route_from_path(path) {
+            let tree_result = build_tree(&snapshot).await;
+            let route_exists = match tree_result {
+                Ok(Ok(tree)) => {
+                    tree.pages.contains_key(&markdown_route)
+                        || tree.sections.contains_key(&markdown_route)
+                }
+                Ok(Err(errors)) => {
+                    tracing::debug!(
+                        error_count = errors.len(),
+                        "markdown route skipped because source parsing failed"
+                    );
+                    false
+                }
+                Err(err) => {
+                    tracing::debug!(
+                        error = %err,
+                        "markdown route skipped because build_tree failed"
+                    );
+                    false
+                }
+            };
+
+            if route_exists {
+                match render_page_markdown(&snapshot, markdown_route).await {
+                    Ok(Ok(markdown)) => {
+                        return Some(ServeContent::StaticNoCache(
+                            markdown.0.into_bytes(),
+                            "text/markdown; charset=utf-8",
+                        ));
+                    }
+                    Ok(Err(error)) => {
+                        tracing::debug!(error = %error, "render_page_markdown returned SiteError");
+                    }
+                    Err(error) => {
+                        tracing::error!(error = ?error, "render_page_markdown returned PicanteError");
+                        return None;
+                    }
+                }
+            }
+        }
+
+        // 2. Try to serve as HTML page (by route)
         let route_path = if path == "/" {
             "/".to_string()
         } else {
@@ -2387,6 +2432,14 @@ fn rewrite_devtools_js(js: &str) -> String {
     // We need to rewrite them to absolute paths:
     //   import { X } from '/_/snippets/foo/bar.js';
     js.replace("from './snippets/", "from '/_/snippets/")
+}
+
+fn markdown_route_from_path(path: &str) -> Option<Route> {
+    let route = path.strip_suffix(".md")?;
+    if route == "/index" || route.is_empty() {
+        return Some(Route::root());
+    }
+    Some(Route::new(route.to_string()))
 }
 
 /// Guess MIME type from file extension

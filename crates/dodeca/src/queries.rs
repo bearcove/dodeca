@@ -1,7 +1,7 @@
 use crate::db::{
     AllRenderedHtml, CharSet, CodeExecutionMetadata, CodeExecutionResult, CssOutput, DataRegistry,
     Db, DependencySourceInfo, ExternalLinkStatus, Heading, ImageVariant, MarkdownRenderSettings,
-    OutputFile, Page, ParsedData, ProcessedImages, RenderedHtml, ReqDefinition,
+    OutputFile, Page, ParsedData, ProcessedImages, RenderedHtml, RenderedMarkdown, ReqDefinition,
     ResolvedDependencyInfo, SassFile, SassRegistry, Section, SiteOutput, SiteTree, SourceFile,
     SourceKind, SourceMap, SourceMapEntry, SourceRegistry, StaticFile, StaticFileOutput,
     StaticRegistry, TemplateFile, TemplateRegistry,
@@ -653,6 +653,19 @@ pub async fn build_tree<DB: Db>(db: &DB) -> PicanteResult<BuildTreeResult> {
         return Ok(Err(errors));
     }
 
+    let frontmatter_schema_errors = crate::frontmatter_schema::validate(&parsed);
+    if !frontmatter_schema_errors.is_empty() {
+        return Ok(Err(frontmatter_schema_errors
+            .into_iter()
+            .map(|error| SourceParseError {
+                path: error.source_path,
+                error: MarkdownParseError {
+                    message: error.message,
+                },
+            })
+            .collect()));
+    }
+
     // First pass: create all sections
     for data in parsed.iter().filter(|d| d.is_section) {
         sections.insert(
@@ -807,6 +820,264 @@ fn wiki_link_route(route: &Route) -> String {
     }
 }
 
+fn route_to_markdown_url(route: &str) -> String {
+    let route = route.trim_end_matches('/');
+    if route.is_empty() {
+        "/index.md".to_string()
+    } else {
+        format!("{route}.md")
+    }
+}
+
+fn markdown_route_map(site_tree: &SiteTree) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    for route in site_tree.sections.keys().chain(site_tree.pages.keys()) {
+        let markdown_url = route_to_markdown_url(route.as_str());
+        let normalized = route.as_str().trim_end_matches('/');
+        if normalized.is_empty() {
+            map.insert("/".to_string(), markdown_url.clone());
+            map.insert("/index".to_string(), markdown_url.clone());
+        } else {
+            map.insert(normalized.to_string(), markdown_url.clone());
+            map.insert(format!("{normalized}/"), markdown_url);
+        }
+    }
+    map
+}
+
+fn rewrite_markdown_blocks(
+    blocks: &mut [marq::Block],
+    source_path: &str,
+    source_route_map: &HashMap<String, String>,
+    route_markdown_map: &HashMap<String, String>,
+    wiki_link_index: &WikiLinkIndex,
+) {
+    for block in blocks {
+        match block {
+            marq::Block::Paragraph(inlines) => rewrite_markdown_inlines(
+                inlines,
+                source_path,
+                source_route_map,
+                route_markdown_map,
+                wiki_link_index,
+            ),
+            marq::Block::Heading { content, .. } => rewrite_markdown_inlines(
+                content,
+                source_path,
+                source_route_map,
+                route_markdown_map,
+                wiki_link_index,
+            ),
+            marq::Block::BlockQuote(inner) => rewrite_markdown_blocks(
+                inner,
+                source_path,
+                source_route_map,
+                route_markdown_map,
+                wiki_link_index,
+            ),
+            marq::Block::List { items, .. } => {
+                for item in items {
+                    rewrite_markdown_blocks(
+                        item,
+                        source_path,
+                        source_route_map,
+                        route_markdown_map,
+                        wiki_link_index,
+                    );
+                }
+            }
+            marq::Block::Table { header, rows, .. } => {
+                for cell in header {
+                    rewrite_markdown_inlines(
+                        cell,
+                        source_path,
+                        source_route_map,
+                        route_markdown_map,
+                        wiki_link_index,
+                    );
+                }
+                for row in rows {
+                    for cell in row {
+                        rewrite_markdown_inlines(
+                            cell,
+                            source_path,
+                            source_route_map,
+                            route_markdown_map,
+                            wiki_link_index,
+                        );
+                    }
+                }
+            }
+            marq::Block::CodeBlock { .. }
+            | marq::Block::ThematicBreak
+            | marq::Block::HtmlBlock(_) => {}
+        }
+    }
+}
+
+fn rewrite_markdown_inlines(
+    inlines: &mut Vec<marq::Inline>,
+    source_path: &str,
+    source_route_map: &HashMap<String, String>,
+    route_markdown_map: &HashMap<String, String>,
+    wiki_link_index: &WikiLinkIndex,
+) {
+    for inline in inlines {
+        match inline {
+            marq::Inline::Emphasis(inner)
+            | marq::Inline::Strong(inner)
+            | marq::Inline::Strikethrough(inner) => rewrite_markdown_inlines(
+                inner,
+                source_path,
+                source_route_map,
+                route_markdown_map,
+                wiki_link_index,
+            ),
+            marq::Inline::Link { url, content, .. } => {
+                rewrite_markdown_inlines(
+                    content,
+                    source_path,
+                    source_route_map,
+                    route_markdown_map,
+                    wiki_link_index,
+                );
+                *url = rewrite_markdown_url(
+                    url,
+                    source_path,
+                    source_route_map,
+                    route_markdown_map,
+                    wiki_link_index,
+                );
+            }
+            marq::Inline::WikiLink { target, label } => {
+                let key = wiki_link_key(target);
+                rewrite_markdown_inlines(
+                    label,
+                    source_path,
+                    source_route_map,
+                    route_markdown_map,
+                    wiki_link_index,
+                );
+                if let Some(route) = key.and_then(|key| wiki_link_index.resolved.get(&key)) {
+                    let content = if label.is_empty() {
+                        vec![marq::Inline::Text(target.clone())]
+                    } else {
+                        label.clone()
+                    };
+                    *inline = marq::Inline::Link {
+                        url: route_to_markdown_url(route),
+                        title: String::new(),
+                        content,
+                    };
+                }
+            }
+            marq::Inline::Image { url, alt, .. } => {
+                rewrite_markdown_inlines(
+                    alt,
+                    source_path,
+                    source_route_map,
+                    route_markdown_map,
+                    wiki_link_index,
+                );
+                *url = rewrite_markdown_url(
+                    url,
+                    source_path,
+                    source_route_map,
+                    route_markdown_map,
+                    wiki_link_index,
+                );
+            }
+            marq::Inline::Text(_)
+            | marq::Inline::Code(_)
+            | marq::Inline::SoftBreak
+            | marq::Inline::HardBreak
+            | marq::Inline::Html(_) => {}
+        }
+    }
+}
+
+fn rewrite_markdown_url(
+    url: &str,
+    source_path: &str,
+    source_route_map: &HashMap<String, String>,
+    route_markdown_map: &HashMap<String, String>,
+    wiki_link_index: &WikiLinkIndex,
+) -> String {
+    if url.starts_with('#') || has_scheme(url) {
+        return url.to_string();
+    }
+
+    let (path, suffix) = split_link_suffix(url);
+
+    if let Some(key) = path.strip_prefix("dodeca-wiki:")
+        && let Some(route) = wiki_link_index.resolved.get(key)
+    {
+        return format!("{}{}", route_to_markdown_url(route), suffix);
+    }
+
+    if let Some(source) = path.strip_prefix("@/") {
+        if let Some(route) = source_route_map.get(source) {
+            return format!("{}{}", route_to_markdown_url(route), suffix);
+        }
+        return url.to_string();
+    }
+
+    if path.starts_with('/') {
+        let route_key = path.trim_end_matches('/');
+        if let Some(markdown_url) = route_markdown_map.get(route_key) {
+            return format!("{markdown_url}{suffix}");
+        }
+        return url.to_string();
+    }
+
+    if path.ends_with(".md") {
+        let source = normalize_relative_source_path(source_path, path);
+        if let Some(route) = source_route_map.get(&source) {
+            return format!("{}{}", route_to_markdown_url(route), suffix);
+        }
+    }
+
+    url.to_string()
+}
+
+fn has_scheme(url: &str) -> bool {
+    let Some(colon) = url.find(':') else {
+        return false;
+    };
+    !url[..colon].contains('/')
+}
+
+fn split_link_suffix(url: &str) -> (&str, &str) {
+    let split_at = url
+        .find('#')
+        .into_iter()
+        .chain(url.find('?'))
+        .min()
+        .unwrap_or(url.len());
+    url.split_at(split_at)
+}
+
+fn normalize_relative_source_path(source_path: &str, relative: &str) -> String {
+    let mut parts = Vec::new();
+    if let Some((parent, _)) = source_path.rsplit_once('/') {
+        parts.extend(parent.split('/').filter(|part| !part.is_empty()));
+    }
+    parts.extend(relative.split('/'));
+
+    let mut normalized = Vec::new();
+    for part in parts {
+        match part {
+            "" | "." => {}
+            ".." => {
+                normalized.pop();
+            }
+            part => normalized.push(part),
+        }
+    }
+
+    normalized.join("/")
+}
+
 fn route_leaf_slug(route: &Route) -> Option<String> {
     route
         .as_str()
@@ -894,6 +1165,82 @@ pub async fn render_page<DB: Db>(
         }
         .into())),
     }
+}
+
+/// Render a single page or section back to markdown.
+///
+/// The body is parsed through marq's markdown AST, then Dodeca-specific links
+/// are rewritten against the same route and wiki-link indexes used by HTML.
+#[picante::tracked]
+#[tracing::instrument(skip_all, name = "render_page_markdown", fields(route = %route))]
+pub async fn render_page_markdown<DB: Db>(
+    db: &DB,
+    route: Route,
+) -> PicanteResult<Result<RenderedMarkdown, SiteError>> {
+    tracing::debug!(route = %route, "Rendering page markdown");
+
+    let site_tree = match build_tree(db).await? {
+        Ok(tree) => tree,
+        Err(errors) => return Ok(Err(BuildError { errors }.into())),
+    };
+
+    let sources = SourceRegistry::sources(db)?.unwrap_or_default();
+    let mut selected_source = None;
+
+    for source in sources.iter() {
+        let data = match parse_file(db, *source).await? {
+            Ok(data) => data,
+            Err(error) => {
+                return Ok(Err(BuildError {
+                    errors: vec![SourceParseError {
+                        path: source.path(db)?.to_string(),
+                        error,
+                    }],
+                }
+                .into()));
+            }
+        };
+
+        if data.route == route {
+            selected_source = Some(*source);
+            break;
+        }
+    }
+
+    let source = selected_source.expect("Source not found for route");
+    let source_path = source.path(db)?.to_string();
+    let content = source.content(db)?;
+    let stripped = marq::strip_frontmatter(content.as_str());
+
+    let mut blocks = marq::parse_ast(stripped.body);
+    let source_route_map = source_to_route_map(db).await?;
+    let route_markdown_map = markdown_route_map(&site_tree);
+    let wiki_link_index = WikiLinkIndex::build(&site_tree);
+
+    rewrite_markdown_blocks(
+        &mut blocks,
+        &source_path,
+        &source_route_map,
+        &route_markdown_map,
+        &wiki_link_index,
+    );
+
+    let mut markdown = String::new();
+    if let (Some(raw), Some(format)) = (stripped.raw, stripped.format) {
+        let delimiter = match format {
+            marq::FrontmatterFormat::Toml => "+++",
+            marq::FrontmatterFormat::Yaml => "---",
+        };
+        markdown.push_str(delimiter);
+        markdown.push('\n');
+        markdown.push_str(raw);
+        markdown.push('\n');
+        markdown.push_str(delimiter);
+        markdown.push_str("\n\n");
+    }
+    markdown.push_str(&marq::render_to_markdown(&blocks));
+
+    Ok(Ok(RenderedMarkdown(markdown)))
 }
 
 /// Render a single section to HTML

@@ -18,6 +18,7 @@ mod data;
 mod db;
 mod error_pages;
 mod file_watcher;
+mod frontmatter_schema;
 mod host;
 mod image;
 mod init;
