@@ -796,7 +796,7 @@ impl Backend {
         {
             let backlink_count = references_to_page(&dirs.content_dir, &project, page)?.len();
             return Ok(Some(markdown_hover(
-                frontmatter_hover_markdown(page, backlink_count),
+                frontmatter_hover_markdown(&project, page, &content, backlink_count),
                 frontmatter_range,
             )));
         }
@@ -2640,7 +2640,12 @@ fn page_link_hover_markdown(
     lines.join("\n\n")
 }
 
-fn frontmatter_hover_markdown(page: &AuthoringPage, backlink_count: usize) -> String {
+fn frontmatter_hover_markdown(
+    project: &AuthoringProject,
+    page: &AuthoringPage,
+    content: &str,
+    backlink_count: usize,
+) -> String {
     let kind = match page.kind {
         AuthoringPageKind::Page => "page",
         AuthoringPageKind::Section => "section",
@@ -2657,6 +2662,7 @@ fn frontmatter_hover_markdown(page: &AuthoringPage, backlink_count: usize) -> St
         format!("Headings: `{}`", page.heading_ids.len()),
         format!("Backlinks: `{backlink_count}`"),
     ];
+    lines.extend(build_provenance_hover_lines(project, page, content));
 
     if let Some(description) = page
         .description
@@ -2667,6 +2673,132 @@ fn frontmatter_hover_markdown(page: &AuthoringPage, backlink_count: usize) -> St
     }
 
     lines.join("\n\n")
+}
+
+fn build_provenance_hover_lines(
+    project: &AuthoringProject,
+    page: &AuthoringPage,
+    content: &str,
+) -> Vec<String> {
+    let mut lines = vec![
+        "Build provenance:".to_string(),
+        format!("Transforms: `{}`", page_transform_chain(page)),
+    ];
+
+    let templates = template_dependency_names(project, &page.template);
+    if !templates.is_empty() {
+        lines.push(format!("Templates: `{}`", templates.join("`, `")));
+    }
+
+    let assets = static_asset_references(project, page, content);
+    if !assets.is_empty() {
+        lines.push(format!("Static assets: `{}`", assets.join("`, `")));
+    }
+
+    if !project.data_keys.is_empty() {
+        lines.push(format!("Data keys: `{}`", project.data_keys.join("`, `")));
+    }
+
+    lines
+}
+
+fn page_transform_chain(page: &AuthoringPage) -> &'static str {
+    match page.kind {
+        AuthoringPageKind::Page => "markdown -> page template -> html postprocess -> output",
+        AuthoringPageKind::Section => "markdown -> section template -> html postprocess -> output",
+    }
+}
+
+fn template_dependency_names(project: &AuthoringProject, root_template: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut seen = HashSet::new();
+    collect_template_dependency_names(project, root_template, &mut seen, &mut names);
+    names
+}
+
+fn collect_template_dependency_names(
+    project: &AuthoringProject,
+    template_file: &str,
+    seen: &mut HashSet<String>,
+    names: &mut Vec<String>,
+) {
+    if !seen.insert(template_file.to_string()) {
+        return;
+    }
+    if !project.template_contents.contains_key(template_file) {
+        return;
+    }
+    names.push(template_file.to_string());
+    let Some(content) = project.template_contents.get(template_file) else {
+        return;
+    };
+    let Ok(template) = TemplateParser::new(template_file, content.as_str()).parse() else {
+        return;
+    };
+    for dependency in template_path_dependencies(&template.body) {
+        collect_template_dependency_names(project, &dependency, seen, names);
+    }
+}
+
+fn template_path_dependencies(nodes: &[Node]) -> Vec<String> {
+    let mut dependencies = Vec::new();
+    collect_template_path_dependencies(nodes, &mut dependencies);
+    dependencies
+}
+
+fn collect_template_path_dependencies(nodes: &[Node], dependencies: &mut Vec<String>) {
+    for node in nodes {
+        match node {
+            Node::Extends(node) => dependencies.push(node.path.value.clone()),
+            Node::Include(node) => dependencies.push(node.path.value.clone()),
+            Node::Import(node) => dependencies.push(node.path.value.clone()),
+            Node::If(node) => {
+                collect_template_path_dependencies(&node.then_body, dependencies);
+                for branch in &node.elif_branches {
+                    collect_template_path_dependencies(&branch.body, dependencies);
+                }
+                if let Some(body) = &node.else_body {
+                    collect_template_path_dependencies(body, dependencies);
+                }
+            }
+            Node::For(node) => {
+                collect_template_path_dependencies(&node.body, dependencies);
+                if let Some(body) = &node.else_body {
+                    collect_template_path_dependencies(body, dependencies);
+                }
+            }
+            Node::Block(node) => collect_template_path_dependencies(&node.body, dependencies),
+            Node::Macro(node) => collect_template_path_dependencies(&node.body, dependencies),
+            Node::Text(_)
+            | Node::Print(_)
+            | Node::Comment(_)
+            | Node::Set(_)
+            | Node::Continue(_)
+            | Node::Break(_)
+            | Node::CallBlock(_) => {}
+        }
+    }
+}
+
+fn static_asset_references(
+    project: &AuthoringProject,
+    page: &AuthoringPage,
+    content: &str,
+) -> Vec<String> {
+    let mut assets = markdown_references(content)
+        .into_iter()
+        .filter_map(|reference| {
+            let target = reference.target.as_str();
+            let (target_without_fragment, _) = split_fragment(target);
+            ((reference.kind == MarkdownReferenceKind::Image
+                || is_likely_static_file(target_without_fragment))
+                && project.static_target_exists(&page.source_file, target_without_fragment))
+            .then(|| target_without_fragment.trim_start_matches('/').to_string())
+        })
+        .collect::<Vec<_>>();
+    assets.sort();
+    assets.dedup();
+    assets
 }
 
 fn markdown_hover(markdown: String, range: Range) -> Hover {
@@ -8304,11 +8436,14 @@ title = \"Source\"
         assert!(logo_hover.contains("Dodeca static asset"));
         assert!(logo_hover.contains("static/logo.png"));
 
-        let frontmatter_hover = frontmatter_hover_markdown(page, 3);
+        let frontmatter_hover = frontmatter_hover_markdown(&project, page, source, 3);
         assert!(frontmatter_hover.contains("Title: `Source`"));
         assert!(frontmatter_hover.contains("Route: `/guide/source`"));
         assert!(frontmatter_hover.contains("Template: `page.html`"));
         assert!(frontmatter_hover.contains("Backlinks: `3`"));
+        assert!(frontmatter_hover.contains("Build provenance:"));
+        assert!(frontmatter_hover.contains("Transforms: `markdown -> page template"));
+        assert!(frontmatter_hover.contains("Static assets: `logo.png`"));
 
         std::fs::remove_dir_all(&dir).expect("remove temp dir");
     }
