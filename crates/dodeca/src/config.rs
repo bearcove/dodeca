@@ -13,7 +13,7 @@ use std::fs;
 use std::sync::OnceLock;
 
 // Re-export config types from dodeca-config crate
-pub use dodeca_config::{CodeExecutionConfig, DodecaConfig, LinkCheckMode};
+pub use dodeca_config::{CodeExecutionConfig, DodecaConfig, LinkCheckMode, PageTypeSchema};
 
 /// Configuration file names
 const CONFIG_DIR: &str = ".config";
@@ -141,6 +141,8 @@ pub struct ResolvedConfig {
     pub dark_theme_css: String,
     /// Build step definitions from config
     pub build_steps: Option<std::collections::HashMap<String, dodeca_config::BuildStepDef>>,
+    /// Frontmatter schemas keyed by page type.
+    pub page_types: Option<std::collections::HashMap<String, PageTypeSchema>>,
 }
 
 impl ResolvedConfig {
@@ -357,6 +359,7 @@ fn load_config(config_path: &Utf8Path) -> Result<ResolvedConfig> {
         light_theme_css,
         dark_theme_css,
         build_steps: config.build_steps,
+        page_types: config.page_types,
     })
 }
 

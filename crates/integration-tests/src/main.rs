@@ -453,6 +453,32 @@ fn collect_tests() -> Vec<Test> {
             func: content::missing_section_title_defaults_from_slug,
             ignored: false,
         },
+        // frontmatter schema tests
+        Test {
+            name: "typed_frontmatter_link_to_same_type_passes",
+            module: "frontmatter_schemas",
+            func: frontmatter_schemas::typed_frontmatter_link_to_same_type_passes,
+            ignored: false,
+        },
+        Test {
+            name: "typed_frontmatter_missing_link_reports_error",
+            module: "frontmatter_schemas",
+            func: frontmatter_schemas::typed_frontmatter_missing_link_reports_error,
+            ignored: false,
+        },
+        Test {
+            name: "typed_frontmatter_wrong_target_type_reports_error",
+            module: "frontmatter_schemas",
+            func: frontmatter_schemas::typed_frontmatter_wrong_target_type_reports_error,
+            ignored: false,
+        },
+        // rendered markdown tests
+        Test {
+            name: "rendered_markdown_route_returns_markdown",
+            module: "rendered_markdown",
+            func: rendered_markdown::rendered_markdown_route_returns_markdown,
+            ignored: false,
+        },
         // cache_busting tests
         Test {
             name: "css_urls_are_cache_busted",

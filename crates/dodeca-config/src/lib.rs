@@ -11,6 +11,10 @@ use facet::Facet;
 pub use cell_code_execution_proto::CodeExecutionConfig;
 // Re-export Schema for build step param types
 pub use facet_styx::Schema;
+use facet_styx::{
+    DefaultSchema, DeprecatedSchema, Documented, FloatConstraints, IntConstraints, ObjectKey,
+    RawStyx, StringConstraints,
+};
 
 /// Dodeca configuration from `.config/dodeca.styx`
 #[derive(Debug, Clone, Facet)]
@@ -48,6 +52,178 @@ pub struct DodecaConfig {
     /// Keys are step names, values define params and command.
     #[facet(default)]
     pub build_steps: Option<HashMap<String, BuildStepDef>>,
+
+    /// First-class frontmatter schemas keyed by page type.
+    #[facet(default, alias = "page-types")]
+    pub page_types: Option<HashMap<String, PageTypeSchema>>,
+}
+
+/// A frontmatter schema type.
+///
+/// This mirrors `facet_styx::Schema`, while adding Dodeca's `@link(@PageType)`
+/// constructor for typed cross-page references.
+#[derive(Facet, Debug, Clone)]
+#[facet(rename_all = "lowercase")]
+#[repr(u8)]
+pub enum PageTypeSchema {
+    String(Option<StringConstraints>),
+    Int(Option<IntConstraints>),
+    Float(Option<FloatConstraints>),
+    Bool,
+    Unit,
+    Any,
+    Object(PageObjectSchema),
+    Seq(PageSeqSchema),
+    Tuple(PageTupleSchema),
+    Map(PageMapSchema),
+    Union(PageUnionSchema),
+    Optional(PageOptionalSchema),
+    Enum(PageEnumSchema),
+    #[facet(rename = "one-of")]
+    OneOf(PageOneOfSchema),
+    Flatten(PageFlattenSchema),
+    Default(PageDefaultSchema),
+    Deprecated(PageDeprecatedSchema),
+    Link(PageLinkSchema),
+    Literal(String),
+    #[facet(other)]
+    Type {
+        #[facet(tag)]
+        name: Option<String>,
+    },
+}
+
+#[derive(Facet, Debug, Clone)]
+#[repr(transparent)]
+pub struct PageObjectSchema(pub HashMap<Documented<ObjectKey>, PageTypeSchema>);
+
+#[derive(Facet, Debug, Clone)]
+#[repr(transparent)]
+pub struct PageSeqSchema(pub (Documented<Box<PageTypeSchema>>,));
+
+#[derive(Facet, Debug, Clone)]
+#[repr(transparent)]
+pub struct PageTupleSchema(pub Vec<Documented<PageTypeSchema>>);
+
+#[derive(Facet, Debug, Clone)]
+#[repr(transparent)]
+pub struct PageMapSchema(pub Vec<Documented<PageTypeSchema>>);
+
+#[derive(Facet, Debug, Clone)]
+#[repr(transparent)]
+pub struct PageUnionSchema(pub Vec<Documented<PageTypeSchema>>);
+
+#[derive(Facet, Debug, Clone)]
+#[repr(transparent)]
+pub struct PageOptionalSchema(pub (Documented<Box<PageTypeSchema>>,));
+
+#[derive(Facet, Debug, Clone)]
+#[repr(transparent)]
+pub struct PageEnumSchema(pub HashMap<Documented<String>, PageTypeSchema>);
+
+#[derive(Facet, Debug, Clone)]
+#[repr(transparent)]
+pub struct PageOneOfSchema(pub (Documented<Box<PageTypeSchema>>, Vec<RawStyx>));
+
+#[derive(Facet, Debug, Clone)]
+#[repr(transparent)]
+pub struct PageFlattenSchema(pub (Documented<Box<PageTypeSchema>>,));
+
+#[derive(Facet, Debug, Clone)]
+#[repr(transparent)]
+pub struct PageDefaultSchema(pub (RawStyx, Documented<Box<PageTypeSchema>>));
+
+#[derive(Facet, Debug, Clone)]
+#[repr(transparent)]
+pub struct PageDeprecatedSchema(pub (String, Documented<Box<PageTypeSchema>>));
+
+#[derive(Facet, Debug, Clone)]
+#[repr(transparent)]
+pub struct PageLinkSchema(pub (Documented<Box<PageTypeSchema>>,));
+
+impl PageTypeSchema {
+    /// Lower this Dodeca schema to a plain Styx schema for structural validation.
+    pub fn to_styx_schema(&self) -> Schema {
+        match self {
+            PageTypeSchema::String(c) => Schema::String(c.clone()),
+            PageTypeSchema::Int(c) => Schema::Int(c.clone()),
+            PageTypeSchema::Float(c) => Schema::Float(c.clone()),
+            PageTypeSchema::Bool => Schema::Bool,
+            PageTypeSchema::Unit => Schema::Unit,
+            PageTypeSchema::Any => Schema::Any,
+            PageTypeSchema::Object(schema) => Schema::Object(facet_styx::ObjectSchema(
+                schema
+                    .0
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.to_styx_schema()))
+                    .collect(),
+            )),
+            PageTypeSchema::Seq(schema) => Schema::Seq(facet_styx::SeqSchema((
+                documented_box_to_styx(&schema.0.0),
+            ))),
+            PageTypeSchema::Tuple(schema) => Schema::Tuple(facet_styx::TupleSchema(
+                schema.0.iter().map(documented_schema_to_styx).collect(),
+            )),
+            PageTypeSchema::Map(schema) => Schema::Map(facet_styx::MapSchema(
+                schema.0.iter().map(documented_schema_to_styx).collect(),
+            )),
+            PageTypeSchema::Union(schema) => Schema::Union(facet_styx::UnionSchema(
+                schema.0.iter().map(documented_schema_to_styx).collect(),
+            )),
+            PageTypeSchema::Optional(schema) => Schema::Optional(facet_styx::OptionalSchema((
+                documented_box_to_styx(&schema.0.0),
+            ))),
+            PageTypeSchema::Enum(schema) => Schema::Enum(facet_styx::EnumSchema(
+                schema
+                    .0
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.to_styx_schema()))
+                    .collect(),
+            )),
+            PageTypeSchema::OneOf(schema) => Schema::OneOf(facet_styx::OneOfSchema((
+                documented_box_to_styx(&schema.0.0),
+                schema.0.1.clone(),
+            ))),
+            PageTypeSchema::Flatten(schema) => Schema::Flatten(facet_styx::FlattenSchema((
+                documented_box_to_styx(&schema.0.0),
+            ))),
+            PageTypeSchema::Default(schema) => Schema::Default(DefaultSchema((
+                schema.0.0.clone(),
+                documented_box_to_styx(&schema.0.1),
+            ))),
+            PageTypeSchema::Deprecated(schema) => Schema::Deprecated(DeprecatedSchema((
+                schema.0.0.clone(),
+                documented_box_to_styx(&schema.0.1),
+            ))),
+            PageTypeSchema::Link(_) => Schema::String(None),
+            PageTypeSchema::Literal(value) => Schema::Literal(value.clone()),
+            PageTypeSchema::Type { name } => Schema::Type { name: name.clone() },
+        }
+    }
+
+    pub fn link_target_type(&self) -> Option<&str> {
+        let PageTypeSchema::Link(link) = self else {
+            return None;
+        };
+        match link.0.0.value.as_ref() {
+            PageTypeSchema::Type { name: Some(name) } => Some(name.as_str()),
+            _ => None,
+        }
+    }
+}
+
+fn documented_box_to_styx(value: &Documented<Box<PageTypeSchema>>) -> Documented<Box<Schema>> {
+    Documented {
+        value: Box::new(value.value.to_styx_schema()),
+        doc: value.doc.clone(),
+    }
+}
+
+fn documented_schema_to_styx(value: &Documented<PageTypeSchema>) -> Documented<Schema> {
+    Documented {
+        value: value.value.to_styx_schema(),
+        doc: value.doc.clone(),
+    }
 }
 
 /// Syntax highlighting theme configuration

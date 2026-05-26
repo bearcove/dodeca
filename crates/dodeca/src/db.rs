@@ -275,6 +275,10 @@ pub struct SiteTree {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, facet::Facet)]
 pub struct RenderedHtml(pub String);
 
+/// Rendered markdown output for a page or section
+#[derive(Debug, Clone, PartialEq, Eq, Hash, facet::Facet)]
+pub struct RenderedMarkdown(pub String);
+
 /// Output of serve_html: rendered HTML + head injections
 #[derive(Debug, Clone, PartialEq, Eq, Hash, facet::Facet)]
 pub struct ServedHtml {
@@ -538,6 +542,7 @@ pub struct AllRenderedHtml {
         crate::queries::source_to_route_map,
         crate::queries::build_tree,
         crate::queries::render_page,
+        crate::queries::render_page_markdown,
         crate::queries::render_section,
         crate::queries::load_static,
         crate::queries::optimize_svg,

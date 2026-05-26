@@ -735,14 +735,24 @@ impl TestSite {
                     status, path, elapsed_ms, body_len, generation, content_type
                 );
 
-                Response { status, body, url }
+                Response {
+                    status,
+                    body,
+                    url,
+                    content_type,
+                }
             }
             Err(ureq::Error::StatusCode(status)) => {
                 // ureq treats 4xx/5xx as errors, but we want to return them as responses
                 let elapsed_ms = request_start.elapsed().as_millis();
                 let body = String::new();
                 info!("← {} {} ({} ms, error status)", status, path, elapsed_ms);
-                Response { status, body, url }
+                Response {
+                    status,
+                    body,
+                    url,
+                    content_type: "(none)".to_string(),
+                }
             }
             Err(e) => {
                 let elapsed_ms = request_start.elapsed().as_millis();
@@ -1110,6 +1120,7 @@ pub struct Response {
     pub status: u16,
     pub body: String,
     pub url: String,
+    pub content_type: String,
 }
 
 impl Response {
@@ -1140,6 +1151,17 @@ impl Response {
             "Response body for {} should not contain '{}', but it does",
             self.url,
             needle
+        );
+    }
+
+    /// Assert the response content type starts with a prefix.
+    pub fn assert_content_type(&self, expected: &str) {
+        assert!(
+            self.content_type.starts_with(expected),
+            "Expected content-type for {} to start with '{}', got '{}'",
+            self.url,
+            expected,
+            self.content_type
         );
     }
 
