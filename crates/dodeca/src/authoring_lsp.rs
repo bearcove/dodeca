@@ -802,8 +802,47 @@ impl Backend {
         let uri = params.text_document.uri;
         let dirs = self.dirs_for_uri(&uri)?;
         let content = self.document_content(&uri)?;
-        let project = self.current_project(&dirs).await?;
-        let diagnostics = diagnostics_for_uri(&dirs.content_dir, &project, &uri, &content)?;
+        let world = self.current_world(&dirs).await?;
+        let project = &world.project;
+        let path = lsp_file_uri_to_utf8_path(&uri)?;
+        if let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? {
+            let diagnostics = diagnostics_for_template(project, &template_file, &content);
+            let lsp_diagnostics = diagnostics
+                .iter()
+                .map(authoring_diagnostic_to_lsp)
+                .collect::<Vec<_>>();
+            let mut actions = Vec::new();
+            for diagnostic in diagnostics
+                .into_iter()
+                .filter(|diagnostic| ranges_overlap(&diagnostic.range(), &params.range))
+            {
+                match diagnostic.kind {
+                    AuthoringDiagnosticKind::MissingTemplate => {
+                        actions.extend(missing_template_code_actions(
+                            &dirs.content_dir,
+                            &diagnostic,
+                            &lsp_diagnostics,
+                        )?)
+                    }
+                    AuthoringDiagnosticKind::Route
+                    | AuthoringDiagnosticKind::Anchor
+                    | AuthoringDiagnosticKind::Source
+                    | AuthoringDiagnosticKind::StaticAsset
+                    | AuthoringDiagnosticKind::Frontmatter
+                    | AuthoringDiagnosticKind::MissingBlock
+                    | AuthoringDiagnosticKind::UnknownMacro
+                    | AuthoringDiagnosticKind::UnknownFilter
+                    | AuthoringDiagnosticKind::UnknownTest
+                    | AuthoringDiagnosticKind::DuplicateTitle
+                    | AuthoringDiagnosticKind::DuplicateRoute
+                    | AuthoringDiagnosticKind::OrphanPage
+                    | AuthoringDiagnosticKind::NoInboundLinks => {}
+                }
+            }
+            return Ok(actions);
+        }
+
+        let diagnostics = diagnostics_for_uri(&dirs.content_dir, project, &uri, &content)?;
         let lsp_diagnostics = diagnostics
             .iter()
             .map(authoring_diagnostic_to_lsp)
@@ -811,7 +850,7 @@ impl Backend {
 
         let mut actions = Vec::new();
         if let Some(action) =
-            extract_page_code_action(&dirs.content_dir, &project, &uri, &content, params.range)?
+            extract_page_code_action(&dirs.content_dir, project, &uri, &content, params.range)?
         {
             actions.push(action);
         }
@@ -827,7 +866,7 @@ impl Backend {
                 )),
                 AuthoringDiagnosticKind::Anchor => actions.extend(missing_anchor_code_actions(
                     &dirs.content_dir,
-                    &project,
+                    project,
                     &content,
                     &diagnostic,
                     &lsp_diagnostics,
@@ -2948,6 +2987,51 @@ fn missing_route_code_actions(
     })]
 }
 
+fn missing_template_code_actions(
+    content_dir: &Utf8Path,
+    diagnostic: &AuthoringDiagnostic,
+    lsp_diagnostics: &[Diagnostic],
+) -> Result<Vec<CodeActionOrCommand>> {
+    let template_file = diagnostic.target.as_str();
+    if !is_creatable_template_path(template_file) {
+        return Ok(Vec::new());
+    }
+    let uri = template_file_uri(content_dir, template_file)?;
+    let title = format!("Create template '{}'", template_file);
+    Ok(vec![CodeActionOrCommand::CodeAction(CodeAction {
+        title,
+        kind: Some(CodeActionKind::QUICKFIX),
+        diagnostics: Some(lsp_diagnostics_for_range(
+            lsp_diagnostics,
+            diagnostic.range(),
+        )),
+        edit: Some(WorkspaceEdit {
+            changes: None,
+            document_changes: Some(DocumentChanges::Operations(vec![
+                DocumentChangeOperation::Op(ResourceOp::Create(CreateFile {
+                    uri,
+                    options: Some(CreateFileOptions {
+                        overwrite: Some(false),
+                        ignore_if_exists: Some(false),
+                    }),
+                    annotation_id: None,
+                })),
+            ])),
+            change_annotations: None,
+        }),
+        command: None,
+        is_preferred: Some(true),
+        ..CodeAction::default()
+    })])
+}
+
+fn is_creatable_template_path(path: &str) -> bool {
+    !path.is_empty()
+        && path.ends_with(".html")
+        && !path.starts_with('/')
+        && !path.split('/').any(|part| part.is_empty() || part == "..")
+}
+
 fn missing_anchor_code_actions(
     content_dir: &Utf8Path,
     project: &AuthoringProject,
@@ -4849,6 +4933,12 @@ fn page_route_edit_uri(
 fn source_file_uri(content_dir: &Utf8Path, source_file: &str) -> Result<Url> {
     Url::from_file_path(content_dir.join(source_file))
         .map_err(|_| eyre!("could not convert source file to URI: {source_file}"))
+}
+
+fn template_file_uri(content_dir: &Utf8Path, template_file: &str) -> Result<Url> {
+    let project_dir = content_dir.parent().unwrap_or(content_dir);
+    Url::from_file_path(project_dir.join("templates").join(template_file))
+        .map_err(|_| eyre!("could not convert template file to URI: {template_file}"))
 }
 
 fn target_base_and_suffix(target: &str) -> (&str, &str) {
@@ -10367,6 +10457,35 @@ mod tests {
             diagnostic.kind == AuthoringDiagnosticKind::UnknownTest
                 && diagnostic.target == "frobnicate"
         }));
+        let lsp_diagnostics = diagnostics
+            .iter()
+            .map(authoring_diagnostic_to_lsp)
+            .collect::<Vec<_>>();
+        let missing_template = diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.kind == AuthoringDiagnosticKind::MissingTemplate)
+            .expect("missing template diagnostic");
+        let actions =
+            missing_template_code_actions(&content_dir, missing_template, &lsp_diagnostics)
+                .expect("missing template code actions");
+        let action = actions
+            .iter()
+            .find_map(|action| match action {
+                CodeActionOrCommand::CodeAction(action) => Some(action),
+                CodeActionOrCommand::Command(_) => None,
+            })
+            .expect("code action");
+        assert_eq!(action.title, "Create template 'missing.html'");
+        let edit = action.edit.as_ref().expect("workspace edit");
+        let operations = match edit.document_changes.as_ref().expect("document changes") {
+            DocumentChanges::Operations(operations) => operations,
+            DocumentChanges::Edits(_) => panic!("expected document change operations"),
+        };
+        assert!(matches!(
+            &operations[..],
+            [DocumentChangeOperation::Op(ResourceOp::Create(CreateFile { uri, .. }))]
+                if *uri == template_file_uri(&content_dir, "missing.html").expect("template uri")
+        ));
 
         std::fs::remove_dir_all(&dir).expect("remove temp dir");
     }
