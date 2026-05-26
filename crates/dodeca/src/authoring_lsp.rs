@@ -929,7 +929,7 @@ impl Backend {
                 )));
             }
             if let Some(hover) =
-                template_semantic_hover(project, &template_file, &content, position)
+                template_semantic_hover(&world.template_index, &template_file, position)
             {
                 return Ok(Some(hover));
             }
@@ -1026,20 +1026,15 @@ impl Backend {
 
     async fn semantic_tokens_for_document(&self, uri: &Url) -> Result<Option<SemanticTokens>> {
         let dirs = self.dirs_for_uri(uri)?;
-        let content = self.document_content(uri)?;
         let path = lsp_file_uri_to_utf8_path(uri)?;
         let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? else {
             return Ok(None);
         };
-        let project = self.current_world(&dirs).await?.project;
-        let Some(index) = project.template_semantics.get(&template_file) else {
-            return Ok(None);
-        };
-
-        Ok(Some(SemanticTokens {
-            result_id: None,
-            data: template_semantic_tokens(index, &content),
-        }))
+        Ok(self
+            .current_world(&dirs)
+            .await?
+            .template_index
+            .semantic_tokens(&template_file))
     }
 
     async fn document_symbols(&self, params: DocumentSymbolParams) -> Result<Vec<DocumentSymbol>> {
@@ -1144,9 +1139,7 @@ impl Backend {
             {
                 return Ok(Some(target.location()?));
             }
-            if let Some(location) =
-                template_semantic_definition(&dirs.content_dir, project, &template_file, position)
-            {
+            if let Some(location) = template_index.semantic_definition(&template_file, position) {
                 return Ok(Some(location));
             }
             return Ok(None);
@@ -1207,13 +1200,7 @@ impl Backend {
             {
                 return references_to_page(&dirs.content_dir, project, target_page);
             }
-            return Ok(template_semantic_references(
-                &dirs.content_dir,
-                project,
-                &template_file,
-                &content,
-                position,
-            ));
+            return Ok(template_index.semantic_references(&template_file, position));
         }
 
         let source_file = source_file_for_path(&dirs.content_dir, &path)?;
@@ -1269,9 +1256,8 @@ impl Backend {
                 }));
             }
             return Ok(template_semantic_prepare_rename(
-                &world.project,
+                &world.template_index,
                 &template_file,
-                &content,
                 position,
             ));
         }
@@ -1336,10 +1322,8 @@ impl Backend {
                 );
             }
             return template_semantic_rename_workspace_edit(
-                uri,
-                &world.project,
+                &world.template_index,
                 &template_file,
-                &content,
                 position,
                 new_name,
             );
@@ -1713,6 +1697,8 @@ struct TemplateAuthoringIndex {
 #[derive(Debug, Clone)]
 struct IndexedTemplate {
     path: Utf8PathBuf,
+    content: String,
+    semantic: Option<TemplateSemanticIndex>,
     extends: Option<String>,
     document_targets: Vec<TemplateDocumentTarget>,
     route_references: Vec<TemplateRouteReference>,
@@ -3429,13 +3415,14 @@ fn markdown_hover(markdown: String, range: Range) -> Hover {
 }
 
 fn template_semantic_hover(
-    project: &AuthoringProject,
+    template_index: &TemplateAuthoringIndex,
     template_file: &str,
-    content: &str,
     position: Position,
 ) -> Option<Hover> {
+    let template = template_index.templates.get(template_file)?;
+    let content = &template.content;
     let offset = position_to_byte_offset(content, position)?;
-    let index = project.template_semantics.get(template_file)?;
+    let index = template.semantic.as_ref()?;
     if let Some(reference) = index.reference_at_offset(offset) {
         let markdown = match reference.kind {
             TemplateReferenceKind::Field => template_field_hover_markdown(index, reference, offset),
@@ -3477,89 +3464,15 @@ fn template_semantic_hover(
     ))
 }
 
-fn template_semantic_definition(
-    content_dir: &Utf8Path,
-    project: &AuthoringProject,
-    template_file: &str,
-    position: Position,
-) -> Option<Location> {
-    let content = project.template_contents.get(template_file)?;
-    let offset = position_to_byte_offset(content, position)?;
-    let index = project.template_semantics.get(template_file)?;
-    let symbol = index.symbol_for_offset(offset)?;
-    let span = symbol.span?;
-    Some(Location {
-        uri: Url::from_file_path(
-            content_dir
-                .parent()
-                .unwrap_or(content_dir)
-                .join("templates")
-                .join(template_file)
-                .as_std_path(),
-        )
-        .ok()?,
-        range: byte_range_to_lsp_range(content, span.offset(), span.offset() + span.len()),
-    })
-}
-
-fn template_semantic_references(
-    content_dir: &Utf8Path,
-    project: &AuthoringProject,
-    template_file: &str,
-    content: &str,
-    position: Position,
-) -> Vec<Location> {
-    let Some(offset) = position_to_byte_offset(content, position) else {
-        return Vec::new();
-    };
-    let Some(index) = project.template_semantics.get(template_file) else {
-        return Vec::new();
-    };
-    let Some(symbol) = index.symbol_for_offset(offset) else {
-        return Vec::new();
-    };
-    let Some(uri) = Url::from_file_path(
-        content_dir
-            .parent()
-            .unwrap_or(content_dir)
-            .join("templates")
-            .join(template_file)
-            .as_std_path(),
-    )
-    .ok() else {
-        return Vec::new();
-    };
-    let mut locations = Vec::new();
-    if let Some(span) = symbol.span {
-        locations.push(Location {
-            uri: uri.clone(),
-            range: byte_range_to_lsp_range(content, span.offset(), span.offset() + span.len()),
-        });
-    }
-    locations.extend(
-        index
-            .references_to_symbol(symbol.id)
-            .into_iter()
-            .map(|reference| Location {
-                uri: uri.clone(),
-                range: byte_range_to_lsp_range(
-                    content,
-                    reference.span.offset(),
-                    reference.span.offset() + reference.span.len(),
-                ),
-            }),
-    );
-    locations
-}
-
 fn template_semantic_prepare_rename(
-    project: &AuthoringProject,
+    template_index: &TemplateAuthoringIndex,
     template_file: &str,
-    content: &str,
     position: Position,
 ) -> Option<PrepareRenameResponse> {
+    let template = template_index.templates.get(template_file)?;
+    let content = &template.content;
     let offset = position_to_byte_offset(content, position)?;
-    let index = project.template_semantics.get(template_file)?;
+    let index = template.semantic.as_ref()?;
     let symbol = index.symbol_for_offset(offset)?;
     if !template_symbol_can_rename(symbol) {
         return None;
@@ -3572,20 +3485,22 @@ fn template_semantic_prepare_rename(
 }
 
 fn template_semantic_rename_workspace_edit(
-    uri: &Url,
-    project: &AuthoringProject,
+    template_index: &TemplateAuthoringIndex,
     template_file: &str,
-    content: &str,
     position: Position,
     new_name: &str,
 ) -> Result<Option<WorkspaceEdit>> {
     if !is_valid_template_rename_name(new_name) {
         return Ok(None);
     }
+    let Some(template) = template_index.templates.get(template_file) else {
+        return Ok(None);
+    };
+    let content = &template.content;
     let Some(offset) = position_to_byte_offset(content, position) else {
         return Ok(None);
     };
-    let Some(index) = project.template_semantics.get(template_file) else {
+    let Some(index) = template.semantic.as_ref() else {
         return Ok(None);
     };
     let Some(symbol) = index.symbol_for_offset(offset) else {
@@ -3615,7 +3530,9 @@ fn template_semantic_rename_workspace_edit(
             }),
     );
     let mut changes = HashMap::new();
-    changes.insert(uri.clone(), edits);
+    let uri = Url::from_file_path(template.path.as_std_path())
+        .map_err(|_| eyre!("could not convert template path to URI: {}", template.path))?;
+    changes.insert(uri, edits);
     Ok(Some(WorkspaceEdit {
         changes: Some(changes),
         document_changes: None,
@@ -7222,6 +7139,8 @@ impl TemplateAuthoringIndex {
                 template_file.clone(),
                 IndexedTemplate {
                     path: template_path.clone(),
+                    content: content.clone(),
+                    semantic: project.template_semantics.get(template_file).cloned(),
                     extends: template_extends_path_from_nodes(&template.body),
                     document_targets: template_document_targets_for_nodes(
                         project,
@@ -7524,6 +7443,75 @@ impl TemplateAuthoringIndex {
                 path: template.path.clone(),
                 range: occurrence.source_range,
             })
+    }
+
+    fn semantic_tokens(&self, template_file: &str) -> Option<SemanticTokens> {
+        let template = self.templates.get(template_file)?;
+        let semantic = template.semantic.as_ref()?;
+        Some(SemanticTokens {
+            result_id: None,
+            data: template_semantic_tokens(semantic, &template.content),
+        })
+    }
+
+    fn semantic_definition(&self, template_file: &str, position: Position) -> Option<Location> {
+        let template = self.templates.get(template_file)?;
+        let offset = position_to_byte_offset(&template.content, position)?;
+        let semantic = template.semantic.as_ref()?;
+        let symbol = semantic.symbol_for_offset(offset)?;
+        let span = symbol.span?;
+        Some(Location {
+            uri: Url::from_file_path(template.path.as_std_path()).ok()?,
+            range: byte_range_to_lsp_range(
+                &template.content,
+                span.offset(),
+                span.offset() + span.len(),
+            ),
+        })
+    }
+
+    fn semantic_references(&self, template_file: &str, position: Position) -> Vec<Location> {
+        let Some(template) = self.templates.get(template_file) else {
+            return Vec::new();
+        };
+        let Some(offset) = position_to_byte_offset(&template.content, position) else {
+            return Vec::new();
+        };
+        let Some(semantic) = template.semantic.as_ref() else {
+            return Vec::new();
+        };
+        let Some(symbol) = semantic.symbol_for_offset(offset) else {
+            return Vec::new();
+        };
+        let Some(uri) = Url::from_file_path(template.path.as_std_path()).ok() else {
+            return Vec::new();
+        };
+
+        let mut locations = Vec::new();
+        if let Some(span) = symbol.span {
+            locations.push(Location {
+                uri: uri.clone(),
+                range: byte_range_to_lsp_range(
+                    &template.content,
+                    span.offset(),
+                    span.offset() + span.len(),
+                ),
+            });
+        }
+        locations.extend(
+            semantic
+                .references_to_symbol(symbol.id)
+                .into_iter()
+                .map(|reference| Location {
+                    uri: uri.clone(),
+                    range: byte_range_to_lsp_range(
+                        &template.content,
+                        reference.span.offset(),
+                        reference.span.offset() + reference.span.len(),
+                    ),
+                }),
+        );
+        locations
     }
 }
 
@@ -10139,18 +10127,16 @@ mod tests {
         let project = load_authoring_project(&content_dir, &[])
             .await
             .expect("load project");
-        let index = project
-            .template_semantics
+        let template_index = TemplateAuthoringIndex::new(&project);
+        let semantic_index = template_index
+            .templates
             .get("page.html")
+            .and_then(|template| template.semantic.as_ref())
             .expect("template semantics");
 
-        let hover = template_semantic_hover(
-            &project,
-            "page.html",
-            template,
-            position_for(template, "path"),
-        )
-        .expect("field hover");
+        let hover =
+            template_semantic_hover(&template_index, "page.html", position_for(template, "path"))
+                .expect("field hover");
         let HoverContents::Markup(markup) = hover.contents else {
             panic!("expected markdown hover");
         };
@@ -10158,9 +10144,8 @@ mod tests {
         assert!(markup.value.contains("Site-relative route"));
 
         let filter_hover = template_semantic_hover(
-            &project,
+            &template_index,
             "page.html",
-            template,
             position_for(template, "path_parent"),
         )
         .expect("filter hover");
@@ -10171,9 +10156,8 @@ mod tests {
         assert!(markup.value.contains("Returns the parent path"));
 
         let section_field_hover = template_semantic_hover(
-            &project,
+            &template_index,
             "page.html",
-            template,
             position_for_nth(template, "pages", 1),
         )
         .expect("section field hover through loop binding");
@@ -10184,9 +10168,8 @@ mod tests {
         assert!(markup.value.contains("nearest parent section"));
 
         let local_hover = template_semantic_hover(
-            &project,
+            &template_index,
             "page.html",
-            template,
             position_for_nth(template, "local_route", 1),
         )
         .expect("local variable hover");
@@ -10197,25 +10180,16 @@ mod tests {
         assert!(markup.value.contains("1 read reference"));
         assert!(markup.value.contains("0 write reference"));
 
-        let definition = template_semantic_definition(
-            &content_dir,
-            &project,
-            "page.html",
-            position_for_nth(template, "local_route", 1),
-        )
-        .expect("local binding definition");
+        let definition = template_index
+            .semantic_definition("page.html", position_for_nth(template, "local_route", 1))
+            .expect("local binding definition");
         assert!(range_contains_position(
             &definition.range,
             position_for(template, "local_route")
         ));
 
-        let references = template_semantic_references(
-            &content_dir,
-            &project,
-            "page.html",
-            template,
-            position_for_nth(template, "local_route", 1),
-        );
+        let references = template_index
+            .semantic_references("page.html", position_for_nth(template, "local_route", 1));
         assert_eq!(references.len(), 2);
         assert!(references.iter().any(|location| range_contains_position(
             &location.range,
@@ -10227,9 +10201,8 @@ mod tests {
         )));
 
         let prepared = template_semantic_prepare_rename(
-            &project,
+            &template_index,
             "page.html",
-            template,
             position_for_nth(template, "local_route", 1),
         )
         .expect("prepare rename");
@@ -10241,10 +10214,8 @@ mod tests {
         let uri = Url::from_file_path(templates_dir.join("page.html").as_std_path())
             .expect("template uri");
         let edit = template_semantic_rename_workspace_edit(
-            &uri,
-            &project,
+            &template_index,
             "page.html",
-            template,
             position_for_nth(template, "local_route", 1),
             "route_path",
         )
@@ -10255,7 +10226,7 @@ mod tests {
         assert_eq!(edits.len(), 2);
         assert!(edits.iter().all(|edit| edit.new_text == "route_path"));
 
-        let token_types = template_semantic_tokens(index, template)
+        let token_types = template_semantic_tokens(semantic_index, template)
             .into_iter()
             .map(|token| token.token_type)
             .collect::<Vec<_>>();
@@ -10281,41 +10252,24 @@ mod tests {
         let project = load_authoring_project(&content_dir, &[])
             .await
             .expect("load project");
+        let template_index = TemplateAuthoringIndex::new(&project);
 
-        let first_definition = template_semantic_definition(
-            &content_dir,
-            &project,
-            "base.html",
-            position_for(template, "current_path"),
-        )
-        .expect("first definition");
-        let second_definition = template_semantic_definition(
-            &content_dir,
-            &project,
-            "base.html",
-            position_for_nth(template, "current_path", 1),
-        )
-        .expect("second definition");
+        let first_definition = template_index
+            .semantic_definition("base.html", position_for(template, "current_path"))
+            .expect("first definition");
+        let second_definition = template_index
+            .semantic_definition("base.html", position_for_nth(template, "current_path", 1))
+            .expect("second definition");
         assert_eq!(first_definition.range, second_definition.range);
         assert!(range_contains_position(
             &first_definition.range,
             position_for(template, "current_path")
         ));
 
-        let first_references = template_semantic_references(
-            &content_dir,
-            &project,
-            "base.html",
-            template,
-            position_for(template, "current_path"),
-        );
-        let second_references = template_semantic_references(
-            &content_dir,
-            &project,
-            "base.html",
-            template,
-            position_for_nth(template, "current_path", 1),
-        );
+        let first_references =
+            template_index.semantic_references("base.html", position_for(template, "current_path"));
+        let second_references = template_index
+            .semantic_references("base.html", position_for_nth(template, "current_path", 1));
         assert_eq!(first_references, second_references);
         assert_eq!(first_references.len(), 5);
         for index in 0..5 {
@@ -10332,10 +10286,8 @@ mod tests {
         let uri =
             Url::from_file_path(templates_dir.join("base.html").as_std_path()).expect("file uri");
         let edit = template_semantic_rename_workspace_edit(
-            &uri,
-            &project,
+            &template_index,
             "base.html",
-            template,
             position_for(template, "current_path"),
             "active_path",
         )
