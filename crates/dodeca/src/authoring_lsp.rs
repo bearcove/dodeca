@@ -115,12 +115,14 @@ struct CachedAuthoringWorld {
 struct AuthoringWorld {
     project: AuthoringProject,
     template_index: TemplateAuthoringIndex,
+    content_graph: ContentAuthoringGraph,
     source_document_targets: HashMap<String, Vec<FrontmatterDocumentTarget>>,
 }
 
 impl AuthoringWorld {
     fn new(project: AuthoringProject) -> Result<Self> {
         let template_index = TemplateAuthoringIndex::new(&project);
+        let content_graph = ContentAuthoringGraph::new(&project);
         let mut source_document_targets = HashMap::new();
         for (source_file, content) in &project.source_contents {
             source_document_targets.insert(
@@ -131,8 +133,25 @@ impl AuthoringWorld {
         Ok(Self {
             project,
             template_index,
+            content_graph,
             source_document_targets,
         })
+    }
+
+    fn route_graph(&self) -> &[RouteGraphNode] {
+        self.content_graph.routes()
+    }
+
+    fn inbound_reference_count(&self, route: &str) -> usize {
+        self.content_graph.inbound_reference_count(route)
+    }
+
+    fn references_to_page(
+        &self,
+        content_dir: &Utf8Path,
+        target_page: &AuthoringPage,
+    ) -> Result<Vec<Location>> {
+        references_to_page(content_dir, &self.project, target_page)
     }
 
     fn source_document_targets(&self, source_file: &str) -> &[FrontmatterDocumentTarget] {
@@ -195,6 +214,31 @@ impl AuthoringWorld {
         });
         locations.dedup_by(|left, right| left.uri == right.uri && left.range == right.range);
         Ok(locations)
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ContentAuthoringGraph {
+    routes: Vec<RouteGraphNode>,
+}
+
+impl ContentAuthoringGraph {
+    fn new(project: &AuthoringProject) -> Self {
+        Self {
+            routes: route_graph_for_project(project),
+        }
+    }
+
+    fn routes(&self) -> &[RouteGraphNode] {
+        &self.routes
+    }
+
+    fn inbound_reference_count(&self, route: &str) -> usize {
+        self.routes
+            .iter()
+            .find(|node| node.route == route)
+            .map(|node| node.incoming.len())
+            .unwrap_or(0)
     }
 }
 
@@ -685,8 +729,8 @@ impl Backend {
 
     async fn authoring_route_graph(&self) -> Result<Vec<RouteGraphNode>> {
         let dirs = self.dirs()?;
-        let project = self.current_project(&dirs).await?;
-        Ok(route_graph_for_project(&project))
+        let world = self.current_world(&dirs).await?;
+        Ok(world.route_graph().to_vec())
     }
 
     fn set_document(&self, uri: Url, content: String) {
@@ -990,7 +1034,7 @@ impl Backend {
         if let Some(frontmatter_range) = frontmatter_lsp_range(&content)
             && range_contains_position(&frontmatter_range, position)
         {
-            let backlink_count = references_to_page(&dirs.content_dir, project, page)?.len();
+            let backlink_count = world.inbound_reference_count(&page.route);
             return Ok(Some(markdown_hover(
                 frontmatter_hover_markdown(
                     project,
@@ -1243,7 +1287,7 @@ impl Backend {
                 template_index.route_reference_at_position(&template_file, position)
                 && let Some(target_page) = project.page_for_route(&reference.target_route)
             {
-                return references_to_page(&dirs.content_dir, project, target_page);
+                return world.references_to_page(&dirs.content_dir, target_page);
             }
             return Ok(template_index.semantic_references(&template_file, position));
         }
@@ -1262,7 +1306,7 @@ impl Backend {
         if let Some(frontmatter_range) = frontmatter_lsp_range(&content)
             && range_contains_position(&frontmatter_range, position)
         {
-            return references_to_page(&dirs.content_dir, project, page);
+            return world.references_to_page(&dirs.content_dir, page);
         }
 
         if let Some(heading_id) = heading_id_at_position(page, &content, position) {
