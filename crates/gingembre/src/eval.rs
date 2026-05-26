@@ -11,66 +11,309 @@ use facet_value::{DestructuredRef, VArray, VObject, VString};
 use futures::future::BoxFuture;
 use std::collections::HashMap;
 
-pub const BUILTIN_FILTER_NAMES: &[&str] = &[
-    "upper",
-    "lower",
-    "capitalize",
-    "title",
-    "trim",
-    "length",
-    "first",
-    "last",
-    "reverse",
-    "sort",
-    "join",
-    "split",
-    "default",
-    "escape",
-    "safe",
-    "typeof",
-    "slice",
-    "map",
-    "selectattr",
-    "rejectattr",
-    "groupby",
-    "path_segments",
-    "path_first",
-    "path_parent",
-    "path_basename",
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BuiltinItemInfo {
+    pub name: &'static str,
+    pub detail: &'static str,
+    pub documentation: &'static str,
+}
+
+pub const BUILTIN_FILTERS: &[BuiltinItemInfo] = &[
+    BuiltinItemInfo {
+        name: "upper",
+        detail: "Gingembre filter",
+        documentation: "Converts text to uppercase.",
+    },
+    BuiltinItemInfo {
+        name: "lower",
+        detail: "Gingembre filter",
+        documentation: "Converts text to lowercase.",
+    },
+    BuiltinItemInfo {
+        name: "capitalize",
+        detail: "Gingembre filter",
+        documentation: "Uppercases the first character and leaves the remaining characters unchanged.",
+    },
+    BuiltinItemInfo {
+        name: "title",
+        detail: "Gingembre filter",
+        documentation: "Uppercases the first character of each whitespace-separated word.",
+    },
+    BuiltinItemInfo {
+        name: "trim",
+        detail: "Gingembre filter",
+        documentation: "Removes leading and trailing whitespace.",
+    },
+    BuiltinItemInfo {
+        name: "length",
+        detail: "Gingembre filter",
+        documentation: "Returns the length of a string, array, or mapping.",
+    },
+    BuiltinItemInfo {
+        name: "first",
+        detail: "Gingembre filter",
+        documentation: "Returns the first item from an array or the first character from a string.",
+    },
+    BuiltinItemInfo {
+        name: "last",
+        detail: "Gingembre filter",
+        documentation: "Returns the last item from an array or the last character from a string.",
+    },
+    BuiltinItemInfo {
+        name: "reverse",
+        detail: "Gingembre filter",
+        documentation: "Reverses an array or string.",
+    },
+    BuiltinItemInfo {
+        name: "sort",
+        detail: "Gingembre filter",
+        documentation: "Sorts an array, optionally by an object attribute with `attribute=`.",
+    },
+    BuiltinItemInfo {
+        name: "join",
+        detail: "Gingembre filter",
+        documentation: "Joins array items into a string, using the first argument as the separator.",
+    },
+    BuiltinItemInfo {
+        name: "split",
+        detail: "Gingembre filter",
+        documentation: "Splits a string into a list. Pass the separator as the first argument or `pat=`.",
+    },
+    BuiltinItemInfo {
+        name: "default",
+        detail: "Gingembre filter",
+        documentation: "Returns a fallback when the value is null or an empty string.",
+    },
+    BuiltinItemInfo {
+        name: "escape",
+        detail: "Gingembre filter",
+        documentation: "HTML-escapes `&`, `<`, `>`, double quotes, and single quotes.",
+    },
+    BuiltinItemInfo {
+        name: "safe",
+        detail: "Gingembre filter",
+        documentation: "Marks a string as safe HTML so it is not escaped during rendering.",
+    },
+    BuiltinItemInfo {
+        name: "typeof",
+        detail: "Gingembre filter",
+        documentation: "Returns Gingembre's runtime type name for the value.",
+    },
+    BuiltinItemInfo {
+        name: "slice",
+        detail: "Gingembre filter",
+        documentation: "Slices an array with `start` and `end` positional arguments or keyword arguments.",
+    },
+    BuiltinItemInfo {
+        name: "map",
+        detail: "Gingembre filter",
+        documentation: "Extracts `attribute=` from each object in an array.",
+    },
+    BuiltinItemInfo {
+        name: "selectattr",
+        detail: "Gingembre filter",
+        documentation: "Keeps array items whose named attribute passes a test.",
+    },
+    BuiltinItemInfo {
+        name: "rejectattr",
+        detail: "Gingembre filter",
+        documentation: "Drops array items whose named attribute passes a test.",
+    },
+    BuiltinItemInfo {
+        name: "groupby",
+        detail: "Gingembre filter",
+        documentation: "Groups array items by an object attribute and returns `[key, items]` pairs.",
+    },
+    BuiltinItemInfo {
+        name: "path_segments",
+        detail: "Gingembre filter",
+        documentation: "Splits a path into non-empty slash-separated segments.",
+    },
+    BuiltinItemInfo {
+        name: "path_first",
+        detail: "Gingembre filter",
+        documentation: "Returns the first non-empty segment of a path.",
+    },
+    BuiltinItemInfo {
+        name: "path_parent",
+        detail: "Gingembre filter",
+        documentation: "Returns the parent path: `/foo/bar` becomes `/foo`, `/foo` becomes `/`, and `/` stays `/`.",
+    },
+    BuiltinItemInfo {
+        name: "path_basename",
+        detail: "Gingembre filter",
+        documentation: "Returns the final non-empty segment of a path.",
+    },
 ];
 
-pub const BUILTIN_TEST_NAMES: &[&str] = &[
-    "starting_with",
-    "startswith",
-    "ending_with",
-    "endswith",
-    "containing",
-    "contains",
-    "defined",
-    "undefined",
-    "none",
-    "string",
-    "number",
-    "integer",
-    "float",
-    "mapping",
-    "dict",
-    "iterable",
-    "sequence",
-    "odd",
-    "even",
-    "truthy",
-    "falsy",
-    "empty",
-    "eq",
-    "equalto",
-    "sameas",
-    "ne",
-    "lt",
-    "lessthan",
-    "gt",
-    "greaterthan",
+pub const BUILTIN_TESTS: &[BuiltinItemInfo] = &[
+    BuiltinItemInfo {
+        name: "starting_with",
+        detail: "Gingembre test",
+        documentation: "True when text starts with the argument.",
+    },
+    BuiltinItemInfo {
+        name: "startswith",
+        detail: "Gingembre test",
+        documentation: "Alias for `starting_with`.",
+    },
+    BuiltinItemInfo {
+        name: "ending_with",
+        detail: "Gingembre test",
+        documentation: "True when text ends with the argument.",
+    },
+    BuiltinItemInfo {
+        name: "endswith",
+        detail: "Gingembre test",
+        documentation: "Alias for `ending_with`.",
+    },
+    BuiltinItemInfo {
+        name: "containing",
+        detail: "Gingembre test",
+        documentation: "True when a string or array contains the argument.",
+    },
+    BuiltinItemInfo {
+        name: "contains",
+        detail: "Gingembre test",
+        documentation: "Alias for `containing`.",
+    },
+    BuiltinItemInfo {
+        name: "defined",
+        detail: "Gingembre test",
+        documentation: "True when the value is not null.",
+    },
+    BuiltinItemInfo {
+        name: "undefined",
+        detail: "Gingembre test",
+        documentation: "True when the value is null.",
+    },
+    BuiltinItemInfo {
+        name: "none",
+        detail: "Gingembre test",
+        documentation: "True when the value is null.",
+    },
+    BuiltinItemInfo {
+        name: "string",
+        detail: "Gingembre test",
+        documentation: "True when the value is a string.",
+    },
+    BuiltinItemInfo {
+        name: "number",
+        detail: "Gingembre test",
+        documentation: "True when the value is numeric.",
+    },
+    BuiltinItemInfo {
+        name: "integer",
+        detail: "Gingembre test",
+        documentation: "True when the value is an integer.",
+    },
+    BuiltinItemInfo {
+        name: "float",
+        detail: "Gingembre test",
+        documentation: "True when the value is a float.",
+    },
+    BuiltinItemInfo {
+        name: "mapping",
+        detail: "Gingembre test",
+        documentation: "True when the value is an object or mapping.",
+    },
+    BuiltinItemInfo {
+        name: "dict",
+        detail: "Gingembre test",
+        documentation: "Alias for `mapping`.",
+    },
+    BuiltinItemInfo {
+        name: "iterable",
+        detail: "Gingembre test",
+        documentation: "True when the value can be iterated.",
+    },
+    BuiltinItemInfo {
+        name: "sequence",
+        detail: "Gingembre test",
+        documentation: "Alias for `iterable`.",
+    },
+    BuiltinItemInfo {
+        name: "odd",
+        detail: "Gingembre test",
+        documentation: "True when an integer is odd.",
+    },
+    BuiltinItemInfo {
+        name: "even",
+        detail: "Gingembre test",
+        documentation: "True when an integer is even.",
+    },
+    BuiltinItemInfo {
+        name: "truthy",
+        detail: "Gingembre test",
+        documentation: "True when Gingembre treats the value as truthy.",
+    },
+    BuiltinItemInfo {
+        name: "falsy",
+        detail: "Gingembre test",
+        documentation: "True when Gingembre treats the value as false.",
+    },
+    BuiltinItemInfo {
+        name: "empty",
+        detail: "Gingembre test",
+        documentation: "True when the value has no items or text.",
+    },
+    BuiltinItemInfo {
+        name: "eq",
+        detail: "Gingembre test",
+        documentation: "Compares values for equality.",
+    },
+    BuiltinItemInfo {
+        name: "equalto",
+        detail: "Gingembre test",
+        documentation: "Alias for `eq`.",
+    },
+    BuiltinItemInfo {
+        name: "sameas",
+        detail: "Gingembre test",
+        documentation: "Alias for `eq`.",
+    },
+    BuiltinItemInfo {
+        name: "ne",
+        detail: "Gingembre test",
+        documentation: "Compares values for inequality.",
+    },
+    BuiltinItemInfo {
+        name: "lt",
+        detail: "Gingembre test",
+        documentation: "True when the value is less than the argument.",
+    },
+    BuiltinItemInfo {
+        name: "lessthan",
+        detail: "Gingembre test",
+        documentation: "Alias for `lt`.",
+    },
+    BuiltinItemInfo {
+        name: "gt",
+        detail: "Gingembre test",
+        documentation: "True when the value is greater than the argument.",
+    },
+    BuiltinItemInfo {
+        name: "greaterthan",
+        detail: "Gingembre test",
+        documentation: "Alias for `gt`.",
+    },
 ];
+
+pub fn builtin_filter(name: &str) -> Option<&'static BuiltinItemInfo> {
+    BUILTIN_FILTERS.iter().find(|info| info.name == name)
+}
+
+pub fn builtin_test(name: &str) -> Option<&'static BuiltinItemInfo> {
+    BUILTIN_TESTS.iter().find(|info| info.name == name)
+}
+
+pub fn builtin_filter_names() -> impl Iterator<Item = &'static str> {
+    BUILTIN_FILTERS.iter().map(|info| info.name)
+}
+
+pub fn builtin_test_names() -> impl Iterator<Item = &'static str> {
+    BUILTIN_TESTS.iter().map(|info| info.name)
+}
 
 /// Re-export facet_value::Value as the template Value type
 pub use facet_value::Value;
@@ -1458,13 +1701,47 @@ fn apply_filter(
         _ => {
             return Err(UnknownFilterError {
                 name: name.to_string(),
-                known_filters: BUILTIN_FILTER_NAMES
-                    .iter()
-                    .map(|name| name.to_string())
-                    .collect(),
+                known_filters: builtin_filter_names().map(str::to_string).collect(),
                 loc: SourceLocation::new(span, source.named_source()),
             }
             .into());
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn builtin_filter_metadata_documents_runtime_filters() {
+        let names = builtin_filter_names().collect::<Vec<_>>();
+        assert!(names.contains(&"path_parent"));
+
+        let path_parent = builtin_filter("path_parent").expect("path_parent metadata");
+        assert_eq!(path_parent.detail, "Gingembre filter");
+        assert!(
+            path_parent
+                .documentation
+                .contains("Returns the parent path")
+        );
+
+        let unique = names.iter().copied().collect::<HashSet<_>>();
+        assert_eq!(unique.len(), names.len());
+    }
+
+    #[test]
+    fn builtin_test_metadata_documents_runtime_tests() {
+        let names = builtin_test_names().collect::<Vec<_>>();
+        assert!(names.contains(&"string"));
+        assert!(names.contains(&"startswith"));
+
+        let string = builtin_test("string").expect("string test metadata");
+        assert_eq!(string.detail, "Gingembre test");
+        assert!(string.documentation.contains("value is a string"));
+
+        let unique = names.iter().copied().collect::<HashSet<_>>();
+        assert_eq!(unique.len(), names.len());
+    }
 }

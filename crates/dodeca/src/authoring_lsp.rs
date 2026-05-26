@@ -10,7 +10,7 @@ use gingembre::semantic::{
     TemplateReferenceKind, TemplateSemanticIndex, TemplateSemanticTokenKind, TemplateSymbol,
     TemplateSymbolKind,
 };
-use gingembre::{BUILTIN_FILTER_NAMES, BUILTIN_TEST_NAMES};
+use gingembre::{BUILTIN_FILTERS, BUILTIN_TESTS, BuiltinItemInfo, builtin_filter, builtin_test};
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::{
@@ -2062,7 +2062,7 @@ fn collect_template_expr_diagnostics(
                     diagnostics,
                 );
             }
-            if !BUILTIN_FILTER_NAMES.contains(&expr.filter.name.as_str()) {
+            if builtin_filter(&expr.filter.name).is_none() {
                 diagnostics.push(template_diagnostic_for_ident(
                     template_file,
                     content,
@@ -2173,7 +2173,7 @@ fn collect_template_expr_diagnostics(
                     diagnostics,
                 );
             }
-            if !BUILTIN_TEST_NAMES.contains(&expr.test_name.name.as_str()) {
+            if builtin_test(&expr.test_name.name).is_none() {
                 diagnostics.push(template_diagnostic_for_ident(
                     template_file,
                     content,
@@ -5140,204 +5140,27 @@ fn template_function_info(name: &str) -> TemplateItemInfo {
 }
 
 fn template_filter_info(name: &str) -> TemplateItemInfo {
-    match name {
-        "upper" => TemplateItemInfo {
-            detail: "Gingembre filter",
-            documentation: "Converts text to uppercase.",
-        },
-        "lower" => TemplateItemInfo {
-            detail: "Gingembre filter",
-            documentation: "Converts text to lowercase.",
-        },
-        "capitalize" => TemplateItemInfo {
-            detail: "Gingembre filter",
-            documentation: "Uppercases the first character and lowercases the rest.",
-        },
-        "title" => TemplateItemInfo {
-            detail: "Gingembre filter",
-            documentation: "Converts text to title case.",
-        },
-        "trim" => TemplateItemInfo {
-            detail: "Gingembre filter",
-            documentation: "Removes leading and trailing whitespace.",
-        },
-        "length" => TemplateItemInfo {
-            detail: "Gingembre filter",
-            documentation: "Returns the length of a string, array, or mapping.",
-        },
-        "first" => TemplateItemInfo {
-            detail: "Gingembre filter",
-            documentation: "Returns the first item in an iterable value.",
-        },
-        "last" => TemplateItemInfo {
-            detail: "Gingembre filter",
-            documentation: "Returns the last item in an iterable value.",
-        },
-        "reverse" => TemplateItemInfo {
-            detail: "Gingembre filter",
-            documentation: "Reverses a string or iterable value.",
-        },
-        "sort" => TemplateItemInfo {
-            detail: "Gingembre filter",
-            documentation: "Sorts an iterable value.",
-        },
-        "join" => TemplateItemInfo {
-            detail: "Gingembre filter",
-            documentation: "Joins iterable values into a string.",
-        },
-        "split" => TemplateItemInfo {
-            detail: "Gingembre filter",
-            documentation: "Splits a string into a list.",
-        },
-        "default" => TemplateItemInfo {
-            detail: "Gingembre filter",
-            documentation: "Returns a fallback when the value is undefined, null, or empty.",
-        },
-        "escape" => TemplateItemInfo {
-            detail: "Gingembre filter",
-            documentation: "HTML-escapes a value.",
-        },
-        "safe" => TemplateItemInfo {
-            detail: "Gingembre filter",
-            documentation: "Marks HTML as safe so it is not escaped again.",
-        },
-        "typeof" => TemplateItemInfo {
-            detail: "Gingembre filter",
-            documentation: "Returns Gingembre's runtime type name for a value.",
-        },
-        "slice" => TemplateItemInfo {
-            detail: "Gingembre filter",
-            documentation: "Returns a slice of an iterable or string.",
-        },
-        "map" => TemplateItemInfo {
-            detail: "Gingembre filter",
-            documentation: "Maps an attribute over each item in an iterable.",
-        },
-        "selectattr" => TemplateItemInfo {
-            detail: "Gingembre filter",
-            documentation: "Keeps iterable items whose attribute passes a test.",
-        },
-        "rejectattr" => TemplateItemInfo {
-            detail: "Gingembre filter",
-            documentation: "Drops iterable items whose attribute passes a test.",
-        },
-        "groupby" => TemplateItemInfo {
-            detail: "Gingembre filter",
-            documentation: "Groups iterable items by an attribute.",
-        },
-        "path_segments" => TemplateItemInfo {
-            detail: "Gingembre filter",
-            documentation: "Splits a path into route segments.",
-        },
-        "path_first" => TemplateItemInfo {
-            detail: "Gingembre filter",
-            documentation: "Returns the first path segment.",
-        },
-        "path_parent" => TemplateItemInfo {
-            detail: "Gingembre filter",
-            documentation: "Returns the parent path.",
-        },
-        "path_basename" => TemplateItemInfo {
-            detail: "Gingembre filter",
-            documentation: "Returns the final path segment.",
-        },
-        _ => TemplateItemInfo {
+    builtin_filter(name)
+        .map(template_builtin_info)
+        .unwrap_or(TemplateItemInfo {
             detail: "Gingembre filter",
             documentation: "Built-in Gingembre filter.",
-        },
-    }
+        })
 }
 
 fn template_test_info(name: &str) -> TemplateItemInfo {
-    match name {
-        "defined" => TemplateItemInfo {
-            detail: "Gingembre test",
-            documentation: "True when the value is not undefined.",
-        },
-        "undefined" => TemplateItemInfo {
-            detail: "Gingembre test",
-            documentation: "True when the value is undefined.",
-        },
-        "none" => TemplateItemInfo {
-            detail: "Gingembre test",
-            documentation: "True when the value is null.",
-        },
-        "string" => TemplateItemInfo {
-            detail: "Gingembre test",
-            documentation: "True when the value is a string.",
-        },
-        "number" => TemplateItemInfo {
-            detail: "Gingembre test",
-            documentation: "True when the value is numeric.",
-        },
-        "integer" => TemplateItemInfo {
-            detail: "Gingembre test",
-            documentation: "True when the value is an integer.",
-        },
-        "float" => TemplateItemInfo {
-            detail: "Gingembre test",
-            documentation: "True when the value is a float.",
-        },
-        "mapping" | "dict" => TemplateItemInfo {
-            detail: "Gingembre test",
-            documentation: "True when the value is an object or mapping.",
-        },
-        "iterable" | "sequence" => TemplateItemInfo {
-            detail: "Gingembre test",
-            documentation: "True when the value can be iterated.",
-        },
-        "odd" => TemplateItemInfo {
-            detail: "Gingembre test",
-            documentation: "True when an integer is odd.",
-        },
-        "even" => TemplateItemInfo {
-            detail: "Gingembre test",
-            documentation: "True when an integer is even.",
-        },
-        "truthy" => TemplateItemInfo {
-            detail: "Gingembre test",
-            documentation: "True when Gingembre treats the value as truthy.",
-        },
-        "falsy" => TemplateItemInfo {
-            detail: "Gingembre test",
-            documentation: "True when Gingembre treats the value as false.",
-        },
-        "empty" => TemplateItemInfo {
-            detail: "Gingembre test",
-            documentation: "True when the value has no items or text.",
-        },
-        "eq" | "equalto" | "sameas" => TemplateItemInfo {
-            detail: "Gingembre test",
-            documentation: "Compares values for equality.",
-        },
-        "ne" => TemplateItemInfo {
-            detail: "Gingembre test",
-            documentation: "Compares values for inequality.",
-        },
-        "lt" | "lessthan" => TemplateItemInfo {
-            detail: "Gingembre test",
-            documentation: "True when the value is less than the argument.",
-        },
-        "gt" | "greaterthan" => TemplateItemInfo {
-            detail: "Gingembre test",
-            documentation: "True when the value is greater than the argument.",
-        },
-        "starting_with" | "startswith" => TemplateItemInfo {
-            detail: "Gingembre test",
-            documentation: "True when text starts with the argument.",
-        },
-        "ending_with" | "endswith" => TemplateItemInfo {
-            detail: "Gingembre test",
-            documentation: "True when text ends with the argument.",
-        },
-        "containing" | "contains" => TemplateItemInfo {
-            detail: "Gingembre test",
-            documentation: "True when a string or iterable contains the argument.",
-        },
-        _ => TemplateItemInfo {
+    builtin_test(name)
+        .map(template_builtin_info)
+        .unwrap_or(TemplateItemInfo {
             detail: "Gingembre test",
             documentation: "Built-in Gingembre test.",
-        },
+        })
+}
+
+fn template_builtin_info(info: &BuiltinItemInfo) -> TemplateItemInfo {
+    TemplateItemInfo {
+        detail: info.detail,
+        documentation: info.documentation,
     }
 }
 
@@ -5399,24 +5222,24 @@ fn template_completion_items(
         TemplateCompletionKind::Field(path) => {
             template_field_completion_items(project, path, context.range)
         }
-        TemplateCompletionKind::Filter => BUILTIN_FILTER_NAMES
+        TemplateCompletionKind::Filter => BUILTIN_FILTERS
             .iter()
-            .map(|name| {
+            .map(|info| {
                 template_completion_item(
-                    (*name).to_string(),
+                    info.name.to_string(),
                     CompletionItemKind::FUNCTION,
-                    template_filter_info(name),
+                    template_builtin_info(info),
                     context.range,
                 )
             })
             .collect(),
-        TemplateCompletionKind::Test => BUILTIN_TEST_NAMES
+        TemplateCompletionKind::Test => BUILTIN_TESTS
             .iter()
-            .map(|name| {
+            .map(|info| {
                 template_completion_item(
-                    (*name).to_string(),
+                    info.name.to_string(),
                     CompletionItemKind::FUNCTION,
-                    template_test_info(name),
+                    template_builtin_info(info),
                     context.range,
                 )
             })
@@ -6188,6 +6011,17 @@ impl TemplateDefinitionTarget {
     }
 
     fn hover_markdown(&self) -> String {
+        let info = match self.kind {
+            TemplateDefinitionKind::Filter => builtin_filter(&self.name).map(template_builtin_info),
+            TemplateDefinitionKind::Test => builtin_test(&self.name).map(template_builtin_info),
+            TemplateDefinitionKind::Block | TemplateDefinitionKind::Macro => None,
+        };
+        if let Some(info) = info {
+            return format!(
+                "**{}**\n\n`{}`\n\n{}\n\nDefinition: `{}`",
+                info.detail, self.name, info.documentation, self.target_path
+            );
+        }
         format!(
             "**Dodeca template {}**\n\n`{}`\n\nDefinition: `{}`",
             self.kind.label(),
@@ -6946,7 +6780,7 @@ fn collect_expr_definition_targets(
                     targets,
                 );
             }
-            if BUILTIN_FILTER_NAMES.contains(&expr.filter.name.as_str())
+            if builtin_filter(&expr.filter.name).is_some()
                 && let Some(target) = builtin_template_definition_target(
                     TemplateDefinitionKind::Filter,
                     &expr.filter,
@@ -7057,7 +6891,7 @@ fn collect_expr_definition_targets(
                     targets,
                 );
             }
-            if BUILTIN_TEST_NAMES.contains(&expr.test_name.name.as_str())
+            if builtin_test(&expr.test_name.name).is_some()
                 && let Some(target) = builtin_template_definition_target(
                     TemplateDefinitionKind::Test,
                     &expr.test_name,
@@ -8285,6 +8119,11 @@ mod tests {
             position_for(child, "trim")
         ));
         assert!(filter.target_path.ends_with("gingembre/src/eval.rs"));
+        assert!(
+            filter
+                .hover_markdown()
+                .contains("Removes leading and trailing whitespace")
+        );
 
         let test = targets
             .iter()
@@ -8295,6 +8134,7 @@ mod tests {
             position_for(child, "string")
         ));
         assert!(test.target_path.ends_with("gingembre/src/eval.rs"));
+        assert!(test.hover_markdown().contains("value is a string"));
 
         std::fs::remove_dir_all(&dir).expect("remove temp dir");
     }
@@ -8337,7 +8177,7 @@ mod tests {
         std::fs::create_dir_all(&templates_dir).expect("create templates dir");
         std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
 
-        let template = "{% set local_route = \"/\" %}\n{{ local_route }}\n{% for item in section.pages %}\n{{ item.path }}\n{% endfor %}\n{% macro label(title) %}{{ title }}{% endmacro %}\n";
+        let template = "{% set local_route = \"/\" %}\n{{ local_route }}\n{% for item in section.pages %}\n{{ item.path | path_parent }}\n{% endfor %}\n{% macro label(title) %}{{ title }}{% endmacro %}\n";
         std::fs::write(templates_dir.join("page.html"), template).expect("write template");
         let project = load_authoring_project(&content_dir, &[])
             .await
@@ -8359,6 +8199,19 @@ mod tests {
         };
         assert!(markup.value.contains("Route path"));
         assert!(markup.value.contains("Site-relative route"));
+
+        let filter_hover = template_semantic_hover(
+            &project,
+            "page.html",
+            template,
+            position_for(template, "path_parent"),
+        )
+        .expect("filter hover");
+        let HoverContents::Markup(markup) = filter_hover.contents else {
+            panic!("expected filter markdown hover");
+        };
+        assert!(markup.value.contains("Gingembre filter"));
+        assert!(markup.value.contains("Returns the parent path"));
 
         let definition = template_semantic_definition(
             &content_dir,
@@ -8551,6 +8404,24 @@ mod tests {
         assert!(
             labels(position_for(template, "tr")).contains(&"trim".to_string()),
             "filter completion should include trim"
+        );
+        let filter_items = template_completion_items(
+            &project,
+            "page.html",
+            template,
+            position_for(template, "tr"),
+        );
+        let trim_item = filter_items
+            .iter()
+            .find(|item| item.label == "trim")
+            .expect("trim completion item");
+        let Some(Documentation::MarkupContent(documentation)) = &trim_item.documentation else {
+            panic!("expected trim completion docs");
+        };
+        assert!(
+            documentation
+                .value
+                .contains("Removes leading and trailing whitespace")
         );
         assert!(
             labels(position_for(template, "str")).contains(&"string".to_string()),
