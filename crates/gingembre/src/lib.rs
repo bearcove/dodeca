@@ -46,6 +46,7 @@ mod lazy;
 pub mod lexer;
 pub mod parser;
 mod render;
+pub mod semantic;
 
 pub use error::{
     NamedSource, PrettyError, RenderError, SourceLocation, SourceSpan, TemplateError,

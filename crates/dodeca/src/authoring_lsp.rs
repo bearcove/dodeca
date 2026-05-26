@@ -6,6 +6,10 @@ use eyre::{Result, eyre};
 use facet::{Facet, NumericType, PrimitiveType, Type, UserType};
 use gingembre::ast::{Expr, Ident, Node, StringLit};
 use gingembre::parser::Parser as TemplateParser;
+use gingembre::semantic::{
+    TemplateReferenceKind, TemplateSemanticIndex, TemplateSemanticTokenKind, TemplateSymbol,
+    TemplateSymbolKind,
+};
 use gingembre::{BUILTIN_FILTER_NAMES, BUILTIN_TEST_NAMES};
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use tower_lsp::jsonrpc::Result as LspResult;
@@ -18,15 +22,18 @@ use tower_lsp::lsp_types::{
     DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
     DocumentChangeOperation, DocumentChanges, DocumentLink, DocumentLinkOptions,
     DocumentLinkParams, DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse,
-    ExecuteCommandOptions, ExecuteCommandParams, FileChangeType, FileSystemWatcher, GlobPattern,
-    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams,
+    Documentation, ExecuteCommandOptions, ExecuteCommandParams, FileChangeType, FileSystemWatcher,
+    GlobPattern, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams,
     HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, Location,
     MarkupContent, MarkupKind, MessageType, NumberOrString, OneOf,
     OptionalVersionedTextDocumentIdentifier, Position, PrepareRenameResponse, Range,
     ReferenceParams, Registration, RenameFile, RenameFileOptions, RenameOptions, RenameParams,
-    ResourceOp, ServerCapabilities, ServerInfo, ShowDocumentParams, SymbolInformation, SymbolKind,
-    TextDocumentEdit, TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind,
-    TextEdit, Url, WatchKind, WorkspaceEdit, WorkspaceSymbolParams,
+    ResourceOp, SemanticToken, SemanticTokenModifier, SemanticTokenType, SemanticTokens,
+    SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams,
+    SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo,
+    ShowDocumentParams, SymbolInformation, SymbolKind, TextDocumentEdit,
+    TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url,
+    WatchKind, WorkspaceEdit, WorkspaceSymbolParams,
 };
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
@@ -43,6 +50,15 @@ const LIST_PAGES_COMMAND: &str = "dodeca.listPages";
 const DIAGNOSTICS_COMMAND: &str = "dodeca.authoringDiagnostics";
 const CREATE_PAGE_COMMAND: &str = "dodeca.createPage";
 const ROUTE_GRAPH_COMMAND: &str = "dodeca.routeGraph";
+
+const TEMPLATE_SEMANTIC_TOKEN_VARIABLE: u32 = 0;
+const TEMPLATE_SEMANTIC_TOKEN_PARAMETER: u32 = 1;
+const TEMPLATE_SEMANTIC_TOKEN_PROPERTY: u32 = 2;
+const TEMPLATE_SEMANTIC_TOKEN_FUNCTION: u32 = 3;
+const TEMPLATE_SEMANTIC_TOKEN_MACRO: u32 = 4;
+const TEMPLATE_SEMANTIC_TOKEN_STRING: u32 = 5;
+const TEMPLATE_SEMANTIC_TOKEN_NUMBER: u32 = 6;
+const TEMPLATE_SEMANTIC_TOKEN_KEYWORD: u32 = 7;
 
 pub async fn run(content: Option<String>, output: Option<String>) -> Result<()> {
     let state = Arc::new(Mutex::new(AuthoringState {
@@ -147,6 +163,16 @@ impl LanguageServer for Backend {
                 }),
                 document_symbol_provider: Some(OneOf::Left(true)),
                 workspace_symbol_provider: Some(OneOf::Left(true)),
+                semantic_tokens_provider: Some(
+                    SemanticTokensServerCapabilities::SemanticTokensOptions(
+                        SemanticTokensOptions {
+                            legend: template_semantic_tokens_legend(),
+                            full: Some(SemanticTokensFullOptions::Bool(true)),
+                            range: Some(false),
+                            work_done_progress_options: Default::default(),
+                        },
+                    ),
+                ),
                 completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(false),
                     trigger_characters: Some(vec![
@@ -425,6 +451,24 @@ impl LanguageServer for Backend {
             .await
         {
             Ok(edit) => Ok(edit),
+            Err(err) => {
+                self.client
+                    .log_message(MessageType::ERROR, err.to_string())
+                    .await;
+                Ok(None)
+            }
+        }
+    }
+
+    async fn semantic_tokens_full(
+        &self,
+        params: SemanticTokensParams,
+    ) -> LspResult<Option<SemanticTokensResult>> {
+        match self
+            .semantic_tokens_for_document(&params.text_document.uri)
+            .await
+        {
+            Ok(tokens) => Ok(tokens.map(SemanticTokensResult::Tokens)),
             Err(err) => {
                 self.client
                     .log_message(MessageType::ERROR, err.to_string())
@@ -775,6 +819,11 @@ impl Backend {
                     target.source_range,
                 )));
             }
+            if let Some(hover) =
+                template_semantic_hover(&project, &template_file, &content, position)
+            {
+                return Ok(Some(hover));
+            }
             return Ok(None);
         }
 
@@ -845,6 +894,24 @@ impl Backend {
             .collect()
     }
 
+    async fn semantic_tokens_for_document(&self, uri: &Url) -> Result<Option<SemanticTokens>> {
+        let dirs = self.dirs_for_uri(uri)?;
+        let content = self.document_content(uri)?;
+        let path = lsp_file_uri_to_utf8_path(uri)?;
+        let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? else {
+            return Ok(None);
+        };
+        let project = self.current_project(&dirs).await?;
+        let Some(index) = project.template_semantics.get(&template_file) else {
+            return Ok(None);
+        };
+
+        Ok(Some(SemanticTokens {
+            result_id: None,
+            data: template_semantic_tokens(index, &content),
+        }))
+    }
+
     async fn document_symbols(&self, params: DocumentSymbolParams) -> Result<Vec<DocumentSymbol>> {
         let uri = params.text_document.uri;
         let dirs = self.dirs_for_uri(&uri)?;
@@ -903,6 +970,11 @@ impl Backend {
             )? {
                 return Ok(Some(target.location()?));
             }
+            if let Some(location) =
+                template_semantic_definition(&dirs.content_dir, &project, &template_file, position)
+            {
+                return Ok(Some(location));
+            }
             return Ok(None);
         }
 
@@ -934,8 +1006,18 @@ impl Backend {
         let dirs = self.dirs_for_uri(uri)?;
         let content = self.document_content(uri)?;
         let path = lsp_file_uri_to_utf8_path(uri)?;
-        let source_file = source_file_for_path(&dirs.content_dir, &path)?;
         let project = self.current_project(&dirs).await?;
+        if let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? {
+            return Ok(template_semantic_references(
+                &dirs.content_dir,
+                &project,
+                &template_file,
+                &content,
+                position,
+            ));
+        }
+
+        let source_file = source_file_for_path(&dirs.content_dir, &path)?;
         let page = project
             .page_for_source_file(&source_file)
             .ok_or_else(|| eyre!("missing authoring page for {source_file}"))?;
@@ -961,8 +1043,17 @@ impl Backend {
         let dirs = self.dirs_for_uri(uri)?;
         let content = self.document_content(uri)?;
         let path = lsp_file_uri_to_utf8_path(uri)?;
-        let source_file = source_file_for_path(&dirs.content_dir, &path)?;
         let project = self.current_project(&dirs).await?;
+        if let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? {
+            return Ok(template_semantic_prepare_rename(
+                &project,
+                &template_file,
+                &content,
+                position,
+            ));
+        }
+
+        let source_file = source_file_for_path(&dirs.content_dir, &path)?;
         let page = project
             .page_for_source_file(&source_file)
             .ok_or_else(|| eyre!("missing authoring page for {source_file}"))?;
@@ -995,8 +1086,19 @@ impl Backend {
         let dirs = self.dirs_for_uri(uri)?;
         let content = self.document_content(uri)?;
         let path = lsp_file_uri_to_utf8_path(uri)?;
-        let source_file = source_file_for_path(&dirs.content_dir, &path)?;
         let project = self.current_project(&dirs).await?;
+        if let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? {
+            return template_semantic_rename_workspace_edit(
+                uri,
+                &project,
+                &template_file,
+                &content,
+                position,
+                new_name,
+            );
+        }
+
+        let source_file = source_file_for_path(&dirs.content_dir, &path)?;
         let page = project
             .page_for_source_file(&source_file)
             .ok_or_else(|| eyre!("missing authoring page for {source_file}"))?;
@@ -2902,6 +3004,308 @@ fn markdown_hover(markdown: String, range: Range) -> Hover {
     }
 }
 
+fn template_semantic_hover(
+    project: &AuthoringProject,
+    template_file: &str,
+    content: &str,
+    position: Position,
+) -> Option<Hover> {
+    let offset = position_to_byte_offset(content, position)?;
+    let index = project.template_semantics.get(template_file)?;
+    if let Some(reference) = index.reference_at_offset(offset) {
+        let markdown = match reference.kind {
+            TemplateReferenceKind::Field => template_field_hover_markdown(reference),
+            TemplateReferenceKind::Filter => {
+                template_item_hover_markdown(&reference.name, template_filter_info(&reference.name))
+            }
+            TemplateReferenceKind::Test => {
+                template_item_hover_markdown(&reference.name, template_test_info(&reference.name))
+            }
+            TemplateReferenceKind::Macro => template_item_hover_markdown(
+                &reference.name,
+                TemplateItemInfo {
+                    detail: "Gingembre macro",
+                    documentation: "Macro callable from this Gingembre template expression.",
+                },
+            ),
+            TemplateReferenceKind::Variable
+            | TemplateReferenceKind::Function
+            | TemplateReferenceKind::MacroNamespace => {
+                let symbol = reference.symbol_id.and_then(|id| index.symbols.get(id))?;
+                template_symbol_hover_markdown(symbol)
+            }
+        };
+        return Some(markdown_hover(
+            markdown,
+            byte_range_to_lsp_range(
+                content,
+                reference.span.offset(),
+                reference.span.offset() + reference.span.len(),
+            ),
+        ));
+    }
+
+    let symbol = index.symbol_at_offset(offset)?;
+    let span = symbol.span?;
+    Some(markdown_hover(
+        template_symbol_hover_markdown(symbol),
+        byte_range_to_lsp_range(content, span.offset(), span.offset() + span.len()),
+    ))
+}
+
+fn template_semantic_definition(
+    content_dir: &Utf8Path,
+    project: &AuthoringProject,
+    template_file: &str,
+    position: Position,
+) -> Option<Location> {
+    let content = project.template_contents.get(template_file)?;
+    let offset = position_to_byte_offset(content, position)?;
+    let index = project.template_semantics.get(template_file)?;
+    let symbol = index.symbol_for_offset(offset)?;
+    let span = symbol.span?;
+    Some(Location {
+        uri: Url::from_file_path(
+            content_dir
+                .parent()
+                .unwrap_or(content_dir)
+                .join("templates")
+                .join(template_file)
+                .as_std_path(),
+        )
+        .ok()?,
+        range: byte_range_to_lsp_range(content, span.offset(), span.offset() + span.len()),
+    })
+}
+
+fn template_semantic_references(
+    content_dir: &Utf8Path,
+    project: &AuthoringProject,
+    template_file: &str,
+    content: &str,
+    position: Position,
+) -> Vec<Location> {
+    let Some(offset) = position_to_byte_offset(content, position) else {
+        return Vec::new();
+    };
+    let Some(index) = project.template_semantics.get(template_file) else {
+        return Vec::new();
+    };
+    let Some(symbol) = index.symbol_for_offset(offset) else {
+        return Vec::new();
+    };
+    let Some(uri) = Url::from_file_path(
+        content_dir
+            .parent()
+            .unwrap_or(content_dir)
+            .join("templates")
+            .join(template_file)
+            .as_std_path(),
+    )
+    .ok() else {
+        return Vec::new();
+    };
+    let mut locations = Vec::new();
+    if let Some(span) = symbol.span {
+        locations.push(Location {
+            uri: uri.clone(),
+            range: byte_range_to_lsp_range(content, span.offset(), span.offset() + span.len()),
+        });
+    }
+    locations.extend(
+        index
+            .references_to_symbol(symbol.id)
+            .into_iter()
+            .map(|reference| Location {
+                uri: uri.clone(),
+                range: byte_range_to_lsp_range(
+                    content,
+                    reference.span.offset(),
+                    reference.span.offset() + reference.span.len(),
+                ),
+            }),
+    );
+    locations
+}
+
+fn template_semantic_prepare_rename(
+    project: &AuthoringProject,
+    template_file: &str,
+    content: &str,
+    position: Position,
+) -> Option<PrepareRenameResponse> {
+    let offset = position_to_byte_offset(content, position)?;
+    let index = project.template_semantics.get(template_file)?;
+    let symbol = index.symbol_for_offset(offset)?;
+    if !template_symbol_can_rename(symbol) {
+        return None;
+    }
+    let span = symbol.span?;
+    Some(PrepareRenameResponse::RangeWithPlaceholder {
+        range: byte_range_to_lsp_range(content, span.offset(), span.offset() + span.len()),
+        placeholder: symbol.name.clone(),
+    })
+}
+
+fn template_semantic_rename_workspace_edit(
+    uri: &Url,
+    project: &AuthoringProject,
+    template_file: &str,
+    content: &str,
+    position: Position,
+    new_name: &str,
+) -> Result<Option<WorkspaceEdit>> {
+    if !is_valid_template_rename_name(new_name) {
+        return Ok(None);
+    }
+    let Some(offset) = position_to_byte_offset(content, position) else {
+        return Ok(None);
+    };
+    let Some(index) = project.template_semantics.get(template_file) else {
+        return Ok(None);
+    };
+    let Some(symbol) = index.symbol_for_offset(offset) else {
+        return Ok(None);
+    };
+    if !template_symbol_can_rename(symbol) {
+        return Ok(None);
+    }
+    let mut edits = Vec::new();
+    if let Some(span) = symbol.span {
+        edits.push(TextEdit {
+            range: byte_range_to_lsp_range(content, span.offset(), span.offset() + span.len()),
+            new_text: new_name.to_string(),
+        });
+    }
+    edits.extend(
+        index
+            .references_to_symbol(symbol.id)
+            .into_iter()
+            .map(|reference| TextEdit {
+                range: byte_range_to_lsp_range(
+                    content,
+                    reference.span.offset(),
+                    reference.span.offset() + reference.span.len(),
+                ),
+                new_text: new_name.to_string(),
+            }),
+    );
+    let mut changes = HashMap::new();
+    changes.insert(uri.clone(), edits);
+    Ok(Some(WorkspaceEdit {
+        changes: Some(changes),
+        document_changes: None,
+        change_annotations: None,
+    }))
+}
+
+fn template_symbol_can_rename(symbol: &TemplateSymbol) -> bool {
+    symbol.span.is_some()
+        && matches!(
+            symbol.kind,
+            TemplateSymbolKind::SetBinding
+                | TemplateSymbolKind::LoopBinding
+                | TemplateSymbolKind::MacroParam
+                | TemplateSymbolKind::ImportAlias
+                | TemplateSymbolKind::Macro
+        )
+}
+
+fn is_valid_template_rename_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars
+        .next()
+        .is_some_and(|ch| ch == '_' || ch.is_ascii_alphabetic())
+        && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+}
+
+fn template_symbol_hover_markdown(symbol: &TemplateSymbol) -> String {
+    let info = template_symbol_info(symbol);
+    format!(
+        "**{}** `{}`\n\n{}",
+        info.detail, symbol.name, info.documentation
+    )
+}
+
+fn template_field_hover_markdown(reference: &gingembre::semantic::TemplateReference) -> String {
+    let path = reference
+        .path
+        .split_last()
+        .map(|(_, base)| base.to_vec())
+        .unwrap_or_default();
+    let info = template_field_info(&path, &reference.name);
+    template_item_hover_markdown(&reference.name, info)
+}
+
+fn template_item_hover_markdown(name: &str, info: TemplateItemInfo) -> String {
+    format!("**{}** `{}`\n\n{}", info.detail, name, info.documentation)
+}
+
+fn template_semantic_tokens(index: &TemplateSemanticIndex, content: &str) -> Vec<SemanticToken> {
+    let mut spans = index.tokens.clone();
+    spans.sort_by_key(|token| (token.span.offset(), token.span.len()));
+    spans.dedup_by_key(|token| (token.span.offset(), token.span.len(), token.kind));
+
+    let mut result = Vec::new();
+    let mut previous_line = 0;
+    let mut previous_start = 0;
+    for token in spans {
+        let start = token.span.offset();
+        let end = start.saturating_add(token.span.len());
+        if start >= content.len() || end > content.len() || content[start..end].contains('\n') {
+            continue;
+        }
+        let (line, column) = byte_to_line_column(content, start);
+        let line = line.saturating_sub(1);
+        let start_character = column.saturating_sub(1);
+        let delta_line = line.saturating_sub(previous_line);
+        let delta_start = if delta_line == 0 {
+            start_character.saturating_sub(previous_start)
+        } else {
+            start_character
+        };
+        result.push(SemanticToken {
+            delta_line,
+            delta_start,
+            length: content[start..end].chars().count() as u32,
+            token_type: template_semantic_token_type(token.kind),
+            token_modifiers_bitset: 0,
+        });
+        previous_line = line;
+        previous_start = start_character;
+    }
+    result
+}
+
+fn template_semantic_tokens_legend() -> SemanticTokensLegend {
+    SemanticTokensLegend {
+        token_types: vec![
+            SemanticTokenType::VARIABLE,
+            SemanticTokenType::PARAMETER,
+            SemanticTokenType::PROPERTY,
+            SemanticTokenType::FUNCTION,
+            SemanticTokenType::MACRO,
+            SemanticTokenType::STRING,
+            SemanticTokenType::NUMBER,
+            SemanticTokenType::KEYWORD,
+        ],
+        token_modifiers: vec![SemanticTokenModifier::DEFAULT_LIBRARY],
+    }
+}
+
+fn template_semantic_token_type(kind: TemplateSemanticTokenKind) -> u32 {
+    match kind {
+        TemplateSemanticTokenKind::Variable => TEMPLATE_SEMANTIC_TOKEN_VARIABLE,
+        TemplateSemanticTokenKind::Parameter => TEMPLATE_SEMANTIC_TOKEN_PARAMETER,
+        TemplateSemanticTokenKind::Property => TEMPLATE_SEMANTIC_TOKEN_PROPERTY,
+        TemplateSemanticTokenKind::Function => TEMPLATE_SEMANTIC_TOKEN_FUNCTION,
+        TemplateSemanticTokenKind::Macro => TEMPLATE_SEMANTIC_TOKEN_MACRO,
+        TemplateSemanticTokenKind::String => TEMPLATE_SEMANTIC_TOKEN_STRING,
+        TemplateSemanticTokenKind::Number => TEMPLATE_SEMANTIC_TOKEN_NUMBER,
+        TemplateSemanticTokenKind::Keyword => TEMPLATE_SEMANTIC_TOKEN_KEYWORD,
+    }
+}
+
 #[allow(deprecated)]
 fn document_symbol_for_page(page: &AuthoringPage, content: &str) -> DocumentSymbol {
     let range = full_document_range(content);
@@ -4534,6 +4938,29 @@ fn completion_item(
     }
 }
 
+fn template_completion_item(
+    insert_text: String,
+    kind: CompletionItemKind,
+    info: TemplateItemInfo,
+    range: Range,
+) -> CompletionItem {
+    CompletionItem {
+        label: insert_text.clone(),
+        kind: Some(kind),
+        detail: Some(info.detail.to_string()),
+        documentation: Some(Documentation::MarkupContent(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value: info.documentation.to_string(),
+        })),
+        filter_text: Some(insert_text.clone()),
+        text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+            range,
+            new_text: insert_text,
+        })),
+        ..CompletionItem::default()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum TemplateCompletionKind {
     Root,
@@ -4578,6 +5005,383 @@ const TEMPLATE_SECTION_FIELDS: &[&str] = &[
     "extra",
 ];
 
+#[derive(Debug, Clone, Copy)]
+struct TemplateItemInfo {
+    detail: &'static str,
+    documentation: &'static str,
+}
+
+fn template_root_info(name: &str) -> TemplateItemInfo {
+    match name {
+        "config" => TemplateItemInfo {
+            detail: "Dodeca site configuration",
+            documentation: "Global site metadata such as `title`, `description`, `base_url`.",
+        },
+        "page" => TemplateItemInfo {
+            detail: "Current page",
+            documentation: "The page currently being rendered. On section templates this is `null`.",
+        },
+        "section" => TemplateItemInfo {
+            detail: "Current section",
+            documentation: "The current section, including its rendered content, pages, subsections, headings, and metadata.",
+        },
+        "current_path" => TemplateItemInfo {
+            detail: "Current route",
+            documentation: "Route path for the page or section currently being rendered.",
+        },
+        "root" => TemplateItemInfo {
+            detail: "Root section",
+            documentation: "The root section object for site-wide navigation and metadata.",
+        },
+        "data" => TemplateItemInfo {
+            detail: "Data registry",
+            documentation: "Lazy access to parsed files from the Dodeca `data/` directory.",
+        },
+        _ => TemplateItemInfo {
+            detail: "Dodeca template context",
+            documentation: "A value supplied by Dodeca to Gingembre templates.",
+        },
+    }
+}
+
+fn template_field_info(path: &[String], name: &str) -> TemplateItemInfo {
+    let root = path.first().map(String::as_str).unwrap_or("");
+    match (root, name) {
+        (_, "title") => TemplateItemInfo {
+            detail: "Dodeca title field",
+            documentation: "Human-readable title from frontmatter or Dodeca's source-path fallback.",
+        },
+        (_, "content") => TemplateItemInfo {
+            detail: "Rendered Markdown body",
+            documentation: "HTML body produced from the source Markdown before the surrounding template is applied.",
+        },
+        (_, "permalink") => TemplateItemInfo {
+            detail: "Absolute permalink",
+            documentation: "Absolute URL for this page or section, built from the site `base_url`.",
+        },
+        (_, "path") => TemplateItemInfo {
+            detail: "Route path",
+            documentation: "Site-relative route for this page or section, such as `/guide/intro`.",
+        },
+        (_, "weight") => TemplateItemInfo {
+            detail: "Ordering weight",
+            documentation: "Numeric frontmatter weight used when Dodeca sorts pages and sections.",
+        },
+        (_, "toc") => TemplateItemInfo {
+            detail: "Heading table of contents",
+            documentation: "Structured heading list extracted from the rendered Markdown source.",
+        },
+        (_, "ancestors") => TemplateItemInfo {
+            detail: "Ancestor sections",
+            documentation: "Parent section chain for breadcrumb and navigation templates.",
+        },
+        (_, "last_updated") => TemplateItemInfo {
+            detail: "Last source update timestamp",
+            documentation: "Filesystem timestamp captured from the source file when Dodeca loaded it.",
+        },
+        (_, "description") => TemplateItemInfo {
+            detail: "Page or site description",
+            documentation: "Optional description from frontmatter or site configuration.",
+        },
+        (_, "extra") => TemplateItemInfo {
+            detail: "Frontmatter extra table",
+            documentation: "Custom `[extra]` frontmatter values preserved for template use.",
+        },
+        ("section" | "root", "pages") => TemplateItemInfo {
+            detail: "Section pages",
+            documentation: "Pages whose nearest parent section is this section, sorted by weight.",
+        },
+        ("section" | "root", "subsections") => TemplateItemInfo {
+            detail: "Child sections",
+            documentation: "Immediate child sections below this section, sorted by weight.",
+        },
+        _ => TemplateItemInfo {
+            detail: "Dodeca template field",
+            documentation: "Field supplied by Dodeca in the Gingembre template context.",
+        },
+    }
+}
+
+fn template_function_info(name: &str) -> TemplateItemInfo {
+    match name {
+        "get_url" => TemplateItemInfo {
+            detail: "Dodeca template function",
+            documentation: "Builds a site URL for a static path and lets Dodeca rewrite/cache-bust it during rendering.",
+        },
+        "get_section" => TemplateItemInfo {
+            detail: "Dodeca template function",
+            documentation: "Loads a section object by route for navigation and cross-section templates.",
+        },
+        "now" => TemplateItemInfo {
+            detail: "Dodeca template function",
+            documentation: "Returns the current build-time timestamp.",
+        },
+        "throw" => TemplateItemInfo {
+            detail: "Dodeca template function",
+            documentation: "Aborts template rendering with an explicit error message.",
+        },
+        "build" => TemplateItemInfo {
+            detail: "Dodeca template function",
+            documentation: "Accesses named build-step output exposed to templates.",
+        },
+        "read" => TemplateItemInfo {
+            detail: "Dodeca template function",
+            documentation: "Reads a project file for template-driven authoring workflows.",
+        },
+        "highlight" => TemplateItemInfo {
+            detail: "Dodeca template function",
+            documentation: "Highlights source code using Dodeca's syntax-highlighting pipeline.",
+        },
+        _ => TemplateItemInfo {
+            detail: "Dodeca template function",
+            documentation: "Function supplied by Dodeca to Gingembre templates.",
+        },
+    }
+}
+
+fn template_filter_info(name: &str) -> TemplateItemInfo {
+    match name {
+        "upper" => TemplateItemInfo {
+            detail: "Gingembre filter",
+            documentation: "Converts text to uppercase.",
+        },
+        "lower" => TemplateItemInfo {
+            detail: "Gingembre filter",
+            documentation: "Converts text to lowercase.",
+        },
+        "capitalize" => TemplateItemInfo {
+            detail: "Gingembre filter",
+            documentation: "Uppercases the first character and lowercases the rest.",
+        },
+        "title" => TemplateItemInfo {
+            detail: "Gingembre filter",
+            documentation: "Converts text to title case.",
+        },
+        "trim" => TemplateItemInfo {
+            detail: "Gingembre filter",
+            documentation: "Removes leading and trailing whitespace.",
+        },
+        "length" => TemplateItemInfo {
+            detail: "Gingembre filter",
+            documentation: "Returns the length of a string, array, or mapping.",
+        },
+        "first" => TemplateItemInfo {
+            detail: "Gingembre filter",
+            documentation: "Returns the first item in an iterable value.",
+        },
+        "last" => TemplateItemInfo {
+            detail: "Gingembre filter",
+            documentation: "Returns the last item in an iterable value.",
+        },
+        "reverse" => TemplateItemInfo {
+            detail: "Gingembre filter",
+            documentation: "Reverses a string or iterable value.",
+        },
+        "sort" => TemplateItemInfo {
+            detail: "Gingembre filter",
+            documentation: "Sorts an iterable value.",
+        },
+        "join" => TemplateItemInfo {
+            detail: "Gingembre filter",
+            documentation: "Joins iterable values into a string.",
+        },
+        "split" => TemplateItemInfo {
+            detail: "Gingembre filter",
+            documentation: "Splits a string into a list.",
+        },
+        "default" => TemplateItemInfo {
+            detail: "Gingembre filter",
+            documentation: "Returns a fallback when the value is undefined, null, or empty.",
+        },
+        "escape" => TemplateItemInfo {
+            detail: "Gingembre filter",
+            documentation: "HTML-escapes a value.",
+        },
+        "safe" => TemplateItemInfo {
+            detail: "Gingembre filter",
+            documentation: "Marks HTML as safe so it is not escaped again.",
+        },
+        "typeof" => TemplateItemInfo {
+            detail: "Gingembre filter",
+            documentation: "Returns Gingembre's runtime type name for a value.",
+        },
+        "slice" => TemplateItemInfo {
+            detail: "Gingembre filter",
+            documentation: "Returns a slice of an iterable or string.",
+        },
+        "map" => TemplateItemInfo {
+            detail: "Gingembre filter",
+            documentation: "Maps an attribute over each item in an iterable.",
+        },
+        "selectattr" => TemplateItemInfo {
+            detail: "Gingembre filter",
+            documentation: "Keeps iterable items whose attribute passes a test.",
+        },
+        "rejectattr" => TemplateItemInfo {
+            detail: "Gingembre filter",
+            documentation: "Drops iterable items whose attribute passes a test.",
+        },
+        "groupby" => TemplateItemInfo {
+            detail: "Gingembre filter",
+            documentation: "Groups iterable items by an attribute.",
+        },
+        "path_segments" => TemplateItemInfo {
+            detail: "Gingembre filter",
+            documentation: "Splits a path into route segments.",
+        },
+        "path_first" => TemplateItemInfo {
+            detail: "Gingembre filter",
+            documentation: "Returns the first path segment.",
+        },
+        "path_parent" => TemplateItemInfo {
+            detail: "Gingembre filter",
+            documentation: "Returns the parent path.",
+        },
+        "path_basename" => TemplateItemInfo {
+            detail: "Gingembre filter",
+            documentation: "Returns the final path segment.",
+        },
+        _ => TemplateItemInfo {
+            detail: "Gingembre filter",
+            documentation: "Built-in Gingembre filter.",
+        },
+    }
+}
+
+fn template_test_info(name: &str) -> TemplateItemInfo {
+    match name {
+        "defined" => TemplateItemInfo {
+            detail: "Gingembre test",
+            documentation: "True when the value is not undefined.",
+        },
+        "undefined" => TemplateItemInfo {
+            detail: "Gingembre test",
+            documentation: "True when the value is undefined.",
+        },
+        "none" => TemplateItemInfo {
+            detail: "Gingembre test",
+            documentation: "True when the value is null.",
+        },
+        "string" => TemplateItemInfo {
+            detail: "Gingembre test",
+            documentation: "True when the value is a string.",
+        },
+        "number" => TemplateItemInfo {
+            detail: "Gingembre test",
+            documentation: "True when the value is numeric.",
+        },
+        "integer" => TemplateItemInfo {
+            detail: "Gingembre test",
+            documentation: "True when the value is an integer.",
+        },
+        "float" => TemplateItemInfo {
+            detail: "Gingembre test",
+            documentation: "True when the value is a float.",
+        },
+        "mapping" | "dict" => TemplateItemInfo {
+            detail: "Gingembre test",
+            documentation: "True when the value is an object or mapping.",
+        },
+        "iterable" | "sequence" => TemplateItemInfo {
+            detail: "Gingembre test",
+            documentation: "True when the value can be iterated.",
+        },
+        "odd" => TemplateItemInfo {
+            detail: "Gingembre test",
+            documentation: "True when an integer is odd.",
+        },
+        "even" => TemplateItemInfo {
+            detail: "Gingembre test",
+            documentation: "True when an integer is even.",
+        },
+        "truthy" => TemplateItemInfo {
+            detail: "Gingembre test",
+            documentation: "True when Gingembre treats the value as truthy.",
+        },
+        "falsy" => TemplateItemInfo {
+            detail: "Gingembre test",
+            documentation: "True when Gingembre treats the value as false.",
+        },
+        "empty" => TemplateItemInfo {
+            detail: "Gingembre test",
+            documentation: "True when the value has no items or text.",
+        },
+        "eq" | "equalto" | "sameas" => TemplateItemInfo {
+            detail: "Gingembre test",
+            documentation: "Compares values for equality.",
+        },
+        "ne" => TemplateItemInfo {
+            detail: "Gingembre test",
+            documentation: "Compares values for inequality.",
+        },
+        "lt" | "lessthan" => TemplateItemInfo {
+            detail: "Gingembre test",
+            documentation: "True when the value is less than the argument.",
+        },
+        "gt" | "greaterthan" => TemplateItemInfo {
+            detail: "Gingembre test",
+            documentation: "True when the value is greater than the argument.",
+        },
+        "starting_with" | "startswith" => TemplateItemInfo {
+            detail: "Gingembre test",
+            documentation: "True when text starts with the argument.",
+        },
+        "ending_with" | "endswith" => TemplateItemInfo {
+            detail: "Gingembre test",
+            documentation: "True when text ends with the argument.",
+        },
+        "containing" | "contains" => TemplateItemInfo {
+            detail: "Gingembre test",
+            documentation: "True when a string or iterable contains the argument.",
+        },
+        _ => TemplateItemInfo {
+            detail: "Gingembre test",
+            documentation: "Built-in Gingembre test.",
+        },
+    }
+}
+
+fn template_symbol_info(symbol: &TemplateSymbol) -> TemplateItemInfo {
+    match symbol.kind {
+        TemplateSymbolKind::SetBinding => TemplateItemInfo {
+            detail: "Gingembre local variable",
+            documentation: "Variable introduced by a `{% set %}` statement in this template scope.",
+        },
+        TemplateSymbolKind::LoopBinding => TemplateItemInfo {
+            detail: "Gingembre loop variable",
+            documentation: "Variable bound by a `{% for %}` loop and visible inside the loop body.",
+        },
+        TemplateSymbolKind::MacroParam => TemplateItemInfo {
+            detail: "Gingembre macro parameter",
+            documentation: "Parameter available inside this macro body.",
+        },
+        TemplateSymbolKind::ImportAlias => TemplateItemInfo {
+            detail: "Gingembre import alias",
+            documentation: "Namespace introduced by `{% import \"...\" as name %}`.",
+        },
+        TemplateSymbolKind::Macro => TemplateItemInfo {
+            detail: "Gingembre macro",
+            documentation: "Macro declared in this template.",
+        },
+        TemplateSymbolKind::ContextRoot => template_root_info(&symbol.name),
+        TemplateSymbolKind::Function => template_function_info(&symbol.name),
+    }
+}
+
+fn completion_kind_for_template_symbol(kind: TemplateSymbolKind) -> CompletionItemKind {
+    match kind {
+        TemplateSymbolKind::Function => CompletionItemKind::FUNCTION,
+        TemplateSymbolKind::ImportAlias => CompletionItemKind::MODULE,
+        TemplateSymbolKind::Macro => CompletionItemKind::FUNCTION,
+        TemplateSymbolKind::MacroParam | TemplateSymbolKind::LoopBinding => {
+            CompletionItemKind::VARIABLE
+        }
+        TemplateSymbolKind::ContextRoot | TemplateSymbolKind::SetBinding => {
+            CompletionItemKind::VARIABLE
+        }
+    }
+}
+
 fn template_completion_items(
     project: &AuthoringProject,
     template_file: &str,
@@ -4598,10 +5402,10 @@ fn template_completion_items(
         TemplateCompletionKind::Filter => BUILTIN_FILTER_NAMES
             .iter()
             .map(|name| {
-                completion_item(
+                template_completion_item(
                     (*name).to_string(),
                     CompletionItemKind::FUNCTION,
-                    "Gingembre filter".to_string(),
+                    template_filter_info(name),
                     context.range,
                 )
             })
@@ -4609,10 +5413,10 @@ fn template_completion_items(
         TemplateCompletionKind::Test => BUILTIN_TEST_NAMES
             .iter()
             .map(|name| {
-                completion_item(
+                template_completion_item(
                     (*name).to_string(),
                     CompletionItemKind::FUNCTION,
-                    "Gingembre test".to_string(),
+                    template_test_info(name),
                     context.range,
                 )
             })
@@ -4635,41 +5439,65 @@ fn template_root_completion_items(
 ) -> Vec<CompletionItem> {
     let mut items = Vec::new();
     for name in TEMPLATE_ROOT_VALUES {
-        items.push(completion_item(
+        items.push(template_completion_item(
             (*name).to_string(),
             CompletionItemKind::VARIABLE,
-            "Dodeca template context".to_string(),
+            template_root_info(name),
             context.range,
         ));
     }
     for name in TEMPLATE_FUNCTION_NAMES {
-        items.push(completion_item(
+        items.push(template_completion_item(
             (*name).to_string(),
             CompletionItemKind::FUNCTION,
-            "Dodeca template function".to_string(),
+            template_function_info(name),
             context.range,
         ));
+    }
+    if let Some(index) = project.template_semantics.get(template_file)
+        && let Some(offset) = lsp_position_to_byte_offset(content, context.range.start)
+    {
+        for symbol in index.visible_symbols_at_offset(offset) {
+            if matches!(
+                symbol.kind,
+                TemplateSymbolKind::ContextRoot | TemplateSymbolKind::Function
+            ) {
+                continue;
+            }
+            items.push(template_completion_item(
+                symbol.name.clone(),
+                completion_kind_for_template_symbol(symbol.kind),
+                template_symbol_info(symbol),
+                context.range,
+            ));
+        }
     }
 
     let import_aliases = TemplateParser::new(template_file, content)
         .parse()
         .map(|template| template_import_aliases(project, &template.body))
-        .unwrap_or_else(|_| template_import_aliases_from_content(project, content));
+        .unwrap_or_default();
     for alias in import_aliases.keys() {
-        items.push(completion_item(
+        items.push(template_completion_item(
             alias.clone(),
             CompletionItemKind::MODULE,
-            "Imported template macros".to_string(),
+            TemplateItemInfo {
+                detail: "Dodeca import alias",
+                documentation: "Namespace for macros imported from another Gingembre template.",
+            },
             context.range,
         ));
     }
 
     if let Ok(template) = TemplateParser::new(template_file, content).parse() {
         if top_level_macro_names(&template.body).next().is_some() {
-            items.push(completion_item(
+            items.push(template_completion_item(
                 "self".to_string(),
                 CompletionItemKind::MODULE,
-                "Current template macros".to_string(),
+                TemplateItemInfo {
+                    detail: "Dodeca macro namespace",
+                    documentation: "`self` refers to macros declared in the current template.",
+                },
                 context.range,
             ));
         }
@@ -4692,10 +5520,13 @@ fn template_field_completion_items(
                 .data_keys
                 .iter()
                 .map(|name| {
-                    completion_item(
+                    template_completion_item(
                         name.clone(),
                         CompletionItemKind::FIELD,
-                        "Dodeca data file".to_string(),
+                        TemplateItemInfo {
+                            detail: "Dodeca data file",
+                            documentation: "Top-level key derived from a file in the Dodeca `data/` directory.",
+                        },
                         range,
                     )
                 })
@@ -4707,10 +5538,10 @@ fn template_field_completion_items(
     names
         .iter()
         .map(|name| {
-            completion_item(
+            template_completion_item(
                 (*name).to_string(),
                 CompletionItemKind::FIELD,
-                "Dodeca template field".to_string(),
+                template_field_info(path, name),
                 range,
             )
         })
@@ -4729,10 +5560,12 @@ fn template_macro_completion_items(
     } else {
         TemplateParser::new(template_file, content)
             .parse()
-            .map(|template| template_import_aliases(project, &template.body))
-            .unwrap_or_else(|_| template_import_aliases_from_content(project, content))
-            .get(namespace)
-            .cloned()
+            .ok()
+            .and_then(|template| {
+                template_import_aliases(project, &template.body)
+                    .get(namespace)
+                    .cloned()
+            })
     };
     let Some(target_file) = target_file else {
         return Vec::new();
@@ -4747,44 +5580,17 @@ fn template_macro_completion_items(
 
     top_level_macro_names(&template.body)
         .map(|name| {
-            completion_item(
+            template_completion_item(
                 name,
                 CompletionItemKind::FUNCTION,
-                "Dodeca template macro".to_string(),
+                TemplateItemInfo {
+                    detail: "Dodeca template macro",
+                    documentation: "Macro callable from the selected Gingembre macro namespace.",
+                },
                 range,
             )
         })
         .collect()
-}
-
-fn template_import_aliases_from_content(
-    project: &AuthoringProject,
-    content: &str,
-) -> HashMap<String, String> {
-    let mut aliases = HashMap::new();
-    for line in content.lines() {
-        let Some(after_import) = line.split_once("{% import ").map(|(_, value)| value) else {
-            continue;
-        };
-        let Some((quoted_path, after_path)) = after_import.split_once(" as ") else {
-            continue;
-        };
-        let path = quoted_path.trim().trim_matches('"').trim_matches('\'');
-        if !project.template_paths.contains_key(path) {
-            continue;
-        }
-        let alias = after_path
-            .trim()
-            .trim_end_matches("%}")
-            .trim()
-            .split(|ch: char| !is_template_ident_char(ch))
-            .next()
-            .unwrap_or("");
-        if !alias.is_empty() {
-            aliases.insert(alias.to_string(), path.to_string());
-        }
-    }
-    aliases
 }
 
 fn top_level_macro_names(nodes: &[Node]) -> impl Iterator<Item = String> + '_ {
@@ -7136,6 +7942,25 @@ mod tests {
         }
     }
 
+    fn position_for_nth(content: &str, needle: &str, occurrence: usize) -> Position {
+        let mut search_start = 0;
+        for _ in 0..occurrence {
+            let relative = content[search_start..]
+                .find(needle)
+                .expect("needle occurrence in content");
+            search_start += relative + needle.len();
+        }
+        let relative = content[search_start..]
+            .find(needle)
+            .expect("needle occurrence in content");
+        let byte = search_start + relative;
+        let (line, column) = byte_to_line_column(content, byte);
+        Position {
+            line: line - 1,
+            character: column - 1,
+        }
+    }
+
     fn range_for(content: &str, needle: &str) -> Range {
         let start_byte = content.find(needle).expect("needle in content");
         let end_byte = start_byte + needle.len();
@@ -7504,6 +8329,108 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn uses_template_semantic_index_for_editor_features() {
+        let dir = temp_dir("template-semantic-editor-features");
+        let content_dir = dir.join("content");
+        let templates_dir = dir.join("templates");
+        std::fs::create_dir_all(&content_dir).expect("create content dir");
+        std::fs::create_dir_all(&templates_dir).expect("create templates dir");
+        std::fs::write(content_dir.join("_index.md"), "# Home\n").expect("write root");
+
+        let template = "{% set local_route = \"/\" %}\n{{ local_route }}\n{% for item in section.pages %}\n{{ item.path }}\n{% endfor %}\n{% macro label(title) %}{{ title }}{% endmacro %}\n";
+        std::fs::write(templates_dir.join("page.html"), template).expect("write template");
+        let project = load_authoring_project(&content_dir, &[])
+            .await
+            .expect("load project");
+        let index = project
+            .template_semantics
+            .get("page.html")
+            .expect("template semantics");
+
+        let hover = template_semantic_hover(
+            &project,
+            "page.html",
+            template,
+            position_for(template, "path"),
+        )
+        .expect("field hover");
+        let HoverContents::Markup(markup) = hover.contents else {
+            panic!("expected markdown hover");
+        };
+        assert!(markup.value.contains("Route path"));
+        assert!(markup.value.contains("Site-relative route"));
+
+        let definition = template_semantic_definition(
+            &content_dir,
+            &project,
+            "page.html",
+            position_for_nth(template, "local_route", 1),
+        )
+        .expect("local binding definition");
+        assert!(range_contains_position(
+            &definition.range,
+            position_for(template, "local_route")
+        ));
+
+        let references = template_semantic_references(
+            &content_dir,
+            &project,
+            "page.html",
+            template,
+            position_for_nth(template, "local_route", 1),
+        );
+        assert_eq!(references.len(), 2);
+        assert!(references.iter().any(|location| range_contains_position(
+            &location.range,
+            position_for(template, "local_route")
+        )));
+        assert!(references.iter().any(|location| range_contains_position(
+            &location.range,
+            position_for_nth(template, "local_route", 1)
+        )));
+
+        let prepared = template_semantic_prepare_rename(
+            &project,
+            "page.html",
+            template,
+            position_for_nth(template, "local_route", 1),
+        )
+        .expect("prepare rename");
+        let PrepareRenameResponse::RangeWithPlaceholder { placeholder, .. } = prepared else {
+            panic!("expected range with placeholder");
+        };
+        assert_eq!(placeholder, "local_route");
+
+        let uri = Url::from_file_path(templates_dir.join("page.html").as_std_path())
+            .expect("template uri");
+        let edit = template_semantic_rename_workspace_edit(
+            &uri,
+            &project,
+            "page.html",
+            template,
+            position_for_nth(template, "local_route", 1),
+            "route_path",
+        )
+        .expect("rename edit")
+        .expect("rename edit");
+        let mut changes = edit.changes.expect("rename changes");
+        let edits = changes.remove(&uri).expect("template edits");
+        assert_eq!(edits.len(), 2);
+        assert!(edits.iter().all(|edit| edit.new_text == "route_path"));
+
+        let token_types = template_semantic_tokens(index, template)
+            .into_iter()
+            .map(|token| token.token_type)
+            .collect::<Vec<_>>();
+        assert!(token_types.contains(&TEMPLATE_SEMANTIC_TOKEN_VARIABLE));
+        assert!(token_types.contains(&TEMPLATE_SEMANTIC_TOKEN_PARAMETER));
+        assert!(token_types.contains(&TEMPLATE_SEMANTIC_TOKEN_PROPERTY));
+        assert!(token_types.contains(&TEMPLATE_SEMANTIC_TOKEN_MACRO));
+
+        std::fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[tokio::test]
     async fn reports_template_diagnostics_from_authoring_model() {
         let dir = temp_dir("template-diagnostics");
         let content_dir = dir.join("content");
@@ -7579,7 +8506,7 @@ mod tests {
         )
         .expect("write macros");
 
-        let template = "{% import \"macros.html\" as macros %}\n{{ pa }}\n{{ page.ti }}\n{{ data.ver }}\n{{ title | tr }}\n{% if title is str %}ok{% endif %}\n{{ macros:: }}\n";
+        let template = "{% import \"macros.html\" as macros %}\n{% set local_route = \"/\" %}\n{{ loc }}\n{{ pa }}\n{{ page.ti }}\n{{ data.ver }}\n{{ title | tr }}\n{% if title is str %}ok{% endif %}\n{{ macros::card() }}\n";
         std::fs::write(templates_dir.join("page.html"), template).expect("write template");
         let project = load_authoring_project(&content_dir, &[])
             .await
@@ -7592,6 +8519,26 @@ mod tests {
                 .collect::<Vec<_>>()
         };
 
+        let root_items = template_completion_items(
+            &project,
+            "page.html",
+            template,
+            position_for(template, "pa"),
+        );
+        let page_item = root_items
+            .iter()
+            .find(|item| item.label == "page")
+            .expect("page completion item");
+        assert_eq!(page_item.detail.as_deref(), Some("Current page"));
+        let Some(Documentation::MarkupContent(documentation)) = &page_item.documentation else {
+            panic!("expected page completion docs");
+        };
+        assert!(documentation.value.contains("currently being rendered"));
+
+        assert!(
+            labels(position_for(template, "loc")).contains(&"local_route".to_string()),
+            "root completion should include live Gingembre local symbols"
+        );
         assert!(labels(position_for(template, "pa")).contains(&"page".to_string()));
         assert!(
             labels(position_for(template, "ti")).contains(&"title".to_string()),
@@ -7609,8 +8556,10 @@ mod tests {
             labels(position_for(template, "str")).contains(&"string".to_string()),
             "test completion should include string"
         );
+        let macro_byte = template.find("macros::").expect("macro call") + "macros::".len();
+        let (line, column) = byte_to_line_column(template, macro_byte);
         assert!(
-            labels(Position::new(6, 11)).contains(&"card".to_string()),
+            labels(Position::new(line - 1, column - 1)).contains(&"card".to_string()),
             "macro completion should include imported macro"
         );
 
@@ -8799,27 +9748,52 @@ title = \"Source\"
         workspace
             .apply_overlays(&[AuthoringDocumentOverlay {
                 path: AuthoringInputPath::Template("custom.html".to_string()),
-                content: "{{ page.content }}".to_string(),
+                content: "{% set alpha = \"/\" %}{{ alpha }}".to_string(),
             }])
             .expect("apply template overlay");
+        let alpha_project = workspace.inputs().project().await.expect("alpha project");
+        assert!(alpha_project.template_paths.contains_key("custom.html"));
+        let alpha_index = alpha_project
+            .template_semantics
+            .get("custom.html")
+            .expect("alpha template semantics");
         assert!(
-            workspace
-                .inputs()
-                .project()
-                .await
-                .expect("project")
-                .template_paths
-                .contains_key("custom.html")
+            alpha_index
+                .symbols
+                .iter()
+                .any(|symbol| symbol.name == "alpha")
+        );
+
+        workspace
+            .apply_overlays(&[AuthoringDocumentOverlay {
+                path: AuthoringInputPath::Template("custom.html".to_string()),
+                content: "{% set beta = \"/\" %}{{ beta }}".to_string(),
+            }])
+            .expect("update template overlay");
+        let beta_project = workspace.inputs().project().await.expect("beta project");
+        let beta_index = beta_project
+            .template_semantics
+            .get("custom.html")
+            .expect("beta template semantics");
+        assert!(
+            beta_index
+                .symbols
+                .iter()
+                .any(|symbol| symbol.name == "beta")
+        );
+        assert!(
+            !beta_index
+                .symbols
+                .iter()
+                .any(|symbol| symbol.name == "alpha")
         );
 
         workspace.apply_overlays(&[]).expect("clear overlay");
+        let cleared_project = workspace.inputs().project().await.expect("cleared project");
+        assert!(!cleared_project.template_paths.contains_key("custom.html"));
         assert!(
-            !workspace
-                .inputs()
-                .project()
-                .await
-                .expect("project")
-                .template_paths
+            !cleared_project
+                .template_semantics
                 .contains_key("custom.html")
         );
 

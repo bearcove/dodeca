@@ -2,6 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use eyre::{Result, eyre};
+use gingembre::parser::Parser as TemplateParser;
+use gingembre::semantic::TemplateSemanticIndex;
 use hotmeal::{Document, NodeId, NodeKind, StrTendril, parse};
 use ignore::WalkBuilder;
 
@@ -12,6 +14,7 @@ use crate::db::{
 };
 use crate::queries::{build_tree, load_all_templates, source_to_route_map};
 use crate::render::{Renderable, render_authoring_html};
+use crate::template_host::TEMPLATE_FUNCTION_NAMES;
 use crate::types::{
     DataContent, DataPath, Route, SassContent, SassPath, SourceContent, SourcePath, StaticPath,
     TemplateContent, TemplatePath,
@@ -58,11 +61,15 @@ pub(crate) struct AuthoringProject {
     pub source_contents: HashMap<String, String>,
     pub template_paths: HashMap<String, Utf8PathBuf>,
     pub template_contents: HashMap<String, String>,
+    pub template_semantics: HashMap<String, TemplateSemanticIndex>,
     pub static_paths: HashMap<String, Utf8PathBuf>,
     pub data_paths: HashMap<String, Utf8PathBuf>,
     pub data_keys: Vec<String>,
     pub rendered_hrefs_by_route: HashMap<String, Vec<String>>,
 }
+
+const TEMPLATE_CONTEXT_ROOTS: &[&str] =
+    &["config", "page", "section", "current_path", "root", "data"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AuthoringPage {
@@ -619,11 +626,21 @@ async fn build_authoring_project_from_inputs(
         })
         .collect();
     let mut template_contents = HashMap::new();
+    let mut template_semantics = HashMap::new();
     for (template_path, template) in &inputs.templates {
-        template_contents.insert(
-            template_path.as_str().to_string(),
-            template.content(&*inputs.db)?.as_str().to_string(),
-        );
+        let path = template_path.as_str().to_string();
+        let content = template.content(&*inputs.db)?.as_str().to_string();
+        if let Ok(template) = TemplateParser::new(&path, &content).parse() {
+            template_semantics.insert(
+                path.clone(),
+                TemplateSemanticIndex::build(
+                    &template,
+                    TEMPLATE_CONTEXT_ROOTS,
+                    TEMPLATE_FUNCTION_NAMES,
+                ),
+            );
+        }
+        template_contents.insert(path, content);
     }
     let static_paths = inputs
         .static_files
@@ -660,6 +677,7 @@ async fn build_authoring_project_from_inputs(
         source_contents,
         template_paths,
         template_contents,
+        template_semantics,
         static_paths,
         data_paths,
         data_keys,
