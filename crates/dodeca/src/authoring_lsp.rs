@@ -1157,6 +1157,15 @@ impl Backend {
         let path = lsp_file_uri_to_utf8_path(uri)?;
         if let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? {
             let world = self.current_world(&dirs).await?;
+            if let Some(occurrence) = world
+                .template_index
+                .block_occurrence_at_position(&template_file, position)
+            {
+                return Ok(Some(PrepareRenameResponse::RangeWithPlaceholder {
+                    range: occurrence.source_range,
+                    placeholder: occurrence.name,
+                }));
+            }
             if let Some(query) = world
                 .template_index
                 .macro_reference_query(&template_file, position)
@@ -1211,6 +1220,17 @@ impl Backend {
         let path = lsp_file_uri_to_utf8_path(uri)?;
         if let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? {
             let world = self.current_world(&dirs).await?;
+            if let Some(occurrence) = world
+                .template_index
+                .block_occurrence_at_position(&template_file, position)
+            {
+                return template_block_rename_workspace_edit(
+                    &world.template_index,
+                    &template_file,
+                    &occurrence.name,
+                    new_name,
+                );
+            }
             if let Some(query) = world
                 .template_index
                 .macro_reference_query(&template_file, position)
@@ -7447,6 +7467,47 @@ fn template_block_references(
     Ok(locations)
 }
 
+fn template_block_rename_workspace_edit(
+    index: &TemplateAuthoringIndex,
+    template_file: &str,
+    block_name: &str,
+    new_name: &str,
+) -> Result<Option<WorkspaceEdit>> {
+    if !is_valid_template_rename_name(new_name) {
+        return Ok(None);
+    }
+
+    let mut changes = HashMap::<Url, Vec<TextEdit>>::new();
+    for target in index.block_reference_targets(template_file, block_name) {
+        let uri = Url::from_file_path(target.path.as_std_path()).map_err(|_| {
+            eyre!(
+                "could not convert template block rename path to URI: {}",
+                target.path
+            )
+        })?;
+        changes.entry(uri).or_default().push(TextEdit {
+            range: target.range,
+            new_text: new_name.to_string(),
+        });
+    }
+    if changes.is_empty() {
+        return Ok(None);
+    }
+    for edits in changes.values_mut() {
+        edits.sort_by(|left, right| {
+            position_cmp(left.range.start, right.range.start)
+                .then_with(|| position_cmp(left.range.end, right.range.end))
+        });
+        edits.dedup_by(|left, right| left.range == right.range && left.new_text == right.new_text);
+    }
+
+    Ok(Some(WorkspaceEdit {
+        changes: Some(changes),
+        document_changes: None,
+        change_annotations: None,
+    }))
+}
+
 fn template_macro_references(
     index: &TemplateAuthoringIndex,
     target_template_file: &str,
@@ -9755,6 +9816,34 @@ mod tests {
                         .to_string()
                 })
                 .collect::<Vec<_>>(),
+            vec![
+                "base.html".to_string(),
+                "child.html".to_string(),
+                "sibling.html".to_string(),
+            ]
+        );
+
+        let edit =
+            template_block_rename_workspace_edit(&index, "child.html", "breadcrumbs", "trail")
+                .expect("rename edit")
+                .expect("rename edit");
+        let changes = edit.changes.expect("changes");
+        let mut changed_paths = changes
+            .iter()
+            .map(|(uri, edits)| {
+                let path = Utf8PathBuf::from_path_buf(uri.to_file_path().expect("file uri"))
+                    .expect("utf8 path")
+                    .strip_prefix(&templates_dir)
+                    .expect("template relative")
+                    .to_string();
+                assert_eq!(edits.len(), 1);
+                assert_eq!(edits[0].new_text, "trail");
+                path
+            })
+            .collect::<Vec<_>>();
+        changed_paths.sort();
+        assert_eq!(
+            changed_paths,
             vec![
                 "base.html".to_string(),
                 "child.html".to_string(),
