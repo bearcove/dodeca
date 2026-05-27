@@ -105,32 +105,56 @@ impl HtmlProcessor for HtmlProcessorImpl {
 
         // Phase 2: Async processing (inline CSS/JS URL rewriting and minification)
         let html = {
-            let host = self.host_client().await;
             let mut current_html = html;
+            let has_inline_css = has_inline_styles(&current_html);
+            let has_inline_js = has_inline_scripts(&current_html);
+
+            let needs_url_rewrite = input.path_map.is_some() && (has_inline_css || has_inline_js);
+            let needs_minify = input.minify.as_ref().is_some_and(|opts| {
+                (opts.minify_inline_css && has_inline_css)
+                    || (opts.minify_inline_js && has_inline_js)
+            });
+
+            if !(needs_url_rewrite || needs_minify) {
+                return HtmlProcessResult::Success {
+                    html: current_html,
+                    had_dead_links,
+                    had_code_buttons,
+                    hrefs,
+                    element_ids,
+                    unresolved_wiki_links,
+                };
+            }
+
+            let host = self.host_client().await;
 
             // Process inline CSS for URL rewriting (if path_map provided)
             if let Some(ref path_map) = input.path_map {
-                match process_inline_css_urls(&host, &current_html, path_map).await {
-                    Ok(processed) => current_html = processed,
-                    Err(e) => tracing::warn!("Inline CSS URL rewriting failed: {}", e),
+                if has_inline_css {
+                    match process_inline_css_urls(&host, &current_html, path_map).await {
+                        Ok(processed) => current_html = processed,
+                        Err(e) => tracing::warn!("Inline CSS URL rewriting failed: {}", e),
+                    }
                 }
 
-                match process_inline_js_urls(&host, &current_html, path_map).await {
-                    Ok(processed) => current_html = processed,
-                    Err(e) => tracing::warn!("Inline JS URL rewriting failed: {}", e),
+                if has_inline_js {
+                    match process_inline_js_urls(&host, &current_html, path_map).await {
+                        Ok(processed) => current_html = processed,
+                        Err(e) => tracing::warn!("Inline JS URL rewriting failed: {}", e),
+                    }
                 }
             }
 
             // Minification (if requested)
             if let Some(ref minify_opts) = input.minify {
-                if minify_opts.minify_inline_css {
+                if minify_opts.minify_inline_css && has_inline_css {
                     match minify_inline_css_string(&host, &current_html).await {
                         Ok(minified) => current_html = minified,
                         Err(e) => tracing::warn!("CSS minification failed: {}", e),
                     }
                 }
 
-                if minify_opts.minify_inline_js {
+                if minify_opts.minify_inline_js && has_inline_js {
                     match minify_inline_js_string(&host, &current_html).await {
                         Ok(minified) => current_html = minified,
                         Err(e) => tracing::warn!("JS minification failed: {}", e),
@@ -194,6 +218,61 @@ impl HtmlProcessor for HtmlProcessorImpl {
             element_ids: extract_element_ids(&doc),
         }
     }
+}
+
+fn has_inline_styles(html: &str) -> bool {
+    let tendril = StrTendril::from(html);
+    let doc = hotmeal::parse(&tendril);
+
+    if let Some(head_id) = doc.head()
+        && doc.children(head_id).any(|id| {
+            is_element(&doc, id, "style") && !get_text_content(&doc, id).trim().is_empty()
+        })
+    {
+        return true;
+    }
+
+    doc.body()
+        .is_some_and(|body_id| subtree_has_inline_style(&doc, body_id))
+}
+
+fn subtree_has_inline_style(doc: &Document, node_id: NodeId) -> bool {
+    if is_element(doc, node_id, "style") && !get_text_content(doc, node_id).trim().is_empty() {
+        return true;
+    }
+
+    doc.children(node_id)
+        .any(|child_id| subtree_has_inline_style(doc, child_id))
+}
+
+fn has_inline_scripts(html: &str) -> bool {
+    let tendril = StrTendril::from(html);
+    let doc = hotmeal::parse(&tendril);
+
+    if let Some(head_id) = doc.head()
+        && doc.children(head_id).any(|id| {
+            is_element(&doc, id, "script")
+                && get_attr(&doc, id, "src").is_none()
+                && !get_text_content(&doc, id).trim().is_empty()
+        })
+    {
+        return true;
+    }
+
+    doc.body()
+        .is_some_and(|body_id| subtree_has_inline_script(&doc, body_id))
+}
+
+fn subtree_has_inline_script(doc: &Document, node_id: NodeId) -> bool {
+    if is_element(doc, node_id, "script")
+        && get_attr(doc, node_id, "src").is_none()
+        && !get_text_content(doc, node_id).trim().is_empty()
+    {
+        return true;
+    }
+
+    doc.children(node_id)
+        .any(|child_id| subtree_has_inline_script(doc, child_id))
 }
 
 // ============================================================================
