@@ -4690,8 +4690,6 @@ name = "integration-tests"
 version = "0.6.1"
 dependencies = [
  "camino",
- "dodeca",
- "dodeca-authoring-lsp",
  "dodeca-search-format",
  "facet-json",
  "facet-value",
@@ -4700,6 +4698,7 @@ dependencies = [
  "hotmeal",
  "owo-colors",
  "regex",
+ "serde_json",
  "tempfile",
  "tokio",
  "tower-lsp",

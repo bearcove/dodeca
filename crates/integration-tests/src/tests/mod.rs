@@ -2,7 +2,6 @@ use crate::harness::*;
 use crate::*;
 use std::time::Duration;
 
-#[cfg(test)]
 pub mod authoring_lsp;
 pub mod basic;
 pub mod boot_contract;

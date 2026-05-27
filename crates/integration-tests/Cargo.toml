@@ -10,8 +10,6 @@ name = "integration-tests"
 path = "src/main.rs"
 
 [dependencies]
-dodeca-authoring-lsp = { path = "../dodeca-authoring-lsp" }
-dodeca = { path = "../dodeca" }
 dodeca-search-format = { path = "../dodeca-search-format" }
 camino.workspace = true
 facet-json.workspace = true
@@ -21,6 +19,7 @@ fs-err.workspace = true
 globset.workspace = true
 owo-colors.workspace = true
 regex.workspace = true
+serde_json.workspace = true
 vox-fdpass.workspace = true
 vox-stream.workspace = true
 tempfile.workspace = true

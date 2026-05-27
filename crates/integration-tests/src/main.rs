@@ -883,6 +883,31 @@ fn collect_tests() -> Vec<Test> {
             func: boot_contract::immediate_request_after_fd_pass_succeeds,
             ignored: false,
         },
+        // authoring_lsp tests
+        Test {
+            name: "lsp_lists_pages_over_stdio",
+            module: "authoring_lsp",
+            func: authoring_lsp::lsp_lists_pages_over_stdio,
+            ignored: false,
+        },
+        Test {
+            name: "lsp_uses_open_document_overlays",
+            module: "authoring_lsp",
+            func: authoring_lsp::lsp_uses_open_document_overlays,
+            ignored: false,
+        },
+        Test {
+            name: "lsp_reports_diagnostics_and_code_actions_over_stdio",
+            module: "authoring_lsp",
+            func: authoring_lsp::lsp_reports_diagnostics_and_code_actions_over_stdio,
+            ignored: false,
+        },
+        Test {
+            name: "lsp_updates_workspace_from_watched_file_changes",
+            module: "authoring_lsp",
+            func: authoring_lsp::lsp_updates_workspace_from_watched_file_changes,
+            ignored: false,
+        },
         // build_steps tests
         Test {
             name: "build_step_basic_command",

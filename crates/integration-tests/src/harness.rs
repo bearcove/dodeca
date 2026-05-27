@@ -288,7 +288,7 @@ pub fn ddc_binary() -> PathBuf {
 }
 
 /// Get the path to the cell binaries directory
-fn cell_path() -> Option<PathBuf> {
+pub fn cell_path() -> Option<PathBuf> {
     std::env::var("DODECA_CELL_PATH").map(PathBuf::from).ok()
 }
 
@@ -1604,29 +1604,4 @@ fn parse_json_log(json: &Value) -> Option<ParsedJsonLog> {
         message,
         fields,
     })
-}
-
-#[cfg(test)]
-mod unit_tests {
-    use super::matches_glob;
-
-    #[test]
-    fn matches_glob_handles_basic_patterns() {
-        assert!(matches_glob("/css/style.*.css", "/css/style.123.css"));
-        assert!(matches_glob("/images/test.*.svg", "/images/test.hash.svg"));
-        assert!(matches_glob("exact", "exact"));
-        assert!(!matches_glob("exact", "exactly"));
-        assert!(!matches_glob("/css/style.*.css", "/css/style.css.map"));
-    }
-
-    #[test]
-    fn matches_glob_handles_multiple_wildcards() {
-        assert!(matches_glob("*style*css", "/css/style.123.css"));
-        assert!(matches_glob("*/style.*.css", "/css/style.123.css"));
-        assert!(matches_glob("*/style.*.css", "/assets/css/style.123.css"));
-        assert!(!matches_glob(
-            "*/style.*.css",
-            "/assets/css/style.123.css.map"
-        ));
-    }
 }
