@@ -5,12 +5,14 @@
 
 use cell_markdown_proto::*;
 use dodeca_cell_runtime::HostHandle;
+use dodeca_cell_runtime::tracing;
 use marq::{
     AasvgHandler, ArboriumHandler, CompareHandler, InlineCodeHandler, LinkResolver, MermaidHandler,
     PikruHandler, RenderOptions, TermHandler, WikiLink, WikiLinkOutput, WikiLinkResolver, render,
 };
 use std::future::Future;
 use std::pin::Pin;
+use std::time::Instant;
 
 /// Escape HTML special characters
 fn html_escape(s: &str) -> String {
@@ -142,17 +144,33 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
         markdown: String,
         source_map: bool,
     ) -> MarkdownResult {
+        let started_at = Instant::now();
+        tracing::debug!(
+            source_path = %source_path,
+            markdown_len = markdown.len(),
+            source_map,
+            "markdown cell render_markdown started"
+        );
         let opts = render_options(&source_path, source_map);
 
         // Render markdown with all code blocks rendered inline
         match render(&markdown, &opts).await {
-            Ok(doc) => MarkdownResult::Success {
-                html: doc.html, // Fully rendered, no placeholders
-                headings: doc.headings.into_iter().map(convert_heading).collect(),
-                reqs: doc.reqs.into_iter().map(convert_req).collect(),
-                head_injections: doc.head_injections,
-                source_map: Box::new(convert_source_map(doc.source_map)),
-            },
+            Ok(doc) => {
+                tracing::debug!(
+                    elapsed_ms = started_at.elapsed().as_millis(),
+                    html_len = doc.html.len(),
+                    heading_count = doc.headings.len(),
+                    req_count = doc.reqs.len(),
+                    "markdown cell render_markdown finished"
+                );
+                MarkdownResult::Success {
+                    html: doc.html, // Fully rendered, no placeholders
+                    headings: doc.headings.into_iter().map(convert_heading).collect(),
+                    reqs: doc.reqs.into_iter().map(convert_req).collect(),
+                    head_injections: doc.head_injections,
+                    source_map: Box::new(convert_source_map(doc.source_map)),
+                }
+            }
             Err(e) => MarkdownResult::Error {
                 message: e.to_string(),
             },
@@ -184,6 +202,13 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
         content: String,
         source_map: bool,
     ) -> ParseResult {
+        let started_at = Instant::now();
+        tracing::debug!(
+            source_path = %source_path,
+            content_len = content.len(),
+            source_map,
+            "markdown cell parse_and_render started"
+        );
         // Parse frontmatter
         let (fm, _) = match marq::parse_frontmatter(&content) {
             Ok(result) => result,
@@ -203,14 +228,23 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
                 reqs,
                 head_injections,
                 source_map,
-            } => ParseResult::Success {
-                frontmatter: convert_frontmatter(fm),
-                html,
-                headings,
-                reqs,
-                head_injections,
-                source_map,
-            },
+            } => {
+                tracing::debug!(
+                    elapsed_ms = started_at.elapsed().as_millis(),
+                    html_len = html.len(),
+                    heading_count = headings.len(),
+                    req_count = reqs.len(),
+                    "markdown cell parse_and_render finished"
+                );
+                ParseResult::Success {
+                    frontmatter: convert_frontmatter(fm),
+                    html,
+                    headings,
+                    reqs,
+                    head_injections,
+                    source_map,
+                }
+            }
             MarkdownResult::Error { message } => ParseResult::Error { message },
         }
     }

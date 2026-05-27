@@ -9,9 +9,13 @@
 //! - Dead link marking
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Instant;
 
 use cell_css_proto::CssResult;
 use cell_js_proto::JsRewriteInput;
+
+static HTML_PROCESS_RPC_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Rewrite URLs in CSS using lightningcss parser (via cell)
 ///
@@ -76,6 +80,29 @@ pub async fn process_html(
     html: &str,
     options: HtmlProcessOptions,
 ) -> Result<HtmlProcessOutput, eyre::Error> {
+    let rpc_id = HTML_PROCESS_RPC_ID.fetch_add(1, Ordering::Relaxed);
+    let started_at = Instant::now();
+    let has_path_map = options.path_map.is_some();
+    let has_known_routes = options.known_routes.is_some();
+    let has_source_to_route = options.source_to_route.is_some();
+    let has_wiki_to_route = options.wiki_to_route.is_some();
+    let has_base_route = options.base_route.is_some();
+    let has_image_variants = options.image_variants.is_some();
+    let has_vite_css_map = options.vite_css_map.is_some();
+    tracing::debug!(
+        rpc_id,
+        cell = "html",
+        method = "process",
+        html_len = html.len(),
+        has_path_map,
+        has_known_routes,
+        has_source_to_route,
+        has_wiki_to_route,
+        has_base_route,
+        has_image_variants,
+        has_vite_css_map,
+        "cell rpc client lookup starting"
+    );
     let client = crate::cells::html_cell()
         .await
         .ok_or_else(|| eyre::eyre!("HTML cell not available"))?;
@@ -94,6 +121,13 @@ pub async fn process_html(
         vite_css_map: options.vite_css_map,
     };
 
+    tracing::debug!(
+        rpc_id,
+        cell = "html",
+        method = "process",
+        elapsed_ms = started_at.elapsed().as_millis(),
+        "cell rpc dispatch starting"
+    );
     match client.process(input).await {
         Ok(cell_html_proto::HtmlProcessResult::Success {
             html,
@@ -102,17 +136,49 @@ pub async fn process_html(
             hrefs,
             element_ids,
             unresolved_wiki_links,
-        }) => Ok(HtmlProcessOutput {
-            html,
-            had_dead_links,
-            hrefs,
-            element_ids,
-            unresolved_wiki_links,
-        }),
+        }) => {
+            tracing::debug!(
+                rpc_id,
+                cell = "html",
+                method = "process",
+                elapsed_ms = started_at.elapsed().as_millis(),
+                output_len = html.len(),
+                had_dead_links,
+                href_count = hrefs.len(),
+                element_id_count = element_ids.len(),
+                unresolved_wiki_link_count = unresolved_wiki_links.len(),
+                "cell rpc complete"
+            );
+            Ok(HtmlProcessOutput {
+                html,
+                had_dead_links,
+                hrefs,
+                element_ids,
+                unresolved_wiki_links,
+            })
+        }
         Ok(cell_html_proto::HtmlProcessResult::Error { message }) => {
+            tracing::error!(
+                rpc_id,
+                cell = "html",
+                method = "process",
+                elapsed_ms = started_at.elapsed().as_millis(),
+                %message,
+                "cell rpc returned error"
+            );
             Err(eyre::eyre!("HTML processing error: {}", message))
         }
-        Err(e) => Err(eyre::eyre!("RPC error: {:?}", e)),
+        Err(e) => {
+            tracing::error!(
+                rpc_id,
+                cell = "html",
+                method = "process",
+                elapsed_ms = started_at.elapsed().as_millis(),
+                error = ?e,
+                "cell rpc failed"
+            );
+            Err(eyre::eyre!("RPC error: {:?}", e))
+        }
     }
 }
 

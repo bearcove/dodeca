@@ -35,6 +35,7 @@ pub use vox_ffi;
 
 use std::sync::Arc;
 use std::sync::OnceLock;
+use std::time::Instant;
 use tokio::sync::watch;
 use vox::{ConnectionHandle, ConnectionSettings, Metadata, Parity, SessionHandle};
 
@@ -74,16 +75,23 @@ impl HostHandle {
     #[doc(hidden)]
     pub fn __set_session(&self, session: SessionHandle) {
         if self.session.set(session.clone()).is_ok() {
+            tracing::debug!("cell host handle session set");
             let _ = self.session_tx.send(Some(session));
         }
     }
 
     async fn session(&self) -> SessionHandle {
         let mut session_rx = self.session_tx.subscribe();
+        let started_at = Instant::now();
         loop {
             if let Some(session) = self.session.get() {
+                tracing::debug!(
+                    elapsed_ms = started_at.elapsed().as_millis(),
+                    "cell host handle session available"
+                );
                 return session.clone();
             }
+            tracing::debug!("cell host handle waiting for session");
             session_rx
                 .changed()
                 .await
@@ -94,13 +102,20 @@ impl HostHandle {
     /// Get a `HostServiceClient`, opening the virtual connection on first use.
     pub async fn client(&self) -> HostServiceClient {
         if let Some(c) = self.client.get() {
+            tracing::debug!("cell host service client cache hit");
             return c.clone();
         }
         let session = self.session().await;
+        let started_at = Instant::now();
+        tracing::debug!("cell host service vconn open starting");
         let client: HostServiceClient = session
             .open(connection_settings())
             .await
             .expect("open HostService virtual connection");
+        tracing::debug!(
+            elapsed_ms = started_at.elapsed().as_millis(),
+            "cell host service vconn open complete"
+        );
         let _ = self.client.set(client.clone());
         client
     }
@@ -240,6 +255,7 @@ pub fn __bootstrap<D, F>(
     std::thread::Builder::new()
         .name(format!("cell-{cell_name}"))
         .spawn(move || {
+            tracing::debug!(cell = cell_name, "cell runtime thread starting");
             let runtime = match tokio::runtime::Builder::new_multi_thread()
                 .thread_name(format!("cell-{cell_name}-rt"))
                 .enable_all()
@@ -266,6 +282,7 @@ pub fn __bootstrap<D, F>(
                         return;
                     }
                 };
+                tracing::debug!(cell = cell_name, "cell endpoint connect starting");
                 let link = match endpoint.connect(peer) {
                     Ok(l) => l,
                     Err(e) => {
@@ -273,7 +290,10 @@ pub fn __bootstrap<D, F>(
                         return;
                     }
                 };
+                tracing::debug!(cell = cell_name, "cell endpoint connect complete");
                 let dispatcher = make_dispatcher(host.clone());
+                let establish_started_at = Instant::now();
+                tracing::debug!(cell = cell_name, "cell acceptor establish starting");
                 let root = match vox::acceptor_on(link)
                     .observer(vox::TracingObserver::new())
                     .on_connection(dispatcher)
@@ -286,10 +306,15 @@ pub fn __bootstrap<D, F>(
                         return;
                     }
                 };
+                tracing::debug!(
+                    cell = cell_name,
+                    elapsed_ms = establish_started_at.elapsed().as_millis(),
+                    "cell acceptor establish complete"
+                );
                 if let Some(session) = root.session.clone() {
                     host.__set_session(session);
                 }
-                tracing::debug!(cell = cell_name, "cell established, serving");
+                tracing::debug!(cell = cell_name, "cell serving");
                 root.caller.closed().await;
                 tracing::debug!(cell = cell_name, "cell: host disconnected, shutting down");
                 if let Some(session) = root.session.as_ref() {

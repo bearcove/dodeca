@@ -43,7 +43,9 @@ use dashmap::DashMap;
 use facet::Facet;
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
+use std::time::Instant;
 use std::time::SystemTime;
 use tracing::debug;
 
@@ -52,6 +54,12 @@ use crate::serve::SiteServer;
 // ============================================================================
 // Global State
 // ============================================================================
+
+static CELL_RPC_ID: AtomicU64 = AtomicU64::new(1);
+
+fn next_cell_rpc_id() -> u64 {
+    CELL_RPC_ID.fetch_add(1, Ordering::Relaxed)
+}
 
 // Note: Most globals have been moved to Host singleton:
 // - Site server: Host::get().site_server()
@@ -390,14 +398,48 @@ pub async fn render_template(
     template_name: &str,
     initial_context: Value,
 ) -> eyre::Result<RenderResult> {
+    let rpc_id = next_cell_rpc_id();
+    let started_at = Instant::now();
+    tracing::debug!(
+        rpc_id,
+        cell = "gingembre",
+        method = "render",
+        context_id = context_id.0,
+        template_name,
+        "cell rpc client lookup starting"
+    );
     let cell = crate::host::Host::get()
         .client_async::<TemplateRendererClient>()
         .await
         .ok_or_else(|| eyre::eyre!("Gingembre cell not available"))?;
+    tracing::debug!(
+        rpc_id,
+        cell = "gingembre",
+        method = "render",
+        elapsed_ms = started_at.elapsed().as_millis(),
+        "cell rpc dispatch starting"
+    );
     let result = cell
         .render(context_id, template_name.to_string(), initial_context)
         .await
-        .map_err(|e| eyre::eyre!("RPC call error: {:?}", e))?;
+        .map_err(|e| {
+            tracing::error!(
+                rpc_id,
+                cell = "gingembre",
+                method = "render",
+                elapsed_ms = started_at.elapsed().as_millis(),
+                error = ?e,
+                "cell rpc failed"
+            );
+            eyre::eyre!("RPC call error: {:?}", e)
+        })?;
+    tracing::debug!(
+        rpc_id,
+        cell = "gingembre",
+        method = "render",
+        elapsed_ms = started_at.elapsed().as_millis(),
+        "cell rpc complete"
+    );
     Ok(result)
 }
 
@@ -602,14 +644,52 @@ pub async fn parse_and_render_markdown_cell(
     content: &str,
     source_map: bool,
 ) -> Result<cell_markdown_proto::ParseResult, MarkdownParseError> {
+    let rpc_id = next_cell_rpc_id();
+    let started_at = Instant::now();
+    tracing::debug!(
+        rpc_id,
+        cell = "markdown",
+        method = "parse_and_render",
+        source_path,
+        source_len = content.len(),
+        source_map,
+        "cell rpc client lookup starting"
+    );
     let client = markdown_cell().await.ok_or_else(|| MarkdownParseError {
         message: "Markdown cell not available".to_string(),
     })?;
+    tracing::debug!(
+        rpc_id,
+        cell = "markdown",
+        method = "parse_and_render",
+        elapsed_ms = started_at.elapsed().as_millis(),
+        "cell rpc dispatch starting"
+    );
     client
         .parse_and_render(source_path.to_string(), content.to_string(), source_map)
         .await
-        .map_err(|e| MarkdownParseError {
-            message: format!("RPC error: {:?}", e),
+        .map(|result| {
+            tracing::debug!(
+                rpc_id,
+                cell = "markdown",
+                method = "parse_and_render",
+                elapsed_ms = started_at.elapsed().as_millis(),
+                "cell rpc complete"
+            );
+            result
+        })
+        .map_err(|e| {
+            tracing::error!(
+                rpc_id,
+                cell = "markdown",
+                method = "parse_and_render",
+                elapsed_ms = started_at.elapsed().as_millis(),
+                error = ?e,
+                "cell rpc failed"
+            );
+            MarkdownParseError {
+                message: format!("RPC error: {:?}", e),
+            }
         })
 }
 
@@ -629,14 +709,73 @@ pub async fn inject_code_buttons_cell(
     html: String,
     code_metadata: HashMap<String, cell_html_proto::CodeExecutionMetadata>,
 ) -> Result<(String, bool), eyre::Error> {
+    let rpc_id = next_cell_rpc_id();
+    let started_at = Instant::now();
+    tracing::debug!(
+        rpc_id,
+        cell = "html",
+        method = "inject_code_buttons",
+        html_len = html.len(),
+        metadata_count = code_metadata.len(),
+        "cell rpc client lookup starting"
+    );
     let client = html_cell()
         .await
         .ok_or_else(|| eyre::eyre!("HTML cell not available"))?;
+    tracing::debug!(
+        rpc_id,
+        cell = "html",
+        method = "inject_code_buttons",
+        elapsed_ms = started_at.elapsed().as_millis(),
+        "cell rpc dispatch starting"
+    );
     match client.inject_code_buttons(html, code_metadata).await {
-        Ok(cell_html_proto::HtmlResult::SuccessWithFlag { html, flag }) => Ok((html, flag)),
-        Ok(cell_html_proto::HtmlResult::Success { html }) => Ok((html, false)),
-        Ok(cell_html_proto::HtmlResult::Error { message }) => Err(eyre::eyre!(message)),
-        Err(e) => Err(eyre::eyre!("RPC error: {:?}", e)),
+        Ok(cell_html_proto::HtmlResult::SuccessWithFlag { html, flag }) => {
+            tracing::debug!(
+                rpc_id,
+                cell = "html",
+                method = "inject_code_buttons",
+                elapsed_ms = started_at.elapsed().as_millis(),
+                output_len = html.len(),
+                had_buttons = flag,
+                "cell rpc complete"
+            );
+            Ok((html, flag))
+        }
+        Ok(cell_html_proto::HtmlResult::Success { html }) => {
+            tracing::debug!(
+                rpc_id,
+                cell = "html",
+                method = "inject_code_buttons",
+                elapsed_ms = started_at.elapsed().as_millis(),
+                output_len = html.len(),
+                had_buttons = false,
+                "cell rpc complete"
+            );
+            Ok((html, false))
+        }
+        Ok(cell_html_proto::HtmlResult::Error { message }) => {
+            tracing::error!(
+                rpc_id,
+                cell = "html",
+                method = "inject_code_buttons",
+                elapsed_ms = started_at.elapsed().as_millis(),
+                %message,
+                "cell rpc returned error"
+            );
+            Err(eyre::eyre!(message))
+        }
+        Err(e) => {
+            tracing::error!(
+                rpc_id,
+                cell = "html",
+                method = "inject_code_buttons",
+                elapsed_ms = started_at.elapsed().as_millis(),
+                error = ?e,
+                "cell rpc failed"
+            );
+            Err(eyre::eyre!("RPC error: {:?}", e))
+        }
     }
 }
 

@@ -13,6 +13,7 @@
 
 use std::io;
 use std::sync::Arc;
+use std::time::Instant;
 
 use dashmap::DashMap;
 use libloading::Library;
@@ -100,6 +101,7 @@ impl vox::ConnectionAcceptor for HostAcceptor {
         use vox::FromVoxSession;
         match request.service() {
             s if s == cell_host_proto::HostServiceClient::SERVICE_NAME => {
+                debug!(service = s, "host accepted reverse cell service connection");
                 connection.handle_with(cell_host_proto::HostServiceDispatcher::new(
                     self.host_service.clone(),
                 ));
@@ -165,17 +167,27 @@ fn loaded() -> &'static DashMap<String, Arc<LoadedCell>> {
 /// Returns `None` if the cell cdylib is missing or the link fails to establish.
 pub async fn cell_session(cell_name: &str) -> Option<SessionHandle> {
     if let Some(c) = loaded().get(cell_name) {
+        debug!(cell = cell_name, "cell session cache hit");
         return Some(c.session.clone());
     }
+    debug!(cell = cell_name, "cell session cache miss");
     // Serialize concurrent first-loads of the same cell.
+    let lock_start = Instant::now();
     let _guard = LOAD_LOCK.get_or_init(|| Mutex::new(())).lock().await;
+    debug!(
+        cell = cell_name,
+        elapsed_ms = lock_start.elapsed().as_millis(),
+        "cell load lock acquired"
+    );
     if let Some(c) = loaded().get(cell_name) {
+        debug!(cell = cell_name, "cell session cache filled while waiting");
         return Some(c.session.clone());
     }
 
     let path = cell_library_path(cell_name)?;
     debug!(cell = cell_name, path = %path.display(), "loading cell cdylib");
 
+    let dlopen_start = Instant::now();
     let lib = match unsafe { Library::new(&path) } {
         Ok(l) => Box::leak(Box::new(l)) as &'static Library,
         Err(e) => {
@@ -183,6 +195,11 @@ pub async fn cell_session(cell_name: &str) -> Option<SessionHandle> {
             return None;
         }
     };
+    debug!(
+        cell = cell_name,
+        elapsed_ms = dlopen_start.elapsed().as_millis(),
+        "cell dlopen complete"
+    );
     let vtable_fn: libloading::Symbol<CellVtableFn> = match unsafe { lib.get(CELL_VTABLE_SYMBOL) } {
         Ok(s) => s,
         Err(e) => {
@@ -198,6 +215,7 @@ pub async fn cell_session(cell_name: &str) -> Option<SessionHandle> {
         }
     };
 
+    debug!(cell = cell_name, "cell host ffi connect starting");
     let link = match host_connect(cell_name, cell_vtable) {
         Ok(l) => l,
         Err(e) => {
@@ -205,8 +223,11 @@ pub async fn cell_session(cell_name: &str) -> Option<SessionHandle> {
             return None;
         }
     };
+    debug!(cell = cell_name, "cell host ffi connect complete");
 
     let host_service = crate::cells::make_host_service();
+    let establish_start = Instant::now();
+    debug!(cell = cell_name, "cell root session establish starting");
     let root = match vox::initiator_on(link, vox::TransportMode::Bare)
         .observer(vox::TracingObserver::new())
         .on_connection(HostAcceptor { host_service })
@@ -219,6 +240,11 @@ pub async fn cell_session(cell_name: &str) -> Option<SessionHandle> {
             return None;
         }
     };
+    debug!(
+        cell = cell_name,
+        elapsed_ms = establish_start.elapsed().as_millis(),
+        "cell root session establish complete"
+    );
     let session = root.session.clone()?;
     // Keep the root NoopClient alive for the link's lifetime.
     std::mem::forget(root);
@@ -230,7 +256,7 @@ pub async fn cell_session(cell_name: &str) -> Option<SessionHandle> {
             session: session.clone(),
         }),
     );
-    debug!(cell = cell_name, "cell established");
+    debug!(cell = cell_name, "cell session published");
     Some(session)
 }
 

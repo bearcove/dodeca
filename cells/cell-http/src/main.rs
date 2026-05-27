@@ -92,8 +92,17 @@ fn build_router(ctx: Arc<dyn RouterContext>) -> axum::Router {
         let client = crate::host_client(&ctx).await;
 
         // Call host to get content
+        let host_call_started_at = Instant::now();
+        tracing::debug!(path, "http cell host find_content started");
         let content = match client.find_content(path.clone()).await {
-            Ok(c) => c,
+            Ok(c) => {
+                tracing::debug!(
+                    path,
+                    elapsed_ms = host_call_started_at.elapsed().as_millis(),
+                    "http cell host find_content finished"
+                );
+                c
+            }
             Err(e) => {
                 tracing::error!("RPC error fetching {}: {:?}", path, e);
                 return Response::builder()

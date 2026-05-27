@@ -11,6 +11,7 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Instant;
 
 use cell_gingembre_proto::ContextId;
 use cell_host_proto::{CommandResult, ServerCommand};
@@ -257,12 +258,28 @@ impl Host {
     /// the vox-ffi link on first use, then opening a virtual connection for the
     /// cell's service.
     pub async fn client_async<C: CellClient + vox::FromVoxSession>(&self) -> Option<C> {
+        let started_at = Instant::now();
+        tracing::debug!(cell = C::CELL_NAME, "cell client requested");
         let session = crate::cell_loader::cell_session(C::CELL_NAME).await?;
+        tracing::debug!(
+            cell = C::CELL_NAME,
+            elapsed_ms = started_at.elapsed().as_millis(),
+            "cell session available for client"
+        );
+        let open_started_at = Instant::now();
+        tracing::debug!(cell = C::CELL_NAME, "cell service vconn open starting");
         match session
             .open::<C>(crate::cell_loader::connection_settings())
             .await
         {
-            Ok(c) => Some(c),
+            Ok(c) => {
+                tracing::debug!(
+                    cell = C::CELL_NAME,
+                    elapsed_ms = open_started_at.elapsed().as_millis(),
+                    "cell service vconn open complete"
+                );
+                Some(c)
+            }
             Err(e) => {
                 tracing::error!(cell = C::CELL_NAME, error = %e, "open cell service vconn failed");
                 None

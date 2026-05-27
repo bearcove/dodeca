@@ -20,6 +20,7 @@ use gingembre::{
     TemplateLoader, Value,
 };
 use std::sync::Arc;
+use std::time::Instant;
 
 /// Shared mapping from template name to absolute path.
 /// Used to convert relative template names to absolute paths in error messages.
@@ -299,6 +300,12 @@ impl TemplateRenderer for TemplateRendererImpl {
         template_name: String,
         initial_context: Value,
     ) -> RenderResult {
+        let started_at = Instant::now();
+        tracing::debug!(
+            context_id = context_id.0,
+            template_name = %template_name,
+            "gingembre cell render started"
+        );
         // Create shared path map for tracking template name -> absolute path
         let path_map: PathMap = Arc::new(DashMap::new());
 
@@ -313,10 +320,28 @@ impl TemplateRenderer for TemplateRendererImpl {
         // Create engine and render
         let mut engine = Engine::new(loader);
         match engine.render(&template_name, &ctx).await {
-            Ok(html) => RenderResult::Success { html },
-            Err(e) => RenderResult::Error {
-                error: to_protocol_error(&e, &path_map),
-            },
+            Ok(html) => {
+                tracing::debug!(
+                    context_id = context_id.0,
+                    template_name = %template_name,
+                    elapsed_ms = started_at.elapsed().as_millis(),
+                    html_len = html.len(),
+                    "gingembre cell render finished"
+                );
+                RenderResult::Success { html }
+            }
+            Err(e) => {
+                tracing::error!(
+                    context_id = context_id.0,
+                    template_name = %template_name,
+                    elapsed_ms = started_at.elapsed().as_millis(),
+                    error = ?e,
+                    "gingembre cell render failed"
+                );
+                RenderResult::Error {
+                    error: to_protocol_error(&e, &path_map),
+                }
+            }
         }
     }
 

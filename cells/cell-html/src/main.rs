@@ -10,6 +10,7 @@
 //! - HTML structural minification
 
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
 use color_eyre::Result;
 use hotmeal::{Document, LocalName, NodeId, NodeKind, QualName, Stem, StrTendril, ns};
@@ -40,6 +41,19 @@ impl HtmlProcessorImpl {
 
 impl HtmlProcessor for HtmlProcessorImpl {
     async fn process(&self, input: HtmlProcessInput) -> HtmlProcessResult {
+        let started_at = Instant::now();
+        tracing::debug!(
+            html_len = input.html.len(),
+            has_path_map = input.path_map.is_some(),
+            has_known_routes = input.known_routes.is_some(),
+            has_code_metadata = input.code_metadata.is_some(),
+            has_source_to_route = input.source_to_route.is_some(),
+            has_wiki_to_route = input.wiki_to_route.is_some(),
+            has_base_route = input.base_route.is_some(),
+            has_image_variants = input.image_variants.is_some(),
+            has_vite_css_map = input.vite_css_map.is_some(),
+            "html cell process started"
+        );
         let mut had_dead_links = false;
         let mut had_code_buttons = false;
         let mut unresolved_wiki_links = Vec::new();
@@ -116,6 +130,13 @@ impl HtmlProcessor for HtmlProcessorImpl {
             });
 
             if !(needs_url_rewrite || needs_minify) {
+                tracing::debug!(
+                    elapsed_ms = started_at.elapsed().as_millis(),
+                    output_len = current_html.len(),
+                    had_dead_links,
+                    had_code_buttons,
+                    "html cell process finished"
+                );
                 return HtmlProcessResult::Success {
                     html: current_html,
                     had_dead_links,
@@ -165,6 +186,13 @@ impl HtmlProcessor for HtmlProcessorImpl {
             current_html
         };
 
+        tracing::debug!(
+            elapsed_ms = started_at.elapsed().as_millis(),
+            output_len = html.len(),
+            had_dead_links,
+            had_code_buttons,
+            "html cell process finished"
+        );
         HtmlProcessResult::Success {
             html,
             had_dead_links,
@@ -201,11 +229,24 @@ impl HtmlProcessor for HtmlProcessorImpl {
         html: String,
         code_metadata: HashMap<String, CodeExecutionMetadata>,
     ) -> HtmlResult {
+        let started_at = Instant::now();
+        tracing::debug!(
+            html_len = html.len(),
+            metadata_count = code_metadata.len(),
+            "html cell inject_code_buttons started"
+        );
         let tendril = StrTendril::from(html.as_str());
         let mut doc = hotmeal::parse(&tendril);
         let had_buttons = inject_code_buttons_in_doc(&mut doc, &code_metadata);
+        let html = doc.to_html();
+        tracing::debug!(
+            elapsed_ms = started_at.elapsed().as_millis(),
+            output_len = html.len(),
+            had_buttons,
+            "html cell inject_code_buttons finished"
+        );
         HtmlResult::SuccessWithFlag {
-            html: doc.to_html(),
+            html,
             flag: had_buttons,
         }
     }
