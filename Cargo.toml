@@ -178,8 +178,22 @@ rust-version = "1.92"
 # Force all transitive facet dependencies to use local version for development
 # No [patch.crates-io] for facet: everything is on crates.io facet 0.46.x now.
 
+[patch.crates-io]
+vox = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }
+vox-core = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }
+vox-fdpass = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }
+vox-ffi = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }
+vox-jit = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }
+vox-jit-abi = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }
+vox-jit-cal = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }
+vox-postcard = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }
+vox-schema = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }
+vox-service-macros = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }
+vox-stream = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }
+vox-types = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }
+vox-websocket = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }
+
 # Uncomment to use local facet for development
-# [patch.crates-io]
 # cinereus = { path = "../hotmeal/cinereus" }
 # facet-dom = { path = "../facet-xml/facet-dom" }
 # facet-svg = { path = "../facet-xml/facet-svg" }
