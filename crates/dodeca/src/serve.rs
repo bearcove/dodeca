@@ -1709,8 +1709,12 @@ impl SiteServer {
                 generation,
             },
             None => {
-                // 404 with similar routes - render the page on the host side
-                let similar = self.find_similar_routes(path).await;
+                // Static asset misses should return a direct 404; route suggestions are for pages.
+                let similar = if should_suggest_routes_for_404(path) {
+                    self.find_similar_routes(path).await
+                } else {
+                    Vec::new()
+                };
                 let html = crate::error_pages::render_404_page(path, &similar);
                 RpcServeContent::NotFound { html, generation }
             }
@@ -2440,6 +2444,11 @@ fn markdown_route_from_path(path: &str) -> Option<Route> {
         return Some(Route::root());
     }
     Some(Route::new(route.to_string()))
+}
+
+fn should_suggest_routes_for_404(path: &str) -> bool {
+    let file_name = path.rsplit('/').next().unwrap_or(path);
+    !file_name.contains('.')
 }
 
 /// Guess MIME type from file extension
