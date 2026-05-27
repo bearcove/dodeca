@@ -22,6 +22,10 @@ jobs:
     name: Forgejo linux-x64
     runs-on:
       - linux-x86_64-trusted
+    container:
+      image: "catthehacker/ubuntu:act-24.04"
+      volumes:
+        - "/srv/ci/cache/vixen:/srv/ci/cache/vixen"
     timeout-minutes: 90
     env:
       HOME: /srv/ci/cache/vixen/home

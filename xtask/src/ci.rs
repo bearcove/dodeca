@@ -1862,13 +1862,18 @@ ls -la "$GITHUB_WORKSPACE/dist/""#,
             ]);
 
         if is_linux {
-            job = job.env([
-                ("HOME", "/srv/ci/cache/vixen/home"),
-                ("CARGO_HOME", "/srv/ci/cache/vixen/cargo"),
-                ("CARGO_INCREMENTAL", cargo_incremental),
-                ("FORGEJO_TOKEN", "${{ github.token }}"),
-                ("RUST_BACKTRACE", "1"),
-            ]);
+            job = job
+                .container(
+                    "catthehacker/ubuntu:act-24.04",
+                    ["/srv/ci/cache/vixen:/srv/ci/cache/vixen"],
+                )
+                .env([
+                    ("HOME", "/srv/ci/cache/vixen/home"),
+                    ("CARGO_HOME", "/srv/ci/cache/vixen/cargo"),
+                    ("CARGO_INCREMENTAL", cargo_incremental),
+                    ("FORGEJO_TOKEN", "${{ github.token }}"),
+                    ("RUST_BACKTRACE", "1"),
+                ]);
         }
 
         jobs.insert(job_id.to_string(), job);
