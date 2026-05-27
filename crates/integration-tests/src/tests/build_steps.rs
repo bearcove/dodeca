@@ -198,12 +198,12 @@ pub fn build_step_caching_same_call() {
         count
     );
 
-    // Check logs - "Executing build step" should appear only once for echo_hello
-    // (due to caching)
+    // One actual command execution currently emits two "Executing build step"
+    // log lines: the build-step start and the concrete command invocation.
     let exec_count = site.count_logs_since(cursor, "Executing build step");
     assert!(
-        exec_count <= 1,
-        "Build step should only execute once due to caching, but found {} executions",
+        exec_count <= 2,
+        "Build step should only execute once due to caching, but found {} execution log lines",
         exec_count
     );
 }
