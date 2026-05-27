@@ -13,7 +13,7 @@ use facet::Facet;
 use figue as args;
 use owo_colors::OwoColorize;
 
-/// Build command - build WASM + plugins + dodeca
+/// Build command - build plugins + dodeca
 #[derive(Facet, Debug)]
 struct BuildArgs {
     /// Build in release mode
@@ -36,10 +36,6 @@ struct RunArgs {
 /// Install command - build release & install to ~/.cargo/bin
 #[derive(Facet, Debug)]
 struct InstallArgs {}
-
-/// WASM command - build WASM only
-#[derive(Facet, Debug)]
-struct WasmArgs {}
 
 /// CI GitHub command - generate GitHub workflow
 #[derive(Facet, Debug)]
@@ -80,14 +76,12 @@ struct IntegrationArgs {
 #[derive(Facet, Debug)]
 #[repr(u8)]
 enum XtaskCommand {
-    /// Build WASM + plugins + dodeca
+    /// Build plugins + dodeca
     Build(BuildArgs),
     /// Build all, then run ddc
     Run(RunArgs),
     /// Build release & install to ~/.cargo/bin
     Install(InstallArgs),
-    /// Build WASM only
-    Wasm(WasmArgs),
     /// Generate GitHub workflow
     CiGithub(CiGithubArgs),
     /// Generate Forgejo workflow
@@ -145,13 +139,6 @@ fn main() -> ExitCode {
             }
             ExitCode::SUCCESS
         }
-        XtaskCommand::Wasm(_) => {
-            if build_wasm() {
-                ExitCode::SUCCESS
-            } else {
-                ExitCode::FAILURE
-            }
-        }
         XtaskCommand::CiGithub(args) => {
             let repo_root =
                 Utf8PathBuf::from_path_buf(env::current_dir().expect("get current directory"))
@@ -199,11 +186,6 @@ fn main() -> ExitCode {
 }
 
 fn build_all(release: bool) -> bool {
-    // Build WASM first
-    if !build_wasm() {
-        return false;
-    }
-
     // Build everything else (dodeca + all cells in workspace)
     eprintln!(
         "Building dodeca + all cells{}...",
@@ -220,85 +202,6 @@ fn build_all(release: bool) -> bool {
         Ok(s) if s.success() => {
             eprintln!("Build complete");
             true
-        }
-        Ok(s) => {
-            eprintln!("cargo build failed with status: {s}");
-            false
-        }
-        Err(e) => {
-            eprintln!("Failed to run cargo: {e}");
-            false
-        }
-    }
-}
-
-fn build_wasm() -> bool {
-    // Each WASM crate: (cargo package name, compiled .wasm stem, pkg out dir).
-    let crates = [
-        (
-            "dodeca-devtools",
-            "dodeca_devtools",
-            "crates/dodeca-devtools/pkg",
-        ),
-        (
-            "dodeca-search-wasm",
-            "dodeca_search_wasm",
-            "crates/dodeca-search-wasm/pkg",
-        ),
-    ];
-    crates
-        .iter()
-        .all(|&(package, wasm_stem, out_dir)| build_one_wasm(package, wasm_stem, out_dir))
-}
-
-fn build_one_wasm(package: &str, wasm_stem: &str, out_dir: &str) -> bool {
-    eprintln!("Building {package} WASM...");
-
-    // wasm-pack doesn't respect CARGO_TARGET_DIR by default, so we pass it explicitly
-    // This ensures it uses the workspace target/ directory that we cache
-    let status = Command::new("cargo")
-        .args([
-            "build",
-            "--release",
-            "--target",
-            "wasm32-unknown-unknown",
-            "--package",
-            package,
-            "--verbose",
-        ])
-        .env_remove("RUST_LOG")
-        .status();
-
-    match status {
-        Ok(s) if s.success() => {
-            // Now run wasm-bindgen to generate the JS bindings
-            eprintln!("Running wasm-bindgen for {package}...");
-            let bindgen_status = Command::new("wasm-bindgen")
-                .args([
-                    "--target",
-                    "web",
-                    "--out-dir",
-                    out_dir,
-                    &format!("target/wasm32-unknown-unknown/release/{wasm_stem}.wasm"),
-                ])
-                .env_remove("RUST_LOG")
-                .status();
-
-            match bindgen_status {
-                Ok(s) if s.success() => {
-                    eprintln!("{package} WASM build complete");
-                    true
-                }
-                Ok(s) => {
-                    eprintln!("wasm-bindgen failed with status: {s}");
-                    false
-                }
-                Err(e) => {
-                    eprintln!("Failed to run wasm-bindgen: {e}");
-                    eprintln!("Install with: cargo install wasm-bindgen-cli");
-                    false
-                }
-            }
         }
         Ok(s) => {
             eprintln!("cargo build failed with status: {s}");

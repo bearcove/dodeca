@@ -61,16 +61,16 @@ jobs:
           cargo xtask ci-forgejo --check
 
           rustup target add wasm32-unknown-unknown
-          if ! command -v wasm-bindgen >/dev/null 2>&1 || ! wasm-bindgen --version | grep -q '0\.2\.108'; then
-            cargo install wasm-bindgen-cli@0.2.108 --locked
+          cargo nextest run
+          export DODECA_HARNESS_HTTP_TIMEOUT_SECS=180
+          if ! cargo xtask integration; then
+            echo "integration suite failed; retrying once"
+            cargo xtask integration
           fi
-          cargo xtask wasm
-          cargo build --workspace --exclude dodeca-devtools --exclude dodeca-search-wasm --verbose
-          DODECA_CELL_PATH="$STABLE_SRC/target/debug" cargo nextest run --workspace --profile ci --no-fail-fast
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
             export DODECA_RELEASE_VERSION="${GITHUB_REF_NAME}"
           fi
-          cargo build --release --workspace --exclude dodeca-devtools --exclude dodeca-search-wasm --verbose
+          cargo build --release
           actual="$(target/release/ddc --version)"
           echo "$actual"
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
@@ -79,19 +79,6 @@ jobs:
               echo "Expected '$expected', got '$actual'" >&2
               exit 1
             fi
-          fi
-          export DODECA_HARNESS_HTTP_TIMEOUT_SECS=180
-          if ! DODECA_INTEGRATION_PROFILE=release \
-            DODECA_BIN="$STABLE_SRC/target/release/ddc" \
-            DODECA_CELL_PATH="$STABLE_SRC/target/release" \
-            DODECA_TEST_FIXTURES_DIR="$STABLE_SRC/crates/integration-tests/fixtures" \
-            cargo xtask integration --no-build; then
-            echo "integration suite failed; retrying once"
-            DODECA_INTEGRATION_PROFILE=release \
-              DODECA_BIN="$STABLE_SRC/target/release/ddc" \
-              DODECA_CELL_PATH="$STABLE_SRC/target/release" \
-              DODECA_TEST_FIXTURES_DIR="$STABLE_SRC/crates/integration-tests/fixtures" \
-              cargo xtask integration --no-build
           fi
           rm -rf dist
           mkdir -p dist
@@ -341,16 +328,19 @@ jobs:
           cd "$STABLE_SRC"
 
           rustup target add wasm32-unknown-unknown
-          if ! command -v wasm-bindgen >/dev/null 2>&1 || ! wasm-bindgen --version | grep -q '0\.2\.108'; then
-            cargo install wasm-bindgen-cli@0.2.108 --locked
+          if ! command -v wasm-pack >/dev/null 2>&1; then
+            cargo install wasm-pack --locked
           fi
-          cargo xtask wasm
-          cargo build --workspace --exclude dodeca-devtools --exclude dodeca-search-wasm --verbose
-          DODECA_CELL_PATH="$STABLE_SRC/target/debug" cargo nextest run --workspace --profile ci --no-fail-fast
+          cargo nextest run
+          export DODECA_HARNESS_HTTP_TIMEOUT_SECS=180
+          if ! cargo xtask integration; then
+            echo "integration suite failed; retrying once"
+            cargo xtask integration
+          fi
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
             export DODECA_RELEASE_VERSION="${GITHUB_REF_NAME}"
           fi
-          cargo build --release --workspace --exclude dodeca-devtools --exclude dodeca-search-wasm --verbose
+          cargo build --release
           actual="$(target/release/ddc --version)"
           echo "$actual"
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
@@ -359,19 +349,6 @@ jobs:
               echo "Expected '$expected', got '$actual'" >&2
               exit 1
             fi
-          fi
-          export DODECA_HARNESS_HTTP_TIMEOUT_SECS=180
-          if ! DODECA_INTEGRATION_PROFILE=release \
-            DODECA_BIN="$STABLE_SRC/target/release/ddc" \
-            DODECA_CELL_PATH="$STABLE_SRC/target/release" \
-            DODECA_TEST_FIXTURES_DIR="$STABLE_SRC/crates/integration-tests/fixtures" \
-            cargo xtask integration --no-build; then
-            echo "integration suite failed; retrying once"
-            DODECA_INTEGRATION_PROFILE=release \
-              DODECA_BIN="$STABLE_SRC/target/release/ddc" \
-              DODECA_CELL_PATH="$STABLE_SRC/target/release" \
-              DODECA_TEST_FIXTURES_DIR="$STABLE_SRC/crates/integration-tests/fixtures" \
-              cargo xtask integration --no-build
           fi
           rm -rf dist
           mkdir -p dist

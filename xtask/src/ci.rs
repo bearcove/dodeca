@@ -1154,7 +1154,7 @@ done"#,
 /// CI runner configuration.
 struct CiRunner {
     runner: RunnerSpec,
-    wasm_install: &'static str,
+    wasm_pack_install: &'static str,
 }
 
 /// Get the CI Linux runner configuration for a platform.
@@ -1164,12 +1164,10 @@ fn ci_linux_runner(platform: CiPlatform) -> CiRunner {
 
     CiRunner {
         runner,
-        wasm_install: if is_self_hosted {
-            // wasm-bindgen-cli should be pre-installed on self-hosted runners
+        wasm_pack_install: if is_self_hosted {
             "true"
         } else {
-            // Install wasm-bindgen-cli (not wasm-pack - we call cargo directly for caching)
-            "cargo install wasm-bindgen-cli@0.2.108 --locked"
+            "cargo install wasm-pack --locked"
         },
     }
 }
@@ -1233,7 +1231,7 @@ pub fn build_ci_workflow(platform: CiPlatform, repo_root: &Utf8Path) -> Workflow
         rust_cache_with_targets(platform, false, linux_target)
     };
 
-    // Build WASM first - it's a dependency for ddc builds and clippy.
+    // Build dodeca once to let build.rs generate the embedded WASM bundles.
     // dodeca embeds both bundles at compile time via include_bytes!.
     let wasm_job_id = "build-wasm".to_string();
     let devtools_wasm_artifact = "dodeca-devtools-wasm".to_string();
@@ -1255,8 +1253,8 @@ pub fn build_ci_workflow(platform: CiPlatform, repo_root: &Utf8Path) -> Workflow
                     )
                 },
                 ci_linux_cache.clone(),
-                Step::run("Install wasm-bindgen-cli", ci_linux.wasm_install),
-                Step::run("Build WASM", "cargo xtask wasm"),
+                Step::run("Install wasm-pack", ci_linux.wasm_pack_install),
+                Step::run("Build embedded WASM", "cargo build --package dodeca"),
                 upload_artifact(
                     platform,
                     devtools_wasm_artifact.clone(),
@@ -1718,6 +1716,14 @@ pub fn build_forgejo_workflow(repo_root: &Utf8Path) -> Workflow {
             r#"rm -rf "$CARGO_TARGET_DIR"/release/incremental "$CARGO_TARGET_DIR"/debug/incremental
 "#
         };
+        let maybe_install_wasm_pack = if is_linux {
+            ""
+        } else {
+            r#"if ! command -v wasm-pack >/dev/null 2>&1; then
+  cargo install wasm-pack --locked
+fi
+"#
+        };
         let maybe_browser_tests = if is_linux {
             r#"DODECA_BIN="$STABLE_SRC/target/release/ddc" \
 DODECA_CELL_PATH="$STABLE_SRC/target/release" \
@@ -1775,16 +1781,16 @@ echo "CARGO_TARGET_DIR=$CARGO_TARGET_DIR""#
 cd "$STABLE_SRC"
 {maybe_check_ci}
 rustup target add wasm32-unknown-unknown
-if ! command -v wasm-bindgen >/dev/null 2>&1 || ! wasm-bindgen --version | grep -q '0\.2\.108'; then
-  cargo install wasm-bindgen-cli@0.2.108 --locked
+{maybe_install_wasm_pack}cargo nextest run
+export DODECA_HARNESS_HTTP_TIMEOUT_SECS=180
+if ! cargo xtask integration; then
+  echo "integration suite failed; retrying once"
+  cargo xtask integration
 fi
-cargo xtask wasm
-cargo build --workspace --exclude dodeca-devtools --exclude dodeca-search-wasm --verbose
-DODECA_CELL_PATH="$STABLE_SRC/target/debug" cargo nextest run --workspace --profile ci --no-fail-fast
 if [[ "${{GITHUB_REF_TYPE:-}}" == "tag" && -n "${{GITHUB_REF_NAME:-}}" ]]; then
   export DODECA_RELEASE_VERSION="${{GITHUB_REF_NAME}}"
 fi
-cargo build --release --workspace --exclude dodeca-devtools --exclude dodeca-search-wasm --verbose
+cargo build --release
 actual="$(target/release/ddc --version)"
 echo "$actual"
 if [[ "${{GITHUB_REF_TYPE:-}}" == "tag" && -n "${{GITHUB_REF_NAME:-}}" ]]; then
@@ -1793,19 +1799,6 @@ if [[ "${{GITHUB_REF_TYPE:-}}" == "tag" && -n "${{GITHUB_REF_NAME:-}}" ]]; then
     echo "Expected '$expected', got '$actual'" >&2
     exit 1
   fi
-fi
-export DODECA_HARNESS_HTTP_TIMEOUT_SECS=180
-if ! DODECA_INTEGRATION_PROFILE=release \
-  DODECA_BIN="$STABLE_SRC/target/release/ddc" \
-  DODECA_CELL_PATH="$STABLE_SRC/target/release" \
-  DODECA_TEST_FIXTURES_DIR="$STABLE_SRC/crates/integration-tests/fixtures" \
-  cargo xtask integration --no-build; then
-  echo "integration suite failed; retrying once"
-  DODECA_INTEGRATION_PROFILE=release \
-    DODECA_BIN="$STABLE_SRC/target/release/ddc" \
-    DODECA_CELL_PATH="$STABLE_SRC/target/release" \
-    DODECA_TEST_FIXTURES_DIR="$STABLE_SRC/crates/integration-tests/fixtures" \
-    cargo xtask integration --no-build
 fi
 rm -rf dist
 mkdir -p dist
