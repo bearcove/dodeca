@@ -21,7 +21,7 @@ jobs:
   check-ci:
     name: Check CI up to date
     runs-on:
-      - linux-amd64-metal
+      - linux-x86_64-trusted
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -62,7 +62,7 @@ jobs:
   build-wasm:
     name: Build WASM
     runs-on:
-      - linux-amd64-metal
+      - linux-x86_64-trusted
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -130,7 +130,7 @@ jobs:
   clippy:
     name: Clippy
     runs-on:
-      - linux-amd64-metal
+      - linux-x86_64-trusted
     timeout-minutes: 30
     needs:
       - build-wasm
@@ -202,7 +202,7 @@ jobs:
   build-ddc-linux-x64:
     name: Build ddc (linux-x64)
     runs-on:
-      - linux-amd64-metal
+      - linux-x86_64-trusted
     timeout-minutes: 30
     needs:
       - build-wasm
@@ -309,7 +309,7 @@ jobs:
   build-cells-linux-x64-1:
     name: Build cells (linux-x64) [cell-code-execution]
     runs-on:
-      - linux-amd64-metal
+      - linux-x86_64-trusted
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -376,7 +376,7 @@ jobs:
   build-cells-linux-x64-2:
     name: Build cells (linux-x64) [cell-css]
     runs-on:
-      - linux-amd64-metal
+      - linux-x86_64-trusted
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -443,7 +443,7 @@ jobs:
   build-cells-linux-x64-3:
     name: Build cells (linux-x64) [cell-data]
     runs-on:
-      - linux-amd64-metal
+      - linux-x86_64-trusted
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -510,7 +510,7 @@ jobs:
   build-cells-linux-x64-4:
     name: Build cells (linux-x64) [cell-dialoguer]
     runs-on:
-      - linux-amd64-metal
+      - linux-x86_64-trusted
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -577,7 +577,7 @@ jobs:
   build-cells-linux-x64-5:
     name: Build cells (linux-x64) [cell-fonts]
     runs-on:
-      - linux-amd64-metal
+      - linux-x86_64-trusted
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -644,7 +644,7 @@ jobs:
   build-cells-linux-x64-6:
     name: Build cells (linux-x64) [cell-gingembre]
     runs-on:
-      - linux-amd64-metal
+      - linux-x86_64-trusted
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -711,7 +711,7 @@ jobs:
   build-cells-linux-x64-7:
     name: Build cells (linux-x64) [cell-html]
     runs-on:
-      - linux-amd64-metal
+      - linux-x86_64-trusted
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -778,7 +778,7 @@ jobs:
   build-cells-linux-x64-8:
     name: Build cells (linux-x64) [cell-html-diff]
     runs-on:
-      - linux-amd64-metal
+      - linux-x86_64-trusted
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -845,7 +845,7 @@ jobs:
   build-cells-linux-x64-9:
     name: Build cells (linux-x64) [cell-http]
     runs-on:
-      - linux-amd64-metal
+      - linux-x86_64-trusted
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -912,7 +912,7 @@ jobs:
   build-cells-linux-x64-10:
     name: Build cells (linux-x64) [cell-image]
     runs-on:
-      - linux-amd64-metal
+      - linux-x86_64-trusted
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -979,7 +979,7 @@ jobs:
   build-cells-linux-x64-11:
     name: Build cells (linux-x64) [cell-js]
     runs-on:
-      - linux-amd64-metal
+      - linux-x86_64-trusted
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -1046,7 +1046,7 @@ jobs:
   build-cells-linux-x64-12:
     name: Build cells (linux-x64) [cell-jxl]
     runs-on:
-      - linux-amd64-metal
+      - linux-x86_64-trusted
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -1113,7 +1113,7 @@ jobs:
   build-cells-linux-x64-13:
     name: Build cells (linux-x64) [cell-linkcheck]
     runs-on:
-      - linux-amd64-metal
+      - linux-x86_64-trusted
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -1180,7 +1180,7 @@ jobs:
   build-cells-linux-x64-14:
     name: Build cells (linux-x64) [cell-markdown]
     runs-on:
-      - linux-amd64-metal
+      - linux-x86_64-trusted
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -1247,7 +1247,7 @@ jobs:
   build-cells-linux-x64-15:
     name: Build cells (linux-x64) [cell-minify]
     runs-on:
-      - linux-amd64-metal
+      - linux-x86_64-trusted
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -1314,7 +1314,7 @@ jobs:
   build-cells-linux-x64-16:
     name: Build cells (linux-x64) [cell-sass]
     runs-on:
-      - linux-amd64-metal
+      - linux-x86_64-trusted
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -1381,7 +1381,7 @@ jobs:
   build-cells-linux-x64-17:
     name: Build cells (linux-x64) [cell-search]
     runs-on:
-      - linux-amd64-metal
+      - linux-x86_64-trusted
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -1448,7 +1448,7 @@ jobs:
   build-cells-linux-x64-18:
     name: Build cells (linux-x64) [cell-svgo]
     runs-on:
-      - linux-amd64-metal
+      - linux-x86_64-trusted
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -1515,7 +1515,7 @@ jobs:
   build-cells-linux-x64-19:
     name: Build cells (linux-x64) [cell-term]
     runs-on:
-      - linux-amd64-metal
+      - linux-x86_64-trusted
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -1582,7 +1582,7 @@ jobs:
   build-cells-linux-x64-20:
     name: Build cells (linux-x64) [cell-tui]
     runs-on:
-      - linux-amd64-metal
+      - linux-x86_64-trusted
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -1649,7 +1649,7 @@ jobs:
   build-cells-linux-x64-21:
     name: Build cells (linux-x64) [cell-vite]
     runs-on:
-      - linux-amd64-metal
+      - linux-x86_64-trusted
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -1716,7 +1716,7 @@ jobs:
   build-cells-linux-x64-22:
     name: Build cells (linux-x64) [cell-webp]
     runs-on:
-      - linux-amd64-metal
+      - linux-x86_64-trusted
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -1783,7 +1783,7 @@ jobs:
   integration-linux-x64:
     name: Integration (linux-x64)
     runs-on:
-      - linux-amd64-metal
+      - linux-x86_64-trusted
     timeout-minutes: 30
     needs:
       - build-ddc-linux-x64
@@ -2087,7 +2087,7 @@ jobs:
   assemble-linux-x64:
     name: Assemble (linux-x64)
     runs-on:
-      - linux-amd64-metal
+      - linux-x86_64-trusted
     timeout-minutes: 30
     needs:
       - integration-linux-x64
@@ -2138,7 +2138,7 @@ jobs:
   build-ddc-macos-arm64:
     name: Build ddc (macos-arm64)
     runs-on:
-      - mac-arm64-metal
+      - mac
     timeout-minutes: 30
     needs:
       - build-wasm
@@ -2245,7 +2245,7 @@ jobs:
   build-cells-macos-arm64-1:
     name: Build cells (macos-arm64) [cell-code-execution]
     runs-on:
-      - mac-arm64-metal
+      - mac
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -2312,7 +2312,7 @@ jobs:
   build-cells-macos-arm64-2:
     name: Build cells (macos-arm64) [cell-css]
     runs-on:
-      - mac-arm64-metal
+      - mac
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -2379,7 +2379,7 @@ jobs:
   build-cells-macos-arm64-3:
     name: Build cells (macos-arm64) [cell-data]
     runs-on:
-      - mac-arm64-metal
+      - mac
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -2446,7 +2446,7 @@ jobs:
   build-cells-macos-arm64-4:
     name: Build cells (macos-arm64) [cell-dialoguer]
     runs-on:
-      - mac-arm64-metal
+      - mac
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -2513,7 +2513,7 @@ jobs:
   build-cells-macos-arm64-5:
     name: Build cells (macos-arm64) [cell-fonts]
     runs-on:
-      - mac-arm64-metal
+      - mac
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -2580,7 +2580,7 @@ jobs:
   build-cells-macos-arm64-6:
     name: Build cells (macos-arm64) [cell-gingembre]
     runs-on:
-      - mac-arm64-metal
+      - mac
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -2647,7 +2647,7 @@ jobs:
   build-cells-macos-arm64-7:
     name: Build cells (macos-arm64) [cell-html]
     runs-on:
-      - mac-arm64-metal
+      - mac
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -2714,7 +2714,7 @@ jobs:
   build-cells-macos-arm64-8:
     name: Build cells (macos-arm64) [cell-html-diff]
     runs-on:
-      - mac-arm64-metal
+      - mac
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -2781,7 +2781,7 @@ jobs:
   build-cells-macos-arm64-9:
     name: Build cells (macos-arm64) [cell-http]
     runs-on:
-      - mac-arm64-metal
+      - mac
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -2848,7 +2848,7 @@ jobs:
   build-cells-macos-arm64-10:
     name: Build cells (macos-arm64) [cell-image]
     runs-on:
-      - mac-arm64-metal
+      - mac
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -2915,7 +2915,7 @@ jobs:
   build-cells-macos-arm64-11:
     name: Build cells (macos-arm64) [cell-js]
     runs-on:
-      - mac-arm64-metal
+      - mac
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -2982,7 +2982,7 @@ jobs:
   build-cells-macos-arm64-12:
     name: Build cells (macos-arm64) [cell-jxl]
     runs-on:
-      - mac-arm64-metal
+      - mac
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -3049,7 +3049,7 @@ jobs:
   build-cells-macos-arm64-13:
     name: Build cells (macos-arm64) [cell-linkcheck]
     runs-on:
-      - mac-arm64-metal
+      - mac
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -3116,7 +3116,7 @@ jobs:
   build-cells-macos-arm64-14:
     name: Build cells (macos-arm64) [cell-markdown]
     runs-on:
-      - mac-arm64-metal
+      - mac
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -3183,7 +3183,7 @@ jobs:
   build-cells-macos-arm64-15:
     name: Build cells (macos-arm64) [cell-minify]
     runs-on:
-      - mac-arm64-metal
+      - mac
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -3250,7 +3250,7 @@ jobs:
   build-cells-macos-arm64-16:
     name: Build cells (macos-arm64) [cell-sass]
     runs-on:
-      - mac-arm64-metal
+      - mac
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -3317,7 +3317,7 @@ jobs:
   build-cells-macos-arm64-17:
     name: Build cells (macos-arm64) [cell-search]
     runs-on:
-      - mac-arm64-metal
+      - mac
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -3384,7 +3384,7 @@ jobs:
   build-cells-macos-arm64-18:
     name: Build cells (macos-arm64) [cell-svgo]
     runs-on:
-      - mac-arm64-metal
+      - mac
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -3451,7 +3451,7 @@ jobs:
   build-cells-macos-arm64-19:
     name: Build cells (macos-arm64) [cell-term]
     runs-on:
-      - mac-arm64-metal
+      - mac
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -3518,7 +3518,7 @@ jobs:
   build-cells-macos-arm64-20:
     name: Build cells (macos-arm64) [cell-tui]
     runs-on:
-      - mac-arm64-metal
+      - mac
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -3585,7 +3585,7 @@ jobs:
   build-cells-macos-arm64-21:
     name: Build cells (macos-arm64) [cell-vite]
     runs-on:
-      - mac-arm64-metal
+      - mac
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -3652,7 +3652,7 @@ jobs:
   build-cells-macos-arm64-22:
     name: Build cells (macos-arm64) [cell-webp]
     runs-on:
-      - mac-arm64-metal
+      - mac
     timeout-minutes: 30
     env:
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
@@ -3719,7 +3719,7 @@ jobs:
   integration-macos-arm64:
     name: Integration (macos-arm64)
     runs-on:
-      - mac-arm64-metal
+      - mac
     timeout-minutes: 30
     needs:
       - build-ddc-macos-arm64
@@ -4023,7 +4023,7 @@ jobs:
   assemble-macos-arm64:
     name: Assemble (macos-arm64)
     runs-on:
-      - mac-arm64-metal
+      - mac
     timeout-minutes: 30
     needs:
       - integration-macos-arm64
@@ -4074,7 +4074,7 @@ jobs:
   release:
     name: Release
     runs-on:
-      - linux-amd64-metal
+      - linux-x86_64-trusted
     timeout-minutes: 30
     needs:
       - assemble-linux-x64
