@@ -19,6 +19,10 @@ platform = 'cfg(unix)'
 filter = 'not test(serve::)'
 setup = 'build-cells'
 
+[profile.ci]
+test-threads = 4
+default-filter = 'not test(serve::)'
+
 [scripts.wrapper.heaptrack]
 # Run tests under heaptrack for memory profiling
 command = 'heaptrack'

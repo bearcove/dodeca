@@ -1786,7 +1786,7 @@ if ! command -v wasm-bindgen >/dev/null 2>&1 || ! wasm-bindgen --version | grep 
 fi
 cargo xtask wasm
 {build_ddc}
-cargo nextest run --workspace --release --no-fail-fast{nextest_threads}
+cargo nextest run --workspace --profile ci --release --no-fail-fast{nextest_threads}
 cargo build --release {build_args} --verbose
 cargo build --package integration-tests
 if ! DODECA_BIN="$STABLE_SRC/target/release/ddc" \

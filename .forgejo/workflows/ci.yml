@@ -87,7 +87,7 @@ jobs:
               exit 1
             fi
           fi
-          cargo nextest run --workspace --release --no-fail-fast --test-threads 1
+          cargo nextest run --workspace --profile ci --release --no-fail-fast --test-threads 1
           cargo build --release --package cell-code-execution --package cell-css --package cell-data --package cell-dialoguer --package cell-fonts --package cell-gingembre --package cell-html --package cell-html-diff --package cell-http --package cell-image --package cell-js --package cell-jxl --package cell-linkcheck --package cell-markdown --package cell-minify --package cell-sass --package cell-search --package cell-svgo --package cell-term --package cell-tui --package cell-vite --package cell-webp --verbose
           cargo build --package integration-tests
           if ! DODECA_BIN="$STABLE_SRC/target/release/ddc" \
@@ -366,7 +366,7 @@ jobs:
               exit 1
             fi
           fi
-          cargo nextest run --workspace --release --no-fail-fast
+          cargo nextest run --workspace --profile ci --release --no-fail-fast
           cargo build --release --package cell-code-execution --package cell-css --package cell-data --package cell-dialoguer --package cell-fonts --package cell-gingembre --package cell-html --package cell-html-diff --package cell-http --package cell-image --package cell-js --package cell-jxl --package cell-linkcheck --package cell-markdown --package cell-minify --package cell-sass --package cell-search --package cell-svgo --package cell-term --package cell-tui --package cell-vite --package cell-webp --verbose
           cargo build --package integration-tests
           if ! DODECA_BIN="$STABLE_SRC/target/release/ddc" \

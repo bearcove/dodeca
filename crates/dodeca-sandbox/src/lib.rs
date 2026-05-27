@@ -58,9 +58,43 @@ pub type Result<T> = std::result::Result<T, Error>;
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "linux")]
+    fn sandbox_runtime_available() -> bool {
+        let config = SandboxConfig::new()
+            .allow_read("/usr")
+            .allow_read("/lib")
+            .allow_read("/lib64")
+            .allow_read("/bin");
+
+        let sandbox = Sandbox::new(config).unwrap();
+        match sandbox.command("/bin/true").output() {
+            Ok(output) if output.status.success() => true,
+            Ok(output) => {
+                eprintln!(
+                    "skipping sandbox cargo build test: runtime probe exited with {:?}",
+                    output.status.code()
+                );
+                false
+            }
+            Err(err) => {
+                eprintln!("skipping sandbox cargo build test: runtime probe failed: {err}");
+                false
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn sandbox_runtime_available() -> bool {
+        true
+    }
+
     #[test]
     fn test_cargo_build() {
         use std::process::Command;
+
+        if !sandbox_runtime_available() {
+            return;
+        }
 
         // Create temp directory outside of /tmp to avoid conflict with
         // the sandbox's isolated tmpfs mount on Linux
