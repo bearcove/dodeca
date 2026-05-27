@@ -10,7 +10,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::cells::{rewrite_string_literals_in_js_cell, rewrite_urls_in_css_cell};
+use cell_css_proto::CssResult;
+use cell_js_proto::JsRewriteInput;
 
 /// Rewrite URLs in CSS using lightningcss parser (via cell)
 ///
@@ -18,15 +19,21 @@ use crate::cells::{rewrite_string_literals_in_js_cell, rewrite_urls_in_css_cell}
 /// Also minifies the CSS output.
 /// Returns original CSS if cell is not available.
 pub async fn rewrite_urls_in_css(css: &str, path_map: &HashMap<String, String>) -> String {
-    // Check if CSS cell is available
-    if crate::cells::css_cell().await.is_none() {
+    let Some(client) = crate::cells::css_cell().await else {
         return css.to_string();
-    }
+    };
 
-    match rewrite_urls_in_css_cell(css.to_string(), path_map.clone()).await {
-        Ok(result) => result,
+    match client
+        .rewrite_and_minify(css.to_string(), path_map.clone())
+        .await
+    {
+        Ok(CssResult::Success { css }) => css,
+        Ok(CssResult::Error { message }) => {
+            tracing::warn!("CSS rewriting failed: {}", message);
+            css.to_string()
+        }
         Err(e) => {
-            tracing::warn!("CSS rewriting failed: {}", e);
+            tracing::warn!("CSS rewriting failed: {:?}", e);
             css.to_string()
         }
     }
@@ -35,15 +42,19 @@ pub async fn rewrite_urls_in_css(css: &str, path_map: &HashMap<String, String>) 
 /// Rewrite string literals in JavaScript that contain asset paths (async version)
 /// Returns original JS if cell is not available.
 pub async fn rewrite_string_literals_in_js(js: &str, path_map: &HashMap<String, String>) -> String {
-    // Check if JS cell is available
-    if crate::cells::js_cell().await.is_none() {
+    let Some(client) = crate::cells::js_cell().await else {
         return js.to_string();
-    }
+    };
 
-    match rewrite_string_literals_in_js_cell(js.to_string(), path_map.clone()).await {
+    let input = JsRewriteInput {
+        js: js.to_string(),
+        path_map: path_map.clone(),
+    };
+
+    match client.rewrite_string_literals(input).await {
         Ok(result) => result,
         Err(e) => {
-            tracing::warn!("JS rewriting failed: {}", e);
+            tracing::warn!("JS rewriting failed: {:?}", e);
             js.to_string()
         }
     }
