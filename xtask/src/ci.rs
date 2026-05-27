@@ -1638,13 +1638,12 @@ gh release create "{ref_name}" \
 }
 
 // =============================================================================
-// Forgejo CI workflow builder (ctree cache + SSH CAS artifacts)
+// Forgejo CI workflow builder (SSH CAS artifacts)
 // =============================================================================
 
-/// Build the Forgejo CI workflow with local ctree caching and SSH-based CAS artifacts.
+/// Build the Forgejo CI workflow with SSH-based CAS artifacts.
 ///
 /// This is completely separate from the GitHub workflow because:
-/// - Uses ctree for near-instant COW cache copies on local filesystems
 /// - Uses SSH + rsync for artifact storage (content-addressed, deduplicated)
 /// - Simpler structure optimized for self-hosted runners
 pub fn build_forgejo_workflow(repo_root: &Utf8Path) -> Workflow {
@@ -1653,11 +1652,6 @@ pub fn build_forgejo_workflow(repo_root: &Utf8Path) -> Workflow {
     let platform = CiPlatform::Forgejo;
     let targets = targets_for_platform(platform);
     let cells = discover_cells(repo_root);
-    let linux_cache_base = targets
-        .iter()
-        .find(|target| target.triple == "x86_64-unknown-linux-gnu")
-        .map(|target| target.cache_base_path())
-        .unwrap_or("/home/amos/.cache");
     let groups = cell_groups(repo_root, 1);
 
     // CAS env vars used by all artifact steps (SSH-based content-addressed storage)
@@ -1680,12 +1674,10 @@ pub fn build_forgejo_workflow(repo_root: &Utf8Path) -> Workflow {
             .steps([
                 checkout(platform),
                 install_rust(platform),
-                ctree_cache_restore("check-ci", linux_cache_base),
                 Step::run(
                     "Check CI files are up to date",
                     "cargo xtask ci-github --check && cargo xtask ci-forgejo --check",
                 ),
-                ctree_cache_save("check-ci", linux_cache_base),
             ]),
     );
 
@@ -1702,14 +1694,11 @@ pub fn build_forgejo_workflow(repo_root: &Utf8Path) -> Workflow {
             .steps([
                 checkout(platform),
                 install_rust_with_target(platform, "wasm32-unknown-unknown"),
-                ctree_cache_restore("wasm", linux_cache_base),
-                timelord_cache_info(linux_cache_base, "before sync"),
-                timelord_restore(linux_cache_base),
-                cargo_sweep_cache_stamp("wasm", linux_cache_base),
+                Step::run(
+                    "Install wasm-bindgen-cli",
+                    "cargo install wasm-bindgen-cli@0.2.108 --locked",
+                ),
                 Step::run("Build WASM", "cargo xtask wasm"),
-                // Save cache immediately after build (before uploads that might fail)
-                ctree_cache_save("wasm", linux_cache_base),
-                cargo_sweep_cache_trim("wasm", linux_cache_base),
                 // Upload WASM bundles to CAS as a tarball.
                 Step::run(
                     "Upload WASM to CAS",
@@ -1739,10 +1728,6 @@ pub fn build_forgejo_workflow(repo_root: &Utf8Path) -> Workflow {
                     "clippy",
                     "wasm32-unknown-unknown",
                 ),
-                ctree_cache_restore("clippy", linux_cache_base),
-                timelord_cache_info(linux_cache_base, "before sync"),
-                timelord_restore(linux_cache_base),
-                cargo_sweep_cache_stamp("clippy", linux_cache_base),
                 // Download WASM bundles from CAS (embedded at compile time via include_bytes!).
                 Step::run(
                     "Download WASM from CAS",
@@ -1755,8 +1740,6 @@ tar -xzf /tmp/wasm.tar.gz"#
                     "Clippy",
                     "cargo clippy --all-features --all-targets -- -D warnings",
                 ),
-                ctree_cache_save("clippy", linux_cache_base),
-                cargo_sweep_cache_trim("clippy", linux_cache_base),
             ]),
     );
 
@@ -1765,7 +1748,6 @@ tar -xzf /tmp/wasm.tar.gz"#
     // -------------------------------------------------------------------------
     for target in &targets {
         let short = target.short_name();
-        let cache_base = target.cache_base_path();
 
         // Build ddc (main binary) - depends on WASM for embedded bundles
         let ddc_job_id = format!("build-ddc-{short}");
@@ -1779,10 +1761,6 @@ tar -xzf /tmp/wasm.tar.gz"#
                 .steps([
                     checkout(platform),
                     install_rust(platform),
-                    ctree_cache_restore(&format!("ddc-{short}"), cache_base),
-                    timelord_cache_info(cache_base, "before sync"),
-                    timelord_restore(cache_base),
-                    cargo_sweep_cache_stamp(&format!("ddc-{short}"), cache_base),
                     // Download WASM bundles from CAS (embedded at compile time via include_bytes!).
                     Step::run(
                         "Download WASM from CAS",
@@ -1791,24 +1769,7 @@ tar -xzf /tmp/wasm.tar.gz"#
 tar -xzf /tmp/wasm.tar.gz"#
                         ),
                     ),
-                    Step::run(
-                        "Debug proc-macro2 mtimes",
-                        r#"set -euo pipefail
-if ls target/debug/build/proc-macro2-*/build-script-build >/dev/null 2>&1; then
-  if stat -c %y target/debug/build/proc-macro2-*/build-script-build >/dev/null 2>&1; then
-    stat -c %y target/debug/build/proc-macro2-*/build-script-build
-  else
-    stat -f %m target/debug/build/proc-macro2-*/build-script-build
-  fi
-else
-  echo "No proc-macro2 build-script-build file found"
-fi"#,
-                    )
-                    .shell("bash"),
                     Step::run("Build ddc", BUILD_DDC_COMMAND).shell("bash"),
-                    // Save cache immediately after build (before tests/uploads that might fail)
-                    ctree_cache_save(&format!("ddc-{short}"), cache_base),
-                    cargo_sweep_cache_trim(&format!("ddc-{short}"), cache_base),
                     Step::run("Test ddc", TEST_DDC_COMMAND).shell("bash"),
                     Step::run(
                         "Upload ddc to CAS",
@@ -1864,17 +1825,10 @@ fi"#,
                     .steps([
                         checkout(platform),
                         install_rust(platform),
-                        ctree_cache_restore(&format!("cells-{short}-{group_num}"), cache_base),
-                        timelord_cache_info(cache_base, "before sync"),
-                        timelord_restore(cache_base),
-                        cargo_sweep_cache_stamp(&format!("cells-{short}-{group_num}"), cache_base),
                         Step::run(
                             "Build cells",
                             format!("cargo build --release {build_args} --verbose"),
                         ),
-                        // Save cache immediately after build (before tests/uploads that might fail)
-                        ctree_cache_save(&format!("cells-{short}-{group_num}"), cache_base),
-                        cargo_sweep_cache_trim(&format!("cells-{short}-{group_num}"), cache_base),
                         Step::run("Test cells", format!("cargo test --release {test_args}")),
                         Step::run("Upload cells to CAS", upload_script),
                     ]),
@@ -1900,10 +1854,6 @@ fi"#,
                 .steps([
                     checkout(platform),
                     install_rust(platform),
-                    ctree_cache_restore(&format!("integration-{short}"), cache_base),
-                    timelord_cache_info(cache_base, "before sync"),
-                    timelord_restore(cache_base),
-                    cargo_sweep_cache_stamp(&format!("integration-{short}"), cache_base),
                     // Download WASM bundles from CAS before compiling integration-tests.
                     Step::run(
                         "Download WASM from CAS",
@@ -1945,8 +1895,6 @@ tar -xzf /tmp/wasm.tar.gz"#
                         ("DODECA_CELL_PATH", format!("{}/dist", workspace_var)),
                         ("DODECA_TEST_FIXTURES_DIR", format!("{}/crates/integration-tests/fixtures", workspace_var)),
                     ]),
-                    ctree_cache_save(&format!("integration-{short}"), cache_base),
-                    cargo_sweep_cache_trim(&format!("integration-{short}"), cache_base),
                 ]),
         );
 
