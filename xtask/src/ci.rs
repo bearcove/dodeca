@@ -1748,7 +1748,14 @@ curl -fsSL https://vixen-misc.s3-website.fr-par.scw.cloud/vixen-ci/latest/vixen-
 chmod +x "$RUNNER_TEMP/vixen-ci/vixen-ci"
 echo "$RUNNER_TEMP/vixen-ci" >> "$GITHUB_PATH""#,
         );
-        let install_rsync = Step::run("Check rsync", "rsync --version >/dev/null");
+        let install_rsync = if is_linux {
+            Step::run(
+                "Install rsync",
+                "apt-get update && apt-get install -y --no-install-recommends rsync",
+            )
+        } else {
+            Step::run("Check rsync", "rsync --version >/dev/null")
+        };
 
         let prepare_stable_source = Step::run(
             "Prepare stable source",
