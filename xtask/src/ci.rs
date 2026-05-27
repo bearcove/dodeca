@@ -1835,6 +1835,29 @@ ls -la "$GITHUB_WORKSPACE/dist/""#,
         )
         .shell("bash");
 
+        let mut steps = Vec::new();
+        if !is_linux {
+            steps.push(install_helper);
+        }
+        steps.push(
+            Step::run("Prepare Vixen CI", "vixen-ci prepare")
+                .with_env([("DEPLOY_KEY", "${{ secrets.DEPLOY_KEY }}")]),
+        );
+        steps.push(Step::run("Checkout", "vixen-ci checkout"));
+        if !is_linux {
+            steps.push(Step::run("Rust toolchain", "vixen-ci rust-toolchain"));
+            steps.push(Step::run("Install nextest", "vixen-ci nextest"));
+            steps.push(install_rsync);
+        }
+        steps.push(prepare_stable_source);
+        steps.push(build_and_test);
+        steps.push(assemble);
+        steps.push(upload_artifact(
+            platform,
+            format!("build-{short}"),
+            format!("dist/{archive_name}"),
+        ));
+
         let mut job = Job::with_runner(target.runs_on())
             .name(format!("Forgejo {short}"))
             .timeout(90)
@@ -1843,33 +1866,17 @@ ls -la "$GITHUB_WORKSPACE/dist/""#,
                 ("FORGEJO_TOKEN", "${{ github.token }}"),
                 ("RUST_BACKTRACE", "1"),
             ])
-            .steps([
-                install_helper,
-                Step::run("Prepare Vixen CI", "vixen-ci prepare")
-                    .with_env([("DEPLOY_KEY", "${{ secrets.DEPLOY_KEY }}")]),
-                Step::run("Checkout", "vixen-ci checkout"),
-                Step::run("Rust toolchain", "vixen-ci rust-toolchain"),
-                Step::run("Install nextest", "vixen-ci nextest"),
-                install_rsync,
-                prepare_stable_source,
-                build_and_test,
-                assemble,
-                upload_artifact(
-                    platform,
-                    format!("build-{short}"),
-                    format!("dist/{archive_name}"),
-                ),
-            ]);
+            .steps(steps);
 
         if is_linux {
             job = job
                 .container(
-                    "catthehacker/ubuntu:act-24.04",
-                    ["/srv/ci/cache/vixen:/srv/ci/cache/vixen"],
+                    "code.vixen.rs/vixen/vixen-ci:latest",
+                    ["/srv/ci/cache/dodeca:/srv/ci/cache/dodeca"],
                 )
                 .env([
-                    ("HOME", "/srv/ci/cache/vixen/home"),
-                    ("CARGO_HOME", "/srv/ci/cache/vixen/cargo"),
+                    ("HOME", "/srv/ci/cache/dodeca/home"),
+                    ("CARGO_HOME", "/srv/ci/cache/dodeca/cargo"),
                     ("CARGO_INCREMENTAL", cargo_incremental),
                     ("FORGEJO_TOKEN", "${{ github.token }}"),
                     ("RUST_BACKTRACE", "1"),

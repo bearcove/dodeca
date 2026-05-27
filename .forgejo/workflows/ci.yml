@@ -23,35 +23,23 @@ jobs:
     runs-on:
       - linux-x86_64-trusted
     container:
-      image: "catthehacker/ubuntu:act-24.04"
+      image: "code.vixen.rs/vixen/vixen-ci:latest"
       volumes:
-        - "/srv/ci/cache/vixen:/srv/ci/cache/vixen"
+        - "/srv/ci/cache/dodeca:/srv/ci/cache/dodeca"
     timeout-minutes: 90
     env:
-      HOME: /srv/ci/cache/vixen/home
-      CARGO_HOME: /srv/ci/cache/vixen/cargo
+      HOME: /srv/ci/cache/dodeca/home
+      CARGO_HOME: /srv/ci/cache/dodeca/cargo
       CARGO_INCREMENTAL: "1"
       FORGEJO_TOKEN: ${{ github.token }}
       RUST_BACKTRACE: "1"
     steps:
-      - name: Install vixen-ci
-        run: |-
-          mkdir -p "$RUNNER_TEMP/vixen-ci"
-          curl -fsSL https://vixen-misc.s3-website.fr-par.scw.cloud/vixen-ci/latest/vixen-ci -o "$RUNNER_TEMP/vixen-ci/vixen-ci"
-          chmod +x "$RUNNER_TEMP/vixen-ci/vixen-ci"
-          echo "$RUNNER_TEMP/vixen-ci" >> "$GITHUB_PATH"
       - name: Prepare Vixen CI
         run: vixen-ci prepare
         env:
           DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
       - name: Checkout
         run: vixen-ci checkout
-      - name: Rust toolchain
-        run: vixen-ci rust-toolchain
-      - name: Install nextest
-        run: vixen-ci nextest
-      - name: Install Linux build tools
-        run: apt-get update && apt-get install -y --no-install-recommends cmake rsync
       - name: Prepare stable source
         run: |-
           vixen-ci stable-src dodeca-linux-x64 \
