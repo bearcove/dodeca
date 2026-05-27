@@ -1,11 +1,7 @@
 # Nextest configuration for dodeca
 # See: https://nexte.st/docs/configuration/
 
-experimental = ["wrapper-scripts", "setup-scripts"]
-
-# Setup script to build cells before running tests
-[scripts.setup.build-cells]
-command = 'scripts/nextest-build-cells.sh'
+experimental = ["wrapper-scripts"]
 
 # Default profile - excludes integration tests (use `cargo xtask integration` instead)
 [profile.default]
@@ -13,11 +9,6 @@ command = 'scripts/nextest-build-cells.sh'
 test-threads = 4
 # Exclude integration tests - they are run via `cargo xtask integration`
 default-filter = 'not test(serve::)'
-
-[[profile.default.scripts]]
-platform = 'cfg(unix)'
-filter = 'not test(serve::)'
-setup = 'build-cells'
 
 [profile.ci]
 test-threads = 4
