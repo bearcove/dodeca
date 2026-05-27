@@ -1732,6 +1732,14 @@ chmod +x "$RUNNER_TEMP/vixen-ci/vixen-ci"
 echo "$RUNNER_TEMP/vixen-ci" >> "$GITHUB_PATH""#,
             )
         };
+        let install_rsync = if is_linux {
+            Step::run(
+                "Install rsync",
+                "apt-get update && apt-get install -y --no-install-recommends rsync",
+            )
+        } else {
+            Step::run("Check rsync", "rsync --version >/dev/null")
+        };
 
         let prepare_stable_source = Step::run(
             "Prepare stable source",
@@ -1814,6 +1822,7 @@ ls -la "$GITHUB_WORKSPACE/dist/""#,
                 Step::run("Checkout", "vixen-ci checkout"),
                 Step::run("Rust toolchain", "vixen-ci rust-toolchain"),
                 Step::run("Install nextest", "vixen-ci nextest"),
+                install_rsync,
                 prepare_stable_source,
                 build_and_test,
                 assemble,
