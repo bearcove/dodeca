@@ -440,6 +440,8 @@ pub struct Container {
     pub image: String,
     #[facet(default, skip_serializing_if = Option::is_none)]
     pub volumes: Option<Vec<String>>,
+    #[facet(default, skip_serializing_if = Option::is_none)]
+    pub options: Option<String>,
 }
 
 structstruck::strike! {
@@ -650,7 +652,18 @@ impl Job {
         self.container = Some(Container {
             image: image.into(),
             volumes: Some(volumes.into_iter().map(Into::into).collect()),
+            options: None,
         });
+        self
+    }
+
+    /// Set container runtime options.
+    pub fn container_options(mut self, options: impl Into<String>) -> Self {
+        let container = self
+            .container
+            .as_mut()
+            .expect("container_options called before container");
+        container.options = Some(options.into());
         self
     }
 
@@ -1862,6 +1875,7 @@ ls -la "$GITHUB_WORKSPACE/dist/""#,
                     "code.vixen.rs/vixen/vixen-ci:latest",
                     ["/srv/ci/cache/vixen:/ci-cache"],
                 )
+                .container_options("--privileged")
                 .env([
                     ("HOME", "/ci-cache/home"),
                     ("CARGO_HOME", "/ci-cache/cargo"),

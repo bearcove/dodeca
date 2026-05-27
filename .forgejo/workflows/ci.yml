@@ -26,6 +26,7 @@ jobs:
       image: "code.vixen.rs/vixen/vixen-ci:latest"
       volumes:
         - "/srv/ci/cache/vixen:/ci-cache"
+      options: "--privileged"
     timeout-minutes: 90
     env:
       HOME: /ci-cache/home
