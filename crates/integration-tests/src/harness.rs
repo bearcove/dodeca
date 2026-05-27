@@ -37,7 +37,6 @@ use tokio::net::UnixListener;
 use tracing::{debug, error, info};
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
-const STARTUP_HTTP_TIMEOUT: Duration = Duration::from_secs(60);
 
 // Thread-local storage for the active test id (used to route logs).
 thread_local! {
@@ -655,11 +654,6 @@ impl TestSite {
             _unix_socket_dir: unix_socket_dir,
             test_id,
         };
-
-        // Make an initial request to ensure the server is fully ready to serve requests
-        // This prevents flakiness where tests make requests before the server has finished
-        // loading content, building search index, etc.
-        let _ = site.get_with_timeout("/", STARTUP_HTTP_TIMEOUT);
 
         site
     }
