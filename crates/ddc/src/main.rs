@@ -17,6 +17,7 @@ use dodeca::{
     BuildContext, cas, cell_server, cells, file_watcher, host, init, is_data_file_extension,
     link_checker, logging, render, serve, template_paths, tui_host, vite,
 };
+use dodeca_authoring_lsp::authoring_lsp::{self, AuthoringDiagnostic, AuthoringDiagnosticKind};
 use eyre::{Result, eyre};
 use facet::Facet;
 use figue::{self as args, FigueBuiltins};
@@ -145,6 +146,43 @@ struct LspArgs {
     output: Option<String>,
 }
 
+/// Authoring diagnostics command arguments
+#[derive(Facet, Debug)]
+struct DiagnosticsArgs {
+    /// Project directory (looks for .config/dodeca.styx here)
+    #[facet(args::positional, default)]
+    path: Option<String>,
+
+    /// Content directory (uses .config/dodeca.styx if not specified)
+    #[facet(args::named, args::short = 'c', default)]
+    content: Option<String>,
+
+    /// Output format
+    #[facet(args::named, default)]
+    format: DiagnosticsFormat,
+
+    /// Only include diagnostics with this kind, e.g. missingRoute
+    #[facet(args::named, default)]
+    kind: Option<String>,
+
+    /// Only include link-target diagnostics
+    #[facet(args::named, default)]
+    dead_links: bool,
+
+    /// Exit non-zero when diagnostics are present
+    #[facet(args::named, default)]
+    fail: bool,
+}
+
+#[derive(Facet, Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[facet(rename_all = "snake_case")]
+#[repr(u8)]
+enum DiagnosticsFormat {
+    #[default]
+    Text,
+    Json,
+}
+
 /// Static file server arguments
 #[derive(Facet, Debug)]
 struct StaticArgs {
@@ -217,6 +255,8 @@ enum Command {
     Clean(CleanArgs),
     /// Run the authoring LSP server over stdio
     Lsp(LspArgs),
+    /// Print authoring diagnostics
+    Diagnostics(DiagnosticsArgs),
     /// Record terminal session as HTML
     Term(TermArgs),
 }
@@ -229,6 +269,27 @@ struct ResolvedBuildConfig {
     rate_limit_ms: Option<u64>,
     link_check_mode: LinkCheckMode,
     stable_assets: Vec<String>,
+}
+
+#[derive(Facet)]
+struct CliDiagnostic {
+    source_file: String,
+    route: String,
+    kind: String,
+    target: String,
+    resolved_route: Option<String>,
+    message: String,
+    span: CliDiagnosticSpan,
+}
+
+#[derive(Facet)]
+struct CliDiagnosticSpan {
+    line_start: u32,
+    line_end: u32,
+    column_start: u32,
+    column_end: u32,
+    byte_start: usize,
+    byte_end: usize,
 }
 
 /// Resolve content and output directories from CLI args or config file
@@ -275,6 +336,27 @@ fn resolve_dirs(
                 link_check_mode: cfg.link_check_mode,
                 stable_assets: cfg.stable_assets,
             })
+        }
+        None => Err(eyre!("No configuration found.")),
+    }
+}
+
+fn resolve_content_dir(path: Option<String>, content: Option<String>) -> Result<Utf8PathBuf> {
+    if let Some(content) = content {
+        return Ok(Utf8PathBuf::from(content));
+    }
+
+    let path = path.map(Utf8PathBuf::from);
+    let config = if let Some(ref project_path) = path {
+        ResolvedConfig::discover_from(project_path)?
+    } else {
+        ResolvedConfig::discover()?
+    };
+
+    match config {
+        Some(cfg) => {
+            dodeca::config::set_global_config(cfg.clone())?;
+            Ok(cfg.content_dir)
         }
         None => Err(eyre!("No configuration found.")),
     }
@@ -469,6 +551,10 @@ async fn async_main(command: Command) -> Result<()> {
             logging::init_standard_tracing();
             dodeca_authoring_lsp::run(args.content, args.output).await
         }
+        Command::Diagnostics(args) => {
+            logging::init_standard_tracing();
+            run_diagnostics(args).await
+        }
         Command::Static(args) => {
             let path = Utf8PathBuf::from(&args.path);
             if !path.exists() {
@@ -494,6 +580,92 @@ async fn async_main(command: Command) -> Result<()> {
             init::run_init(args.name, args.template, !args.skip_git_init).await
         }
         Command::Term(args) => run_term(args).await,
+    }
+}
+
+async fn run_diagnostics(args: DiagnosticsArgs) -> Result<()> {
+    let content_dir = resolve_content_dir(args.path, args.content)?;
+    let mut diagnostics =
+        authoring_lsp::authoring_diagnostics_for_content_dir(&content_dir).await?;
+
+    diagnostics.retain(|diagnostic| {
+        if args.dead_links && !is_dead_link_diagnostic(diagnostic.kind) {
+            return false;
+        }
+
+        if let Some(kind) = args.kind.as_deref()
+            && authoring_lsp::diagnostic_kind_name(diagnostic.kind) != kind
+        {
+            return false;
+        }
+
+        true
+    });
+
+    match args.format {
+        DiagnosticsFormat::Text => print_diagnostics_text(&diagnostics),
+        DiagnosticsFormat::Json => print_diagnostics_json(&diagnostics)?,
+    }
+
+    if args.fail && !diagnostics.is_empty() {
+        return Err(eyre!("Found {} authoring diagnostic(s)", diagnostics.len()));
+    }
+
+    Ok(())
+}
+
+fn is_dead_link_diagnostic(kind: AuthoringDiagnosticKind) -> bool {
+    matches!(
+        kind,
+        AuthoringDiagnosticKind::Route
+            | AuthoringDiagnosticKind::Anchor
+            | AuthoringDiagnosticKind::Source
+            | AuthoringDiagnosticKind::StaticAsset
+    )
+}
+
+fn print_diagnostics_text(diagnostics: &[AuthoringDiagnostic]) {
+    if diagnostics.is_empty() {
+        println!("No authoring diagnostics found");
+        return;
+    }
+
+    for diagnostic in diagnostics {
+        println!(
+            "{}:{}:{} [{}] {}",
+            diagnostic.source_file.yellow(),
+            diagnostic.line,
+            diagnostic.column,
+            authoring_lsp::diagnostic_kind_name(diagnostic.kind).cyan(),
+            diagnostic.message
+        );
+    }
+}
+
+fn print_diagnostics_json(diagnostics: &[AuthoringDiagnostic]) -> Result<()> {
+    let diagnostics = diagnostics.iter().map(cli_diagnostic).collect::<Vec<_>>();
+    let json = facet_json::to_string_pretty(&diagnostics)
+        .map_err(|err| eyre!("failed to serialize diagnostics: {err:?}"))?;
+    println!("{json}");
+    Ok(())
+}
+
+fn cli_diagnostic(diagnostic: &AuthoringDiagnostic) -> CliDiagnostic {
+    CliDiagnostic {
+        source_file: diagnostic.source_file.clone(),
+        route: diagnostic.route.clone(),
+        kind: authoring_lsp::diagnostic_kind_name(diagnostic.kind).to_string(),
+        target: diagnostic.target.clone(),
+        resolved_route: diagnostic.resolved_route.clone(),
+        message: diagnostic.message.clone(),
+        span: CliDiagnosticSpan {
+            line_start: diagnostic.line,
+            line_end: diagnostic.line_end,
+            column_start: diagnostic.column,
+            column_end: diagnostic.column_end,
+            byte_start: diagnostic.byte_start,
+            byte_end: diagnostic.byte_end,
+        },
     }
 }
 

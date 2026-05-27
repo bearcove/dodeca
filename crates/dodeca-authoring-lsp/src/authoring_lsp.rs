@@ -83,6 +83,15 @@ pub async fn run(content: Option<String>, output: Option<String>) -> Result<()> 
     Ok(())
 }
 
+pub async fn authoring_diagnostics_for_content_dir(
+    content_dir: &Utf8Path,
+) -> Result<Vec<AuthoringDiagnostic>> {
+    let workspace = AuthoringWorkspace::new(content_dir)?;
+    let project = workspace.inputs().project().await?;
+    let world = AuthoringWorld::new(project)?;
+    Ok(load_authoring_diagnostics_for_world(&world))
+}
+
 #[derive(Clone)]
 pub struct Backend {
     pub client: Client,

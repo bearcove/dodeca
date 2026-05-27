@@ -33,6 +33,7 @@ camino.workspace = true
 chrono.workspace = true
 eyre.workspace = true
 facet.workspace = true
+facet-json.workspace = true
 figue.workspace = true
 if-addrs.workspace = true
 ignore.workspace = true

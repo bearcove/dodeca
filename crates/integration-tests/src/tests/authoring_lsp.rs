@@ -1315,6 +1315,30 @@ async fn lists_pages_and_sections_from_content_dir() {
 }
 
 #[tokio::test]
+async fn loads_authoring_diagnostics_from_content_dir() {
+    let dir = temp_dir("diagnostics-command");
+    let content_dir = dir.join("content");
+    std::fs::create_dir_all(&content_dir).expect("create content dir");
+    std::fs::write(
+        content_dir.join("_index.md"),
+        "+++\ntitle = \"Home\"\n+++\n\n[Missing](/missing)\n",
+    )
+    .expect("write root");
+
+    let diagnostics = authoring_diagnostics_for_content_dir(&content_dir)
+        .await
+        .expect("authoring diagnostics");
+
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.kind == AuthoringDiagnosticKind::Route
+            && diagnostic.target == "/missing"
+            && diagnostic.resolved_route.as_deref() == Some("/missing")
+    }));
+
+    std::fs::remove_dir_all(&dir).expect("remove temp dir");
+}
+
+#[tokio::test]
 async fn reports_missing_routes_anchors_sources_and_static_assets() {
     let dir = temp_dir("diagnostics");
     let content_dir = dir.join("content");
