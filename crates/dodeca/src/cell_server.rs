@@ -535,16 +535,21 @@ async fn handle_browser_connection(
     let (outbound_tx, mut outbound_rx) = vox::channel::<Vec<u8>>();
 
     let open_started = Instant::now();
-    tunnel_client
-        .open(inbound_rx, outbound_tx)
-        .await
-        .map_err(|e| eyre::eyre!("Failed to open tunnel: {:?}", e))?;
-
-    tracing::trace!(
-        conn_id,
-        open_elapsed_ms = open_started.elapsed().as_millis(),
-        "Tunnel opened for browser connection"
-    );
+    crate::spawn::spawn(async move {
+        match tunnel_client.open(inbound_rx, outbound_tx).await {
+            Ok(()) => tracing::trace!(
+                conn_id,
+                open_elapsed_ms = open_started.elapsed().as_millis(),
+                "Tunnel open RPC returned"
+            ),
+            Err(err) => tracing::warn!(
+                conn_id,
+                open_elapsed_ms = open_started.elapsed().as_millis(),
+                ?err,
+                "Tunnel open RPC failed"
+            ),
+        }
+    });
 
     crate::spawn::spawn(async move {
         let bridge_started = Instant::now();
