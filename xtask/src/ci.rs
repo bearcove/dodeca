@@ -1696,11 +1696,6 @@ pub fn build_forgejo_workflow(repo_root: &Utf8Path) -> Workflow {
             .map(|(pkg, _)| format!("--package {pkg}"))
             .collect::<Vec<_>>()
             .join(" ");
-        let test_commands = cells
-            .iter()
-            .map(|(pkg, _)| format!("cargo nextest run --release --package {pkg} --no-fail-fast"))
-            .collect::<Vec<_>>()
-            .join("\n");
         let archive_name = format!("dodeca-{}.{}", target.triple, target.archive_ext);
         let stable_key = format!("dodeca-{short}");
         let cargo_incremental = if is_linux { "1" } else { "0" };
@@ -1793,9 +1788,8 @@ if ! command -v wasm-bindgen >/dev/null 2>&1 || ! wasm-bindgen --version | grep 
 fi
 cargo xtask wasm
 {build_ddc}
-{test_ddc}
+cargo nextest run --workspace --release --no-fail-fast
 cargo build --release {build_args} --verbose
-{test_commands}
 cargo build --package integration-tests
 if ! DODECA_BIN="$STABLE_SRC/target/release/ddc" \
   DODECA_CELL_PATH="$STABLE_SRC/target/release" \
@@ -1815,7 +1809,6 @@ chmod +x dist/ddc
 {verify}
 {maybe_browser_tests}"#,
                 build_ddc = BUILD_DDC_COMMAND,
-                test_ddc = TEST_DDC_COMMAND,
                 lib_prefix = target.lib_prefix,
                 lib_ext = target.lib_ext,
                 verify = verify_artifacts_script(target, &cells),
