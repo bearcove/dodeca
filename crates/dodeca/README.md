@@ -61,11 +61,6 @@ Thanks to all individual sponsors:
 <source media="(prefers-color-scheme: dark)" srcset="./static/sponsors-v3/zed-dark.svg">
 <img src="./static/sponsors-v3/zed-light.svg" height="40" alt="Zed">
 </picture>
-</a> <a href="https://depot.dev?utm_source=facet">
-<picture>
-<source media="(prefers-color-scheme: dark)" srcset="./static/sponsors-v3/depot-dark.svg">
-<img src="./static/sponsors-v3/depot-light.svg" height="40" alt="Depot">
-</picture>
 </a> </p>
 
 ...without whom this work could not exist.

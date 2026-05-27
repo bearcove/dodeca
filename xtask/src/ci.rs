@@ -116,17 +116,11 @@ impl CiPlatform {
 // Configuration
 // =============================================================================
 
-/// Use self-hosted runner for macOS (true) or Depot (false).
-const MACOS_SELF_HOSTED: bool = false;
+/// Standard GitHub-hosted Linux runner.
+const GITHUB_LINUX_RUNNER: &str = "ubuntu-24.04";
 
-/// Use self-hosted runner for Linux (true) or Depot (false).
-const LINUX_SELF_HOSTED: bool = false;
-
-/// Self-hosted runner labels for GitHub macOS.
-const GITHUB_MACOS_LABELS: &[&str] = &["self-hosted", "macOS", "ARM64"];
-
-/// Self-hosted runner labels for GitHub Linux.
-const GITHUB_LINUX_LABELS: &[&str] = &["self-hosted", "Linux", "X64"];
+/// Standard GitHub-hosted macOS arm64 runner.
+const GITHUB_MACOS_RUNNER: &str = "macos-15";
 
 /// Self-hosted runner labels for Forgejo macOS.
 const FORGEJO_MACOS_LABELS: &[&str] = &["mac-arm64-metal"];
@@ -136,20 +130,11 @@ const FORGEJO_LINUX_LABELS: &[&str] = &["linux-amd64-metal"];
 
 /// Get target platforms for a specific CI platform.
 pub fn targets_for_platform(platform: CiPlatform) -> Vec<Target> {
-    let (linux_labels, macos_labels): (&[&str], &[&str]) = match platform {
-        CiPlatform::GitHub => (GITHUB_LINUX_LABELS, GITHUB_MACOS_LABELS),
-        CiPlatform::Forgejo => (FORGEJO_LINUX_LABELS, FORGEJO_MACOS_LABELS),
-    };
-
     vec![
         Target {
             triple: "x86_64-unknown-linux-gnu",
             os: "ubuntu-24.04",
-            runner: if LINUX_SELF_HOSTED {
-                RunnerSpec::labels(linux_labels)
-            } else {
-                RunnerSpec::single("depot-ubuntu-24.04-32")
-            },
+            runner: linux_runner(platform),
             lib_ext: "so",
             lib_prefix: "lib",
             archive_ext: "tar.xz",
@@ -157,11 +142,7 @@ pub fn targets_for_platform(platform: CiPlatform) -> Vec<Target> {
         Target {
             triple: "aarch64-apple-darwin",
             os: "macos-15",
-            runner: if MACOS_SELF_HOSTED {
-                RunnerSpec::labels(macos_labels)
-            } else {
-                RunnerSpec::single("depot-macos-15")
-            },
+            runner: macos_runner(platform),
             lib_ext: "dylib",
             lib_prefix: "lib",
             archive_ext: "tar.xz",
@@ -172,6 +153,22 @@ pub fn targets_for_platform(platform: CiPlatform) -> Vec<Target> {
 /// Target platforms for CI and releases (GitHub default for backwards compatibility).
 pub fn default_targets() -> Vec<Target> {
     targets_for_platform(CiPlatform::GitHub)
+}
+
+/// Get the Linux runner for a CI platform.
+fn linux_runner(platform: CiPlatform) -> RunnerSpec {
+    match platform {
+        CiPlatform::GitHub => RunnerSpec::single(GITHUB_LINUX_RUNNER),
+        CiPlatform::Forgejo => RunnerSpec::labels(FORGEJO_LINUX_LABELS),
+    }
+}
+
+/// Get the macOS runner for a CI platform.
+fn macos_runner(platform: CiPlatform) -> RunnerSpec {
+    match platform {
+        CiPlatform::GitHub => RunnerSpec::single(GITHUB_MACOS_RUNNER),
+        CiPlatform::Forgejo => RunnerSpec::labels(FORGEJO_MACOS_LABELS),
+    }
 }
 
 /// Discover cdylib plugins by scanning crates/dodeca-*/Cargo.toml for cdylib crate-type.
@@ -1122,18 +1119,12 @@ struct CiRunner {
 
 /// Get the CI Linux runner configuration for a platform.
 fn ci_linux_runner(platform: CiPlatform) -> CiRunner {
-    let labels = match platform {
-        CiPlatform::GitHub => GITHUB_LINUX_LABELS,
-        CiPlatform::Forgejo => FORGEJO_LINUX_LABELS,
-    };
+    let runner = linux_runner(platform);
+    let is_self_hosted = runner.is_self_hosted();
 
     CiRunner {
-        runner: if LINUX_SELF_HOSTED {
-            RunnerSpec::labels(labels)
-        } else {
-            RunnerSpec::single("depot-ubuntu-24.04-32")
-        },
-        wasm_install: if LINUX_SELF_HOSTED {
+        runner,
+        wasm_install: if is_self_hosted {
             // wasm-bindgen-cli should be pre-installed on self-hosted runners
             "true"
         } else {
