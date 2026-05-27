@@ -9,6 +9,7 @@
 //! Access via `Host::get()`. Get typed cell clients via `Host::client::<C>()`.
 //! For async spawning on demand, use `Host::client_async::<C>()`.
 
+use std::any::{Any, TypeId};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
@@ -69,6 +70,10 @@ pub struct Host {
     // -------------------------------------------------------------------------
     /// Build step executor (set when config is loaded).
     build_step_executor: std::sync::OnceLock<Arc<crate::build_steps::BuildStepExecutor>>,
+
+    /// Long-lived typed clients per cell service.
+    client_cache: DashMap<TypeId, Arc<dyn Any + Send + Sync>>,
+    client_cache_lock: Mutex<()>,
 }
 
 impl Host {
@@ -87,6 +92,8 @@ impl Host {
                 site_server: std::sync::OnceLock::new(),
                 vite_port: std::sync::OnceLock::new(),
                 build_step_executor: std::sync::OnceLock::new(),
+                client_cache: DashMap::new(),
+                client_cache_lock: Mutex::new(()),
             })
         })
     }
@@ -257,9 +264,36 @@ impl Host {
     /// Get a typed cell client, `dlopen`'ing the cell cdylib and establishing
     /// the vox-ffi link on first use, then opening a virtual connection for the
     /// cell's service.
-    pub async fn client_async<C: CellClient + vox::FromVoxSession>(&self) -> Option<C> {
+    pub async fn client_async<C>(&self) -> Option<C>
+    where
+        C: CellClient + vox::FromVoxSession + Clone + Send + Sync + 'static,
+    {
         let started_at = Instant::now();
         tracing::debug!(cell = C::CELL_NAME, "cell client requested");
+        let type_id = TypeId::of::<C>();
+        if let Some(cached) = self.client_cache.get(&type_id)
+            && let Ok(client) = cached.clone().downcast::<C>()
+        {
+            tracing::debug!(
+                cell = C::CELL_NAME,
+                elapsed_ms = started_at.elapsed().as_millis(),
+                "cell client cache hit"
+            );
+            return Some((*client).clone());
+        }
+
+        let _guard = self.client_cache_lock.lock().await;
+        if let Some(cached) = self.client_cache.get(&type_id)
+            && let Ok(client) = cached.clone().downcast::<C>()
+        {
+            tracing::debug!(
+                cell = C::CELL_NAME,
+                elapsed_ms = started_at.elapsed().as_millis(),
+                "cell client cache hit"
+            );
+            return Some((*client).clone());
+        }
+
         let session = crate::cell_loader::cell_session(C::CELL_NAME).await?;
         tracing::debug!(
             cell = C::CELL_NAME,
@@ -278,6 +312,7 @@ impl Host {
                     elapsed_ms = open_started_at.elapsed().as_millis(),
                     "cell service vconn open complete"
                 );
+                self.client_cache.insert(type_id, Arc::new(c.clone()));
                 Some(c)
             }
             Err(e) => {

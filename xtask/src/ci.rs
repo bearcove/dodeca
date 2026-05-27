@@ -1782,10 +1782,7 @@ cd "$STABLE_SRC"
 {maybe_check_ci}
 rustup target add wasm32-unknown-unknown
 {maybe_install_wasm_pack}cargo nextest run
-if ! cargo xtask integration; then
-  echo "integration suite failed; retrying once"
-  cargo xtask integration
-fi
+cargo xtask integration
 if [[ "${{GITHUB_REF_TYPE:-}}" == "tag" && -n "${{GITHUB_REF_NAME:-}}" ]]; then
   export DODECA_RELEASE_VERSION="${{GITHUB_REF_NAME}}"
 fi
