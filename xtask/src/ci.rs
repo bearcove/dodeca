@@ -1779,7 +1779,8 @@ if ! command -v wasm-bindgen >/dev/null 2>&1 || ! wasm-bindgen --version | grep 
   cargo install wasm-bindgen-cli@0.2.108 --locked
 fi
 cargo xtask wasm
-cargo nextest run --workspace --profile ci --no-fail-fast
+cargo build --workspace --exclude dodeca-devtools --exclude dodeca-search-wasm --verbose
+DODECA_CELL_PATH="$STABLE_SRC/target/debug" cargo nextest run --workspace --profile ci --no-fail-fast
 if [[ "${{GITHUB_REF_TYPE:-}}" == "tag" && -n "${{GITHUB_REF_NAME:-}}" ]]; then
   export DODECA_RELEASE_VERSION="${{GITHUB_REF_NAME}}"
 fi
