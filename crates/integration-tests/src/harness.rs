@@ -15,6 +15,7 @@
 //! - `DODECA_CELL_PATH`: Path to cell binaries (defaults to same dir as ddc)
 //! - `DODECA_TEST_WRAPPER`: Optional wrapper script/command to run ddc under
 //!   (e.g., "valgrind --leak-check=full" or "strace -f -o /tmp/trace.out")
+//! - `DODECA_HARNESS_HTTP_TIMEOUT_SECS`: Per-request HTTP timeout in seconds.
 //! - `DODECA_HARNESS_RAW_TCP`: Set to "1" to enable raw TCP probe mode for
 //!   connection diagnostics (measures connect/write/read phases separately)
 
@@ -37,7 +38,19 @@ use tokio::net::UnixListener;
 use tracing::{debug, error, info};
 
 // First requests may cold-start release cells and subset fonts on CI runners.
-const HTTP_TIMEOUT: Duration = Duration::from_secs(60);
+const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 60;
+static HTTP_TIMEOUT: OnceLock<Duration> = OnceLock::new();
+
+fn http_timeout() -> Duration {
+    *HTTP_TIMEOUT.get_or_init(|| {
+        std::env::var("DODECA_HARNESS_HTTP_TIMEOUT_SECS")
+            .ok()
+            .and_then(|raw| raw.parse::<u64>().ok())
+            .filter(|secs| *secs > 0)
+            .map(Duration::from_secs)
+            .unwrap_or_else(|| Duration::from_secs(DEFAULT_HTTP_TIMEOUT_SECS))
+    })
+}
 
 // Thread-local storage for the active test id (used to route logs).
 thread_local! {
@@ -685,7 +698,7 @@ impl TestSite {
     /// guarantees connections are never refused/reset during boot; they may
     /// stall until ready, but connect+write must never fail.
     pub fn get(&self, path: &str) -> Response {
-        self.get_with_timeout(path, HTTP_TIMEOUT)
+        self.get_with_timeout(path, http_timeout())
     }
 
     fn get_with_timeout(&self, path: &str, timeout: Duration) -> Response {
@@ -770,7 +783,7 @@ impl TestSite {
     pub fn get_bytes(&self, path: &str) -> Vec<u8> {
         let url = format!("http://127.0.0.1:{}{}", self.port, path);
         debug!("→ GET (bytes) {}", path);
-        match harness_http_agent(HTTP_TIMEOUT).get(&url).call() {
+        match harness_http_agent(http_timeout()).get(&url).call() {
             Ok(resp) => {
                 let status = resp.status().as_u16();
                 assert_eq!(status, 200, "GET {path}: expected 200, got {status}");

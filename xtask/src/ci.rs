@@ -1794,6 +1794,7 @@ if [[ "${{GITHUB_REF_TYPE:-}}" == "tag" && -n "${{GITHUB_REF_NAME:-}}" ]]; then
     exit 1
   fi
 fi
+export DODECA_HARNESS_HTTP_TIMEOUT_SECS=180
 if ! DODECA_INTEGRATION_PROFILE=release \
   DODECA_BIN="$STABLE_SRC/target/release/ddc" \
   DODECA_CELL_PATH="$STABLE_SRC/target/release" \
