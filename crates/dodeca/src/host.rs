@@ -214,6 +214,9 @@ pub trait CellClient: Sized {
     /// The cell's logical name (e.g., "sass", "markdown", "gingembre").
     /// The cdylib is `libddc_cell_{name}.{dylib,so,dll}`.
     const CELL_NAME: &'static str;
+
+    /// Whether the underlying Vox caller is still connected.
+    fn is_connected(&self) -> bool;
 }
 
 // ============================================================================
@@ -225,6 +228,10 @@ macro_rules! impl_cell_client {
     ($client:ty, $name:literal) => {
         impl CellClient for $client {
             const CELL_NAME: &'static str = $name;
+
+            fn is_connected(&self) -> bool {
+                self.caller.is_connected()
+            }
         }
     };
 }
@@ -261,6 +268,10 @@ impl_cell_client!(cell_vite_proto::ViteManagerClient, "vite");
 // ============================================================================
 
 impl Host {
+    pub fn clear_cell_client_cache(&self) {
+        self.client_cache.clear();
+    }
+
     /// Get a typed cell client, `dlopen`'ing the cell cdylib and establishing
     /// the vox-ffi link on first use, then opening a virtual connection for the
     /// cell's service.
@@ -274,24 +285,32 @@ impl Host {
         if let Some(cached) = self.client_cache.get(&type_id)
             && let Ok(client) = cached.clone().downcast::<C>()
         {
-            tracing::debug!(
-                cell = C::CELL_NAME,
-                elapsed_ms = started_at.elapsed().as_millis(),
-                "cell client cache hit"
-            );
-            return Some((*client).clone());
+            if client.is_connected() {
+                tracing::debug!(
+                    cell = C::CELL_NAME,
+                    elapsed_ms = started_at.elapsed().as_millis(),
+                    "cell client cache hit"
+                );
+                return Some((*client).clone());
+            }
+            tracing::debug!(cell = C::CELL_NAME, "cell client cache stale");
+            self.client_cache.remove(&type_id);
         }
 
         let _guard = self.client_cache_lock.lock().await;
         if let Some(cached) = self.client_cache.get(&type_id)
             && let Ok(client) = cached.clone().downcast::<C>()
         {
-            tracing::debug!(
-                cell = C::CELL_NAME,
-                elapsed_ms = started_at.elapsed().as_millis(),
-                "cell client cache hit"
-            );
-            return Some((*client).clone());
+            if client.is_connected() {
+                tracing::debug!(
+                    cell = C::CELL_NAME,
+                    elapsed_ms = started_at.elapsed().as_millis(),
+                    "cell client cache hit"
+                );
+                return Some((*client).clone());
+            }
+            tracing::debug!(cell = C::CELL_NAME, "cell client cache stale");
+            self.client_cache.remove(&type_id);
         }
 
         let session = crate::cell_loader::cell_session(C::CELL_NAME).await?;

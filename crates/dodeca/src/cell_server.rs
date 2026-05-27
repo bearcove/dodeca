@@ -534,24 +534,30 @@ async fn handle_browser_connection(
     let (inbound_tx, inbound_rx) = vox::channel::<Vec<u8>>();
     let (outbound_tx, mut outbound_rx) = vox::channel::<Vec<u8>>();
 
-    let open_started = Instant::now();
-    crate::spawn::spawn(async move {
+    let tunnel = async move {
+        let open_started = Instant::now();
         match tunnel_client.open(inbound_rx, outbound_tx).await {
-            Ok(()) => tracing::trace!(
-                conn_id,
-                open_elapsed_ms = open_started.elapsed().as_millis(),
-                "Tunnel open RPC returned"
-            ),
-            Err(err) => tracing::warn!(
-                conn_id,
-                open_elapsed_ms = open_started.elapsed().as_millis(),
-                ?err,
-                "Tunnel open RPC failed"
-            ),
+            Ok(()) => {
+                tracing::trace!(
+                    conn_id,
+                    open_elapsed_ms = open_started.elapsed().as_millis(),
+                    "Tunnel open RPC returned"
+                );
+                Ok(())
+            }
+            Err(err) => {
+                tracing::warn!(
+                    conn_id,
+                    open_elapsed_ms = open_started.elapsed().as_millis(),
+                    ?err,
+                    "Tunnel open RPC failed"
+                );
+                Err(eyre::eyre!("Tunnel open RPC failed: {:?}", err))
+            }
         }
-    });
+    };
 
-    crate::spawn::spawn(async move {
+    let bridge = async move {
         let bridge_started = Instant::now();
         tracing::trace!(conn_id, "browser <-> tunnel bridge: start");
         let (mut br, mut bw) = tokio::io::split(browser_stream);
@@ -593,7 +599,10 @@ async fn handle_browser_connection(
             elapsed_ms = bridge_started.elapsed().as_millis(),
             "browser <-> tunnel bridge: done"
         );
-    });
+    };
+
+    let (tunnel_result, ()) = tokio::join!(tunnel, bridge);
+    tunnel_result?;
 
     tracing::trace!(
         conn_id,

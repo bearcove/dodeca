@@ -152,7 +152,7 @@ impl vox::ConnectionAcceptor for HostAcceptor {
 /// vtable must outlive the link) and the established root session.
 struct LoadedCell {
     _lib: &'static Library,
-    session: SessionHandle,
+    root: vox::NoopClient,
 }
 
 static LOADED: std::sync::OnceLock<DashMap<String, Arc<LoadedCell>>> = std::sync::OnceLock::new();
@@ -167,8 +167,16 @@ fn loaded() -> &'static DashMap<String, Arc<LoadedCell>> {
 /// Returns `None` if the cell cdylib is missing or the link fails to establish.
 pub async fn cell_session(cell_name: &str) -> Option<SessionHandle> {
     if let Some(c) = loaded().get(cell_name) {
-        debug!(cell = cell_name, "cell session cache hit");
-        return Some(c.session.clone());
+        if c.root.caller.is_connected()
+            && let Some(session) = c.root.session.clone()
+        {
+            debug!(cell = cell_name, "cell session cache hit");
+            return Some(session);
+        }
+        debug!(cell = cell_name, "cell session cache stale");
+        drop(c);
+        loaded().remove(cell_name);
+        Host::get().clear_cell_client_cache();
     }
     debug!(cell = cell_name, "cell session cache miss");
     // Serialize concurrent first-loads of the same cell.
@@ -180,8 +188,19 @@ pub async fn cell_session(cell_name: &str) -> Option<SessionHandle> {
         "cell load lock acquired"
     );
     if let Some(c) = loaded().get(cell_name) {
-        debug!(cell = cell_name, "cell session cache filled while waiting");
-        return Some(c.session.clone());
+        if c.root.caller.is_connected()
+            && let Some(session) = c.root.session.clone()
+        {
+            debug!(cell = cell_name, "cell session cache filled while waiting");
+            return Some(session);
+        }
+        debug!(
+            cell = cell_name,
+            "cell session cache filled stale while waiting"
+        );
+        drop(c);
+        loaded().remove(cell_name);
+        Host::get().clear_cell_client_cache();
     }
 
     let path = cell_library_path(cell_name)?;
@@ -246,17 +265,20 @@ pub async fn cell_session(cell_name: &str) -> Option<SessionHandle> {
         "cell root session establish complete"
     );
     let session = root.session.clone()?;
-    // Keep the root NoopClient alive for the link's lifetime.
-    std::mem::forget(root);
+    let root_caller = root.caller.clone();
 
     loaded().insert(
         cell_name.to_string(),
-        Arc::new(LoadedCell {
-            _lib: lib,
-            session: session.clone(),
-        }),
+        Arc::new(LoadedCell { _lib: lib, root }),
     );
     debug!(cell = cell_name, "cell session published");
+    let cell_name_for_close = cell_name.to_string();
+    crate::spawn::spawn(async move {
+        root_caller.closed().await;
+        loaded().remove(&cell_name_for_close);
+        Host::get().clear_cell_client_cache();
+        debug!(cell = %cell_name_for_close, "cell session closed");
+    });
     Some(session)
 }
 

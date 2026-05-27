@@ -36,7 +36,7 @@ pub use vox_ffi;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::Instant;
-use tokio::sync::watch;
+use tokio::sync::{Mutex, watch};
 use vox::{ConnectionHandle, ConnectionSettings, Metadata, Parity, SessionHandle};
 
 /// Connection settings used for every virtual connection opened over a
@@ -58,7 +58,7 @@ pub fn connection_settings() -> ConnectionSettings {
 pub struct HostHandle {
     session: Arc<OnceLock<SessionHandle>>,
     session_tx: Arc<watch::Sender<Option<SessionHandle>>>,
-    client: Arc<OnceLock<HostServiceClient>>,
+    client: Arc<Mutex<Option<HostServiceClient>>>,
 }
 
 impl HostHandle {
@@ -67,7 +67,7 @@ impl HostHandle {
         Self {
             session: Arc::new(OnceLock::new()),
             session_tx: Arc::new(session_tx),
-            client: Arc::new(OnceLock::new()),
+            client: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -101,9 +101,14 @@ impl HostHandle {
 
     /// Get a `HostServiceClient`, opening the virtual connection on first use.
     pub async fn client(&self) -> HostServiceClient {
-        if let Some(c) = self.client.get() {
-            tracing::debug!("cell host service client cache hit");
-            return c.clone();
+        let mut cached = self.client.lock().await;
+        if let Some(c) = cached.as_ref() {
+            if c.caller.is_connected() {
+                tracing::debug!("cell host service client cache hit");
+                return c.clone();
+            }
+            tracing::debug!("cell host service client cache stale");
+            *cached = None;
         }
         let session = self.session().await;
         let started_at = Instant::now();
@@ -116,7 +121,7 @@ impl HostHandle {
             elapsed_ms = started_at.elapsed().as_millis(),
             "cell host service vconn open complete"
         );
-        let _ = self.client.set(client.clone());
+        *cached = Some(client.clone());
         client
     }
 
