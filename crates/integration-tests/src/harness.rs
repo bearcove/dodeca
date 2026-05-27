@@ -36,7 +36,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::net::UnixListener;
 use tracing::{debug, error, info};
 
-const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
+// First requests may cold-start release cells and subset fonts on CI runners.
+const HTTP_TIMEOUT: Duration = Duration::from_secs(60);
 
 // Thread-local storage for the active test id (used to route logs).
 thread_local! {
