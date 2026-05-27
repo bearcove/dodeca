@@ -22,21 +22,20 @@ jobs:
     name: Forgejo linux-x64
     runs-on:
       - linux-x86_64-trusted
-    container:
-      image: "code.vixen.rs/vixen/vixen-ci:latest"
-      volumes:
-        - "/srv/ci/cache/vixen:/ci-cache"
-      options: "--privileged"
     timeout-minutes: 90
     env:
-      HOME: /ci-cache/home
-      CARGO_HOME: /ci-cache/cargo
+      HOME: /srv/ci/cache/vixen/home
+      CARGO_HOME: /srv/ci/cache/vixen/cargo
       CARGO_INCREMENTAL: "1"
       FORGEJO_TOKEN: ${{ github.token }}
       RUST_BACKTRACE: "1"
     steps:
-      - name: Use bundled vixen-ci
-        run: vixen-ci --help >/dev/null
+      - name: Install vixen-ci
+        run: |-
+          mkdir -p "$RUNNER_TEMP/vixen-ci"
+          curl -fsSL https://vixen-misc.s3-website.fr-par.scw.cloud/vixen-ci/latest/vixen-ci -o "$RUNNER_TEMP/vixen-ci/vixen-ci"
+          chmod +x "$RUNNER_TEMP/vixen-ci/vixen-ci"
+          echo "$RUNNER_TEMP/vixen-ci" >> "$GITHUB_PATH"
       - name: Prepare Vixen CI
         run: vixen-ci prepare
         env:
@@ -47,21 +46,8 @@ jobs:
         run: vixen-ci rust-toolchain
       - name: Install nextest
         run: vixen-ci nextest
-      - name: Install rsync and date shim
-        run: |-
-          apt-get update && apt-get install -y --no-install-recommends rsync
-          mkdir -p "$RUNNER_TEMP/date-shim"
-          cat > "$RUNNER_TEMP/date-shim/date" <<'SH'
-          #!/usr/bin/env bash
-          if [[ "${1:-}" == "-u" && "${2:-}" == "-r" && "${3:-}" =~ ^[0-9]+$ ]]; then
-            ts="$3"
-            shift 3
-            exec /usr/bin/date -u -d "@$ts" "$@"
-          fi
-          exec /usr/bin/date "$@"
-          SH
-          chmod +x "$RUNNER_TEMP/date-shim/date"
-          echo "$RUNNER_TEMP/date-shim" >> "$GITHUB_PATH"
+      - name: Check rsync
+        run: rsync --version >/dev/null
       - name: Prepare stable source
         run: |-
           vixen-ci stable-src dodeca-linux-x64 \

@@ -1741,37 +1741,14 @@ fi
             ""
         };
 
-        let install_helper = if is_linux {
-            Step::run("Use bundled vixen-ci", "vixen-ci --help >/dev/null")
-        } else {
-            Step::run(
-                "Install vixen-ci",
-                r#"mkdir -p "$RUNNER_TEMP/vixen-ci"
+        let install_helper = Step::run(
+            "Install vixen-ci",
+            r#"mkdir -p "$RUNNER_TEMP/vixen-ci"
 curl -fsSL https://vixen-misc.s3-website.fr-par.scw.cloud/vixen-ci/latest/vixen-ci -o "$RUNNER_TEMP/vixen-ci/vixen-ci"
 chmod +x "$RUNNER_TEMP/vixen-ci/vixen-ci"
 echo "$RUNNER_TEMP/vixen-ci" >> "$GITHUB_PATH""#,
-            )
-        };
-        let install_rsync = if is_linux {
-            Step::run(
-                "Install rsync and date shim",
-                r#"apt-get update && apt-get install -y --no-install-recommends rsync
-mkdir -p "$RUNNER_TEMP/date-shim"
-cat > "$RUNNER_TEMP/date-shim/date" <<'SH'
-#!/usr/bin/env bash
-if [[ "${1:-}" == "-u" && "${2:-}" == "-r" && "${3:-}" =~ ^[0-9]+$ ]]; then
-  ts="$3"
-  shift 3
-  exec /usr/bin/date -u -d "@$ts" "$@"
-fi
-exec /usr/bin/date "$@"
-SH
-chmod +x "$RUNNER_TEMP/date-shim/date"
-echo "$RUNNER_TEMP/date-shim" >> "$GITHUB_PATH""#,
-            )
-        } else {
-            Step::run("Check rsync", "rsync --version >/dev/null")
-        };
+        );
+        let install_rsync = Step::run("Check rsync", "rsync --version >/dev/null");
 
         let prepare_stable_source = Step::run(
             "Prepare stable source",
@@ -1871,19 +1848,13 @@ ls -la "$GITHUB_WORKSPACE/dist/""#,
             ]);
 
         if is_linux {
-            job = job
-                .container(
-                    "code.vixen.rs/vixen/vixen-ci:latest",
-                    ["/srv/ci/cache/vixen:/ci-cache"],
-                )
-                .container_options("--privileged")
-                .env([
-                    ("HOME", "/ci-cache/home"),
-                    ("CARGO_HOME", "/ci-cache/cargo"),
-                    ("CARGO_INCREMENTAL", cargo_incremental),
-                    ("FORGEJO_TOKEN", "${{ github.token }}"),
-                    ("RUST_BACKTRACE", "1"),
-                ]);
+            job = job.env([
+                ("HOME", "/srv/ci/cache/vixen/home"),
+                ("CARGO_HOME", "/srv/ci/cache/vixen/cargo"),
+                ("CARGO_INCREMENTAL", cargo_incremental),
+                ("FORGEJO_TOKEN", "${{ github.token }}"),
+                ("RUST_BACKTRACE", "1"),
+            ]);
         }
 
         jobs.insert(job_id.to_string(), job);
