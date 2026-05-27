@@ -73,11 +73,11 @@ jobs:
             cargo install wasm-bindgen-cli@0.2.108 --locked
           fi
           cargo xtask wasm
-          set -euo pipefail
+          cargo nextest run --workspace --profile ci --no-fail-fast
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
             export DODECA_RELEASE_VERSION="${GITHUB_REF_NAME}"
           fi
-          cargo build --release --bin ddc --verbose
+          cargo build --release --workspace --exclude dodeca-devtools --exclude dodeca-search-wasm --verbose
           actual="$(target/release/ddc --version)"
           echo "$actual"
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
@@ -87,15 +87,14 @@ jobs:
               exit 1
             fi
           fi
-          cargo nextest run --workspace --profile ci --release --no-fail-fast --test-threads 1
-          cargo build --release --package cell-code-execution --package cell-css --package cell-data --package cell-dialoguer --package cell-fonts --package cell-gingembre --package cell-html --package cell-html-diff --package cell-http --package cell-image --package cell-js --package cell-jxl --package cell-linkcheck --package cell-markdown --package cell-minify --package cell-sass --package cell-search --package cell-svgo --package cell-term --package cell-tui --package cell-vite --package cell-webp --verbose
-          cargo build --package integration-tests
-          if ! DODECA_BIN="$STABLE_SRC/target/release/ddc" \
+          if ! DODECA_INTEGRATION_PROFILE=release \
+            DODECA_BIN="$STABLE_SRC/target/release/ddc" \
             DODECA_CELL_PATH="$STABLE_SRC/target/release" \
             DODECA_TEST_FIXTURES_DIR="$STABLE_SRC/crates/integration-tests/fixtures" \
             cargo xtask integration --no-build; then
             echo "integration suite failed; retrying once"
-            DODECA_BIN="$STABLE_SRC/target/release/ddc" \
+            DODECA_INTEGRATION_PROFILE=release \
+              DODECA_BIN="$STABLE_SRC/target/release/ddc" \
               DODECA_CELL_PATH="$STABLE_SRC/target/release" \
               DODECA_TEST_FIXTURES_DIR="$STABLE_SRC/crates/integration-tests/fixtures" \
               cargo xtask integration --no-build
@@ -352,11 +351,11 @@ jobs:
             cargo install wasm-bindgen-cli@0.2.108 --locked
           fi
           cargo xtask wasm
-          set -euo pipefail
+          cargo nextest run --workspace --profile ci --no-fail-fast
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
             export DODECA_RELEASE_VERSION="${GITHUB_REF_NAME}"
           fi
-          cargo build --release --bin ddc --verbose
+          cargo build --release --workspace --exclude dodeca-devtools --exclude dodeca-search-wasm --verbose
           actual="$(target/release/ddc --version)"
           echo "$actual"
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
@@ -366,15 +365,14 @@ jobs:
               exit 1
             fi
           fi
-          cargo nextest run --workspace --profile ci --release --no-fail-fast
-          cargo build --release --package cell-code-execution --package cell-css --package cell-data --package cell-dialoguer --package cell-fonts --package cell-gingembre --package cell-html --package cell-html-diff --package cell-http --package cell-image --package cell-js --package cell-jxl --package cell-linkcheck --package cell-markdown --package cell-minify --package cell-sass --package cell-search --package cell-svgo --package cell-term --package cell-tui --package cell-vite --package cell-webp --verbose
-          cargo build --package integration-tests
-          if ! DODECA_BIN="$STABLE_SRC/target/release/ddc" \
+          if ! DODECA_INTEGRATION_PROFILE=release \
+            DODECA_BIN="$STABLE_SRC/target/release/ddc" \
             DODECA_CELL_PATH="$STABLE_SRC/target/release" \
             DODECA_TEST_FIXTURES_DIR="$STABLE_SRC/crates/integration-tests/fixtures" \
             cargo xtask integration --no-build; then
             echo "integration suite failed; retrying once"
-            DODECA_BIN="$STABLE_SRC/target/release/ddc" \
+            DODECA_INTEGRATION_PROFILE=release \
+              DODECA_BIN="$STABLE_SRC/target/release/ddc" \
               DODECA_CELL_PATH="$STABLE_SRC/target/release" \
               DODECA_TEST_FIXTURES_DIR="$STABLE_SRC/crates/integration-tests/fixtures" \
               cargo xtask integration --no-build

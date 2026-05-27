@@ -1704,11 +1704,6 @@ pub fn build_forgejo_workflow(repo_root: &Utf8Path) -> Workflow {
             "forgejo-macos-arm64"
         };
 
-        let build_args = cells
-            .iter()
-            .map(|(pkg, _)| format!("--package {pkg}"))
-            .collect::<Vec<_>>()
-            .join(" ");
         let archive_name = format!("dodeca-{}.{}", target.triple, target.archive_ext);
         let stable_key = format!("dodeca-{short}");
         let cargo_incremental = if is_linux { "1" } else { "0" };
@@ -1723,7 +1718,6 @@ pub fn build_forgejo_workflow(repo_root: &Utf8Path) -> Workflow {
             r#"rm -rf "$CARGO_TARGET_DIR"/release/incremental "$CARGO_TARGET_DIR"/debug/incremental
 "#
         };
-        let nextest_threads = if is_linux { " --test-threads 1" } else { "" };
         let maybe_browser_tests = if is_linux {
             r#"DODECA_BIN="$STABLE_SRC/target/release/ddc" \
 DODECA_CELL_PATH="$STABLE_SRC/target/release" \
@@ -1785,16 +1779,28 @@ if ! command -v wasm-bindgen >/dev/null 2>&1 || ! wasm-bindgen --version | grep 
   cargo install wasm-bindgen-cli@0.2.108 --locked
 fi
 cargo xtask wasm
-{build_ddc}
-cargo nextest run --workspace --profile ci --release --no-fail-fast{nextest_threads}
-cargo build --release {build_args} --verbose
-cargo build --package integration-tests
-if ! DODECA_BIN="$STABLE_SRC/target/release/ddc" \
+cargo nextest run --workspace --profile ci --no-fail-fast
+if [[ "${{GITHUB_REF_TYPE:-}}" == "tag" && -n "${{GITHUB_REF_NAME:-}}" ]]; then
+  export DODECA_RELEASE_VERSION="${{GITHUB_REF_NAME}}"
+fi
+cargo build --release --workspace --exclude dodeca-devtools --exclude dodeca-search-wasm --verbose
+actual="$(target/release/ddc --version)"
+echo "$actual"
+if [[ "${{GITHUB_REF_TYPE:-}}" == "tag" && -n "${{GITHUB_REF_NAME:-}}" ]]; then
+  expected="ddc ${{GITHUB_REF_NAME#v}}"
+  if [[ "$actual" != "$expected" ]]; then
+    echo "Expected '$expected', got '$actual'" >&2
+    exit 1
+  fi
+fi
+if ! DODECA_INTEGRATION_PROFILE=release \
+  DODECA_BIN="$STABLE_SRC/target/release/ddc" \
   DODECA_CELL_PATH="$STABLE_SRC/target/release" \
   DODECA_TEST_FIXTURES_DIR="$STABLE_SRC/crates/integration-tests/fixtures" \
   cargo xtask integration --no-build; then
   echo "integration suite failed; retrying once"
-  DODECA_BIN="$STABLE_SRC/target/release/ddc" \
+  DODECA_INTEGRATION_PROFILE=release \
+    DODECA_BIN="$STABLE_SRC/target/release/ddc" \
     DODECA_CELL_PATH="$STABLE_SRC/target/release" \
     DODECA_TEST_FIXTURES_DIR="$STABLE_SRC/crates/integration-tests/fixtures" \
     cargo xtask integration --no-build
@@ -1806,7 +1812,6 @@ cp target/release/{lib_prefix}ddc_cell_*.{lib_ext} dist/
 chmod +x dist/ddc
 {verify}
 {maybe_browser_tests}"#,
-                build_ddc = BUILD_DDC_COMMAND,
                 lib_prefix = target.lib_prefix,
                 lib_ext = target.lib_ext,
                 verify = verify_artifacts_script(target, &cells),
