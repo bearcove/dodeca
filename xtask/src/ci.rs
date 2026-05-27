@@ -434,6 +434,14 @@ impl RunsOn {
     }
 }
 
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "kebab-case")]
+pub struct Container {
+    pub image: String,
+    #[facet(default, skip_serializing_if = Option::is_none)]
+    pub volumes: Option<Vec<String>>,
+}
+
 structstruck::strike! {
     /// A job in a workflow.
     #[structstruck::each[derive(Debug, Clone, Facet)]]
@@ -445,6 +453,10 @@ structstruck::strike! {
 
         /// The runner to use.
         pub runs_on: RunsOn,
+
+        /// Optional job container.
+        #[facet(default, skip_serializing_if = Option::is_none)]
+        pub container: Option<Container>,
 
         /// Maximum time in minutes for the job to run.
         #[facet(default, skip_serializing_if = Option::is_none)]
@@ -588,6 +600,7 @@ impl Job {
         Self {
             name: None,
             runs_on: RunsOn::single(runs_on),
+            container: None,
             timeout_minutes: None,
             needs: None,
             if_condition: None,
@@ -604,6 +617,7 @@ impl Job {
         Self {
             name: None,
             runs_on,
+            container: None,
             timeout_minutes: None,
             needs: None,
             if_condition: None,
@@ -624,6 +638,19 @@ impl Job {
     /// Set the display name for this job.
     pub fn name(mut self, name: impl Into<String>) -> Self {
         self.name = Some(name.into());
+        self
+    }
+
+    /// Run this job inside a container.
+    pub fn container(
+        mut self,
+        image: impl Into<String>,
+        volumes: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        self.container = Some(Container {
+            image: image.into(),
+            volumes: Some(volumes.into_iter().map(Into::into).collect()),
+        });
         self
     }
 
@@ -1638,361 +1665,182 @@ gh release create "{ref_name}" \
 }
 
 // =============================================================================
-// Forgejo CI workflow builder (SSH CAS artifacts)
+// Forgejo CI workflow builder (two fat vixen-ci jobs)
 // =============================================================================
 
-/// Build the Forgejo CI workflow with SSH-based CAS artifacts.
+/// Build the Forgejo CI workflow.
 ///
-/// This is completely separate from the GitHub workflow because:
-/// - Uses SSH + rsync for artifact storage (content-addressed, deduplicated)
-/// - Simpler structure optimized for self-hosted runners
+/// Forgejo has one trusted Linux runner and one macOS runner. Keep the workflow
+/// coarse: each platform builds, tests, assembles, and uploads only its final
+/// archive. Linux uses the shared vixen-ci image and mounted cache; macOS uses
+/// the same helper from its public copy.
 pub fn build_forgejo_workflow(repo_root: &Utf8Path) -> Workflow {
     use common::*;
 
     let platform = CiPlatform::Forgejo;
     let targets = targets_for_platform(platform);
     let cells = discover_cells(repo_root);
-    let groups = cell_groups(repo_root, 1);
-
-    // CAS env vars used by all artifact steps (SSH-based content-addressed storage)
-    let cas_env = cas_env();
-
-    // Run ID for S3 artifact paths
-    let run_id = "${{ github.run_id }}";
-
     let mut jobs = IndexMap::new();
-    let mut all_release_needs: Vec<String> = Vec::new();
 
-    // -------------------------------------------------------------------------
-    // Check CI files are up to date (no dependencies, runs in parallel)
-    // -------------------------------------------------------------------------
-    jobs.insert(
-        "check-ci".to_string(),
-        Job::with_runner(RunnerSpec::labels(FORGEJO_LINUX_LABELS).to_runs_on())
-            .name("Check CI up to date")
-            .timeout(10)
-            .steps([
-                checkout(platform),
-                install_rust(platform),
-                Step::run(
-                    "Check CI files are up to date",
-                    "cargo xtask ci-github --check && cargo xtask ci-forgejo --check",
-                ),
-            ]),
-    );
-
-    // -------------------------------------------------------------------------
-    // Build WASM job (must run before clippy and ddc builds)
-    // -------------------------------------------------------------------------
-    let wasm_job_id = "build-wasm".to_string();
-    jobs.insert(
-        wasm_job_id.clone(),
-        Job::with_runner(RunnerSpec::labels(FORGEJO_LINUX_LABELS).to_runs_on())
-            .name("Build WASM")
-            .timeout(30)
-            .env(cas_env.clone())
-            .steps([
-                checkout(platform),
-                install_rust_with_target(platform, "wasm32-unknown-unknown"),
-                Step::run(
-                    "Install wasm-bindgen-cli",
-                    "cargo install wasm-bindgen-cli@0.2.108 --locked",
-                ),
-                Step::run("Build WASM", "cargo xtask wasm"),
-                // Upload WASM bundles to CAS as a tarball.
-                Step::run(
-                    "Upload WASM to CAS",
-                    format!(
-                        r#"tar -czf /tmp/wasm.tar.gz crates/dodeca-devtools/pkg crates/dodeca-search-wasm/pkg
-./scripts/cas-upload.ts /tmp/wasm.tar.gz "ci/{run_id}/wasm.tar.gz""#
-                    ),
-                ),
-            ]),
-    );
-
-    // -------------------------------------------------------------------------
-    // Clippy job (depends on WASM because dodeca embeds bundles at compile time)
-    // -------------------------------------------------------------------------
-    jobs.insert(
-        "clippy".to_string(),
-        Job::with_runner(RunnerSpec::labels(FORGEJO_LINUX_LABELS).to_runs_on())
-            .name("Clippy")
-            .timeout(30)
-            .continue_on_error(true)
-            .needs([wasm_job_id.clone()])
-            .env(cas_env.clone())
-            .steps([
-                checkout(platform),
-                install_rust_with_components_and_target(
-                    platform,
-                    "clippy",
-                    "wasm32-unknown-unknown",
-                ),
-                // Download WASM bundles from CAS (embedded at compile time via include_bytes!).
-                Step::run(
-                    "Download WASM from CAS",
-                    format!(
-                        r#"./scripts/cas-download.ts "ci/{run_id}/wasm.tar.gz" /tmp/wasm.tar.gz
-tar -xzf /tmp/wasm.tar.gz"#
-                    ),
-                ),
-                Step::run(
-                    "Clippy",
-                    "cargo clippy --all-features --all-targets -- -D warnings",
-                ),
-            ]),
-    );
-
-    // -------------------------------------------------------------------------
-    // Per-target jobs
-    // -------------------------------------------------------------------------
     for target in &targets {
         let short = target.short_name();
+        let is_linux = target.triple == "x86_64-unknown-linux-gnu";
+        let job_id = if is_linux {
+            "forgejo-linux-x64"
+        } else {
+            "forgejo-macos-arm64"
+        };
 
-        // Build ddc (main binary) - depends on WASM for embedded bundles
-        let ddc_job_id = format!("build-ddc-{short}");
-        jobs.insert(
-            ddc_job_id.clone(),
-            Job::with_runner(target.runs_on())
-                .name(format!("Build ddc ({short})"))
-                .timeout(30)
-                .needs([wasm_job_id.clone()])
-                .env(cas_env.clone())
-                .steps([
-                    checkout(platform),
-                    install_rust(platform),
-                    // Download WASM bundles from CAS (embedded at compile time via include_bytes!).
-                    Step::run(
-                        "Download WASM from CAS",
-                        format!(
-                            r#"./scripts/cas-download.ts "ci/{run_id}/wasm.tar.gz" /tmp/wasm.tar.gz
-tar -xzf /tmp/wasm.tar.gz"#
-                        ),
-                    ),
-                    Step::run("Build ddc", BUILD_DDC_COMMAND).shell("bash"),
-                    Step::run("Test ddc", TEST_DDC_COMMAND).shell("bash"),
-                    Step::run(
-                        "Upload ddc to CAS",
-                        format!(
-                            r#"./scripts/cas-upload.ts target/release/ddc "ci/{run_id}/ddc-{short}""#
-                        ),
-                    ),
-                ]),
+        let build_args = cells
+            .iter()
+            .map(|(pkg, _)| format!("--package {pkg}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let test_args = build_args.clone();
+        let archive_name = format!("dodeca-{}.{}", target.triple, target.archive_ext);
+        let stable_key = format!("dodeca-{short}");
+        let maybe_check_ci = if is_linux {
+            "cargo xtask ci-github --check\ncargo xtask ci-forgejo --check\n"
+        } else {
+            ""
+        };
+        let maybe_browser_tests = if is_linux {
+            r#"DODECA_BIN="$STABLE_SRC/target/release/ddc" \
+DODECA_CELL_PATH="$STABLE_SRC/target/release" \
+  bash -lc 'cd "$STABLE_SRC/browser-tests" && npm ci && npx playwright install chromium --with-deps && npm test'
+"#
+        } else {
+            ""
+        };
+        let maybe_xz_install = if target.triple.contains("apple") {
+            r#"if ! command -v xz >/dev/null 2>&1 && command -v brew >/dev/null 2>&1; then
+  HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 brew install xz
+fi
+"#
+        } else {
+            ""
+        };
+
+        let install_helper = if is_linux {
+            Step::run("Use bundled vixen-ci", "vixen-ci --help >/dev/null")
+        } else {
+            Step::run(
+                "Install vixen-ci",
+                r#"mkdir -p "$RUNNER_TEMP/vixen-ci"
+curl -fsSL https://vixen-misc.s3-website.fr-par.scw.cloud/vixen-ci/latest/vixen-ci -o "$RUNNER_TEMP/vixen-ci/vixen-ci"
+chmod +x "$RUNNER_TEMP/vixen-ci/vixen-ci"
+echo "$RUNNER_TEMP/vixen-ci" >> "$GITHUB_PATH""#,
+            )
+        };
+
+        let prepare_stable_source = Step::run(
+            "Prepare stable source",
+            format!(
+                r#"vixen-ci stable-src {stable_key} \
+  --exclude=/crates/dodeca-devtools/pkg/ \
+  --exclude=/crates/dodeca-search-wasm/pkg/
+export STABLE_SRC="$HOME/.cache/vixen/{stable_key}-src"
+export CARGO_TARGET_DIR="$HOME/.cache/vixen/{stable_key}-target"
+cd "$STABLE_SRC"
+rm -rf target
+ln -s "$CARGO_TARGET_DIR" target
+echo "STABLE_SRC=$STABLE_SRC"
+echo "CARGO_TARGET_DIR=$CARGO_TARGET_DIR""#
+            ),
         );
 
-        // Build cell groups in parallel
-        let mut cell_group_jobs: Vec<String> = Vec::new();
-        for (group_num, cells) in &groups {
-            let group_job_id = format!("build-cells-{short}-{group_num}");
+        let build_and_test = Step::run(
+            "Build and test",
+            format!(
+                r#"set -euo pipefail
+cd "$STABLE_SRC"
+{maybe_check_ci}
+rustup target add wasm32-unknown-unknown
+if ! command -v wasm-bindgen >/dev/null 2>&1 || ! wasm-bindgen --version | grep -q '0\.2\.108'; then
+  cargo install wasm-bindgen-cli@0.2.108 --locked
+fi
+cargo xtask wasm
+{build_ddc}
+{test_ddc}
+cargo build --release {build_args} --verbose
+cargo test --release {test_args}
+cargo build --package integration-tests
+DODECA_BIN="$STABLE_SRC/target/release/ddc" \
+DODECA_CELL_PATH="$STABLE_SRC/target/release" \
+DODECA_TEST_FIXTURES_DIR="$STABLE_SRC/crates/integration-tests/fixtures" \
+  cargo xtask integration --no-build
+rm -rf dist
+mkdir -p dist
+cp target/release/ddc dist/
+cp target/release/{lib_prefix}ddc_cell_*.{lib_ext} dist/
+chmod +x dist/ddc
+{verify}
+{maybe_browser_tests}"#,
+                build_ddc = BUILD_DDC_COMMAND,
+                test_ddc = TEST_DDC_COMMAND,
+                lib_prefix = target.lib_prefix,
+                lib_ext = target.lib_ext,
+                verify = verify_artifacts_script(target, &cells),
+            ),
+        )
+        .shell("bash");
 
-            let build_args: String = cells
-                .iter()
-                .map(|(pkg, _)| format!("--package {pkg}"))
-                .collect::<Vec<_>>()
-                .join(" ");
+        let assemble = Step::run(
+            "Assemble archive",
+            format!(
+                r#"set -euo pipefail
+cd "$STABLE_SRC"
+{maybe_xz_install}bash scripts/assemble-archive.sh {triple}
+mkdir -p "$GITHUB_WORKSPACE/dist"
+cp "{archive_name}" "$GITHUB_WORKSPACE/dist/"
+ls -la "$GITHUB_WORKSPACE/dist/""#,
+                triple = target.triple,
+            ),
+        )
+        .shell("bash");
 
-            let test_args: String = cells
-                .iter()
-                .map(|(pkg, _)| format!("--package {pkg}"))
-                .collect::<Vec<_>>()
-                .join(" ");
+        let mut job = Job::with_runner(target.runs_on())
+            .name(format!("Forgejo {short}"))
+            .timeout(90)
+            .env([
+                ("CARGO_INCREMENTAL", "1"),
+                ("FORGEJO_TOKEN", "${{ github.token }}"),
+                ("RUST_BACKTRACE", "1"),
+            ])
+            .steps([
+                install_helper,
+                Step::run("Prepare Vixen CI", "vixen-ci prepare")
+                    .with_env([("DEPLOY_KEY", "${{ secrets.DEPLOY_KEY }}")]),
+                Step::run("Checkout", "vixen-ci checkout"),
+                Step::run("Rust toolchain", "vixen-ci rust-toolchain"),
+                Step::run("Install nextest", "vixen-ci nextest"),
+                prepare_stable_source,
+                build_and_test,
+                assemble,
+                upload_artifact(
+                    platform,
+                    format!("build-{short}"),
+                    format!("dist/{archive_name}"),
+                ),
+            ]);
 
-            let cell_names: String = cells
-                .iter()
-                .map(|(pkg, _)| pkg.as_str())
-                .collect::<Vec<_>>()
-                .join(", ");
-
-            // Upload cell cdylibs to CAS with pointer files (batch upload)
-            // Each group gets its own manifest to avoid overwriting
-            let binary_list: String = cells
-                .iter()
-                .map(|(_, lib_name)| {
-                    format!("target/release/{}", target.cell_library_filename(lib_name))
-                })
-                .collect::<Vec<_>>()
-                .join(" ");
-            let upload_script = format!(
-                r#"./scripts/cas-upload-batch.ts "ci/{run_id}/cells-{short}-{group_num}" {binary_list}"#
-            );
-
-            jobs.insert(
-                group_job_id.clone(),
-                Job::with_runner(target.runs_on())
-                    .name(format!("Build cells ({short}) [{cell_names}]"))
-                    .timeout(30)
-                    .env(cas_env.clone())
-                    .steps([
-                        checkout(platform),
-                        install_rust(platform),
-                        Step::run(
-                            "Build cells",
-                            format!("cargo build --release {build_args} --verbose"),
-                        ),
-                        Step::run("Test cells", format!("cargo test --release {test_args}")),
-                        Step::run("Upload cells to CAS", upload_script),
-                    ]),
-            );
-
-            cell_group_jobs.push(group_job_id);
+        if is_linux {
+            job = job
+                .container(
+                    "code.vixen.rs/vixen/vixen-ci:latest",
+                    ["/srv/ci/cache/vixen:/ci-cache"],
+                )
+                .env([
+                    ("HOME", "/ci-cache/home"),
+                    ("CARGO_HOME", "/ci-cache/cargo"),
+                    ("CARGO_INCREMENTAL", "1"),
+                    ("FORGEJO_TOKEN", "${{ github.token }}"),
+                    ("RUST_BACKTRACE", "1"),
+                ]);
         }
 
-        // Integration tests compile dodeca, which embeds WASM bundles at compile time.
-        let integration_job_id = format!("integration-{short}");
-        let mut integration_needs = vec![ddc_job_id.clone(), wasm_job_id.clone()];
-        integration_needs.extend(cell_group_jobs.clone());
-
-        let workspace_var = platform.context_var("workspace");
-
-        jobs.insert(
-            integration_job_id.clone(),
-            Job::with_runner(target.runs_on())
-                .name(format!("Integration ({short})"))
-                .timeout(30)
-                .needs(integration_needs)
-                .env(cas_env.clone())
-                .steps([
-                    checkout(platform),
-                    install_rust(platform),
-                    // Download WASM bundles from CAS before compiling integration-tests.
-                    Step::run(
-                        "Download WASM from CAS",
-                        format!(
-                            r#"./scripts/cas-download.ts "ci/{run_id}/wasm.tar.gz" /tmp/wasm.tar.gz
-tar -xzf /tmp/wasm.tar.gz"#
-                        ),
-                    ),
-                    // Build integration-tests binary (xtask will be built in debug, so build integration-tests in debug too)
-                    Step::run(
-                        "Build integration-tests",
-                        "cargo build --package integration-tests",
-                    ),
-                    // Download ddc from CAS
-                    Step::run(
-                        "Download ddc from CAS",
-                        format!(r#"./scripts/cas-download.ts "ci/{run_id}/ddc-{short}" dist/ddc"#),
-                    ),
-                    // Download cells from CAS - download all group manifests
-                    Step::run(
-                        "Download cells from CAS",
-                        {
-                            let download_commands: Vec<String> = groups.iter()
-                                .map(|(group_num, _)| {
-                                    format!(r#"./scripts/cas-download-batch.ts "ci/{run_id}/cells-{short}-{group_num}" dist/"#)
-                                })
-                                .collect();
-                            download_commands.join("\n")
-                        },
-                    ),
-                    Step::run("List binaries", "ls -la dist/"),
-                    Step::run("Verify artifacts", verify_artifacts_script(target, &cells)),
-                    Step::run(
-                        "Run integration tests",
-                        "cargo xtask integration --no-build",
-                    )
-                    .with_env([
-                        ("DODECA_BIN", format!("{}/dist/ddc", workspace_var)),
-                        ("DODECA_CELL_PATH", format!("{}/dist", workspace_var)),
-                        ("DODECA_TEST_FIXTURES_DIR", format!("{}/crates/integration-tests/fixtures", workspace_var)),
-                    ]),
-                ]),
-        );
-
-        // Assemble job
-        let assemble_job_id = format!("assemble-{short}");
-        let assemble_needs = vec![integration_job_id.clone(), wasm_job_id.clone()];
-
-        jobs.insert(
-            assemble_job_id.clone(),
-            Job::with_runner(target.runs_on())
-                .name(format!("Assemble ({short})"))
-                .timeout(30)
-                .needs(assemble_needs)
-                .env(cas_env.clone())
-                .steps([
-                    checkout(platform),
-                    // Download ddc from CAS
-                    Step::run(
-                        "Download ddc from CAS",
-                        format!(
-                            r#"./scripts/cas-download.ts "ci/{run_id}/ddc-{short}" target/release/ddc"#
-                        ),
-                    ),
-                    // Download cells from CAS - download all group manifests
-                    Step::run(
-                        "Download cells from CAS",
-                        {
-                            let download_commands: Vec<String> = groups.iter()
-                                .map(|(group_num, _)| {
-                                    format!(r#"./scripts/cas-download-batch.ts "ci/{run_id}/cells-{short}-{group_num}" target/release/"#)
-                                })
-                                .collect();
-                            download_commands.join("\n")
-                        },
-                    ),
-                    // Download WASM from CAS
-                    Step::run(
-                        "Download WASM from CAS",
-                        format!(
-                            r#"./scripts/cas-download.ts "ci/{run_id}/wasm.tar.gz" /tmp/wasm.tar.gz
-tar -xzf /tmp/wasm.tar.gz"#
-                        ),
-                    ),
-                    Step::run(
-                        "Install xz (macOS)",
-                        "if ! command -v xz >/dev/null 2>&1 && command -v brew >/dev/null 2>&1; then HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 brew install xz; fi",
-                    ),
-                    Step::run("List binaries", "ls -la target/release/"),
-                    Step::run(
-                        "Assemble archive",
-                        format!("bash scripts/assemble-archive.sh {}", target.triple),
-                    ),
-                    // Upload final archive to CAS
-                    Step::run(
-                        "Upload archive to CAS",
-                        format!(
-                            r#"./scripts/cas-upload.ts "dodeca-{triple}.{ext}" "ci/{run_id}/dodeca-{triple}.{ext}""#,
-                            triple = target.triple,
-                            ext = target.archive_ext
-                        ),
-                    ),
-                ]),
-        );
-
-        all_release_needs.push(assemble_job_id);
+        jobs.insert(job_id.to_string(), job);
     }
-
-    // -------------------------------------------------------------------------
-    // Release job
-    // -------------------------------------------------------------------------
-    let ref_name_var = platform.context_var("ref_name");
-    jobs.insert(
-        "release".into(),
-        Job::with_runner(RunnerSpec::labels(FORGEJO_LINUX_LABELS).to_runs_on())
-            .name("Release")
-            .timeout(30)
-            .needs(all_release_needs)
-            .if_condition("startsWith(github.ref, 'refs/tags/')")
-            .env(cas_env)
-            .steps([
-                checkout(platform),
-                // Download all archives from CAS
-                Step::run(
-                    "Download archives from CAS",
-                    format!(
-                        r#"mkdir -p dist
-./scripts/cas-download.ts "ci/{run_id}/dodeca-x86_64-unknown-linux-gnu.tar.xz" dist/dodeca-x86_64-unknown-linux-gnu.tar.xz
-./scripts/cas-download.ts "ci/{run_id}/dodeca-aarch64-apple-darwin.tar.xz" dist/dodeca-aarch64-apple-darwin.tar.xz
-ls -la dist/"#
-                    ),
-                ),
-                Step::run(
-                    "Show release info",
-                    format!(r#"echo "Release: {ref_name}"; ls -la dist/"#, ref_name = ref_name_var),
-                ),
-                // TODO: Add Forgejo release API call here if needed
-            ]),
-    );
 
     Workflow {
         name: "CI".into(),
