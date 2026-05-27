@@ -46,8 +46,21 @@ jobs:
         run: vixen-ci rust-toolchain
       - name: Install nextest
         run: vixen-ci nextest
-      - name: Install rsync
-        run: apt-get update && apt-get install -y --no-install-recommends rsync
+      - name: Install rsync and date shim
+        run: |-
+          apt-get update && apt-get install -y --no-install-recommends rsync
+          mkdir -p "$RUNNER_TEMP/date-shim"
+          cat > "$RUNNER_TEMP/date-shim/date" <<'SH'
+          #!/usr/bin/env bash
+          if [[ "${1:-}" == "-u" && "${2:-}" == "-r" && "${3:-}" =~ ^[0-9]+$ ]]; then
+            ts="$3"
+            shift 3
+            exec /usr/bin/date -u -d "@$ts" "$@"
+          fi
+          exec /usr/bin/date "$@"
+          SH
+          chmod +x "$RUNNER_TEMP/date-shim/date"
+          echo "$RUNNER_TEMP/date-shim" >> "$GITHUB_PATH"
       - name: Prepare stable source
         run: |-
           vixen-ci stable-src dodeca-linux-x64 \

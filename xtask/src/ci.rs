@@ -1734,8 +1734,20 @@ echo "$RUNNER_TEMP/vixen-ci" >> "$GITHUB_PATH""#,
         };
         let install_rsync = if is_linux {
             Step::run(
-                "Install rsync",
-                "apt-get update && apt-get install -y --no-install-recommends rsync",
+                "Install rsync and date shim",
+                r#"apt-get update && apt-get install -y --no-install-recommends rsync
+mkdir -p "$RUNNER_TEMP/date-shim"
+cat > "$RUNNER_TEMP/date-shim/date" <<'SH'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "-u" && "${2:-}" == "-r" && "${3:-}" =~ ^[0-9]+$ ]]; then
+  ts="$3"
+  shift 3
+  exec /usr/bin/date -u -d "@$ts" "$@"
+fi
+exec /usr/bin/date "$@"
+SH
+chmod +x "$RUNNER_TEMP/date-shim/date"
+echo "$RUNNER_TEMP/date-shim" >> "$GITHUB_PATH""#,
             )
         } else {
             Step::run("Check rsync", "rsync --version >/dev/null")
