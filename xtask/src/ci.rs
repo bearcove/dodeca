@@ -1782,7 +1782,6 @@ cd "$STABLE_SRC"
 {maybe_check_ci}
 rustup target add wasm32-unknown-unknown
 {maybe_install_wasm_pack}cargo nextest run
-export DODECA_HARNESS_HTTP_TIMEOUT_SECS=180
 if ! cargo xtask integration; then
   echo "integration suite failed; retrying once"
   cargo xtask integration

@@ -37,8 +37,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::net::UnixListener;
 use tracing::{debug, error, info};
 
-// First requests may cold-start release cells and subset fonts on CI runners.
-const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 60;
+const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 10;
 static HTTP_TIMEOUT: OnceLock<Duration> = OnceLock::new();
 
 fn http_timeout() -> Duration {

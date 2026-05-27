@@ -464,7 +464,7 @@ fn run_integration_tests(no_build: bool, extra_args: &[&str]) -> bool {
     }
 
     // Run the integration-tests binary
-    eprintln!("Running integration tests...");
+    eprintln!("Launching integration test binary...");
 
     let mut cmd = Command::new(&integration_bin);
     cmd.args(extra_args);
