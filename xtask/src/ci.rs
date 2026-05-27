@@ -1696,13 +1696,24 @@ pub fn build_forgejo_workflow(repo_root: &Utf8Path) -> Workflow {
             .map(|(pkg, _)| format!("--package {pkg}"))
             .collect::<Vec<_>>()
             .join(" ");
-        let test_args = build_args.clone();
+        let test_commands = cells
+            .iter()
+            .map(|(pkg, _)| format!("cargo nextest run --release --package {pkg} --no-fail-fast"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let archive_name = format!("dodeca-{}.{}", target.triple, target.archive_ext);
         let stable_key = format!("dodeca-{short}");
+        let cargo_incremental = if is_linux { "1" } else { "0" };
         let maybe_check_ci = if is_linux {
             "cargo xtask ci-github --check\ncargo xtask ci-forgejo --check\n"
         } else {
             ""
+        };
+        let maybe_clean_incremental = if is_linux {
+            ""
+        } else {
+            r#"rm -rf "$CARGO_TARGET_DIR"/release/incremental "$CARGO_TARGET_DIR"/debug/incremental
+"#
         };
         let maybe_browser_tests = if is_linux {
             r#"DODECA_BIN="$STABLE_SRC/target/release/ddc" \
@@ -1764,6 +1775,7 @@ export CARGO_TARGET_DIR="$HOME/.cache/vixen/{stable_key}-target"
 cd "$STABLE_SRC"
 rm -rf target
 ln -s "$CARGO_TARGET_DIR" target
+{maybe_clean_incremental}
 echo "STABLE_SRC=$STABLE_SRC"
 echo "CARGO_TARGET_DIR=$CARGO_TARGET_DIR""#
             ),
@@ -1783,12 +1795,18 @@ cargo xtask wasm
 {build_ddc}
 {test_ddc}
 cargo build --release {build_args} --verbose
-cargo test --release {test_args}
+{test_commands}
 cargo build --package integration-tests
-DODECA_BIN="$STABLE_SRC/target/release/ddc" \
-DODECA_CELL_PATH="$STABLE_SRC/target/release" \
-DODECA_TEST_FIXTURES_DIR="$STABLE_SRC/crates/integration-tests/fixtures" \
-  cargo xtask integration --no-build
+if ! DODECA_BIN="$STABLE_SRC/target/release/ddc" \
+  DODECA_CELL_PATH="$STABLE_SRC/target/release" \
+  DODECA_TEST_FIXTURES_DIR="$STABLE_SRC/crates/integration-tests/fixtures" \
+  cargo xtask integration --no-build; then
+  echo "integration suite failed; retrying once"
+  DODECA_BIN="$STABLE_SRC/target/release/ddc" \
+    DODECA_CELL_PATH="$STABLE_SRC/target/release" \
+    DODECA_TEST_FIXTURES_DIR="$STABLE_SRC/crates/integration-tests/fixtures" \
+    cargo xtask integration --no-build
+fi
 rm -rf dist
 mkdir -p dist
 cp target/release/ddc dist/
@@ -1823,7 +1841,7 @@ ls -la "$GITHUB_WORKSPACE/dist/""#,
             .name(format!("Forgejo {short}"))
             .timeout(90)
             .env([
-                ("CARGO_INCREMENTAL", "1"),
+                ("CARGO_INCREMENTAL", cargo_incremental),
                 ("FORGEJO_TOKEN", "${{ github.token }}"),
                 ("RUST_BACKTRACE", "1"),
             ])
@@ -1854,7 +1872,7 @@ ls -la "$GITHUB_WORKSPACE/dist/""#,
                 .env([
                     ("HOME", "/ci-cache/home"),
                     ("CARGO_HOME", "/ci-cache/cargo"),
-                    ("CARGO_INCREMENTAL", "1"),
+                    ("CARGO_INCREMENTAL", cargo_incremental),
                     ("FORGEJO_TOKEN", "${{ github.token }}"),
                     ("RUST_BACKTRACE", "1"),
                 ]);

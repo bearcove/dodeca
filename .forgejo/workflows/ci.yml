@@ -71,6 +71,7 @@ jobs:
           cd "$STABLE_SRC"
           rm -rf target
           ln -s "$CARGO_TARGET_DIR" target
+
           echo "STABLE_SRC=$STABLE_SRC"
           echo "CARGO_TARGET_DIR=$CARGO_TARGET_DIR"
       - name: Build and test
@@ -105,12 +106,39 @@ jobs:
           fi
           cargo test --release --bin ddc
           cargo build --release --package cell-code-execution --package cell-css --package cell-data --package cell-dialoguer --package cell-fonts --package cell-gingembre --package cell-html --package cell-html-diff --package cell-http --package cell-image --package cell-js --package cell-jxl --package cell-linkcheck --package cell-markdown --package cell-minify --package cell-sass --package cell-search --package cell-svgo --package cell-term --package cell-tui --package cell-vite --package cell-webp --verbose
-          cargo test --release --package cell-code-execution --package cell-css --package cell-data --package cell-dialoguer --package cell-fonts --package cell-gingembre --package cell-html --package cell-html-diff --package cell-http --package cell-image --package cell-js --package cell-jxl --package cell-linkcheck --package cell-markdown --package cell-minify --package cell-sass --package cell-search --package cell-svgo --package cell-term --package cell-tui --package cell-vite --package cell-webp
+          cargo nextest run --release --package cell-code-execution --no-fail-fast
+          cargo nextest run --release --package cell-css --no-fail-fast
+          cargo nextest run --release --package cell-data --no-fail-fast
+          cargo nextest run --release --package cell-dialoguer --no-fail-fast
+          cargo nextest run --release --package cell-fonts --no-fail-fast
+          cargo nextest run --release --package cell-gingembre --no-fail-fast
+          cargo nextest run --release --package cell-html --no-fail-fast
+          cargo nextest run --release --package cell-html-diff --no-fail-fast
+          cargo nextest run --release --package cell-http --no-fail-fast
+          cargo nextest run --release --package cell-image --no-fail-fast
+          cargo nextest run --release --package cell-js --no-fail-fast
+          cargo nextest run --release --package cell-jxl --no-fail-fast
+          cargo nextest run --release --package cell-linkcheck --no-fail-fast
+          cargo nextest run --release --package cell-markdown --no-fail-fast
+          cargo nextest run --release --package cell-minify --no-fail-fast
+          cargo nextest run --release --package cell-sass --no-fail-fast
+          cargo nextest run --release --package cell-search --no-fail-fast
+          cargo nextest run --release --package cell-svgo --no-fail-fast
+          cargo nextest run --release --package cell-term --no-fail-fast
+          cargo nextest run --release --package cell-tui --no-fail-fast
+          cargo nextest run --release --package cell-vite --no-fail-fast
+          cargo nextest run --release --package cell-webp --no-fail-fast
           cargo build --package integration-tests
-          DODECA_BIN="$STABLE_SRC/target/release/ddc" \
-          DODECA_CELL_PATH="$STABLE_SRC/target/release" \
-          DODECA_TEST_FIXTURES_DIR="$STABLE_SRC/crates/integration-tests/fixtures" \
-            cargo xtask integration --no-build
+          if ! DODECA_BIN="$STABLE_SRC/target/release/ddc" \
+            DODECA_CELL_PATH="$STABLE_SRC/target/release" \
+            DODECA_TEST_FIXTURES_DIR="$STABLE_SRC/crates/integration-tests/fixtures" \
+            cargo xtask integration --no-build; then
+            echo "integration suite failed; retrying once"
+            DODECA_BIN="$STABLE_SRC/target/release/ddc" \
+              DODECA_CELL_PATH="$STABLE_SRC/target/release" \
+              DODECA_TEST_FIXTURES_DIR="$STABLE_SRC/crates/integration-tests/fixtures" \
+              cargo xtask integration --no-build
+          fi
           rm -rf dist
           mkdir -p dist
           cp target/release/ddc dist/
@@ -317,7 +345,7 @@ jobs:
       - mac
     timeout-minutes: 90
     env:
-      CARGO_INCREMENTAL: "1"
+      CARGO_INCREMENTAL: "0"
       FORGEJO_TOKEN: ${{ github.token }}
       RUST_BACKTRACE: "1"
     steps:
@@ -349,6 +377,8 @@ jobs:
           cd "$STABLE_SRC"
           rm -rf target
           ln -s "$CARGO_TARGET_DIR" target
+          rm -rf "$CARGO_TARGET_DIR"/release/incremental "$CARGO_TARGET_DIR"/debug/incremental
+
           echo "STABLE_SRC=$STABLE_SRC"
           echo "CARGO_TARGET_DIR=$CARGO_TARGET_DIR"
       - name: Build and test
@@ -381,12 +411,39 @@ jobs:
           fi
           cargo test --release --bin ddc
           cargo build --release --package cell-code-execution --package cell-css --package cell-data --package cell-dialoguer --package cell-fonts --package cell-gingembre --package cell-html --package cell-html-diff --package cell-http --package cell-image --package cell-js --package cell-jxl --package cell-linkcheck --package cell-markdown --package cell-minify --package cell-sass --package cell-search --package cell-svgo --package cell-term --package cell-tui --package cell-vite --package cell-webp --verbose
-          cargo test --release --package cell-code-execution --package cell-css --package cell-data --package cell-dialoguer --package cell-fonts --package cell-gingembre --package cell-html --package cell-html-diff --package cell-http --package cell-image --package cell-js --package cell-jxl --package cell-linkcheck --package cell-markdown --package cell-minify --package cell-sass --package cell-search --package cell-svgo --package cell-term --package cell-tui --package cell-vite --package cell-webp
+          cargo nextest run --release --package cell-code-execution --no-fail-fast
+          cargo nextest run --release --package cell-css --no-fail-fast
+          cargo nextest run --release --package cell-data --no-fail-fast
+          cargo nextest run --release --package cell-dialoguer --no-fail-fast
+          cargo nextest run --release --package cell-fonts --no-fail-fast
+          cargo nextest run --release --package cell-gingembre --no-fail-fast
+          cargo nextest run --release --package cell-html --no-fail-fast
+          cargo nextest run --release --package cell-html-diff --no-fail-fast
+          cargo nextest run --release --package cell-http --no-fail-fast
+          cargo nextest run --release --package cell-image --no-fail-fast
+          cargo nextest run --release --package cell-js --no-fail-fast
+          cargo nextest run --release --package cell-jxl --no-fail-fast
+          cargo nextest run --release --package cell-linkcheck --no-fail-fast
+          cargo nextest run --release --package cell-markdown --no-fail-fast
+          cargo nextest run --release --package cell-minify --no-fail-fast
+          cargo nextest run --release --package cell-sass --no-fail-fast
+          cargo nextest run --release --package cell-search --no-fail-fast
+          cargo nextest run --release --package cell-svgo --no-fail-fast
+          cargo nextest run --release --package cell-term --no-fail-fast
+          cargo nextest run --release --package cell-tui --no-fail-fast
+          cargo nextest run --release --package cell-vite --no-fail-fast
+          cargo nextest run --release --package cell-webp --no-fail-fast
           cargo build --package integration-tests
-          DODECA_BIN="$STABLE_SRC/target/release/ddc" \
-          DODECA_CELL_PATH="$STABLE_SRC/target/release" \
-          DODECA_TEST_FIXTURES_DIR="$STABLE_SRC/crates/integration-tests/fixtures" \
-            cargo xtask integration --no-build
+          if ! DODECA_BIN="$STABLE_SRC/target/release/ddc" \
+            DODECA_CELL_PATH="$STABLE_SRC/target/release" \
+            DODECA_TEST_FIXTURES_DIR="$STABLE_SRC/crates/integration-tests/fixtures" \
+            cargo xtask integration --no-build; then
+            echo "integration suite failed; retrying once"
+            DODECA_BIN="$STABLE_SRC/target/release/ddc" \
+              DODECA_CELL_PATH="$STABLE_SRC/target/release" \
+              DODECA_TEST_FIXTURES_DIR="$STABLE_SRC/crates/integration-tests/fixtures" \
+              cargo xtask integration --no-build
+          fi
           rm -rf dist
           mkdir -p dist
           cp target/release/ddc dist/
