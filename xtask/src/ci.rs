@@ -1750,8 +1750,8 @@ echo "$RUNNER_TEMP/vixen-ci" >> "$GITHUB_PATH""#,
         );
         let install_rsync = if is_linux {
             Step::run(
-                "Install rsync",
-                "apt-get update && apt-get install -y --no-install-recommends rsync",
+                "Install Linux build tools",
+                "apt-get update && apt-get install -y --no-install-recommends cmake rsync",
             )
         } else {
             Step::run("Check rsync", "rsync --version >/dev/null")
