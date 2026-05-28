@@ -1741,6 +1741,99 @@ fn prune_missing_sources(config: &file_watcher::WatcherConfig, server: &serve::S
 
 type FileEventHandler = Arc<dyn Fn(&file_watcher::FileEvent) + Send + Sync>;
 
+fn expand_file_events(
+    batch: Vec<file_watcher::FileEvent>,
+    config: &file_watcher::WatcherConfig,
+    on_event: Option<&FileEventHandler>,
+) -> Vec<file_watcher::FileEvent> {
+    let mut expanded = Vec::new();
+
+    for file_event in batch {
+        match file_event {
+            file_watcher::FileEvent::DirectoryCreated(path) => {
+                if let Some(cb) = on_event {
+                    cb(&file_watcher::FileEvent::DirectoryCreated(path.clone()));
+                }
+                let mut scanned =
+                    file_watcher::scan_directory_recursive(path.as_std_path(), config);
+                for event in &scanned {
+                    if let Some(cb) = on_event {
+                        cb(event);
+                    }
+                }
+                expanded.append(&mut scanned);
+            }
+            other => {
+                if let Some(cb) = on_event {
+                    cb(&other);
+                }
+                expanded.push(other);
+            }
+        }
+    }
+
+    expanded
+}
+
+fn apply_file_events_blocking(
+    batch: Vec<file_watcher::FileEvent>,
+    config: &file_watcher::WatcherConfig,
+    server: &serve::SiteServer,
+    on_event: Option<&FileEventHandler>,
+) {
+    let expanded = expand_file_events(batch, config, on_event);
+
+    let should_prune_sources = expanded.iter().any(|event| match event {
+        file_watcher::FileEvent::Changed(path) | file_watcher::FileEvent::Removed(path) => {
+            config.categorize(path) == file_watcher::PathCategory::Content
+        }
+        file_watcher::FileEvent::DirectoryCreated(path) => {
+            config.categorize(path) == file_watcher::PathCategory::Content
+        }
+    });
+
+    for file_event in expanded {
+        match file_event {
+            file_watcher::FileEvent::Changed(path) => {
+                handle_file_changed(&path, config, server);
+            }
+            file_watcher::FileEvent::Removed(path) => {
+                handle_file_removed(&path, config, server);
+            }
+            file_watcher::FileEvent::DirectoryCreated(_) => {}
+        }
+    }
+
+    if should_prune_sources {
+        prune_missing_sources(config, server);
+    }
+}
+
+fn drain_startup_file_events(
+    watcher: &file_watcher::WatcherHandle,
+    watcher_rx: &file_watcher::WatcherReceiver,
+    config: &file_watcher::WatcherConfig,
+    server: &serve::SiteServer,
+    on_event: Option<&FileEventHandler>,
+) {
+    let mut file_events = Vec::new();
+
+    while let Ok(event) = watcher_rx.try_recv() {
+        let Ok(event) = event else { continue };
+        file_events.extend(file_watcher::process_notify_event(event, config, watcher));
+    }
+
+    if file_events.is_empty() {
+        return;
+    }
+
+    tracing::debug!(
+        count = file_events.len(),
+        "file watcher: applying startup events before readiness"
+    );
+    apply_file_events_blocking(file_events, config, server, on_event);
+}
+
 async fn start_file_watcher(
     server: Arc<serve::SiteServer>,
     watcher_config: file_watcher::WatcherConfig,
@@ -1748,6 +1841,25 @@ async fn start_file_watcher(
     after_apply: Option<Arc<dyn Fn() + Send + Sync>>,
 ) -> Result<()> {
     let (watcher, watcher_rx) = file_watcher::create_watcher(&watcher_config)?;
+    start_file_watcher_from_receiver(
+        server,
+        watcher_config,
+        on_event,
+        after_apply,
+        watcher,
+        watcher_rx,
+    )
+    .await
+}
+
+async fn start_file_watcher_from_receiver(
+    server: Arc<serve::SiteServer>,
+    watcher_config: file_watcher::WatcherConfig,
+    on_event: Option<FileEventHandler>,
+    after_apply: Option<Arc<dyn Fn() + Send + Sync>>,
+    watcher: file_watcher::WatcherHandle,
+    watcher_rx: file_watcher::WatcherReceiver,
+) -> Result<()> {
     let (event_tx, mut event_rx) =
         tokio::sync::mpsc::unbounded_channel::<file_watcher::FileEvent>();
 
@@ -1812,60 +1924,7 @@ async fn start_file_watcher(
             let token = active_revision.take();
 
             let apply_result = tokio::task::spawn_blocking(move || {
-                let mut expanded: Vec<file_watcher::FileEvent> = Vec::new();
-
-                for file_event in batch {
-                    match file_event {
-                        file_watcher::FileEvent::DirectoryCreated(path) => {
-                            if let Some(cb) = &on_event {
-                                cb(&file_watcher::FileEvent::DirectoryCreated(path.clone()));
-                            }
-                            let mut scanned = file_watcher::scan_directory_recursive(
-                                path.as_std_path(),
-                                &config_apply,
-                            );
-                            for event in &scanned {
-                                if let Some(cb) = &on_event {
-                                    cb(event);
-                                }
-                            }
-                            expanded.append(&mut scanned);
-                        }
-                        other => {
-                            if let Some(cb) = &on_event {
-                                cb(&other);
-                            }
-                            expanded.push(other);
-                        }
-                    }
-                }
-
-                let should_prune_sources = expanded.iter().any(|event| match event {
-                    file_watcher::FileEvent::Changed(path)
-                    | file_watcher::FileEvent::Removed(path) => {
-                        config_apply.categorize(path) == file_watcher::PathCategory::Content
-                    }
-                    file_watcher::FileEvent::DirectoryCreated(path) => {
-                        config_apply.categorize(path) == file_watcher::PathCategory::Content
-                    }
-                });
-
-                for file_event in expanded {
-                    match file_event {
-                        file_watcher::FileEvent::Changed(path) => {
-                            handle_file_changed(&path, &config_apply, &server_apply);
-                        }
-                        file_watcher::FileEvent::Removed(path) => {
-                            handle_file_removed(&path, &config_apply, &server_apply);
-                        }
-                        file_watcher::FileEvent::DirectoryCreated(_) => {}
-                    }
-                }
-
-                if should_prune_sources {
-                    prune_missing_sources(&config_apply, &server_apply);
-                }
-
+                apply_file_events_blocking(batch, &config_apply, &server_apply, on_event.as_ref());
                 (server_apply, after_apply)
             })
             .await;
@@ -1994,6 +2053,11 @@ async fn serve_plain(
     // Initialize asset cache (processed images, OG images, etc.)
     let parent_dir = content_dir.parent().unwrap_or(content_dir);
     let cache_dir = parent_dir.join(".cache");
+    let templates_dir = parent_dir.join("templates");
+    let sass_dir = parent_dir.join("sass");
+    let static_dir = parent_dir.join("static");
+    let dist_dir = parent_dir.join("dist");
+    let data_dir = parent_dir.join("data");
     tracing::info!(
         content_dir = %content_dir,
         cache_dir = %cache_dir,
@@ -2017,6 +2081,28 @@ async fn serve_plain(
         Some(content_dir.to_path_buf()),
     ));
     let startup_revision = server.begin_revision("startup");
+
+    let watcher_config = file_watcher::WatcherConfig {
+        content_dir: content_dir
+            .canonicalize_utf8()
+            .unwrap_or_else(|_| content_dir.clone()),
+        templates_dir: templates_dir
+            .canonicalize_utf8()
+            .unwrap_or_else(|_| templates_dir.clone()),
+        sass_dir: sass_dir
+            .canonicalize_utf8()
+            .unwrap_or_else(|_| sass_dir.clone()),
+        static_dir: static_dir
+            .canonicalize_utf8()
+            .unwrap_or_else(|_| static_dir.clone()),
+        dist_dir: dist_dir
+            .canonicalize_utf8()
+            .unwrap_or_else(|_| dist_dir.clone()),
+        data_dir: data_dir
+            .canonicalize_utf8()
+            .unwrap_or_else(|_| data_dir.clone()),
+    };
+    let (startup_watcher, startup_watcher_rx) = file_watcher::create_watcher(&watcher_config)?;
 
     // Use the requested port (or default to 4000)
     let requested_port: u16 = port.unwrap_or(4000);
@@ -2101,9 +2187,6 @@ async fn serve_plain(
     println!("  Loaded {} source files", md_files.len());
 
     // Load templates
-    let parent_dir = content_dir.parent().unwrap_or(content_dir);
-    let templates_dir = parent_dir.join("templates");
-
     if templates_dir.exists() {
         let template_files: Vec<Utf8PathBuf> = WalkBuilder::new(&templates_dir)
             .build()
@@ -2140,8 +2223,6 @@ async fn serve_plain(
     }
 
     // Load static files into picante (from static/ and dist/, with dist/ taking priority)
-    let static_dir = parent_dir.join("static");
-    let dist_dir = parent_dir.join("dist");
     {
         let db = &*server.db;
         let mut static_files_map: std::collections::BTreeMap<String, StaticFile> =
@@ -2211,7 +2292,6 @@ async fn serve_plain(
     }
 
     // Load data files into picante
-    let data_dir = parent_dir.join("data");
     if data_dir.exists() {
         let walker = WalkBuilder::new(&data_dir).build();
         let db = &*server.db;
@@ -2241,7 +2321,6 @@ async fn serve_plain(
     }
 
     // Load SASS files into picante (CSS compiled on-demand via query)
-    let sass_dir = parent_dir.join("sass");
     if sass_dir.exists() {
         let sass_files_list: Vec<Utf8PathBuf> = WalkBuilder::new(&sass_dir)
             .build()
@@ -2276,43 +2355,7 @@ async fn serve_plain(
         println!("  Loaded {} SASS files", count);
     }
 
-    // Mark the startup revision as ready before accepting requests.
-    server.end_revision(startup_revision);
-    tracing::info!("startup revision ready (serve_plain)");
-
-    // Set up file watcher for live reload using the file_watcher module
-    // This handles:
-    // - File creation, modification, and deletion
-    // - File moves/renames (treating as delete + create)
-    // - New directory detection (adds to watcher)
-    let templates_dir = parent_dir.join("templates");
-    let sass_dir = parent_dir.join("sass");
-    // data_dir already defined above when loading data files
-
-    // Canonicalize paths for comparison with notify events
-    let dist_dir = parent_dir.join("dist");
-    let watcher_config = file_watcher::WatcherConfig {
-        content_dir: content_dir
-            .canonicalize_utf8()
-            .unwrap_or_else(|_| content_dir.clone()),
-        templates_dir: templates_dir
-            .canonicalize_utf8()
-            .unwrap_or_else(|_| templates_dir.clone()),
-        sass_dir: sass_dir
-            .canonicalize_utf8()
-            .unwrap_or_else(|_| sass_dir.clone()),
-        static_dir: static_dir
-            .canonicalize_utf8()
-            .unwrap_or_else(|_| static_dir.clone()),
-        dist_dir: dist_dir
-            .canonicalize_utf8()
-            .unwrap_or_else(|_| dist_dir.clone()),
-        data_dir: data_dir
-            .canonicalize_utf8()
-            .unwrap_or_else(|_| data_dir.clone()),
-    };
-
-    let on_event = Arc::new(|event: &file_watcher::FileEvent| match event {
+    let on_event: FileEventHandler = Arc::new(|event: &file_watcher::FileEvent| match event {
         file_watcher::FileEvent::Changed(path) => {
             println!("  Changed: {}", path.file_name().unwrap_or("?"));
         }
@@ -2332,7 +2375,27 @@ async fn serve_plain(
         }
     });
 
-    start_file_watcher(server.clone(), watcher_config.clone(), Some(on_event), None).await?;
+    drain_startup_file_events(
+        &startup_watcher,
+        &startup_watcher_rx,
+        &watcher_config,
+        &server,
+        Some(&on_event),
+    );
+    start_file_watcher_from_receiver(
+        server.clone(),
+        watcher_config.clone(),
+        Some(on_event),
+        None,
+        startup_watcher,
+        startup_watcher_rx,
+    )
+    .await?;
+
+    // Mark the startup revision as ready after the watcher is installed and any events that
+    // arrived during the initial disk load have been reconciled into the registries.
+    server.end_revision(startup_revision);
+    tracing::info!("startup revision ready (serve_plain)");
 
     // Print server URLs (LISTENING_PORT already printed by start_cell_server)
     // Use "0.0.0.0" to trigger multi-interface display when --public is used
