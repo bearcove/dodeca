@@ -125,8 +125,8 @@ cat >> dodeca.rb << 'FORMULA_END'
 end
 FORMULA_END
 
-# Replace placeholder with actual version
-sed -i "s/VERSION_NUM_PLACEHOLDER/${VERSION_NUM}/g" dodeca.rb
+# Replace placeholder with actual version (perl -i is portable across GNU/BSD)
+perl -i -pe "s/VERSION_NUM_PLACEHOLDER/${VERSION_NUM}/g" dodeca.rb
 
 echo "Generated dodeca.rb"
 
