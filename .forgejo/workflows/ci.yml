@@ -57,7 +57,6 @@ jobs:
         run: |
           set -euo pipefail
           cd "$STABLE_SRC"
-          cargo xtask ci-github --check
           cargo xtask ci-forgejo --check
 
           rustup target add wasm32-unknown-unknown

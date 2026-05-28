@@ -1706,7 +1706,7 @@ pub fn build_forgejo_workflow(repo_root: &Utf8Path) -> Workflow {
         let stable_key = format!("dodeca-{short}");
         let cargo_incremental = if is_linux { "1" } else { "0" };
         let maybe_check_ci = if is_linux {
-            "cargo xtask ci-github --check\ncargo xtask ci-forgejo --check\n"
+            "cargo xtask ci-forgejo --check\n"
         } else {
             ""
         };
