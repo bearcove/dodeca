@@ -108,6 +108,12 @@ struct ServeArgs {
     /// Control channel path to receive listening socket (for testing)
     #[facet(args::named, default)]
     fd_socket: Option<String>,
+
+    /// Poll git-backed sources every N seconds (`git pull --ff-only`); 0/unset
+    /// disables. The file watcher re-renders on pulled changes. This is the
+    /// fallback path — webhooks are preferred.
+    #[facet(args::named, default)]
+    git_poll: Option<u64>,
 }
 
 /// Clean command arguments
@@ -469,6 +475,12 @@ async fn async_main(command: Command) -> Result<()> {
             }
 
             let cfg = resolve_dirs(args.path, args.content, args.output)?;
+
+            // Fallback git-pull poller (webhooks preferred). Runs alongside the
+            // server; the file watcher re-renders whatever it pulls.
+            if let Some(secs) = args.git_poll {
+                spawn_git_poll(&cfg.sources, secs);
+            }
 
             if use_tui {
                 if args.fd_socket.is_some() {
@@ -1991,6 +2003,43 @@ async fn start_file_watcher_from_receiver(
 /// Canonicalize each source's content dir so the file watcher matches the
 /// canonicalized paths `notify` reports (otherwise multi-source incremental
 /// updates wouldn't strip-prefix correctly).
+/// Spawn a background loop that `git pull`s every git-backed source's checkout
+/// every `interval_secs`. Pulled changes land in the watched content dirs, so
+/// Phase A's file watcher re-renders them — no bespoke rebuild. The fallback to
+/// webhooks; a no-op if there are no git sources.
+fn spawn_git_poll(sources: &[dodeca::config::ResolvedSource], interval_secs: u64) {
+    let checkouts: Vec<Utf8PathBuf> = sources
+        .iter()
+        .filter(|s| s.git.is_some())
+        .filter_map(|s| s.checkout_dir.clone())
+        .collect();
+    if checkouts.is_empty() || interval_secs == 0 {
+        return;
+    }
+    dodeca::spawn::spawn(async move {
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+        tick.tick().await; // the first tick fires immediately; skip it
+        loop {
+            tick.tick().await;
+            for checkout in &checkouts {
+                match tokio::process::Command::new("git")
+                    .args(["-C", checkout.as_str(), "pull", "--ff-only"])
+                    .status()
+                    .await
+                {
+                    Ok(status) if !status.success() => {
+                        tracing::warn!(checkout = %checkout, "git poll: `git pull` failed");
+                    }
+                    Err(e) => {
+                        tracing::warn!(checkout = %checkout, error = %e, "git poll: spawn failed")
+                    }
+                    _ => {}
+                }
+            }
+        }
+    });
+}
+
 /// Clone any git-backed source whose checkout dir is absent on disk into that
 /// stable location, so the loader/watcher can read `<checkout>/<content>`. A
 /// webhook/poll later `git pull`s the same checkout; FS-notify re-renders.
