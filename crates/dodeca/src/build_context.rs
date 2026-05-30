@@ -148,6 +148,7 @@ impl BuildContext {
                 name: String::new(),
                 mount: "/".to_string(),
                 content_dir: content_dir.to_owned(),
+                checkout_dir: None,
                 git: None,
             }],
             output_dir: output_dir.to_owned(),
@@ -555,6 +556,7 @@ mod tests {
             name: String::new(),
             mount: mount.to_string(),
             content_dir: Utf8PathBuf::from(content_dir),
+            checkout_dir: None,
             git: None,
         }
     }

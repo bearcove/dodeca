@@ -247,9 +247,15 @@ fn documented_schema_to_styx(value: &Documented<PageTypeSchema>) -> Documented<S
 /// ```styx
 /// sources {
 ///   { name kb     mount /            local content }
-///   { name build  mount /spec/build  local ../vixen/docs/content }
+///   { name build  mount /spec/build  git code.vixen.rs/vixen/vixen.git
+///                 checkout ../vixen   content docs/content }
 /// }
 /// ```
+///
+/// A source is either **local** (`local` = a content dir, no repo) or
+/// **git-backed** (`checkout` = a repo dir to clone/pull, `content` = the
+/// content path *within* it, `git` = the remote to clone if the checkout is
+/// absent). Exactly one of `local` / `checkout`.
 #[derive(Debug, Clone, Default, Facet)]
 #[facet(rename_all = "snake_case")]
 pub struct SourceDef {
@@ -261,17 +267,25 @@ pub struct SourceDef {
     /// URL namespace this source mounts under, e.g. `/` or `/spec/build`.
     pub mount: String,
 
-    /// Path to this source's content directory, relative to the project root
-    /// (e.g. `content`, or a sibling path like `../vixen/docs/content`). When
-    /// absent the source is only reachable via `git`, which is not yet
-    /// implemented — the resolver rejects a source with neither.
+    /// Direct content directory (relative to the project root). Use for a
+    /// source with no repo of its own (e.g. the aggregator's own `content`).
+    /// Mutually exclusive with `checkout`.
     #[facet(default)]
     pub local: Option<String>,
 
-    /// Remote + ref to fetch when a local sibling checkout is absent (e.g. on a
-    /// deploy). Carried in the schema for forward-compatibility; resolution is
-    /// deferred to the render-as-a-service work, so the resolver currently
-    /// errors on a git-only source rather than silently producing nothing.
+    /// Repo checkout directory — the stable location cloned/pulled by the
+    /// service (relative to the project root, e.g. `../vixen`). The content is
+    /// `content` *within* this dir. Mutually exclusive with `local`.
+    #[facet(default)]
+    pub checkout: Option<String>,
+
+    /// Content path *within* `checkout` (e.g. `docs/content`). Defaults to the
+    /// checkout root. Only meaningful with `checkout`.
+    #[facet(default)]
+    pub content: Option<String>,
+
+    /// Remote to `git clone` into `checkout` when it's absent on disk, and to
+    /// `git pull` from on a webhook/poll. Only meaningful with `checkout`.
     #[facet(default)]
     pub git: Option<String>,
 }

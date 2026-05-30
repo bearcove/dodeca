@@ -127,7 +127,11 @@ pub struct ResolvedSource {
     pub mount: String,
     /// Absolute path to this source's content directory.
     pub content_dir: Utf8PathBuf,
-    /// Remote+ref to suggest cloning when the source isn't checked out locally.
+    /// Absolute path to the repo checkout dir the service clones/pulls (the
+    /// content dir lives within it). `None` for a direct `local` source.
+    pub checkout_dir: Option<Utf8PathBuf>,
+    /// Remote to clone/pull the `checkout_dir` from, and to suggest cloning when
+    /// the source isn't checked out locally.
     pub git: Option<String>,
 }
 
@@ -418,6 +422,7 @@ fn resolve_sources(root: &Utf8Path, config: &DodecaConfig) -> Result<Vec<Resolve
             name: String::new(),
             mount: "/".to_string(),
             content_dir: root.join(content),
+            checkout_dir: None,
             git: None,
         }]),
         (None, None) => Err(eyre!(
@@ -436,17 +441,36 @@ fn resolve_source(root: &Utf8Path, def: &SourceDef) -> Result<ResolvedSource> {
              every source needs a name (used for cross-source links)"
         ));
     }
-    let local = def.local.as_ref().ok_or_else(|| {
-        eyre!(
-            "source `{}` (mounted at `{mount}`) has no `local` path; \
-             git-only sources are not yet supported",
-            def.name
-        )
-    })?;
+    let (content_dir, checkout_dir) = match (&def.local, &def.checkout) {
+        (Some(_), Some(_)) => {
+            return Err(eyre!(
+                "source `{}` sets both `local` and `checkout`; use one \
+                 (`local` for a direct content dir, `checkout` for a repo)",
+                def.name
+            ));
+        }
+        (Some(local), None) => (root.join(local), None),
+        (None, Some(checkout)) => {
+            let checkout_dir = root.join(checkout);
+            let content_dir = match &def.content {
+                Some(content) => checkout_dir.join(content),
+                None => checkout_dir.clone(),
+            };
+            (content_dir, Some(checkout_dir))
+        }
+        (None, None) => {
+            return Err(eyre!(
+                "source `{}` (mounted at `{mount}`) needs `local` (a content \
+                 dir) or `checkout` (a repo dir)",
+                def.name
+            ));
+        }
+    };
     Ok(ResolvedSource {
         name: def.name.clone(),
         mount,
-        content_dir: root.join(local),
+        content_dir,
+        checkout_dir,
         git: def.git.clone(),
     })
 }
@@ -514,6 +538,8 @@ mod tests {
             name: name.to_string(),
             mount: mount.to_string(),
             local: local.map(str::to_string),
+            checkout: None,
+            content: None,
             git: None,
         }
     }
@@ -587,5 +613,42 @@ mod tests {
         let root = Utf8Path::new("/proj");
         let defs = vec![source("", "/spec/build", Some("../vixen/docs/content"))];
         assert!(resolve_sources(root, &config(None, Some(defs))).is_err());
+    }
+
+    #[test]
+    fn checkout_source_resolves_content_subpath_and_checkout_dir() {
+        let root = Utf8Path::new("/proj");
+        let def = SourceDef {
+            name: "build".into(),
+            mount: "/spec/build".into(),
+            local: None,
+            checkout: Some("../vixen".into()),
+            content: Some("docs/content".into()),
+            git: Some("g.git".into()),
+        };
+        let sources = resolve_sources(root, &config(None, Some(vec![def]))).unwrap();
+        assert_eq!(
+            sources[0].content_dir,
+            Utf8Path::new("/proj/../vixen/docs/content")
+        );
+        assert_eq!(
+            sources[0].checkout_dir.as_deref(),
+            Some(Utf8Path::new("/proj/../vixen"))
+        );
+        assert_eq!(sources[0].git.as_deref(), Some("g.git"));
+    }
+
+    #[test]
+    fn local_and_checkout_together_is_an_error() {
+        let root = Utf8Path::new("/proj");
+        let def = SourceDef {
+            name: "x".into(),
+            mount: "/".into(),
+            local: Some("content".into()),
+            checkout: Some("../x".into()),
+            content: None,
+            git: None,
+        };
+        assert!(resolve_sources(root, &config(None, Some(vec![def]))).is_err());
     }
 }

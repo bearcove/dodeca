@@ -315,6 +315,7 @@ fn resolve_dirs(
                 name: String::new(),
                 mount: "/".to_string(),
                 content_dir: c.clone(),
+                checkout_dir: None,
                 git: None,
             }],
             skip_domains: vec![],
@@ -345,6 +346,7 @@ fn resolve_dirs(
                     name: String::new(),
                     mount: "/".to_string(),
                     content_dir: content_dir.clone(),
+                    checkout_dir: None,
                     git: None,
                 }]
             } else {
@@ -965,6 +967,9 @@ pub async fn build(
     let start = Instant::now();
     let verbose = options.progress.is_none(); // Print to stdout when no TUI progress
     let render_options = options.render_options;
+
+    // Clone any git-backed source that isn't checked out yet.
+    ensure_git_sources(sources)?;
 
     // Open content-addressed storage at base dir
     let base_dir = content_dir.parent().unwrap_or(content_dir);
@@ -1986,6 +1991,37 @@ async fn start_file_watcher_from_receiver(
 /// Canonicalize each source's content dir so the file watcher matches the
 /// canonicalized paths `notify` reports (otherwise multi-source incremental
 /// updates wouldn't strip-prefix correctly).
+/// Clone any git-backed source whose checkout dir is absent on disk into that
+/// stable location, so the loader/watcher can read `<checkout>/<content>`. A
+/// webhook/poll later `git pull`s the same checkout; FS-notify re-renders.
+fn ensure_git_sources(sources: &[dodeca::config::ResolvedSource]) -> Result<()> {
+    for source in sources {
+        let (Some(checkout), Some(git)) = (&source.checkout_dir, &source.git) else {
+            continue;
+        };
+        if checkout.exists() {
+            continue;
+        }
+        println!("  {} cloning {git} → {checkout}", "git".cyan());
+        let status = std::process::Command::new("git")
+            .args(["clone", git, checkout.as_str()])
+            .status()
+            .map_err(|e| {
+                eyre!(
+                    "failed to run `git clone` for source `{}`: {e}",
+                    source.name
+                )
+            })?;
+        if !status.success() {
+            return Err(eyre!(
+                "git clone failed for source `{}` ({git} → {checkout})",
+                source.name
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn canonicalize_sources(
     sources: &[dodeca::config::ResolvedSource],
 ) -> Vec<dodeca::config::ResolvedSource> {
@@ -2012,6 +2048,8 @@ async fn serve_plain(
 ) -> Result<()> {
     use std::sync::Arc;
 
+    // Clone any git-backed source that isn't checked out yet.
+    ensure_git_sources(sources)?;
     // The primary source's content dir (mount `/`) anchors templates/sass/cache.
     let content_dir = &sources[0].content_dir;
 
@@ -2457,6 +2495,8 @@ async fn serve_with_tui(
     use std::sync::Arc;
     use tokio::sync::watch;
 
+    // Clone any git-backed source that isn't checked out yet.
+    ensure_git_sources(sources)?;
     // The primary source's content dir (mount `/`) anchors templates/sass/cache.
     let content_dir = &sources[0].content_dir;
 
