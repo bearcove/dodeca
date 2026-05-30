@@ -2071,6 +2071,16 @@ fn ensure_git_sources(sources: &[dodeca::config::ResolvedSource]) -> Result<()> 
     Ok(())
 }
 
+/// `(name, checkout dir)` for each git-backed source — what the `/_dodeca/pull`
+/// webhook and the poller operate on.
+fn git_checkouts(sources: &[dodeca::config::ResolvedSource]) -> Vec<(String, Utf8PathBuf)> {
+    sources
+        .iter()
+        .filter(|s| s.git.is_some())
+        .filter_map(|s| Some((s.name.clone(), s.checkout_dir.clone()?)))
+        .collect()
+}
+
 fn canonicalize_sources(
     sources: &[dodeca::config::ResolvedSource],
 ) -> Vec<dodeca::config::ResolvedSource> {
@@ -2219,6 +2229,7 @@ async fn serve_plain(
         stable_assets,
         Some(content_dir.to_path_buf()),
     ));
+    server.set_git_checkouts(git_checkouts(sources));
     let startup_revision = server.begin_revision("startup");
 
     let watcher_config = file_watcher::WatcherConfig {
@@ -2593,6 +2604,7 @@ async fn serve_with_tui(
         stable_assets,
         Some(content_dir.to_path_buf()),
     ));
+    server.set_git_checkouts(git_checkouts(sources));
     let startup_revision = server.begin_revision("startup");
 
     // Load cached query results (e.g., processed images) from disk

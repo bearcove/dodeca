@@ -225,6 +225,9 @@ pub struct SiteServer {
     revision_tx: watch::Sender<crate::revision::RevisionState>,
     /// Connected browsers (keyed by a unique ID for removal on disconnect)
     browsers: std::sync::Mutex<BrowserRegistry>,
+    /// Git-backed sources as `(name, checkout dir)`, for the `/_dodeca/pull`
+    /// webhook to `git pull` on demand.
+    git_checkouts: RwLock<Vec<(String, Utf8PathBuf)>>,
 }
 
 /// Registry of connected browsers for direct event pushing.
@@ -288,7 +291,44 @@ impl SiteServer {
             code_execution_results: RwLock::new(Vec::new()),
             revision_tx,
             browsers: std::sync::Mutex::new(BrowserRegistry::default()),
+            git_checkouts: RwLock::new(Vec::new()),
         }
+    }
+
+    /// Register the git-backed sources (`(name, checkout dir)`) the
+    /// `/_dodeca/pull` webhook can pull. Called once at serve startup.
+    pub fn set_git_checkouts(&self, checkouts: Vec<(String, Utf8PathBuf)>) {
+        *self.git_checkouts.write().unwrap() = checkouts;
+    }
+
+    /// Handle a `/_dodeca/pull[/<name>]` webhook: `git pull --ff-only` the
+    /// matching source checkout(s) in the background (the file watcher
+    /// re-renders the pulled changes). Returns how many pulls were kicked off.
+    pub fn pull_git_sources(&self, name: Option<&str>) -> usize {
+        let checkouts = self.git_checkouts.read().unwrap().clone();
+        let mut started = 0;
+        for (source_name, checkout) in checkouts {
+            if name.is_some_and(|target| target != source_name) {
+                continue;
+            }
+            started += 1;
+            tokio::spawn(async move {
+                match tokio::process::Command::new("git")
+                    .args(["-C", checkout.as_str(), "pull", "--ff-only"])
+                    .status()
+                    .await
+                {
+                    Ok(s) if !s.success() => {
+                        tracing::warn!(checkout = %checkout, "webhook pull: `git pull` failed")
+                    }
+                    Err(e) => {
+                        tracing::warn!(checkout = %checkout, error = %e, "webhook pull: spawn failed")
+                    }
+                    _ => tracing::info!(checkout = %checkout, "webhook pull: updated"),
+                }
+            });
+        }
+        started
     }
 
     pub async fn open_source_in_editor(&self, source_file: &str, line: u32) -> Result<()> {

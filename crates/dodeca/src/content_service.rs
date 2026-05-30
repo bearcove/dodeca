@@ -30,6 +30,21 @@ impl ContentService for HostContentService {
         // Get current generation
         let generation = self.server.current_generation();
 
+        // Git webhook: `/_dodeca/pull` pulls every git source; `/_dodeca/pull/<name>`
+        // pulls one. The push-driven (ideal) counterpart to `--git-poll`. The
+        // file watcher re-renders whatever the pull brings in.
+        if path == "/_dodeca/pull" || path.starts_with("/_dodeca/pull/") {
+            let name = path
+                .strip_prefix("/_dodeca/pull/")
+                .filter(|s| !s.is_empty());
+            let started = self.server.pull_git_sources(name);
+            return ServeContent::StaticNoCache {
+                content: format!("pulling {started} source(s)\n").into_bytes(),
+                mime: "text/plain; charset=utf-8".to_string(),
+                generation,
+            };
+        }
+
         // Check devtools assets first (/_/*.js, /_/*.wasm, /_/snippets/*)
         if path.starts_with("/_/")
             && let Some((content, mime)) = get_devtools_asset(&path)
