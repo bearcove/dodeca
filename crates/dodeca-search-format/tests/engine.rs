@@ -53,12 +53,14 @@ fn rank_is_and_and_orders_by_bm25() {
             DocMeta {
                 url: "/a/".into(),
                 title: "A".into(),
+                source: String::new(),
                 len: 10,
                 fragment: "a".into(),
             },
             DocMeta {
                 url: "/b/".into(),
                 title: "B".into(),
+                source: String::new(),
                 len: 10,
                 fragment: "b".into(),
             },

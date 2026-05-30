@@ -17,6 +17,28 @@ const MOUNT_ID = "search";
 // Idle gap before a keystroke turns into a query.
 const DEBOUNCE_MS = 120;
 
+// Configured sources ([{name, mount}]), injected by the page head. The current
+// page's source is the one whose mount is the longest prefix of the location —
+// used to scope results to the site you're reading. Null when there's only one
+// (unnamed) source, in which case search stays a flat global list.
+const SOURCES = Array.isArray(window.__dodecaSources) ? window.__dodecaSources : [];
+
+function currentSourceName() {
+  if (SOURCES.length === 0) return null;
+  const path = location.pathname;
+  let best = null;
+  let bestLen = -1;
+  for (const s of SOURCES) {
+    const mount = s.mount.endsWith("/") ? s.mount : s.mount + "/";
+    if (path.startsWith(mount) && mount.length > bestLen) {
+      best = s.name;
+      bestLen = mount.length;
+    }
+  }
+  return best;
+}
+const CURRENT_SOURCE = currentSourceName();
+
 function buildUi(mount) {
   mount.classList.add("ds-root");
 
@@ -86,7 +108,22 @@ function wireEvents(ui) {
       results.hidden = false;
       return;
     }
-    results.replaceChildren(...hits.map(resultRow));
+    // Single-source site: flat list, no scoping.
+    if (CURRENT_SOURCE === null) {
+      results.replaceChildren(...hits.map(resultRow));
+      results.hidden = false;
+      return;
+    }
+    // Current-site-first: this source's hits up top; everything else tucked
+    // behind a "results in other sites" disclosure (auto-open if we have none
+    // locally, so a search never dead-ends).
+    const mine = hits.filter((h) => h.source === CURRENT_SOURCE);
+    const others = hits.filter((h) => h.source !== CURRENT_SOURCE);
+    const nodes = mine.map(resultRow);
+    if (others.length > 0) {
+      nodes.push(otherSitesSection(others, mine.length === 0));
+    }
+    results.replaceChildren(...nodes);
     results.hidden = false;
   }
 
@@ -179,6 +216,46 @@ function resultRow(hit) {
 
   a.append(title, excerpt);
   return a;
+}
+
+// A result row that also shows which source it came from (for cross-site hits).
+function resultRowWithSource(hit) {
+  const a = resultRow(hit);
+  if (hit.source) {
+    const badge = document.createElement("span");
+    badge.className = "ds-result-source";
+    badge.textContent = hit.source;
+    a.querySelector(".ds-result-title").append(badge);
+  }
+  return a;
+}
+
+// Collapsible "N results in other sites" section. `open` shows it expanded
+// (used when there are no current-site results, so search never dead-ends).
+function otherSitesSection(others, open) {
+  const wrap = document.createElement("div");
+  wrap.className = "ds-other";
+
+  const label = (n) => `${n} result${n === 1 ? "" : "s"} in other sites`;
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "ds-other-toggle";
+
+  const list = document.createElement("div");
+  list.className = "ds-other-list";
+  list.append(...others.map(resultRowWithSource));
+  list.hidden = !open;
+
+  const paintToggle = () =>
+    (toggle.textContent = (list.hidden ? "▸ " : "▾ ") + label(others.length));
+  paintToggle();
+  toggle.addEventListener("click", () => {
+    list.hidden = !list.hidden;
+    paintToggle();
+  });
+
+  wrap.append(toggle, list);
+  return wrap;
 }
 
 function emptyRow() {

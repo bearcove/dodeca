@@ -47,6 +47,9 @@ pub type DocId = u32;
 pub struct DocMeta {
     pub url: String,
     pub title: String,
+    /// Name of the source (site) this document belongs to — for scoping search
+    /// to the current site. Empty for a single-source site.
+    pub source: String,
     /// Document length in tokens (BM25 normalization).
     pub len: u32,
     /// Filename (under `/search/fragment/`) of this document's [`Fragment`].
@@ -342,6 +345,9 @@ pub fn rank<'a>(
 pub struct SearchResult {
     pub url: String,
     pub title: String,
+    /// Name of the source (site) this result belongs to — the UI uses it to
+    /// group current-site vs other-site results. Empty for a single-source site.
+    pub source: String,
     /// HTML excerpt with matched words wrapped in `<mark>`. Already escaped.
     pub excerpt: String,
     pub score: f32,
@@ -437,6 +443,9 @@ pub fn render(hit: &Hit, fragment: &Fragment) -> SearchResult {
     SearchResult {
         url,
         title: fragment.title.clone(),
+        // Filled in by the caller from the document's `DocMeta` (the fragment
+        // doesn't carry it).
+        source: String::new(),
         excerpt,
         score: hit.score,
     }

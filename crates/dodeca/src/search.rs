@@ -97,14 +97,44 @@ pub fn runtime_asset(rel: &str) -> Option<&'static [u8]> {
         .map(|(_, bytes)| *bytes)
 }
 
+/// A source's identity for the search widget: its name and where it's mounted.
+/// The widget derives the *current* page's source from `location.pathname` and
+/// this list, then scopes results to it.
+#[derive(facet::Facet)]
+struct SourceInfo {
+    name: String,
+    mount: String,
+}
+
+/// JSON array of the configured sources (`[{name, mount}]`), for the widget to
+/// scope search to the current site. Empty for a single-source site.
+fn sources_json() -> String {
+    let sources: Vec<SourceInfo> = crate::config::global_config()
+        .map(|c| {
+            c.sources
+                .iter()
+                .filter(|s| !s.name.is_empty())
+                .map(|s| SourceInfo {
+                    name: s.name.clone(),
+                    mount: s.mount.clone(),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    facet_json::to_string(&sources).unwrap_or_else(|_| "[]".to_string())
+}
+
 /// The `<head>` markup that activates the search widget on every page: the
-/// stylesheet and the ES module driving the WASM query core, at their
-/// content-versioned URLs. `render.rs` injects this into every page.
+/// stylesheet, the configured source list (for current-site scoping), and the
+/// ES module driving the WASM query core, at their content-versioned URLs.
+/// `render.rs` injects this into every page.
 // s[impl serve.inject]
 pub fn search_head_injection() -> String {
     let dir = runtime_dir();
+    let sources = sources_json();
     format!(
         "<link rel=\"stylesheet\" href=\"/{dir}/search.css\">\
+         <script>window.__dodecaSources={sources};</script>\
          <script type=\"module\" src=\"/{dir}/search.js\"></script>"
     )
 }
@@ -147,6 +177,7 @@ pub async fn search_index_files<DB: Db>(db: &DB) -> PicanteResult<Vec<OutputFile
         if let Ok(Some(served)) = serve_html(db, route.clone()).await? {
             pages.push(SearchPage {
                 url: route_to_url(route),
+                source: crate::queries::source_name_of(route.as_str()),
                 html: served.html,
             });
         }

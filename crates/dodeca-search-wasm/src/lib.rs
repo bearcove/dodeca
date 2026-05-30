@@ -152,7 +152,10 @@ async fn do_search(query: &str, limit: usize) -> Result<String, String> {
             .filter_map(|h| {
                 let dm = st.meta.docs.get(h.doc as usize)?;
                 let fragment = st.fragments.get(&dm.fragment)?;
-                Some(render(h, fragment))
+                let mut result = render(h, fragment);
+                // The fragment doesn't carry the source; the DocMeta does.
+                result.source = dm.source.clone();
+                Some(result)
             })
             .collect::<Vec<_>>()
     });

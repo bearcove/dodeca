@@ -94,3 +94,34 @@
   color: var(--fg-muted, #666666);
   text-align: center;
 }
+
+/* Cross-site results: a disclosure under the current site's hits. */
+.ds-other-toggle {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.5rem 0.8rem;
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--fg-muted, #666666);
+  background: color-mix(in srgb, var(--fg, #1a1a1a) 4%, transparent);
+  border: none;
+  border-top: 1px solid var(--border, #ececec);
+  cursor: pointer;
+}
+
+.ds-other-toggle:hover {
+  color: var(--fg, #1a1a1a);
+}
+
+/* A small badge naming the source of a cross-site result. */
+.ds-result-source {
+  margin-left: 0.5rem;
+  padding: 0 0.35rem;
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--accent, #3b82f6);
+  background: color-mix(in srgb, var(--accent, #3b82f6) 12%, transparent);
+  border-radius: 999px;
+  vertical-align: middle;
+}

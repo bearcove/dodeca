@@ -232,6 +232,7 @@ fn build(pages: Vec<SearchPage>) -> Result<Vec<SearchFile>, String> {
         docs.push(fmt::DocMeta {
             url: page.url.clone(),
             title: ex.title.clone(),
+            source: page.source.clone(),
             len,
             fragment: format!("/search/fragment/{doc_id}"),
         });
@@ -320,12 +321,14 @@ mod tests {
         let pages = vec![
             SearchPage {
                 url: "/cells/".into(),
+                source: "kb".into(),
                 html: "<main><h1 id=\"intro\">Cells</h1><p>Cells communicate over RPC.</p>\
                        <nav>skip me</nav></main>"
                     .into(),
             },
             SearchPage {
                 url: "/markdown/".into(),
+                source: String::new(),
                 html: "<main><h1>Markdown</h1><p>Markdown rendering pipeline.</p></main>".into(),
             },
         ];
@@ -340,6 +343,8 @@ mod tests {
         assert_eq!(meta.version, fmt::FORMAT_VERSION);
         assert_eq!(meta.docs.len(), 2);
         assert_eq!(meta.docs[0].title, "Cells");
+        // The page's source is carried into the index for current-site scoping.
+        assert_eq!(meta.docs[0].source, "kb");
 
         // The "c" shard exists and holds the stemmed term "cell".
         let cref = meta
@@ -367,11 +372,13 @@ mod tests {
         let pages = vec![
             SearchPage {
                 url: "/a/".into(),
+                source: String::new(),
                 html: "<main><h1>Searching</h1><p>The search engine ranks documents.</p></main>"
                     .into(),
             },
             SearchPage {
                 url: "/b/".into(),
+                source: String::new(),
                 html: "<main><h1>Images</h1><p>Image processing is unrelated.</p></main>".into(),
             },
         ];

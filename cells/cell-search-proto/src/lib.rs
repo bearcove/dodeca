@@ -12,6 +12,9 @@ use facet::Facet;
 pub struct SearchPage {
     /// Site-absolute URL of the page, e.g. `/guide/intro/`.
     pub url: String,
+    /// Name of the source this page came from (empty for a single-source site).
+    /// Carried into the index so search can scope to the current site.
+    pub source: String,
     /// Rendered HTML of the page. The cell extracts title, body text and
     /// headings from it.
     pub html: String,

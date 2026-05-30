@@ -2542,6 +2542,12 @@ fn source_of(path: &str) -> Option<&'static crate::config::ResolvedSource> {
     best
 }
 
+/// The name of the source a route or source path belongs to (empty for the
+/// root/degenerate source). Public so the search indexer can tag each page.
+pub fn source_name_of(path: &str) -> String {
+    source_of(path).map(|s| s.name.clone()).unwrap_or_default()
+}
+
 /// The mount segment a route belongs to (`spec/build` for `/spec/build/exec/`),
 /// or `None` for the root mount. Used to alias source-root-absolute asset refs
 /// (`/img/x`) to their mount-prefixed, cache-busted output.
