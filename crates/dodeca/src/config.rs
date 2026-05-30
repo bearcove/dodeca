@@ -13,7 +13,9 @@ use std::fs;
 use std::sync::OnceLock;
 
 // Re-export config types from dodeca-config crate
-pub use dodeca_config::{CodeExecutionConfig, DodecaConfig, LinkCheckMode, PageTypeSchema};
+pub use dodeca_config::{
+    CodeExecutionConfig, DodecaConfig, LinkCheckMode, PageTypeSchema, SourceDef,
+};
 
 /// Configuration file names
 const CONFIG_DIR: &str = ".config";
@@ -111,6 +113,18 @@ impl ProjectPaths {
     }
 }
 
+/// A resolved content source: an absolute content directory and the URL
+/// namespace it mounts under. A leaf config resolves to exactly one of these
+/// at mount `/`; an aggregator config resolves to one per `sources` entry.
+#[derive(Debug, Clone)]
+pub struct ResolvedSource {
+    /// Normalized URL mount prefix: leading slash, trailing slash, root is `/`
+    /// (e.g. `/`, `/spec/build/`).
+    pub mount: String,
+    /// Absolute path to this source's content directory.
+    pub content_dir: Utf8PathBuf,
+}
+
 /// Discovered configuration with resolved paths
 #[derive(Debug, Clone)]
 pub struct ResolvedConfig {
@@ -118,7 +132,13 @@ pub struct ResolvedConfig {
     pub _root: Utf8PathBuf,
     /// Base URL for the site (e.g., `https://example.com` or `/` for local dev)
     pub base_url: String,
-    /// Absolute path to content directory
+    /// All content sources, in declaration order. Always non-empty.
+    pub sources: Vec<ResolvedSource>,
+    /// Absolute path to content directory.
+    ///
+    /// Transitional: the build pipeline still consumes a single content root.
+    /// Until `BuildContext`-per-source lands (change-list #2), this is the first
+    /// source's directory — the only one for leaf configs.
     pub content_dir: Utf8PathBuf,
     /// Absolute path to output directory
     pub output_dir: Utf8PathBuf,
@@ -301,8 +321,15 @@ fn load_config(config_path: &Utf8Path) -> Result<ResolvedConfig> {
         .ok_or_else(|| eyre!(".config directory has no parent"))?
         .to_owned();
 
-    // Resolve paths relative to project root
-    let content_dir = root.join(&config.content);
+    // Resolve content sources (explicit `sources`, or a single one synthesized
+    // from `content`). Transitional: the pipeline still uses one `content_dir`,
+    // so we keep the first source's directory there until per-source rendering
+    // lands.
+    let sources = resolve_sources(&root, &config)?;
+    let content_dir = sources
+        .first()
+        .map(|s| s.content_dir.clone())
+        .ok_or_else(|| eyre!("no content sources resolved"))?;
     let output_dir = root.join(&config.output);
 
     // Extract skip domains
@@ -349,6 +376,7 @@ fn load_config(config_path: &Utf8Path) -> Result<ResolvedConfig> {
     Ok(ResolvedConfig {
         _root: root,
         base_url,
+        sources,
         content_dir,
         output_dir,
         skip_domains,
@@ -361,6 +389,61 @@ fn load_config(config_path: &Utf8Path) -> Result<ResolvedConfig> {
         build_steps: config.build_steps,
         page_types: config.page_types,
     })
+}
+
+/// Resolve the content sources from a config: either the explicit `sources`
+/// list, or a single source synthesized from `content` and mounted at `/`.
+/// Exactly one of the two must be present.
+fn resolve_sources(root: &Utf8Path, config: &DodecaConfig) -> Result<Vec<ResolvedSource>> {
+    match (&config.sources, &config.content) {
+        (Some(_), Some(_)) => Err(eyre!(
+            "config sets both `content` and `sources`; use one — \
+             `content` for a single-source project, `sources` for an aggregator"
+        )),
+        (Some(sources), None) => {
+            if sources.is_empty() {
+                return Err(eyre!(
+                    "`sources` is present but empty; list at least one source or use `content`"
+                ));
+            }
+            sources.iter().map(|s| resolve_source(root, s)).collect()
+        }
+        (None, Some(content)) => Ok(vec![ResolvedSource {
+            mount: "/".to_string(),
+            content_dir: root.join(content),
+        }]),
+        (None, None) => Err(eyre!(
+            "config must set either `content` (single source) or `sources` (multiple)"
+        )),
+    }
+}
+
+/// Resolve one `SourceDef` to an absolute content dir + normalized mount.
+/// Git-only sources (no `local`) are rejected for now — fetching is deferred.
+fn resolve_source(root: &Utf8Path, def: &SourceDef) -> Result<ResolvedSource> {
+    let mount = normalize_mount(&def.mount);
+    let local = def.local.as_ref().ok_or_else(|| {
+        eyre!(
+            "source mounted at `{mount}` has no `local` path; \
+             git-only sources are not yet supported"
+        )
+    })?;
+    Ok(ResolvedSource {
+        mount,
+        content_dir: root.join(local),
+    })
+}
+
+/// Normalize a mount prefix to a canonical form: a leading and trailing slash,
+/// with the root collapsing to `/` (e.g. `spec/build` → `/spec/build/`,
+/// `/` → `/`).
+fn normalize_mount(raw: &str) -> String {
+    let trimmed = raw.trim_matches('/');
+    if trimmed.is_empty() {
+        "/".to_string()
+    } else {
+        format!("/{trimmed}/")
+    }
 }
 
 // ============================================================================
@@ -387,4 +470,95 @@ pub fn set_global_config(config: ResolvedConfig) -> Result<()> {
 /// Get the global config (returns None if not initialized)
 pub fn global_config() -> Option<&'static ResolvedConfig> {
     RESOLVED_CONFIG.get()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A minimal `DodecaConfig` with everything but `content`/`sources` defaulted.
+    fn config(content: Option<&str>, sources: Option<Vec<SourceDef>>) -> DodecaConfig {
+        DodecaConfig {
+            base_url: None,
+            content: content.map(str::to_string),
+            output: "public".to_string(),
+            sources,
+            link_check: None,
+            stable_assets: None,
+            code_execution: None,
+            syntax_highlight: None,
+            build_steps: None,
+            page_types: None,
+        }
+    }
+
+    fn source(mount: &str, local: Option<&str>) -> SourceDef {
+        SourceDef {
+            mount: mount.to_string(),
+            local: local.map(str::to_string),
+            git: None,
+        }
+    }
+
+    #[test]
+    fn normalize_mount_canonicalizes() {
+        assert_eq!(normalize_mount("/"), "/");
+        assert_eq!(normalize_mount(""), "/");
+        assert_eq!(normalize_mount("spec/build"), "/spec/build/");
+        assert_eq!(normalize_mount("/spec/build"), "/spec/build/");
+        assert_eq!(normalize_mount("/spec/build/"), "/spec/build/");
+    }
+
+    #[test]
+    fn single_content_yields_one_root_source() {
+        let root = Utf8Path::new("/proj");
+        let sources = resolve_sources(root, &config(Some("content"), None)).unwrap();
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].mount, "/");
+        assert_eq!(sources[0].content_dir, Utf8Path::new("/proj/content"));
+    }
+
+    #[test]
+    fn explicit_sources_resolve_with_mounts() {
+        let root = Utf8Path::new("/proj");
+        let defs = vec![
+            source("/", Some("content")),
+            source("/spec/build", Some("../vixen/docs/content")),
+        ];
+        let sources = resolve_sources(root, &config(None, Some(defs))).unwrap();
+        assert_eq!(sources.len(), 2);
+        assert_eq!(sources[0].mount, "/");
+        assert_eq!(sources[0].content_dir, Utf8Path::new("/proj/content"));
+        assert_eq!(sources[1].mount, "/spec/build/");
+        assert_eq!(
+            sources[1].content_dir,
+            Utf8Path::new("/proj/../vixen/docs/content")
+        );
+    }
+
+    #[test]
+    fn content_and_sources_together_is_an_error() {
+        let root = Utf8Path::new("/proj");
+        let defs = vec![source("/", Some("content"))];
+        assert!(resolve_sources(root, &config(Some("content"), Some(defs))).is_err());
+    }
+
+    #[test]
+    fn neither_content_nor_sources_is_an_error() {
+        let root = Utf8Path::new("/proj");
+        assert!(resolve_sources(root, &config(None, None)).is_err());
+    }
+
+    #[test]
+    fn empty_sources_list_is_an_error() {
+        let root = Utf8Path::new("/proj");
+        assert!(resolve_sources(root, &config(None, Some(vec![]))).is_err());
+    }
+
+    #[test]
+    fn git_only_source_is_rejected_for_now() {
+        let root = Utf8Path::new("/proj");
+        let defs = vec![source("/spec/build", None)];
+        assert!(resolve_sources(root, &config(None, Some(defs))).is_err());
+    }
 }

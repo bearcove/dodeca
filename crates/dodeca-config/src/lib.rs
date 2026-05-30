@@ -25,11 +25,21 @@ pub struct DodecaConfig {
     #[facet(default)]
     pub base_url: Option<String>,
 
-    /// Content directory (relative to project root)
-    pub content: String,
+    /// Content directory (relative to project root). A leaf project sets this;
+    /// it is equivalent to a single source mounted at `/`. Aggregator configs
+    /// omit it and use `sources` instead. Exactly one of `content` / `sources`
+    /// must be present.
+    #[facet(default)]
+    pub content: Option<String>,
 
     /// Output directory (relative to project root)
     pub output: String,
+
+    /// Multiple content sources merged into one site, each mounted under a URL
+    /// prefix. When present, `content` must be omitted (and vice versa). This is
+    /// what lets one Dodeca site assemble several repos (the KB plus specs).
+    #[facet(default)]
+    pub sources: Option<Vec<SourceDef>>,
 
     /// Link checking configuration
     #[facet(default)]
@@ -224,6 +234,41 @@ fn documented_schema_to_styx(value: &Documented<PageTypeSchema>) -> Documented<S
         value: value.value.to_styx_schema(),
         doc: value.doc.clone(),
     }
+}
+
+/// A single content source mounted into the site at a URL prefix.
+///
+/// A leaf project omits `sources` and uses the top-level `content`; that is
+/// equivalent to one source mounted at `/`. An aggregator config (e.g. the
+/// site repo) lists several sources, each pointing at a content directory — a
+/// sibling repo checkout — and mounted under a URL namespace.
+///
+/// Example in `.config/dodeca.styx`:
+/// ```styx
+/// sources {
+///   { mount /            local content }
+///   { mount /spec/build  local ../vixen/docs/content }
+/// }
+/// ```
+#[derive(Debug, Clone, Default, Facet)]
+#[facet(rename_all = "snake_case")]
+pub struct SourceDef {
+    /// URL namespace this source mounts under, e.g. `/` or `/spec/build`.
+    pub mount: String,
+
+    /// Path to this source's content directory, relative to the project root
+    /// (e.g. `content`, or a sibling path like `../vixen/docs/content`). When
+    /// absent the source is only reachable via `git`, which is not yet
+    /// implemented — the resolver rejects a source with neither.
+    #[facet(default)]
+    pub local: Option<String>,
+
+    /// Remote + ref to fetch when a local sibling checkout is absent (e.g. on a
+    /// deploy). Carried in the schema for forward-compatibility; resolution is
+    /// deferred to the render-as-a-service work, so the resolver currently
+    /// errors on a git-only source rather than silently producing nothing.
+    #[facet(default)]
+    pub git: Option<String>,
 }
 
 /// Syntax highlighting theme configuration
