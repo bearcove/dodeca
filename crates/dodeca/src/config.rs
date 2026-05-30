@@ -127,6 +127,8 @@ pub struct ResolvedSource {
     pub mount: String,
     /// Absolute path to this source's content directory.
     pub content_dir: Utf8PathBuf,
+    /// Remote+ref to suggest cloning when the source isn't checked out locally.
+    pub git: Option<String>,
 }
 
 /// Discovered configuration with resolved paths
@@ -416,6 +418,7 @@ fn resolve_sources(root: &Utf8Path, config: &DodecaConfig) -> Result<Vec<Resolve
             name: String::new(),
             mount: "/".to_string(),
             content_dir: root.join(content),
+            git: None,
         }]),
         (None, None) => Err(eyre!(
             "config must set either `content` (single source) or `sources` (multiple)"
@@ -444,6 +447,7 @@ fn resolve_source(root: &Utf8Path, def: &SourceDef) -> Result<ResolvedSource> {
         name: def.name.clone(),
         mount,
         content_dir: root.join(local),
+        git: def.git.clone(),
     })
 }
 

@@ -315,6 +315,7 @@ fn resolve_dirs(
                 name: String::new(),
                 mount: "/".to_string(),
                 content_dir: c.clone(),
+                git: None,
             }],
             skip_domains: vec![],
             rate_limit_ms: None,
@@ -344,6 +345,7 @@ fn resolve_dirs(
                     name: String::new(),
                     mount: "/".to_string(),
                     content_dir: content_dir.clone(),
+                    git: None,
                 }]
             } else {
                 cfg.sources

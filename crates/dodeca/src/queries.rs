@@ -548,7 +548,16 @@ pub struct WikiLinkError {
 #[repr(u8)]
 pub enum WikiLinkErrorReason {
     Missing,
-    Ambiguous { candidates: Vec<String> },
+    Ambiguous {
+        candidates: Vec<String>,
+    },
+    /// The target names a configured source whose content directory is absent —
+    /// a sibling repo that isn't checked out locally.
+    SourceNotCheckedOut {
+        source: String,
+        path: String,
+        git: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, facet::Facet)]
@@ -572,6 +581,17 @@ impl std::fmt::Display for WikiLinkBuildError {
                         err.target,
                         candidates.join(", ")
                     )?;
+                }
+                WikiLinkErrorReason::SourceNotCheckedOut { source, path, git } => {
+                    write!(
+                        f,
+                        "  - {}: [[{}]] → source `{source}` is not checked out (expected at {path})",
+                        err.route, err.target,
+                    )?;
+                    match git {
+                        Some(git) => writeln!(f, "; run `git clone {git} {path}`")?,
+                        None => writeln!(f)?,
+                    }
                 }
             }
         }
@@ -2170,6 +2190,21 @@ pub async fn all_rendered_html<DB: Db>(
     Ok(Ok(AllRenderedHtml { pages }))
 }
 
+/// If a wiki-link target's leading name token (`kb` in `kb:overview`) is a
+/// configured source whose content directory is absent — a sibling repo not
+/// checked out — return that source, for the "not checked out" diagnostic.
+fn absent_source_for_target(target: &str) -> Option<&'static crate::config::ResolvedSource> {
+    let name = target
+        .split([':', '/'])
+        .next()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())?;
+    let sources = &crate::config::global_config()?.sources;
+    sources
+        .iter()
+        .find(|s| s.name == name && !s.content_dir.exists())
+}
+
 fn collect_wiki_link_errors(
     errors: &mut Vec<WikiLinkError>,
     source_route: &Route,
@@ -2180,6 +2215,12 @@ fn collect_wiki_link_errors(
         let reason = if let Some(candidates) = index.ambiguity(source_route.as_str(), &link.key) {
             WikiLinkErrorReason::Ambiguous {
                 candidates: candidates.clone(),
+            }
+        } else if let Some(absent) = absent_source_for_target(&link.target) {
+            WikiLinkErrorReason::SourceNotCheckedOut {
+                source: absent.name.clone(),
+                path: absent.content_dir.to_string(),
+                git: absent.git.clone(),
             }
         } else {
             WikiLinkErrorReason::Missing

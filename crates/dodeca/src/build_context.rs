@@ -107,6 +107,7 @@ impl BuildContext {
                 name: String::new(),
                 mount: "/".to_string(),
                 content_dir: content_dir.to_owned(),
+                git: None,
             }],
             output_dir: output_dir.to_owned(),
             sources: BTreeMap::new(),
@@ -544,6 +545,7 @@ mod tests {
             name: String::new(),
             mount: mount.to_string(),
             content_dir: Utf8PathBuf::from(content_dir),
+            git: None,
         }
     }
 
