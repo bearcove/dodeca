@@ -265,6 +265,9 @@ enum Command {
 struct ResolvedBuildConfig {
     content_dir: Utf8PathBuf,
     output_dir: Utf8PathBuf,
+    /// All content sources (mount + content dir). For a single-source project
+    /// this is one entry at mount `/` whose content dir equals `content_dir`.
+    sources: Vec<dodeca::config::ResolvedSource>,
     skip_domains: Vec<String>,
     rate_limit_ms: Option<u64>,
     link_check_mode: LinkCheckMode,
@@ -308,6 +311,10 @@ fn resolve_dirs(
         return Ok(ResolvedBuildConfig {
             content_dir: c.clone(),
             output_dir: o.clone(),
+            sources: vec![dodeca::config::ResolvedSource {
+                mount: "/".to_string(),
+                content_dir: c.clone(),
+            }],
             skip_domains: vec![],
             rate_limit_ms: None,
             link_check_mode: LinkCheckMode::default(),
@@ -326,11 +333,23 @@ fn resolve_dirs(
         Some(cfg) => {
             // Initialize global config for access from render pipeline
             dodeca::config::set_global_config(cfg.clone())?;
+            // A CLI `--content` override collapses to a single source at `/`;
+            // otherwise use the config's resolved sources.
+            let cli_content_override = content.is_some();
             let content_dir = content.unwrap_or(cfg.content_dir);
             let output_dir = output.unwrap_or(cfg.output_dir);
+            let sources = if cli_content_override {
+                vec![dodeca::config::ResolvedSource {
+                    mount: "/".to_string(),
+                    content_dir: content_dir.clone(),
+                }]
+            } else {
+                cfg.sources
+            };
             Ok(ResolvedBuildConfig {
                 content_dir,
                 output_dir,
+                sources,
                 skip_domains: cfg.skip_domains,
                 rate_limit_ms: cfg.rate_limit_ms,
                 link_check_mode: cfg.link_check_mode,
@@ -430,7 +449,7 @@ async fn async_main(command: Command) -> Result<()> {
                 link_check,
             };
 
-            build(&cfg.content_dir, &cfg.output_dir, options).await?;
+            build(&cfg.content_dir, &cfg.output_dir, &cfg.sources, options).await?;
             Ok(())
         }
         Command::Serve(args) => {
@@ -934,6 +953,7 @@ async fn save_picante_cache(db: &Database, cache_path: &Utf8Path) {
 pub async fn build(
     content_dir: &Utf8PathBuf,
     output_dir: &Utf8PathBuf,
+    sources: &[dodeca::config::ResolvedSource],
     options: BuildOptions,
 ) -> Result<BuildContext> {
     use std::time::Instant;
@@ -954,6 +974,7 @@ pub async fn build(
     // Create query stats for tracking
     let query_stats = QueryStats::new();
     let mut ctx = BuildContext::with_stats(content_dir, output_dir, Some(Arc::clone(&query_stats)));
+    ctx.set_source_roots(sources.to_vec());
 
     // Load picante cache from disk (for font subsetting, image processing, etc.)
     let picante_cache_path = cache_dir.join("dodeca.bin");

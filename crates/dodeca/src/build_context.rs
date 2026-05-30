@@ -6,6 +6,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 use eyre::{Result, eyre};
 use ignore::WalkBuilder;
 
+use crate::config::ResolvedSource;
 use crate::db::{DataFile, Database, QueryStats, SassFile, SourceFile, StaticFile, TemplateFile};
 use crate::template_paths::{logical_template_path, physical_template_path};
 use crate::types::{
@@ -20,10 +21,59 @@ pub fn is_data_file_extension(ext: &str) -> bool {
     matches!(ext_lower.as_str(), "json" | "toml" | "yaml" | "yml")
 }
 
+/// The path-segment form of a mount: `/spec/build/` → `spec/build`, `/` → ``.
+fn mount_segment(mount: &str) -> &str {
+    mount.trim_matches('/')
+}
+
+/// Prefix a source-relative path with a mount segment to form a registry key.
+/// The root mount `/` (empty segment) leaves the path unchanged, so a
+/// single-source build produces exactly the same keys as before.
+fn mounted_key(mount: &str, rel: &str) -> String {
+    let seg = mount_segment(mount);
+    if seg.is_empty() {
+        rel.to_string()
+    } else {
+        format!("{seg}/{rel}")
+    }
+}
+
+/// Reverse `mounted_key`: given a mounted source key, find the source that owns
+/// it (longest matching mount segment — the root `/` is the fallback) and the
+/// path relative to that source's content dir.
+fn source_for_key(sources: &[ResolvedSource], key: &str) -> Option<(ResolvedSource, String)> {
+    let mut best: Option<(&ResolvedSource, String)> = None;
+    for source in sources {
+        let seg = mount_segment(&source.mount);
+        let rel = if seg.is_empty() {
+            Some(key.to_string())
+        } else {
+            key.strip_prefix(seg)
+                .and_then(|rest| rest.strip_prefix('/'))
+                .map(str::to_string)
+        };
+        if let Some(rel) = rel {
+            let longer = best
+                .as_ref()
+                .is_none_or(|(b, _)| seg.len() > mount_segment(&b.mount).len());
+            if longer {
+                best = Some((source, rel));
+            }
+        }
+    }
+    best.map(|(source, rel)| (source.clone(), rel))
+}
+
 /// The build context with picante database.
 pub struct BuildContext {
     pub db: Arc<Database>,
+    /// The primary content dir — the mount-`/` source. Templates, sass, static,
+    /// data and the cache are derived from it (one shared chrome for the site).
     pub content_dir: Utf8PathBuf,
+    /// All content sources, each with its mount prefix. Markdown is loaded from
+    /// every source with mount-prefixed keys; a single-source build has exactly
+    /// one entry at mount `/`.
+    pub source_roots: Vec<ResolvedSource>,
     pub output_dir: Utf8PathBuf,
     /// Source files keyed by source path.
     pub sources: BTreeMap<SourcePath, SourceFile>,
@@ -53,6 +103,10 @@ impl BuildContext {
         Self {
             db,
             content_dir: content_dir.to_owned(),
+            source_roots: vec![ResolvedSource {
+                mount: "/".to_string(),
+                content_dir: content_dir.to_owned(),
+            }],
             output_dir: output_dir.to_owned(),
             sources: BTreeMap::new(),
             templates: BTreeMap::new(),
@@ -66,6 +120,16 @@ impl BuildContext {
     /// Get the database Arc for sharing with render contexts.
     pub fn db_arc(&self) -> Arc<Database> {
         self.db.clone()
+    }
+
+    /// Replace the content sources. The first source's content dir becomes the
+    /// primary (`content_dir`), from which templates/sass/static/data/cache are
+    /// derived. A one-element list at mount `/` is the single-source default.
+    pub fn set_source_roots(&mut self, sources: Vec<ResolvedSource>) {
+        if let Some(primary) = sources.first() {
+            self.content_dir = primary.content_dir.clone();
+        }
+        self.source_roots = sources;
     }
 
     /// Get the templates directory, sibling to the content dir.
@@ -108,37 +172,47 @@ impl BuildContext {
             .join("data")
     }
 
-    /// Load all source files into the database.
+    /// Load all source files into the database, from every content source.
+    ///
+    /// Each source's markdown keys are prefixed by its mount (`spec/build/…`),
+    /// so routes, wiki-link slugs, output paths and search all flow prefixed
+    /// downstream. The root mount `/` leaves keys unchanged — a single-source
+    /// build is byte-identical to before.
     pub fn load_sources(&mut self) -> Result<()> {
-        let md_files: Vec<Utf8PathBuf> = WalkBuilder::new(&self.content_dir)
-            .build()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
-            .filter(|e| e.path().extension().map(|ext| ext == "md").unwrap_or(false))
-            .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
-            .collect();
+        // Clone the roots so we don't hold a borrow of `self` while inserting.
+        let roots = self.source_roots.clone();
+        for root in &roots {
+            let md_files: Vec<Utf8PathBuf> = WalkBuilder::new(&root.content_dir)
+                .build()
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
+                .filter(|e| e.path().extension().map(|ext| ext == "md").unwrap_or(false))
+                .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
+                .collect();
 
-        for path in md_files {
-            let content = fs::read_to_string(&path)?;
-            let last_modified = fs::metadata(&path)?
-                .modified()?
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs() as i64)
-                .unwrap_or(0);
-            let relative = path
-                .strip_prefix(&self.content_dir)
-                .map(|p| p.to_string())
-                .unwrap_or_else(|_| path.to_string());
+            for path in md_files {
+                let content = fs::read_to_string(&path)?;
+                let last_modified = fs::metadata(&path)?
+                    .modified()?
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
+                let relative = path
+                    .strip_prefix(&root.content_dir)
+                    .map(|p| p.to_string())
+                    .unwrap_or_else(|_| path.to_string());
+                let key = mounted_key(&root.mount, &relative);
 
-            let source_path = SourcePath::new(relative);
-            let source_content = SourceContent::new(content);
-            let source = SourceFile::new(
-                &*self.db,
-                source_path.clone(),
-                source_content,
-                last_modified,
-            )?;
-            self.sources.insert(source_path, source);
+                let source_path = SourcePath::new(key);
+                let source_content = SourceContent::new(content);
+                let source = SourceFile::new(
+                    &*self.db,
+                    source_path.clone(),
+                    source_content,
+                    last_modified,
+                )?;
+                self.sources.insert(source_path, source);
+            }
         }
 
         Ok(())
@@ -347,8 +421,14 @@ impl BuildContext {
     }
 
     /// Update a single source file for incremental rebuilds.
+    ///
+    /// `relative_path` is the mounted key; we resolve it back to the owning
+    /// source and its on-disk path before reading.
     pub fn update_source(&mut self, relative_path: &SourcePathRef) -> Result<bool> {
-        let full_path = self.content_dir.join(relative_path.as_str());
+        let full_path = match source_for_key(&self.source_roots, relative_path.as_str()) {
+            Some((root, rel)) => root.content_dir.join(rel),
+            None => self.content_dir.join(relative_path.as_str()),
+        };
         if !full_path.exists() {
             self.sources.remove(relative_path);
             return Ok(true);
@@ -413,5 +493,58 @@ impl BuildContext {
         self.sass_files.insert(sass_path, sass_file);
 
         Ok(true)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn src(mount: &str, content_dir: &str) -> ResolvedSource {
+        ResolvedSource {
+            mount: mount.to_string(),
+            content_dir: Utf8PathBuf::from(content_dir),
+        }
+    }
+
+    #[test]
+    fn mounted_key_leaves_root_unchanged() {
+        assert_eq!(mounted_key("/", "guide/intro.md"), "guide/intro.md");
+        assert_eq!(mounted_key("", "x.md"), "x.md");
+    }
+
+    #[test]
+    fn mounted_key_prefixes_non_root() {
+        assert_eq!(mounted_key("/spec/build/", "exec.md"), "spec/build/exec.md");
+        assert_eq!(mounted_key("spec/build", "exec.md"), "spec/build/exec.md");
+    }
+
+    #[test]
+    fn source_for_key_reverses_root() {
+        let sources = vec![src("/", "/proj/content")];
+        let (s, rel) = source_for_key(&sources, "guide/intro.md").unwrap();
+        assert_eq!(s.content_dir, Utf8PathBuf::from("/proj/content"));
+        assert_eq!(rel, "guide/intro.md");
+    }
+
+    #[test]
+    fn source_for_key_picks_longest_mount() {
+        // Root and a nested source both "match" a nested key; the nested one
+        // (longer segment) must win, so the file resolves under the right repo.
+        let sources = vec![
+            src("/", "/proj/content"),
+            src("/spec/build", "/proj/../vixen/docs/content"),
+        ];
+        let (s, rel) = source_for_key(&sources, "spec/build/exec.md").unwrap();
+        assert_eq!(
+            s.content_dir,
+            Utf8PathBuf::from("/proj/../vixen/docs/content")
+        );
+        assert_eq!(rel, "exec.md");
+
+        // A key outside any nested mount falls to root.
+        let (s, rel) = source_for_key(&sources, "identity.md").unwrap();
+        assert_eq!(s.content_dir, Utf8PathBuf::from("/proj/content"));
+        assert_eq!(rel, "identity.md");
     }
 }
