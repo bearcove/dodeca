@@ -815,7 +815,7 @@ impl WikiLinkIndex {
         WikiLinkIndex {
             local: local
                 .into_iter()
-                .map(|(seg, c)| (seg, ResolveMap::from_candidates(c)))
+                .map(|(name, c)| (name, ResolveMap::from_candidates(c)))
                 .collect(),
             global: ResolveMap::from_candidates(global),
         }
@@ -823,23 +823,25 @@ impl WikiLinkIndex {
 
     /// Resolve a wiki-link key for the page identified by `source_path`. Tries
     /// the page's own source namespace first (bare/local links), then the
-    /// mount-qualified namespace (explicit cross-source links).
+    /// name-qualified namespace (explicit cross-source links).
     fn resolve(&self, key: &str, source_path: &str) -> Option<&String> {
-        let seg = page_mount_segment(source_path).unwrap_or_default();
+        let name = source_of(source_path)
+            .map(|s| s.name.as_str())
+            .unwrap_or("");
         self.local
-            .get(&seg)
+            .get(name)
             .and_then(|m| m.resolved.get(key))
             .or_else(|| self.global.resolved.get(key))
     }
 
     /// The effective flat resolved map for a page in `source` (a route or source
-    /// path): the mount-qualified globals as a base, with the page's local
+    /// path): the name-qualified globals as a base, with the page's local
     /// namespace overriding (bare links resolve locally). Used by the HTML-level
     /// wiki-link pass, which resolves against a single map per page.
     fn resolved_for(&self, source: &str) -> HashMap<String, String> {
-        let seg = page_mount_segment(source).unwrap_or_default();
+        let name = source_of(source).map(|s| s.name.as_str()).unwrap_or("");
         let mut map = self.global.resolved.clone();
-        if let Some(local) = self.local.get(&seg) {
+        if let Some(local) = self.local.get(name) {
             for (key, route) in &local.resolved {
                 map.insert(key.clone(), route.clone());
             }
@@ -850,9 +852,9 @@ impl WikiLinkIndex {
     /// Ambiguity candidates for a key as seen from `source` (page's local
     /// namespace first, then global) — for the "ambiguous vs missing" diagnostic.
     fn ambiguity(&self, source: &str, key: &str) -> Option<&Vec<String>> {
-        let seg = page_mount_segment(source).unwrap_or_default();
+        let name = source_of(source).map(|s| s.name.as_str()).unwrap_or("");
         self.local
-            .get(&seg)
+            .get(name)
             .and_then(|m| m.ambiguous.get(key))
             .or_else(|| self.global.ambiguous.get(key))
     }
@@ -874,19 +876,24 @@ fn strip_mount_segment<'a>(trimmed_route: &'a str, seg: &str) -> &'a str {
 
 /// Register a route's wiki-link candidates in both namespaces: source-relative
 /// identifiers (title, leaf slug, the source-relative path and its suffixes) in
-/// the page's own `local` namespace, and the mount-qualified path + suffixes in
-/// `global`.
+/// the page's own `local` namespace (keyed by source name), and the
+/// **name-qualified** path + suffixes in `global` (so a source is linkable by
+/// name regardless of where it is mounted — `[[<name>:slug]]`).
 fn add_provenance_candidates(
     local: &mut HashMap<String, HashMap<String, Vec<String>>>,
     global: &mut HashMap<String, Vec<String>>,
     title: &str,
     route: &Route,
 ) {
-    let seg = page_mount_segment(route.as_str()).unwrap_or_default();
+    let source = source_of(route.as_str());
+    let name = source.map(|s| s.name.clone()).unwrap_or_default();
+    let seg = source
+        .map(|s| s.mount.trim_matches('/').to_string())
+        .unwrap_or_default();
     let trimmed = route.as_str().trim_matches('/');
     let local_path = strip_mount_segment(trimmed, &seg).to_string();
 
-    let local_map = local.entry(seg).or_default();
+    let local_map = local.entry(name.clone()).or_default();
     add_wiki_route_candidates(local_map, title, route);
     add_wiki_route_candidates(local_map, &local_path, route);
     if let Some(slug) = route_leaf_slug(route) {
@@ -896,9 +903,16 @@ fn add_provenance_candidates(
         add_wiki_route_candidates(local_map, &suffix, route);
     }
 
-    add_wiki_route_candidates(global, route.as_str(), route);
-    for suffix in route_path_suffixes(route.as_str()) {
-        add_wiki_route_candidates(global, &suffix, route);
+    // Name-qualified global identifiers — only for named (non-root-degenerate)
+    // sources. `<name>/<source-relative path>`, its suffixes, and `<name>/<leaf>`.
+    if !name.is_empty() {
+        add_wiki_route_candidates(global, &format!("{name}/{local_path}"), route);
+        if let Some(slug) = route_leaf_slug(route) {
+            add_wiki_route_candidates(global, &format!("{name}/{slug}"), route);
+        }
+        for suffix in route_path_suffixes(&local_path) {
+            add_wiki_route_candidates(global, &format!("{name}/{suffix}"), route);
+        }
     }
 }
 
@@ -2464,27 +2478,36 @@ pub async fn static_url_map<DB: Db>(db: &DB) -> PicanteResult<HashMap<String, St
     Ok(path_map)
 }
 
+/// The source that owns a route or source path — the one whose mount segment is
+/// the longest prefix (the root source, segment ``, is the fallback). Used to
+/// recover both the mount (for asset prefixing) and the name (for wiki links).
+fn source_of(path: &str) -> Option<&'static crate::config::ResolvedSource> {
+    let sources = &crate::config::global_config()?.sources;
+    let trimmed = path.trim_matches('/');
+    let mut best: Option<&'static crate::config::ResolvedSource> = None;
+    let mut best_len: Option<usize> = None;
+    for source in sources {
+        let seg = source.mount.trim_matches('/');
+        let matches = seg.is_empty()
+            || trimmed == seg
+            || trimmed
+                .strip_prefix(seg)
+                .is_some_and(|rest| rest.starts_with('/'));
+        if matches && best_len.is_none_or(|bl| seg.len() > bl) {
+            best = Some(source);
+            best_len = Some(seg.len());
+        }
+    }
+    best
+}
+
 /// The mount segment a route belongs to (`spec/build` for `/spec/build/exec/`),
 /// or `None` for the root mount. Used to alias source-root-absolute asset refs
 /// (`/img/x`) to their mount-prefixed, cache-busted output.
 fn page_mount_segment(route: &str) -> Option<String> {
-    let sources = &crate::config::global_config()?.sources;
-    let route_trim = route.trim_matches('/');
-    let mut best: Option<&str> = None;
-    for source in sources {
-        let seg = source.mount.trim_matches('/');
-        if seg.is_empty() {
-            continue;
-        }
-        let matches = route_trim == seg
-            || route_trim
-                .strip_prefix(seg)
-                .is_some_and(|rest| rest.starts_with('/'));
-        if matches && best.is_none_or(|b| seg.len() > b.len()) {
-            best = Some(seg);
-        }
-    }
-    best.map(str::to_string)
+    source_of(route)
+        .map(|s| s.mount.trim_matches('/').to_string())
+        .filter(|seg| !seg.is_empty())
 }
 
 /// Serve a single page or section with full URL rewriting and minification

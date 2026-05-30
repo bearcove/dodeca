@@ -312,6 +312,7 @@ fn resolve_dirs(
             content_dir: c.clone(),
             output_dir: o.clone(),
             sources: vec![dodeca::config::ResolvedSource {
+                name: String::new(),
                 mount: "/".to_string(),
                 content_dir: c.clone(),
             }],
@@ -340,6 +341,7 @@ fn resolve_dirs(
             let output_dir = output.unwrap_or(cfg.output_dir);
             let sources = if cli_content_override {
                 vec![dodeca::config::ResolvedSource {
+                    name: String::new(),
                     mount: "/".to_string(),
                     content_dir: content_dir.clone(),
                 }]

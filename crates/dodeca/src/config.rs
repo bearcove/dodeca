@@ -118,6 +118,10 @@ impl ProjectPaths {
 /// at mount `/`; an aggregator config resolves to one per `sources` entry.
 #[derive(Debug, Clone)]
 pub struct ResolvedSource {
+    /// Stable identity, used for cross-source links (`[[<name>:slug]]`) and
+    /// search labelling — independent of `mount`. Empty for the degenerate
+    /// single-`content` project (no cross-source linking there).
+    pub name: String,
     /// Normalized URL mount prefix: leading slash, trailing slash, root is `/`
     /// (e.g. `/`, `/spec/build/`).
     pub mount: String,
@@ -409,6 +413,7 @@ fn resolve_sources(root: &Utf8Path, config: &DodecaConfig) -> Result<Vec<Resolve
             sources.iter().map(|s| resolve_source(root, s)).collect()
         }
         (None, Some(content)) => Ok(vec![ResolvedSource {
+            name: String::new(),
             mount: "/".to_string(),
             content_dir: root.join(content),
         }]),
@@ -422,13 +427,21 @@ fn resolve_sources(root: &Utf8Path, config: &DodecaConfig) -> Result<Vec<Resolve
 /// Git-only sources (no `local`) are rejected for now — fetching is deferred.
 fn resolve_source(root: &Utf8Path, def: &SourceDef) -> Result<ResolvedSource> {
     let mount = normalize_mount(&def.mount);
+    if def.name.trim().is_empty() {
+        return Err(eyre!(
+            "source mounted at `{mount}` has an empty `name`; \
+             every source needs a name (used for cross-source links)"
+        ));
+    }
     let local = def.local.as_ref().ok_or_else(|| {
         eyre!(
-            "source mounted at `{mount}` has no `local` path; \
-             git-only sources are not yet supported"
+            "source `{}` (mounted at `{mount}`) has no `local` path; \
+             git-only sources are not yet supported",
+            def.name
         )
     })?;
     Ok(ResolvedSource {
+        name: def.name.clone(),
         mount,
         content_dir: root.join(local),
     })
@@ -492,8 +505,9 @@ mod tests {
         }
     }
 
-    fn source(mount: &str, local: Option<&str>) -> SourceDef {
+    fn source(name: &str, mount: &str, local: Option<&str>) -> SourceDef {
         SourceDef {
+            name: name.to_string(),
             mount: mount.to_string(),
             local: local.map(str::to_string),
             git: None,
@@ -522,13 +536,15 @@ mod tests {
     fn explicit_sources_resolve_with_mounts() {
         let root = Utf8Path::new("/proj");
         let defs = vec![
-            source("/", Some("content")),
-            source("/spec/build", Some("../vixen/docs/content")),
+            source("kb", "/", Some("content")),
+            source("build", "/spec/build", Some("../vixen/docs/content")),
         ];
         let sources = resolve_sources(root, &config(None, Some(defs))).unwrap();
         assert_eq!(sources.len(), 2);
+        assert_eq!(sources[0].name, "kb");
         assert_eq!(sources[0].mount, "/");
         assert_eq!(sources[0].content_dir, Utf8Path::new("/proj/content"));
+        assert_eq!(sources[1].name, "build");
         assert_eq!(sources[1].mount, "/spec/build/");
         assert_eq!(
             sources[1].content_dir,
@@ -539,7 +555,7 @@ mod tests {
     #[test]
     fn content_and_sources_together_is_an_error() {
         let root = Utf8Path::new("/proj");
-        let defs = vec![source("/", Some("content"))];
+        let defs = vec![source("kb", "/", Some("content"))];
         assert!(resolve_sources(root, &config(Some("content"), Some(defs))).is_err());
     }
 
@@ -558,7 +574,14 @@ mod tests {
     #[test]
     fn git_only_source_is_rejected_for_now() {
         let root = Utf8Path::new("/proj");
-        let defs = vec![source("/spec/build", None)];
+        let defs = vec![source("build", "/spec/build", None)];
+        assert!(resolve_sources(root, &config(None, Some(defs))).is_err());
+    }
+
+    #[test]
+    fn source_without_name_is_rejected() {
+        let root = Utf8Path::new("/proj");
+        let defs = vec![source("", "/spec/build", Some("../vixen/docs/content"))];
         assert!(resolve_sources(root, &config(None, Some(defs))).is_err());
     }
 }

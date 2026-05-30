@@ -246,13 +246,18 @@ fn documented_schema_to_styx(value: &Documented<PageTypeSchema>) -> Documented<S
 /// Example in `.config/dodeca.styx`:
 /// ```styx
 /// sources {
-///   { mount /            local content }
-///   { mount /spec/build  local ../vixen/docs/content }
+///   { name kb     mount /            local content }
+///   { name build  mount /spec/build  local ../vixen/docs/content }
 /// }
 /// ```
 #[derive(Debug, Clone, Default, Facet)]
 #[facet(rename_all = "snake_case")]
 pub struct SourceDef {
+    /// Stable identity of this source, used to link to it from other sources
+    /// (`[[<name>:slug]]`) and to label its search hits — independent of where
+    /// it is mounted. A source served at `/` still has a name. Required.
+    pub name: String,
+
     /// URL namespace this source mounts under, e.g. `/` or `/spec/build`.
     pub mount: String,
 
