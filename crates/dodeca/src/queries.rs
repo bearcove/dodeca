@@ -754,33 +754,13 @@ pub async fn source_to_route_map<DB: Db>(db: &DB) -> PicanteResult<HashMap<Strin
 }
 
 #[derive(Debug, Clone, Default)]
-struct WikiLinkIndex {
+struct ResolveMap {
     resolved: HashMap<String, String>,
     ambiguous: HashMap<String, Vec<String>>,
 }
 
-impl WikiLinkIndex {
-    fn build(site_tree: &SiteTree) -> Self {
-        let mut candidates: HashMap<String, Vec<String>> = HashMap::new();
-
-        for section in site_tree.sections.values() {
-            add_wiki_route_candidates(&mut candidates, section.title.as_str(), &section.route);
-            add_wiki_route_candidates(&mut candidates, section.route.as_str(), &section.route);
-            if let Some(slug) = route_leaf_slug(&section.route) {
-                add_wiki_route_candidates(&mut candidates, &slug, &section.route);
-            }
-            add_wiki_suffix_candidates(&mut candidates, &section.route);
-        }
-
-        for page in site_tree.pages.values() {
-            add_wiki_route_candidates(&mut candidates, page.title.as_str(), &page.route);
-            add_wiki_route_candidates(&mut candidates, page.route.as_str(), &page.route);
-            if let Some(slug) = route_leaf_slug(&page.route) {
-                add_wiki_route_candidates(&mut candidates, &slug, &page.route);
-            }
-            add_wiki_suffix_candidates(&mut candidates, &page.route);
-        }
-
+impl ResolveMap {
+    fn from_candidates(candidates: HashMap<String, Vec<String>>) -> Self {
         let mut resolved = HashMap::new();
         let mut ambiguous = HashMap::new();
         for (key, mut routes) in candidates {
@@ -792,11 +772,133 @@ impl WikiLinkIndex {
                 ambiguous.insert(key, routes);
             }
         }
-
         Self {
             resolved,
             ambiguous,
         }
+    }
+}
+
+/// Wiki-link resolution that respects source provenance.
+///
+/// A bare `[[overview]]` resolves within the linking page's *own* source
+/// (`local`), so a source authored standalone keeps its internal links when
+/// mounted — even if another source shares the slug. Cross-source links must be
+/// qualified (`[[spec/build/overview]]` / `[[build/overview]]`) and resolve via
+/// the mount-qualified `global` namespace. A single-source site has one local
+/// namespace at the root mount and behaves exactly as before.
+#[derive(Debug, Clone, Default)]
+struct WikiLinkIndex {
+    /// Mount segment (`""` = root) → that source's local namespace.
+    local: HashMap<String, ResolveMap>,
+    /// Mount-qualified namespace for explicit cross-source links.
+    global: ResolveMap,
+}
+
+impl WikiLinkIndex {
+    fn build(site_tree: &SiteTree) -> Self {
+        let mut local: HashMap<String, HashMap<String, Vec<String>>> = HashMap::new();
+        let mut global: HashMap<String, Vec<String>> = HashMap::new();
+
+        for section in site_tree.sections.values() {
+            add_provenance_candidates(
+                &mut local,
+                &mut global,
+                section.title.as_str(),
+                &section.route,
+            );
+        }
+        for page in site_tree.pages.values() {
+            add_provenance_candidates(&mut local, &mut global, page.title.as_str(), &page.route);
+        }
+
+        WikiLinkIndex {
+            local: local
+                .into_iter()
+                .map(|(seg, c)| (seg, ResolveMap::from_candidates(c)))
+                .collect(),
+            global: ResolveMap::from_candidates(global),
+        }
+    }
+
+    /// Resolve a wiki-link key for the page identified by `source_path`. Tries
+    /// the page's own source namespace first (bare/local links), then the
+    /// mount-qualified namespace (explicit cross-source links).
+    fn resolve(&self, key: &str, source_path: &str) -> Option<&String> {
+        let seg = page_mount_segment(source_path).unwrap_or_default();
+        self.local
+            .get(&seg)
+            .and_then(|m| m.resolved.get(key))
+            .or_else(|| self.global.resolved.get(key))
+    }
+
+    /// The effective flat resolved map for a page in `source` (a route or source
+    /// path): the mount-qualified globals as a base, with the page's local
+    /// namespace overriding (bare links resolve locally). Used by the HTML-level
+    /// wiki-link pass, which resolves against a single map per page.
+    fn resolved_for(&self, source: &str) -> HashMap<String, String> {
+        let seg = page_mount_segment(source).unwrap_or_default();
+        let mut map = self.global.resolved.clone();
+        if let Some(local) = self.local.get(&seg) {
+            for (key, route) in &local.resolved {
+                map.insert(key.clone(), route.clone());
+            }
+        }
+        map
+    }
+
+    /// Ambiguity candidates for a key as seen from `source` (page's local
+    /// namespace first, then global) — for the "ambiguous vs missing" diagnostic.
+    fn ambiguity(&self, source: &str, key: &str) -> Option<&Vec<String>> {
+        let seg = page_mount_segment(source).unwrap_or_default();
+        self.local
+            .get(&seg)
+            .and_then(|m| m.ambiguous.get(key))
+            .or_else(|| self.global.ambiguous.get(key))
+    }
+}
+
+/// Strip a mount segment from a trimmed route path, yielding the source-relative
+/// path (`spec/build/overview` with seg `spec/build` → `overview`; the source's
+/// own root section → ``).
+fn strip_mount_segment<'a>(trimmed_route: &'a str, seg: &str) -> &'a str {
+    if seg.is_empty() {
+        return trimmed_route;
+    }
+    match trimmed_route.strip_prefix(seg) {
+        Some("") => "",
+        Some(rest) => rest.strip_prefix('/').unwrap_or(trimmed_route),
+        None => trimmed_route,
+    }
+}
+
+/// Register a route's wiki-link candidates in both namespaces: source-relative
+/// identifiers (title, leaf slug, the source-relative path and its suffixes) in
+/// the page's own `local` namespace, and the mount-qualified path + suffixes in
+/// `global`.
+fn add_provenance_candidates(
+    local: &mut HashMap<String, HashMap<String, Vec<String>>>,
+    global: &mut HashMap<String, Vec<String>>,
+    title: &str,
+    route: &Route,
+) {
+    let seg = page_mount_segment(route.as_str()).unwrap_or_default();
+    let trimmed = route.as_str().trim_matches('/');
+    let local_path = strip_mount_segment(trimmed, &seg).to_string();
+
+    let local_map = local.entry(seg).or_default();
+    add_wiki_route_candidates(local_map, title, route);
+    add_wiki_route_candidates(local_map, &local_path, route);
+    if let Some(slug) = route_leaf_slug(route) {
+        add_wiki_route_candidates(local_map, &slug, route);
+    }
+    for suffix in route_path_suffixes(&local_path) {
+        add_wiki_route_candidates(local_map, &suffix, route);
+    }
+
+    add_wiki_route_candidates(global, route.as_str(), route);
+    for suffix in route_path_suffixes(route.as_str()) {
+        add_wiki_route_candidates(global, &suffix, route);
     }
 }
 
@@ -830,16 +932,6 @@ fn route_path_suffixes(route: &str) -> Vec<String> {
         }
     }
     out
-}
-
-/// Register path-suffix candidates so a leaf-slug collision across sources can
-/// be disambiguated by qualifying with parent segments: `[[overview]]`
-/// (ambiguous) → `[[build/overview]]`. Since `wiki_link_key` collapses any
-/// non-alphanumeric run to `-`, `[[build:overview]]` resolves identically.
-fn add_wiki_suffix_candidates(candidates: &mut HashMap<String, Vec<String>>, route: &Route) {
-    for suffix in route_path_suffixes(route.as_str()) {
-        add_wiki_route_candidates(candidates, &suffix, route);
-    }
 }
 
 fn wiki_link_route(route: &Route) -> String {
@@ -989,7 +1081,8 @@ fn rewrite_markdown_inlines(
                     route_markdown_map,
                     wiki_link_index,
                 );
-                if let Some(route) = key.and_then(|key| wiki_link_index.resolved.get(&key)) {
+                if let Some(route) = key.and_then(|key| wiki_link_index.resolve(&key, source_path))
+                {
                     let content = if label.is_empty() {
                         vec![marq::Inline::Text(target.clone())]
                     } else {
@@ -1041,7 +1134,7 @@ fn rewrite_markdown_url(
     let (path, suffix) = split_link_suffix(url);
 
     if let Some(key) = path.strip_prefix("dodeca-wiki:")
-        && let Some(route) = wiki_link_index.resolved.get(key)
+        && let Some(route) = wiki_link_index.resolve(key, source_path)
     {
         return format!("{}{}", route_to_markdown_url(route), suffix);
     }
@@ -2013,7 +2106,8 @@ pub async fn all_rendered_html<DB: Db>(
         // Resolve relative links based on section route, then @/ links
         let html = resolve_relative_links(&html, route.as_str()).await;
         let html = resolve_internal_links(&html, &source_route_map).await;
-        let resolved = resolve_wiki_links(&html, &wiki_link_index.resolved).await;
+        let resolved =
+            resolve_wiki_links(&html, &wiki_link_index.resolved_for(route.as_str())).await;
         collect_wiki_link_errors(
             &mut unresolved_wiki_links,
             route,
@@ -2038,7 +2132,8 @@ pub async fn all_rendered_html<DB: Db>(
         // Resolve relative links based on the page's section route, then @/ links
         let html = resolve_relative_links(&html, page.section_route.as_str()).await;
         let html = resolve_internal_links(&html, &source_route_map).await;
-        let resolved = resolve_wiki_links(&html, &wiki_link_index.resolved).await;
+        let resolved =
+            resolve_wiki_links(&html, &wiki_link_index.resolved_for(route.as_str())).await;
         collect_wiki_link_errors(
             &mut unresolved_wiki_links,
             route,
@@ -2068,7 +2163,7 @@ fn collect_wiki_link_errors(
     index: &WikiLinkIndex,
 ) {
     for link in unresolved_links {
-        let reason = if let Some(candidates) = index.ambiguous.get(&link.key) {
+        let reason = if let Some(candidates) = index.ambiguity(source_route.as_str(), &link.key) {
             WikiLinkErrorReason::Ambiguous {
                 candidates: candidates.clone(),
             }
