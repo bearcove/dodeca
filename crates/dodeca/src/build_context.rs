@@ -381,6 +381,44 @@ impl BuildContext {
             }
         }
 
+        // Per-source static assets: each non-primary source's `static/` dir,
+        // loaded with mount-prefixed keys so its assets land under its mount in
+        // the (cache-busted) output and never collide with another source's
+        // same-named asset. The primary (mount `/`) is already handled above via
+        // `self.static_dir()`.
+        let roots = self.source_roots.clone();
+        for root in roots.iter().skip(1) {
+            let source_static = root
+                .content_dir
+                .parent()
+                .unwrap_or(&root.content_dir)
+                .join("static");
+            if !source_static.exists() {
+                continue;
+            }
+            let files: Vec<Utf8PathBuf> = WalkBuilder::new(&source_static)
+                .build()
+                .filter_map(|e| e.ok())
+                .filter(|e| {
+                    e.file_type()
+                        .map(|ft| ft.is_file() || (ft.is_symlink() && e.path().is_file()))
+                        .unwrap_or(false)
+                })
+                .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
+                .collect();
+            for path in files {
+                let content = fs::read(&path)?;
+                let relative = path
+                    .strip_prefix(&source_static)
+                    .map(|p| p.to_string())
+                    .unwrap_or_else(|_| path.to_string());
+                let key = mounted_key(&root.mount, &relative);
+                let static_path = StaticPath::new(key);
+                let static_file = StaticFile::new(&*self.db, static_path.clone(), content)?;
+                self.static_files.insert(static_path, static_file);
+            }
+        }
+
         Ok(())
     }
 
