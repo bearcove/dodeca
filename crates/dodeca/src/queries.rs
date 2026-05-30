@@ -2338,6 +2338,29 @@ pub async fn static_url_map<DB: Db>(db: &DB) -> PicanteResult<HashMap<String, St
     Ok(path_map)
 }
 
+/// The mount segment a route belongs to (`spec/build` for `/spec/build/exec/`),
+/// or `None` for the root mount. Used to alias source-root-absolute asset refs
+/// (`/img/x`) to their mount-prefixed, cache-busted output.
+fn page_mount_segment(route: &str) -> Option<String> {
+    let sources = &crate::config::global_config()?.sources;
+    let route_trim = route.trim_matches('/');
+    let mut best: Option<&str> = None;
+    for source in sources {
+        let seg = source.mount.trim_matches('/');
+        if seg.is_empty() {
+            continue;
+        }
+        let matches = route_trim == seg
+            || route_trim
+                .strip_prefix(seg)
+                .is_some_and(|rest| rest.starts_with('/'));
+        if matches && best.is_none_or(|b| seg.len() > b.len()) {
+            best = Some(seg);
+        }
+    }
+    best.map(str::to_string)
+}
+
 /// Serve a single page or section with full URL rewriting and minification
 /// This is the main entry point for lazy page serving
 #[picante::tracked]
@@ -2477,6 +2500,26 @@ pub async fn serve_html<DB: Db>(
                 if let Some((webp_url, _)) = webp_srcset.last() {
                     path_map.insert(format!("/{path}"), webp_url.clone());
                 }
+            }
+        }
+    }
+
+    // Mount-aware asset aliases: a page from a mounted source (e.g.
+    // `/spec/build/…`) may reference its own assets with source-root-absolute
+    // paths (`/img/x`) — the form it would use when built standalone. Alias
+    // those to the mount-prefixed, cache-busted entries so they resolve without
+    // the author knowing the mount. We only alias assets the mounted source
+    // actually has, so a real cross-source/shared `/img/x` still falls through.
+    if let Some(seg) = page_mount_segment(route.as_str()) {
+        let prefix = format!("/{seg}/");
+        for (key, value) in path_map.clone() {
+            if let Some(rest) = key.strip_prefix(&prefix) {
+                path_map.insert(format!("/{rest}"), value);
+            }
+        }
+        for (key, value) in image_variants.clone() {
+            if let Some(rest) = key.strip_prefix(&prefix) {
+                image_variants.insert(format!("/{rest}"), value);
             }
         }
     }
