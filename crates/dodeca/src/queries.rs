@@ -769,6 +769,7 @@ impl WikiLinkIndex {
             if let Some(slug) = route_leaf_slug(&section.route) {
                 add_wiki_route_candidates(&mut candidates, &slug, &section.route);
             }
+            add_wiki_suffix_candidates(&mut candidates, &section.route);
         }
 
         for page in site_tree.pages.values() {
@@ -777,6 +778,7 @@ impl WikiLinkIndex {
             if let Some(slug) = route_leaf_slug(&page.route) {
                 add_wiki_route_candidates(&mut candidates, &slug, &page.route);
             }
+            add_wiki_suffix_candidates(&mut candidates, &page.route);
         }
 
         let mut resolved = HashMap::new();
@@ -808,6 +810,35 @@ fn add_wiki_route_candidates(
             .entry(key)
             .or_default()
             .push(wiki_link_route(route));
+    }
+}
+
+/// The multi-segment path suffixes of a route, longest first
+/// (`/spec/build/overview/` → `["spec/build/overview", "build/overview"]`).
+/// The bare leaf (`overview`) and full route are already added elsewhere; these
+/// are the in-between qualifiers used to disambiguate a colliding leaf slug.
+fn route_path_suffixes(route: &str) -> Vec<String> {
+    let segs: Vec<&str> = route
+        .trim_matches('/')
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect();
+    let mut out = Vec::new();
+    for start in 0..segs.len() {
+        if segs.len() - start >= 2 {
+            out.push(segs[start..].join("/"));
+        }
+    }
+    out
+}
+
+/// Register path-suffix candidates so a leaf-slug collision across sources can
+/// be disambiguated by qualifying with parent segments: `[[overview]]`
+/// (ambiguous) → `[[build/overview]]`. Since `wiki_link_key` collapses any
+/// non-alphanumeric run to `-`, `[[build:overview]]` resolves identically.
+fn add_wiki_suffix_candidates(candidates: &mut HashMap<String, Vec<String>>, route: &Route) {
+    for suffix in route_path_suffixes(route.as_str()) {
+        add_wiki_route_candidates(candidates, &suffix, route);
     }
 }
 
@@ -2809,5 +2840,32 @@ pub async fn check_external_url<DB: Db>(
             None => Ok(ExternalLinkStatus::Failed("URL not in results".to_string())),
         },
         None => Ok(ExternalLinkStatus::Failed("link check failed".to_string())),
+    }
+}
+
+#[cfg(test)]
+mod wiki_suffix_tests {
+    use super::route_path_suffixes;
+
+    #[test]
+    fn yields_multi_segment_suffixes_longest_first() {
+        assert_eq!(
+            route_path_suffixes("/spec/build/overview/"),
+            vec!["spec/build/overview", "build/overview"]
+        );
+    }
+
+    #[test]
+    fn single_segment_route_has_no_qualifiers() {
+        assert!(route_path_suffixes("/overview/").is_empty());
+        assert!(route_path_suffixes("/").is_empty());
+    }
+
+    #[test]
+    fn two_segment_route_yields_only_the_full_path() {
+        assert_eq!(
+            route_path_suffixes("/spec/overview/"),
+            vec!["spec/overview"]
+        );
     }
 }
