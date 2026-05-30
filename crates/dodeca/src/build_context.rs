@@ -29,7 +29,7 @@ fn mount_segment(mount: &str) -> &str {
 /// Prefix a source-relative path with a mount segment to form a registry key.
 /// The root mount `/` (empty segment) leaves the path unchanged, so a
 /// single-source build produces exactly the same keys as before.
-fn mounted_key(mount: &str, rel: &str) -> String {
+pub(crate) fn mounted_key(mount: &str, rel: &str) -> String {
     let seg = mount_segment(mount);
     if seg.is_empty() {
         rel.to_string()
@@ -41,7 +41,7 @@ fn mounted_key(mount: &str, rel: &str) -> String {
 /// Reverse `mounted_key`: given a mounted source key, find the source that owns
 /// it (longest matching mount segment — the root `/` is the fallback) and the
 /// path relative to that source's content dir.
-fn source_for_key(sources: &[ResolvedSource], key: &str) -> Option<(ResolvedSource, String)> {
+pub fn source_for_key(sources: &[ResolvedSource], key: &str) -> Option<(ResolvedSource, String)> {
     let mut best: Option<(&ResolvedSource, String)> = None;
     for source in sources {
         let seg = mount_segment(&source.mount);
@@ -62,6 +62,47 @@ fn source_for_key(sources: &[ResolvedSource], key: &str) -> Option<(ResolvedSour
         }
     }
     best.map(|(source, rel)| (source.clone(), rel))
+}
+
+/// Load markdown source files from every source's content dir, with
+/// mount-prefixed keys. Shared by `BuildContext` (build) and the serve path so
+/// both produce byte-identical registry keys.
+pub fn load_source_files(
+    db: &Database,
+    roots: &[ResolvedSource],
+) -> Result<Vec<(SourcePath, SourceFile)>> {
+    let mut out = Vec::new();
+    for root in roots {
+        let md_files: Vec<Utf8PathBuf> = WalkBuilder::new(&root.content_dir)
+            .build()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
+            .filter(|e| e.path().extension().map(|ext| ext == "md").unwrap_or(false))
+            .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
+            .collect();
+        for path in md_files {
+            let content = fs::read_to_string(&path)?;
+            let last_modified = fs::metadata(&path)?
+                .modified()?
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            let relative = path
+                .strip_prefix(&root.content_dir)
+                .map(|p| p.to_string())
+                .unwrap_or_else(|_| path.to_string());
+            let key = mounted_key(&root.mount, &relative);
+            let source_path = SourcePath::new(key);
+            let source = SourceFile::new(
+                db,
+                source_path.clone(),
+                SourceContent::new(content),
+                last_modified,
+            )?;
+            out.push((source_path, source));
+        }
+    }
+    Ok(out)
 }
 
 /// The build context with picante database.
@@ -183,40 +224,9 @@ impl BuildContext {
     pub fn load_sources(&mut self) -> Result<()> {
         // Clone the roots so we don't hold a borrow of `self` while inserting.
         let roots = self.source_roots.clone();
-        for root in &roots {
-            let md_files: Vec<Utf8PathBuf> = WalkBuilder::new(&root.content_dir)
-                .build()
-                .filter_map(|e| e.ok())
-                .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
-                .filter(|e| e.path().extension().map(|ext| ext == "md").unwrap_or(false))
-                .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
-                .collect();
-
-            for path in md_files {
-                let content = fs::read_to_string(&path)?;
-                let last_modified = fs::metadata(&path)?
-                    .modified()?
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs() as i64)
-                    .unwrap_or(0);
-                let relative = path
-                    .strip_prefix(&root.content_dir)
-                    .map(|p| p.to_string())
-                    .unwrap_or_else(|_| path.to_string());
-                let key = mounted_key(&root.mount, &relative);
-
-                let source_path = SourcePath::new(key);
-                let source_content = SourceContent::new(content);
-                let source = SourceFile::new(
-                    &*self.db,
-                    source_path.clone(),
-                    source_content,
-                    last_modified,
-                )?;
-                self.sources.insert(source_path, source);
-            }
+        for (path, source) in load_source_files(&self.db, &roots)? {
+            self.sources.insert(path, source);
         }
-
         Ok(())
     }
 

@@ -473,8 +473,8 @@ async fn async_main(command: Command) -> Result<()> {
                     return Err(eyre!("FD passing is only supported in --no-tui mode"));
                 }
                 serve_with_tui(
-                    &cfg.content_dir,
                     &cfg.output_dir,
+                    &cfg.sources,
                     &args.address,
                     args.port,
                     args.open,
@@ -484,7 +484,7 @@ async fn async_main(command: Command) -> Result<()> {
                 .await
             } else {
                 serve_plain(
-                    &cfg.content_dir,
+                    &cfg.sources,
                     &args.address,
                     args.port,
                     args.open,
@@ -1750,7 +1750,13 @@ fn prune_missing_sources(config: &file_watcher::WatcherConfig, server: &serve::S
             let Ok(path) = source.path(db) else {
                 return false;
             };
-            config.content_dir.join(path.as_str()).exists()
+            // Reconstruct the on-disk path via the owning source's content dir,
+            // reversing the mount prefix — a mounted key like `spec/build/x.md`
+            // lives under that source's checkout, not the primary content dir.
+            match dodeca::build_context::source_for_key(&config.sources, path.as_str()) {
+                Some((src, rel)) => src.content_dir.join(rel).exists(),
+                None => config.content_dir.join(path.as_str()).exists(),
+            }
         })
         .collect();
 
@@ -1977,8 +1983,26 @@ async fn start_file_watcher_from_receiver(
 
 /// Plain serve mode (no TUI) - serves directly from picante
 #[allow(clippy::too_many_arguments)]
+/// Canonicalize each source's content dir so the file watcher matches the
+/// canonicalized paths `notify` reports (otherwise multi-source incremental
+/// updates wouldn't strip-prefix correctly).
+fn canonicalize_sources(
+    sources: &[dodeca::config::ResolvedSource],
+) -> Vec<dodeca::config::ResolvedSource> {
+    sources
+        .iter()
+        .map(|s| dodeca::config::ResolvedSource {
+            content_dir: s
+                .content_dir
+                .canonicalize_utf8()
+                .unwrap_or_else(|_| s.content_dir.clone()),
+            ..s.clone()
+        })
+        .collect()
+}
+
 async fn serve_plain(
-    content_dir: &Utf8PathBuf,
+    sources: &[dodeca::config::ResolvedSource],
     address: &str,
     port: Option<u16>,
     open: bool,
@@ -1987,6 +2011,9 @@ async fn serve_plain(
     public_access: bool,
 ) -> Result<()> {
     use std::sync::Arc;
+
+    // The primary source's content dir (mount `/`) anchors templates/sass/cache.
+    let content_dir = &sources[0].content_dir;
 
     // IMPORTANT: Receive listening socket FIRST if --fd-socket was provided (for testing)
     // This must happen before any other initialization so the test harness isn't blocked.
@@ -2126,6 +2153,7 @@ async fn serve_plain(
         data_dir: data_dir
             .canonicalize_utf8()
             .unwrap_or_else(|_| data_dir.clone()),
+        sources: canonicalize_sources(sources),
     };
     let (startup_watcher, startup_watcher_rx) = file_watcher::create_watcher(&watcher_config)?;
 
@@ -2176,40 +2204,13 @@ async fn serve_plain(
         .await
         .map_err(|_| eyre!("Failed to get bound port"))?;
 
-    // Load source files
+    // Load source files from every mounted source (mount-prefixed keys), via
+    // the same loader the build path uses.
     println!("{}", "Loading source files...".dimmed());
-    let md_files: Vec<Utf8PathBuf> = WalkBuilder::new(content_dir)
-        .build()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
-        .filter(|e| e.path().extension().map(|ext| ext == "md").unwrap_or(false))
-        .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
-        .collect();
-
-    {
-        let db = &*server.db;
-        let mut sources = Vec::new();
-
-        for path in &md_files {
-            let content = fs::read_to_string(path)?;
-            let last_modified = fs::metadata(path)?
-                .modified()?
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs() as i64)
-                .unwrap_or(0);
-            let relative = path
-                .strip_prefix(content_dir)
-                .map(|p| p.to_string())
-                .unwrap_or_else(|_| path.to_string());
-
-            let source_path = SourcePath::new(relative);
-            let source_content = SourceContent::new(content);
-            let source = SourceFile::new(db, source_path, source_content, last_modified)?;
-            sources.push(source);
-        }
-        server.set_sources(sources);
-    }
-    println!("  Loaded {} source files", md_files.len());
+    let source_files = dodeca::build_context::load_source_files(&server.db, sources)?;
+    let source_count = source_files.len();
+    server.set_sources(source_files.into_iter().map(|(_, file)| file).collect());
+    println!("  Loaded {source_count} source files");
 
     // Load templates
     if templates_dir.exists() {
@@ -2445,8 +2446,8 @@ async fn serve_plain(
 /// This serves content directly from picante - no files written to disk.
 /// HTTP requests query the picante database, which caches/memoizes results.
 async fn serve_with_tui(
-    content_dir: &Utf8PathBuf,
     _output_dir: &Utf8PathBuf,
+    sources: &[dodeca::config::ResolvedSource],
     address: &str,
     port: Option<u16>,
     open: bool,
@@ -2455,6 +2456,9 @@ async fn serve_with_tui(
 ) -> Result<()> {
     use std::sync::Arc;
     use tokio::sync::watch;
+
+    // The primary source's content dir (mount `/`) anchors templates/sass/cache.
+    let content_dir = &sources[0].content_dir;
 
     // Enable TUI mode (must happen before cells init)
     host::Host::get().enable_tui_mode();
@@ -2583,44 +2587,15 @@ async fn serve_with_tui(
     let _ = event_tx.send(LogEvent::build("Loading source files..."));
     progress_tx.send_modify(|prog| prog.parse.start(0));
 
-    let md_files: Vec<Utf8PathBuf> = WalkBuilder::new(content_dir)
-        .build()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
-        .filter(|e| e.path().extension().map(|ext| ext == "md").unwrap_or(false))
-        .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
-        .collect();
-
-    {
-        // Get current sources BEFORE locking db to avoid deadlock
-        // (get_sources() also locks db internally)
-        let mut sources = server.get_sources();
-        let db = &*server.db;
-
-        for path in &md_files {
-            let content = fs::read_to_string(path)?;
-            let last_modified = fs::metadata(path)?
-                .modified()?
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs() as i64)
-                .unwrap_or(0);
-            let relative = path
-                .strip_prefix(content_dir)
-                .map(|p| p.to_string())
-                .unwrap_or_else(|_| path.to_string());
-
-            let source_path = SourcePath::new(relative);
-            let source_content = SourceContent::new(content);
-            let source = SourceFile::new(db, source_path, source_content, last_modified)?;
-            sources.push(source);
-        }
-        server.set_sources(sources);
-    }
+    // Load source files from every mounted source (mount-prefixed keys), via
+    // the same loader the build path uses.
+    let source_files = dodeca::build_context::load_source_files(&server.db, sources)?;
+    let source_count = source_files.len();
+    server.set_sources(source_files.into_iter().map(|(_, file)| file).collect());
 
     progress_tx.send_modify(|prog| prog.parse.finish());
     let _ = event_tx.send(LogEvent::build(format!(
-        "Loaded {} source files",
-        md_files.len()
+        "Loaded {source_count} source files"
     )));
 
     // Load template files into the server
@@ -2804,6 +2779,7 @@ async fn serve_with_tui(
         data_dir: data_dir
             .canonicalize_utf8()
             .unwrap_or_else(|_| data_dir.clone()),
+        sources: canonicalize_sources(sources),
     };
 
     let mut watched_dirs = vec![content_dir.to_string()];

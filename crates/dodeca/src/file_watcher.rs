@@ -18,7 +18,13 @@ pub type WatcherHandle = Arc<Mutex<RecommendedWatcher>>;
 /// Type alias for the watcher event receiver
 pub type WatcherReceiver = std::sync::mpsc::Receiver<notify::Result<notify::Event>>;
 
-/// Configuration for the file watcher
+/// Configuration for the file watcher.
+///
+/// `content_dir`/`static_dir`/… describe the **primary** source (mount `/`).
+/// `sources`, when non-empty, lists every mounted source: content and static
+/// are watched per-source and their keys are mount-prefixed (mirroring
+/// `BuildContext`), while templates/sass/dist/data stay primary-derived (one
+/// shared chrome). Empty `sources` = legacy single-source behavior.
 #[derive(Debug, Clone)]
 pub struct WatcherConfig {
     pub content_dir: Utf8PathBuf,
@@ -27,6 +33,34 @@ pub struct WatcherConfig {
     pub static_dir: Utf8PathBuf,
     pub dist_dir: Utf8PathBuf,
     pub data_dir: Utf8PathBuf,
+    /// All mounted content sources (empty ⇒ single-source/legacy).
+    pub sources: Vec<crate::config::ResolvedSource>,
+}
+
+/// Among `sources`, the one whose `dir_of` is the longest path-prefix of `path`,
+/// with the path relative to that dir. Used to attribute a changed file to its
+/// owning source for content and static trees.
+fn longest_source_match<'a>(
+    sources: &'a [crate::config::ResolvedSource],
+    path: &Utf8Path,
+    dir_of: impl Fn(&crate::config::ResolvedSource) -> Option<Utf8PathBuf>,
+) -> Option<(&'a crate::config::ResolvedSource, Utf8PathBuf)> {
+    let mut best: Option<(&crate::config::ResolvedSource, Utf8PathBuf, usize)> = None;
+    for source in sources {
+        let Some(dir) = dir_of(source) else { continue };
+        if let Ok(rel) = path.strip_prefix(&dir) {
+            let len = dir.as_str().len();
+            if best.as_ref().is_none_or(|(_, _, bl)| len > *bl) {
+                best = Some((source, rel.to_owned(), len));
+            }
+        }
+    }
+    best.map(|(source, rel, _)| (source, rel))
+}
+
+/// The static dir of a source — sibling of its content dir.
+fn source_static_dir(source: &crate::config::ResolvedSource) -> Option<Utf8PathBuf> {
+    source.content_dir.parent().map(|p| p.join("static"))
 }
 
 /// Processed file event ready for the server to handle
@@ -78,9 +112,35 @@ pub enum PathCategory {
 }
 
 impl WatcherConfig {
-    /// Categorize a path by which watched directory it belongs to
+    /// The source-relative `(mount, rel)` for a content-tree path: the owning
+    /// source's mount and the path under its content dir. Falls back to the
+    /// primary `content_dir` (mount `/`) when `sources` is empty.
+    fn content_match(&self, path: &Utf8Path) -> Option<(String, Utf8PathBuf)> {
+        if self.sources.is_empty() {
+            return path
+                .strip_prefix(&self.content_dir)
+                .ok()
+                .map(|rel| ("/".to_string(), rel.to_owned()));
+        }
+        longest_source_match(&self.sources, path, |s| Some(s.content_dir.clone()))
+            .map(|(s, rel)| (s.mount.clone(), rel))
+    }
+
+    /// The source-relative `(mount, rel)` for a static-tree path.
+    fn static_match(&self, path: &Utf8Path) -> Option<(String, Utf8PathBuf)> {
+        if self.sources.is_empty() {
+            return path
+                .strip_prefix(&self.static_dir)
+                .ok()
+                .map(|rel| ("/".to_string(), rel.to_owned()));
+        }
+        longest_source_match(&self.sources, path, source_static_dir)
+            .map(|(s, rel)| (s.mount.clone(), rel))
+    }
+
+    /// Categorize a path by which watched directory it belongs to.
     pub fn categorize(&self, path: &Utf8Path) -> PathCategory {
-        if path.starts_with(&self.content_dir) {
+        if self.content_match(path).is_some() {
             PathCategory::Content
         } else if path.starts_with(&self.templates_dir) {
             PathCategory::Template
@@ -88,7 +148,7 @@ impl WatcherConfig {
             PathCategory::Sass
         } else if path.starts_with(&self.dist_dir) {
             PathCategory::Dist
-        } else if path.starts_with(&self.static_dir) {
+        } else if self.static_match(path).is_some() {
             PathCategory::Static
         } else if path.starts_with(&self.data_dir) {
             PathCategory::Data
@@ -97,26 +157,48 @@ impl WatcherConfig {
         }
     }
 
-    /// Get the relative path for a file within its category
+    /// Get the registry key for a file within its category. Content and static
+    /// keys are mount-prefixed (`spec/build/…`) so they match `BuildContext`.
     pub fn relative_path(&self, path: &Utf8Path) -> Option<Utf8PathBuf> {
         match self.categorize(path) {
-            PathCategory::Content => path
-                .strip_prefix(&self.content_dir)
-                .ok()
-                .map(|p| p.to_owned()),
+            PathCategory::Content => self
+                .content_match(path)
+                .map(|(mount, rel)| crate::build_context::mounted_key(&mount, rel.as_str()).into()),
+            PathCategory::Static => self
+                .static_match(path)
+                .map(|(mount, rel)| crate::build_context::mounted_key(&mount, rel.as_str()).into()),
             PathCategory::Template => path
                 .strip_prefix(&self.templates_dir)
                 .ok()
                 .map(|p| p.to_owned()),
             PathCategory::Sass => path.strip_prefix(&self.sass_dir).ok().map(|p| p.to_owned()),
-            PathCategory::Static => path
-                .strip_prefix(&self.static_dir)
-                .ok()
-                .map(|p| p.to_owned()),
             PathCategory::Dist => path.strip_prefix(&self.dist_dir).ok().map(|p| p.to_owned()),
             PathCategory::Data => path.strip_prefix(&self.data_dir).ok().map(|p| p.to_owned()),
             PathCategory::Unknown => None,
         }
+    }
+
+    /// Every directory the watcher should recursively watch: the primary
+    /// templates/sass/static/dist/data, plus every source's content and static
+    /// dirs. De-duplicated; non-existent dirs are fine (watching is best-effort).
+    pub fn all_watch_dirs(&self) -> Vec<Utf8PathBuf> {
+        let mut dirs = vec![
+            self.content_dir.clone(),
+            self.templates_dir.clone(),
+            self.sass_dir.clone(),
+            self.static_dir.clone(),
+            self.dist_dir.clone(),
+            self.data_dir.clone(),
+        ];
+        for source in &self.sources {
+            dirs.push(source.content_dir.clone());
+            if let Some(static_dir) = source_static_dir(source) {
+                dirs.push(static_dir);
+            }
+        }
+        dirs.sort();
+        dirs.dedup();
+        dirs
     }
 }
 
@@ -327,25 +409,15 @@ pub fn create_watcher(config: &WatcherConfig) -> eyre::Result<(WatcherHandle, Wa
 
     let watcher = Arc::new(Mutex::new(watcher));
 
-    // Watch all configured directories
+    // Watch every directory across all sources (content + static per source,
+    // plus the primary templates/sass/dist/data). Best-effort: a missing dir
+    // (e.g. an un-checked-out source) is simply skipped.
     {
         let mut w = watcher.lock().unwrap();
-        w.watch(config.content_dir.as_std_path(), RecursiveMode::Recursive)?;
-
-        if config.templates_dir.exists() {
-            w.watch(config.templates_dir.as_std_path(), RecursiveMode::Recursive)?;
-        }
-        if config.sass_dir.exists() {
-            w.watch(config.sass_dir.as_std_path(), RecursiveMode::Recursive)?;
-        }
-        if config.static_dir.exists() {
-            w.watch(config.static_dir.as_std_path(), RecursiveMode::Recursive)?;
-        }
-        if config.dist_dir.exists() {
-            w.watch(config.dist_dir.as_std_path(), RecursiveMode::Recursive)?;
-        }
-        if config.data_dir.exists() {
-            w.watch(config.data_dir.as_std_path(), RecursiveMode::Recursive)?;
+        for dir in config.all_watch_dirs() {
+            if dir.exists() {
+                w.watch(dir.as_std_path(), RecursiveMode::Recursive)?;
+            }
         }
     }
 
@@ -366,7 +438,95 @@ mod tests {
             static_dir: base.join("static"),
             dist_dir: base.join("dist"),
             data_dir: base.join("data"),
+            sources: vec![],
         }
+    }
+
+    fn src(name: &str, mount: &str, content_dir: &str) -> crate::config::ResolvedSource {
+        crate::config::ResolvedSource {
+            name: name.to_string(),
+            mount: mount.to_string(),
+            content_dir: Utf8PathBuf::from(content_dir),
+            git: None,
+        }
+    }
+
+    /// A two-source config: primary `kb` at `/proj/content`, `build` mounted at
+    /// `/spec/build` from a sibling checkout `/proj/spec/content`.
+    fn multi_source_config() -> WatcherConfig {
+        WatcherConfig {
+            content_dir: Utf8PathBuf::from("/proj/content"),
+            templates_dir: Utf8PathBuf::from("/proj/templates"),
+            sass_dir: Utf8PathBuf::from("/proj/sass"),
+            static_dir: Utf8PathBuf::from("/proj/static"),
+            dist_dir: Utf8PathBuf::from("/proj/dist"),
+            data_dir: Utf8PathBuf::from("/proj/data"),
+            sources: vec![
+                src("kb", "/", "/proj/content"),
+                src("build", "/spec/build", "/proj/spec/content"),
+            ],
+        }
+    }
+
+    #[test]
+    fn multi_source_content_keys_are_mount_prefixed() {
+        let c = multi_source_config();
+        // Primary (mount /): unchanged key.
+        assert_eq!(
+            c.categorize(Utf8Path::new("/proj/content/guide/a.md")),
+            PathCategory::Content
+        );
+        assert_eq!(
+            c.relative_path(Utf8Path::new("/proj/content/guide/a.md"))
+                .unwrap(),
+            Utf8PathBuf::from("guide/a.md")
+        );
+        // Mounted source: key prefixed by its mount.
+        assert_eq!(
+            c.categorize(Utf8Path::new("/proj/spec/content/exec.md")),
+            PathCategory::Content
+        );
+        assert_eq!(
+            c.relative_path(Utf8Path::new("/proj/spec/content/exec.md"))
+                .unwrap(),
+            Utf8PathBuf::from("spec/build/exec.md")
+        );
+    }
+
+    #[test]
+    fn multi_source_static_keys_are_mount_prefixed() {
+        let c = multi_source_config();
+        assert_eq!(
+            c.categorize(Utf8Path::new("/proj/spec/static/img/logo.png")),
+            PathCategory::Static
+        );
+        assert_eq!(
+            c.relative_path(Utf8Path::new("/proj/spec/static/img/logo.png"))
+                .unwrap(),
+            Utf8PathBuf::from("spec/build/img/logo.png")
+        );
+    }
+
+    #[test]
+    fn multi_source_templates_stay_primary() {
+        let c = multi_source_config();
+        assert_eq!(
+            c.categorize(Utf8Path::new("/proj/templates/base.html")),
+            PathCategory::Template
+        );
+        assert_eq!(
+            c.relative_path(Utf8Path::new("/proj/templates/base.html"))
+                .unwrap(),
+            Utf8PathBuf::from("base.html")
+        );
+    }
+
+    #[test]
+    fn all_watch_dirs_covers_every_source_checkout() {
+        let dirs = multi_source_config().all_watch_dirs();
+        assert!(dirs.contains(&Utf8PathBuf::from("/proj/spec/content")));
+        assert!(dirs.contains(&Utf8PathBuf::from("/proj/spec/static")));
+        assert!(dirs.contains(&Utf8PathBuf::from("/proj/templates")));
     }
 
     #[test]
