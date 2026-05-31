@@ -100,7 +100,10 @@ async function main(mount: HTMLElement): Promise<void> {
     </div>
     <div class="vx-body vx-tree-collapsed">
       <div class="vx-tree"></div>
-      <div class="vx-editor"></div>
+      <div class="vx-editorcol">
+        <div class="vx-tabs"></div>
+        <div class="vx-editor"></div>
+      </div>
       <div class="vx-preview"></div>
     </div>
   `;
@@ -110,6 +113,7 @@ async function main(mount: HTMLElement): Promise<void> {
   const saveBtn = mount.querySelector(".vx-save") as HTMLButtonElement;
   const treeToggle = mount.querySelector(".vx-tree-toggle") as HTMLButtonElement;
   const treeEl = mount.querySelector(".vx-tree") as HTMLElement;
+  const tabsEl = mount.querySelector(".vx-tabs") as HTMLElement;
   const editorEl = mount.querySelector(".vx-editor") as HTMLElement;
   const previewEl = mount.querySelector(".vx-preview") as HTMLElement;
   const status = (text: string) => (statusEl.textContent = text);
@@ -142,8 +146,6 @@ async function main(mount: HTMLElement): Promise<void> {
     status(loaded.tag === "Denied" ? "not authorized to edit" : "no editable page here");
     return;
   }
-  const current = { sourceKey: loaded.source_key, uri: loaded.uri, route: loaded.route };
-
   // 3. Boot the VS Code API (classic mode, no extension host).
   const vscodeApiConfig: MonacoVscodeApiConfig = {
     $type: "classic",
@@ -205,76 +207,173 @@ async function main(mount: HTMLElement): Promise<void> {
   });
   await languageClient.start();
 
-  (globalThis as unknown as { __vixen: unknown }).__vixen = { editor, languageClient, monaco, client };
+  // 7. Tabs — one Monaco model per opened file, each with its own dirty state
+  //    and preview baseline. Switching tabs is `editor.setModel`, so unsaved
+  //    edits in other tabs are preserved (no destructive code-resource swap).
+  const contentByUri = new Map(contents.map((c) => [c.uri, c.content]));
+  interface Tab {
+    entry: EditEntry;
+    model: monaco.editor.ITextModel;
+    baseline: string; // last-saved content; drives the dirty marker
+    prevHtml?: string; // last preview HTML, for hotmeal diffing
+  }
+  const tabs = new Map<string, Tab>();
+  const tabOrder: string[] = [];
+  let activeUri = "";
 
-  // 7. File tree.
+  const modelFor = (uri: string, content: string): monaco.editor.ITextModel => {
+    const u = monaco.Uri.parse(uri);
+    return monaco.editor.getModel(u) ?? monaco.editor.createModel(content, "markdown", u);
+  };
+  const activeTab = (): Tab | undefined => tabs.get(activeUri);
+  const isDirty = (t: Tab): boolean => t.model.getValue() !== t.baseline;
+
+  const renderTabs = () => {
+    tabsEl.innerHTML = "";
+    for (const uri of tabOrder) {
+      const tab = tabs.get(uri);
+      if (!tab) continue;
+      const el = document.createElement("div");
+      el.className = "vx-tab" + (uri === activeUri ? " vx-active" : "");
+      el.title = tab.entry.route;
+      const label = document.createElement("span");
+      label.className = "vx-tab-label";
+      label.textContent = (isDirty(tab) ? "● " : "") + tab.entry.title;
+      label.addEventListener("click", () => activate(uri));
+      const close = document.createElement("button");
+      close.className = "vx-tab-close";
+      close.textContent = "×";
+      close.title = "Close tab";
+      close.addEventListener("click", (e) => {
+        e.stopPropagation();
+        closeTab(uri);
+      });
+      el.append(label, close);
+      tabsEl.appendChild(el);
+    }
+  };
+
   const renderTree = () => {
     treeEl.innerHTML = "";
     for (const e of entries) {
       const item = document.createElement("button");
-      item.className = "vx-tree-item" + (e.route === current.route ? " vx-active" : "");
+      const tab = tabs.get(e.uri);
+      item.className =
+        "vx-tree-item" +
+        (e.uri === activeUri ? " vx-active" : "") +
+        (tab && isDirty(tab) ? " vx-dirty" : "");
       item.textContent = e.title;
       item.title = e.route;
-      item.addEventListener("click", () => void open(e));
+      item.addEventListener("click", () => void openTab(e));
       treeEl.appendChild(item);
     }
   };
 
   // 8. Split preview — dodeca's real overlay render, live-patched into the
-  // shadow root with hotmeal (the same diff/patch engine as the served-page HMR),
-  // so it updates in place with no reload flash.
+  //    shadow root with hotmeal (the same diff/patch engine as the served-page
+  //    HMR), so it updates in place with no reload flash.
   await initHotmeal();
   let previewTimer: number | undefined;
-  let prevHtml: string | undefined;
   const refreshPreview = async () => {
-    const result = await client.editPreview(token, current.sourceKey, editor?.getValue() ?? "");
-    if (result.tag !== "Ok") return;
-    if (prevHtml === undefined) {
+    const tab = activeTab();
+    if (!tab) return;
+    const result = await client.editPreview(token, tab.entry.source_key, tab.model.getValue());
+    if (result.tag !== "Ok" || tab !== activeTab()) return; // tab switched mid-flight
+    if (tab.prevHtml === undefined) {
       previewDoc.innerHTML = result.html;
     } else {
       try {
-        apply_patches_json_on_element(diff_html(prevHtml, result.html), previewDoc);
+        apply_patches_json_on_element(diff_html(tab.prevHtml, result.html), previewDoc);
       } catch {
         previewDoc.innerHTML = result.html; // fall back to a full replace
       }
     }
-    prevHtml = result.html;
+    tab.prevHtml = result.html;
   };
   const schedulePreview = () => {
     if (previewTimer) clearTimeout(previewTimer);
     previewTimer = setTimeout(() => void refreshPreview(), 250) as unknown as number;
   };
 
-  // Switch the editor to another page.
-  const open = async (entry: EditEntry) => {
-    if (entry.route === current.route) return;
-    const l = await client.editLoad(token, entry.route);
-    if (l.tag !== "Ok") return;
-    current.sourceKey = l.source_key;
-    current.uri = l.uri;
-    current.route = l.route;
-    routeEl.textContent = l.route;
-    await editorApp.updateCodeResources({ modified: { text: l.content, uri: l.uri } });
+  const activate = (uri: string) => {
+    const tab = tabs.get(uri);
+    if (!tab) return;
+    activeUri = uri;
+    if (editor && editor.getModel() !== tab.model) editor.setModel(tab.model);
+    routeEl.textContent = tab.entry.route;
+    tab.prevHtml = undefined; // switching files → full render, not a diff
+    renderTabs();
     renderTree();
-    prevHtml = undefined; // different page → full render, not a diff
+    editor?.focus();
     void refreshPreview();
   };
 
-  routeEl.textContent = current.route;
-  renderTree();
+  const openTab = async (entry: EditEntry) => {
+    if (!tabs.has(entry.uri)) {
+      let content = contentByUri.get(entry.uri);
+      if (content === undefined) {
+        const r = await client.editRead(token, entry.uri);
+        content = r.tag === "Ok" ? r.content : "";
+      }
+      const model = modelFor(entry.uri, content);
+      tabs.set(entry.uri, { entry, model, baseline: content });
+      tabOrder.push(entry.uri);
+    }
+    activate(entry.uri);
+  };
+
+  const closeTab = (uri: string) => {
+    if (tabOrder.length <= 1) return; // keep at least one tab open
+    const idx = tabOrder.indexOf(uri);
+    if (idx < 0) return;
+    tabOrder.splice(idx, 1);
+    tabs.delete(uri);
+    if (activeUri === uri) {
+      activate(tabOrder[Math.min(idx, tabOrder.length - 1)]);
+    } else {
+      renderTabs();
+      renderTree();
+    }
+  };
+
+  (globalThis as unknown as { __vixen: unknown }).__vixen = {
+    editor,
+    languageClient,
+    monaco,
+    client,
+    tabs,
+  };
+
+  // Open the initial page as the first tab (reusing EditorApp's model).
+  await openTab({
+    source_key: loaded.source_key,
+    route: loaded.route,
+    uri: loaded.uri,
+    title: entries.find((e) => e.uri === loaded.uri)?.title ?? loaded.route,
+  });
+
   status("ready");
   saveBtn.disabled = false;
-  editor?.onDidChangeModelContent(() => schedulePreview());
-  void refreshPreview();
+  editor?.onDidChangeModelContent(() => {
+    renderTabs(); // refresh dirty markers
+    renderTree();
+    schedulePreview();
+  });
 
   const save = async (): Promise<void> => {
+    const tab = activeTab();
+    if (!tab) return;
     saveBtn.disabled = true;
     status("saving…");
     try {
-      const result = await client.editSave(token, current.sourceKey, editor?.getValue() ?? "");
+      const value = tab.model.getValue();
+      const result = await client.editSave(token, tab.entry.source_key, value);
       switch (result.tag) {
         case "Ok":
+          tab.baseline = value;
           status(`saved ${result.commit.slice(0, 8)}`);
+          renderTabs();
+          renderTree();
           break;
         case "Error":
           status(`error: ${result.message}`);

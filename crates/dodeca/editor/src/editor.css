@@ -105,7 +105,72 @@ body,
   font-weight: 600;
 }
 
+.vx-editorcol {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.vx-tabs {
+  display: flex;
+  align-items: stretch;
+  overflow-x: auto;
+  background: #f3f3f3;
+  border-bottom: 1px solid #ddd;
+  min-height: 33px;
+}
+
+.vx-tab {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-left: 12px;
+  padding-right: 4px;
+  border-right: 1px solid #ddd;
+  font-size: 13px;
+  color: #555;
+  cursor: pointer;
+  white-space: nowrap;
+  background: #ececec;
+}
+
+.vx-tab.vx-active {
+  background: #fff;
+  color: #000;
+}
+
+.vx-tab-label {
+  padding: 7px 0;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.vx-tab-close {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  color: #999;
+  padding: 2px 5px;
+  border-radius: 3px;
+}
+
+.vx-tab-close:hover {
+  background: #00000014;
+  color: #000;
+}
+
+.vx-tree-item.vx-dirty::after {
+  content: "●";
+  margin-left: 6px;
+  font-size: 10px;
+  vertical-align: middle;
+  color: #888;
+}
+
 .vx-editor {
+  flex: 1;
   min-height: 0;
   min-width: 0;
 }
