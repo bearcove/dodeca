@@ -7,6 +7,9 @@ import { defineConfig } from "vite";
 export default defineConfig({
   base: "/_/edit/",
   worker: { format: "es" },
+  // monaco-vscode-api relies on syntax that the minifier mangles (breaks its
+  // module/version identity), and on assets not being inlined.
+  esbuild: { minifySyntax: false },
   // monaco-languageclient drives Monaco through the VS Code API. We use the
   // codegame editor-api as the `monaco` namespace (no vanilla monaco-editor),
   // and alias any stray `monaco-editor` import onto it so only one copy loads.
@@ -18,11 +21,12 @@ export default defineConfig({
     outDir: "dist",
     emptyOutDir: true,
     cssCodeSplit: false,
+    assetsInlineLimit: 0,
     rollupOptions: {
       input: "src/main.ts",
       output: {
         entryFileNames: "edit.js",
-        chunkFileNames: "[name]-[hash].js",
+        chunkFileNames: "chunk/[name]-[hash].js",
         assetFileNames: (info) =>
           info.name && info.name.endsWith(".css")
             ? "edit.css"

@@ -1,6 +1,7 @@
 allowBuilds:
   esbuild: false
 overrides:
+  "monaco-editor": "npm:@codingame/monaco-vscode-editor-api@31.0.1"
   "@codingame/monaco-vscode-api": "31.0.1"
   "@codingame/monaco-vscode-base-service-override": "31.0.1"
   "@codingame/monaco-vscode-bulk-edit-service-override": "31.0.1"
