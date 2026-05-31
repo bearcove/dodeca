@@ -237,6 +237,10 @@ pub struct SiteServer {
     /// Live in-browser editing sessions, keyed by opaque token. Minted at the
     /// identity-bearing `GET /_dodeca/edit/<page>` load, presented on `edit_*`.
     edit_sessions: crate::edit_session::EditSessionStore,
+    /// Local-only dev override (`ddc serve --dev-editor`): when set, this
+    /// identity is treated as a verified editor, bypassing oauth2-proxy. Refused
+    /// on non-loopback binds by the CLI. Never set in production.
+    dev_editor: RwLock<Option<cell_http_proto::Identity>>,
 }
 
 /// Registry of connected browsers for direct event pushing.
@@ -305,7 +309,13 @@ impl SiteServer {
             site_port: RwLock::new(0),
             started: std::time::Instant::now(),
             edit_sessions: crate::edit_session::EditSessionStore::default(),
+            dev_editor: RwLock::new(None),
         }
+    }
+
+    /// Set the local dev editor override (see the `dev_editor` field).
+    pub fn set_dev_editor(&self, identity: Option<cell_http_proto::Identity>) {
+        *self.dev_editor.write().unwrap() = identity;
     }
 
     /// Provide the status page its context (resolved sources + content port),
@@ -1123,6 +1133,11 @@ impl SiteServer {
     /// editor per the site's `auth` config. `None` (fail closed) when there's
     /// no `auth`, no identity, or the identity isn't on an allowlist.
     pub fn mint_edit_token(&self, identity: Option<&cell_http_proto::Identity>) -> Option<String> {
+        // Local dev bypass: act as the configured dev editor regardless of
+        // forwarded identity or auth config.
+        if let Some(dev) = self.dev_editor.read().unwrap().clone() {
+            return Some(self.edit_sessions.mint(dev));
+        }
         let cfg = crate::config::global_config()?;
         let auth = cfg.auth.as_ref()?;
         if !crate::authz::is_editor(identity, auth) {
@@ -1136,6 +1151,10 @@ impl SiteServer {
     /// the *current* config so revoking access takes effect mid-session.
     fn resolve_editor(&self, token: &str) -> Option<cell_http_proto::Identity> {
         let identity = self.edit_sessions.resolve(token)?;
+        // Local dev bypass: any live token is a valid editor session.
+        if self.dev_editor.read().unwrap().is_some() {
+            return Some(identity);
+        }
         let cfg = crate::config::global_config()?;
         let auth = cfg.auth.as_ref()?;
         crate::authz::is_editor(Some(&identity), auth).then_some(identity)

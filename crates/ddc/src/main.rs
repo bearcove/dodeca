@@ -114,6 +114,12 @@ struct ServeArgs {
     /// fallback path — webhooks are preferred.
     #[facet(args::named, default)]
     git_poll: Option<u64>,
+
+    /// Local-only: act as this editor user, bypassing oauth2-proxy so you can
+    /// drive the in-browser editor (`/_dodeca/edit/<page>`) without a real auth
+    /// proxy. Refused on a non-loopback bind. Never use in production.
+    #[facet(args::named, default)]
+    dev_editor: Option<String>,
 }
 
 /// Clean command arguments
@@ -482,6 +488,21 @@ async fn async_main(command: Command) -> Result<()> {
                 spawn_git_poll(&cfg.sources, secs);
             }
 
+            // Local-only dev editor: never on a publicly-reachable bind.
+            if args.dev_editor.is_some()
+                && (args.public_access || !is_loopback_address(&args.address))
+            {
+                return Err(eyre!(
+                    "--dev-editor is local-only; refusing on bind `{}`{}",
+                    args.address,
+                    if args.public_access {
+                        " with --public"
+                    } else {
+                        ""
+                    }
+                ));
+            }
+
             if use_tui {
                 if args.fd_socket.is_some() {
                     return Err(eyre!("FD passing is only supported in --no-tui mode"));
@@ -494,6 +515,7 @@ async fn async_main(command: Command) -> Result<()> {
                     args.open,
                     cfg.stable_assets,
                     args.public_access,
+                    args.dev_editor,
                 )
                 .await
             } else {
@@ -505,6 +527,7 @@ async fn async_main(command: Command) -> Result<()> {
                     cfg.stable_assets,
                     args.fd_socket,
                     args.public_access,
+                    args.dev_editor,
                 )
                 .await
             }
@@ -2124,6 +2147,25 @@ fn canonicalize_sources(
         .collect()
 }
 
+/// True for loopback bind addresses (`127.0.0.1`, `::1`, `localhost`).
+fn is_loopback_address(address: &str) -> bool {
+    address == "localhost"
+        || address
+            .parse::<std::net::IpAddr>()
+            .map(|ip| ip.is_loopback())
+            .unwrap_or(false)
+}
+
+/// Synthesize a local dev editor identity from a username (`--dev-editor`).
+fn dev_editor_identity(user: &str) -> cell_http_proto::Identity {
+    cell_http_proto::Identity {
+        user: user.to_string(),
+        email: format!("{user}@localhost"),
+        name: user.to_string(),
+        groups: Vec::new(),
+    }
+}
+
 async fn serve_plain(
     sources: &[dodeca::config::ResolvedSource],
     address: &str,
@@ -2132,6 +2174,7 @@ async fn serve_plain(
     stable_assets: Vec<String>,
     fd_socket: Option<String>,
     public_access: bool,
+    dev_editor: Option<String>,
 ) -> Result<()> {
     use std::sync::Arc;
 
@@ -2259,6 +2302,10 @@ async fn serve_plain(
         Some(content_dir.to_path_buf()),
     ));
     server.set_git_checkouts(git_checkouts(sources));
+    if let Some(user) = dev_editor {
+        tracing::warn!(user = %user, "DEV: acting as editor (local-only auth bypass)");
+        server.set_dev_editor(Some(dev_editor_identity(&user)));
+    }
     let startup_revision = server.begin_revision("startup");
 
     let watcher_config = file_watcher::WatcherConfig {
@@ -2587,6 +2634,7 @@ async fn serve_with_tui(
     open: bool,
     stable_assets: Vec<String>,
     start_public: bool,
+    dev_editor: Option<String>,
 ) -> Result<()> {
     use std::sync::Arc;
     use tokio::sync::watch;
@@ -2642,6 +2690,10 @@ async fn serve_with_tui(
         Some(content_dir.to_path_buf()),
     ));
     server.set_git_checkouts(git_checkouts(sources));
+    if let Some(user) = dev_editor {
+        tracing::warn!(user = %user, "DEV: acting as editor (local-only auth bypass)");
+        server.set_dev_editor(Some(dev_editor_identity(&user)));
+    }
     let startup_revision = server.begin_revision("startup");
 
     // Load cached query results (e.g., processed images) from disk
