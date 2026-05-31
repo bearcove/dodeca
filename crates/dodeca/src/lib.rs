@@ -30,6 +30,7 @@ pub mod revision;
 pub mod search;
 pub mod serve;
 pub mod spawn;
+pub mod status;
 pub mod svg;
 pub mod template_host;
 pub mod template_paths;

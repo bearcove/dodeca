@@ -228,6 +228,12 @@ pub struct SiteServer {
     /// Git-backed sources as `(name, checkout dir)`, for the `/_dodeca/pull`
     /// webhook to `git pull` on demand.
     git_checkouts: RwLock<Vec<(String, Utf8PathBuf)>>,
+    /// Status-page context: the resolved sources and the content port. Set once
+    /// at serve startup; read by `status_html`.
+    status_sources: RwLock<Vec<crate::config::ResolvedSource>>,
+    site_port: RwLock<u16>,
+    /// When the server started, for the status page's uptime.
+    started: std::time::Instant,
 }
 
 /// Registry of connected browsers for direct event pushing.
@@ -292,7 +298,33 @@ impl SiteServer {
             revision_tx,
             browsers: std::sync::Mutex::new(BrowserRegistry::default()),
             git_checkouts: RwLock::new(Vec::new()),
+            status_sources: RwLock::new(Vec::new()),
+            site_port: RwLock::new(0),
+            started: std::time::Instant::now(),
         }
+    }
+
+    /// Provide the status page its context (resolved sources + content port),
+    /// known once the server has bound. The live bits (generation, errors, page
+    /// counts) are read fresh each render.
+    pub fn set_status_context(&self, sources: Vec<crate::config::ResolvedSource>, site_port: u16) {
+        *self.status_sources.write().unwrap() = sources;
+        *self.site_port.write().unwrap() = site_port;
+    }
+
+    /// Render the status page HTML from current server state. Pure string — the
+    /// http cell serves it (HTTP stays out of this crate).
+    pub fn status_html(&self) -> String {
+        let sources = self.status_sources.read().unwrap().clone();
+        let data = crate::status::StatusData {
+            sources: &sources,
+            source_keys: self.source_keys(),
+            generation: self.current_generation(),
+            error_routes: self.error_routes(),
+            uptime_secs: self.started.elapsed().as_secs(),
+            site_port: *self.site_port.read().unwrap(),
+        };
+        crate::status::render_status_html(&data)
     }
 
     /// Register the git-backed sources (`(name, checkout dir)`) the
@@ -768,6 +800,32 @@ impl SiteServer {
         SourceRegistry::sources(&*self.db)
             .expect("failed to get sources")
             .unwrap_or_default()
+    }
+
+    /// All loaded source registry keys (mount-prefixed paths) — for the status
+    /// page to count pages per source.
+    pub fn source_keys(&self) -> Vec<String> {
+        let db = &*self.db;
+        SourceRegistry::sources(db)
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|s| s.path(db).ok().map(|p| p.as_str().to_string()))
+            .collect()
+    }
+
+    /// Routes currently rendering with an error — for the status page.
+    pub fn error_routes(&self) -> Vec<String> {
+        let mut routes: Vec<String> = self
+            .current_errors
+            .read()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect();
+        routes.sort();
+        routes
     }
 
     /// Get a clone of the current templates (for modification)

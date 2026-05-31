@@ -30,6 +30,16 @@ impl ContentService for HostContentService {
         // Get current generation
         let generation = self.server.current_generation();
 
+        // Status page (HTML rendered by the host; served here by the http cell —
+        // HTTP stays in the cell).
+        if path == "/_dodeca/status" {
+            return ServeContent::StaticNoCache {
+                content: self.server.status_html().into_bytes(),
+                mime: "text/html; charset=utf-8".to_string(),
+                generation,
+            };
+        }
+
         // Git webhook: `/_dodeca/pull` pulls every git source; `/_dodeca/pull/<name>`
         // pulls one. The push-driven (ideal) counterpart to `--git-poll`. The
         // file watcher re-renders whatever the pull brings in.

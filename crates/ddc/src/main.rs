@@ -2071,6 +2071,34 @@ fn ensure_git_sources(sources: &[dodeca::config::ResolvedSource]) -> Result<()> 
     Ok(())
 }
 
+/// Print a one-glance summary of the configured sources at serve startup, with
+/// each source's mount, kind, and whether its checkout is present on disk.
+/// Skipped for a plain single-source project (nothing to disambiguate).
+fn print_source_banner(sources: &[dodeca::config::ResolvedSource]) {
+    let interesting = sources.len() > 1 || sources.iter().any(|s| !s.name.is_empty());
+    if !interesting {
+        return;
+    }
+    println!("{}", "Sources:".bold());
+    for s in sources {
+        let (kind, loc, present) = match &s.checkout_dir {
+            Some(checkout) => ("git", checkout.as_str(), checkout.exists()),
+            None => ("local", s.content_dir.as_str(), s.content_dir.exists()),
+        };
+        let mark = if present {
+            "✓".green().to_string()
+        } else {
+            "✗ absent".red().to_string()
+        };
+        let name = if s.name.is_empty() {
+            "(root)"
+        } else {
+            s.name.as_str()
+        };
+        println!("  {mark}  {name}  {}  [{kind}] {loc}", s.mount.dimmed());
+    }
+}
+
 /// `(name, checkout dir)` for each git-backed source — what the `/_dodeca/pull`
 /// webhook and the poller operate on.
 fn git_checkouts(sources: &[dodeca::config::ResolvedSource]) -> Vec<(String, Utf8PathBuf)> {
@@ -2109,6 +2137,7 @@ async fn serve_plain(
 
     // Clone any git-backed source that isn't checked out yet.
     ensure_git_sources(sources)?;
+    print_source_banner(sources);
     // The primary source's content dir (mount `/`) anchors templates/sass/cache.
     let content_dir = &sources[0].content_dir;
 
@@ -2309,6 +2338,13 @@ async fn serve_plain(
     let source_count = source_files.len();
     server.set_sources(source_files.into_iter().map(|(_, file)| file).collect());
     println!("  Loaded {source_count} source files");
+    // Status page — served by the http cell at /_dodeca/status on the content
+    // port (HTTP stays in the cell). See note re: a separate localhost port.
+    server.set_status_context(sources.to_vec(), actual_port);
+    println!(
+        "  {} http://127.0.0.1:{actual_port}/_dodeca/status",
+        "Status".cyan()
+    );
 
     // Load templates
     if templates_dir.exists() {
@@ -2557,6 +2593,7 @@ async fn serve_with_tui(
 
     // Clone any git-backed source that isn't checked out yet.
     ensure_git_sources(sources)?;
+    print_source_banner(sources);
     // The primary source's content dir (mount `/`) anchors templates/sass/cache.
     let content_dir = &sources[0].content_dir;
 
