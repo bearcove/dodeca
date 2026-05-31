@@ -234,11 +234,15 @@ impl HostService for HostServiceImpl {
     }
 
     // Content Service
-    async fn find_content(&self, path: String) -> ServeContent {
+    async fn find_content(
+        &self,
+        path: String,
+        identity: Option<cell_http_proto::Identity>,
+    ) -> ServeContent {
         if let Some(server) = &self.site_server {
             use cell_http_proto::ContentService;
             let content_service = crate::content_service::HostContentService::new(server.clone());
-            content_service.find_content(path).await
+            content_service.find_content(path, identity).await
         } else {
             ServeContent::NotFound {
                 html: "Not in serve mode".to_string(),

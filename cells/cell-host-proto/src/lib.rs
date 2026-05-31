@@ -11,7 +11,7 @@ use std::collections::HashMap;
 pub use cell_gingembre_proto::{
     CallFunctionResult, ContextId, KeysAtResult, LoadTemplateResult, ResolveDataResult,
 };
-pub use cell_http_proto::{EvalResult, ScopeEntry, ServeContent};
+pub use cell_http_proto::{EvalResult, Identity, ScopeEntry, ServeContent};
 pub use cell_lifecycle_proto::{ReadyAck, ReadyMsg};
 pub use cell_tui_proto::{CommandResult, ServerCommand};
 pub use facet_value::Value;
@@ -98,8 +98,9 @@ pub trait HostService {
     // Content Service (for HTTP cell)
     // =========================================================================
 
-    /// Find content for a given path.
-    async fn find_content(&self, path: String) -> ServeContent;
+    /// Find content for a given path. `identity` is the forwarded auth identity
+    /// (oauth2-proxy → http cell), or `None` if unauthenticated.
+    async fn find_content(&self, path: String, identity: Option<Identity>) -> ServeContent;
 
     /// Get scope entries for devtools.
     async fn get_scope(&self, route: String, path: Vec<String>) -> Vec<ScopeEntry>;

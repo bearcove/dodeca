@@ -69,14 +69,35 @@ pub enum ServeContent {
     NotFound { html: String, generation: u64 },
 }
 
+/// The authenticated requester, as forwarded by an auth proxy (oauth2-proxy in
+/// front of dodeca, backed by Forgejo OIDC). The cell fills this from the
+/// `X-Forwarded-*` headers; `None` means an unauthenticated request. The host
+/// uses it to gate `/_dodeca/*` (status, editing) and to attribute edits.
+#[derive(Debug, Clone, Facet)]
+pub struct Identity {
+    /// Stable user id (`X-Forwarded-User`).
+    pub user: String,
+    /// Email (`X-Forwarded-Email`), used as the git author email.
+    pub email: String,
+    /// Display/preferred name (`X-Forwarded-Preferred-Username`).
+    pub name: String,
+    /// Group memberships (`X-Forwarded-Groups`), for the editor allowlist.
+    pub groups: Vec<String>,
+}
+
 /// Content service provided by the host
 ///
 /// The cell calls these methods to get content from the host's picante DB.
 #[allow(async_fn_in_trait)]
 #[vox::service]
 pub trait ContentService {
-    /// Find content for a given path (HTML, CSS, static files, devtools assets)
-    async fn find_content(&self, path: String) -> crate::ServeContent;
+    /// Find content for a given path (HTML, CSS, static files, devtools assets).
+    /// `identity` is the forwarded auth identity, or `None` if unauthenticated.
+    async fn find_content(
+        &self,
+        path: String,
+        identity: Option<crate::Identity>,
+    ) -> crate::ServeContent;
 
     /// Get scope entries for devtools (variable inspector)
     async fn get_scope(&self, route: String, path: Vec<String>) -> Vec<crate::ScopeEntry>;

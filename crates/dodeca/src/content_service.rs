@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use cell_http_proto::{ContentService, ServeContent};
+use cell_http_proto::{ContentService, Identity, ServeContent};
 use dodeca_protocol::{EvalResult, ScopeEntry};
 
 use crate::serve::{SiteServer, get_devtools_asset};
@@ -23,16 +23,22 @@ impl HostContentService {
 }
 
 impl ContentService for HostContentService {
-    async fn find_content(&self, path: String) -> ServeContent {
+    async fn find_content(&self, path: String, identity: Option<Identity>) -> ServeContent {
         // Stall until the current revision is fully ready.
         self.server.wait_revision_ready().await;
 
         // Get current generation
         let generation = self.server.current_generation();
 
-        // Status page (HTML rendered by the host; served here by the http cell —
-        // HTTP stays in the cell).
+        // Status page — gated: requires an authenticated identity (forwarded by
+        // oauth2-proxy). Fail-closed: no identity → bounce to the proxy login.
         if path == "/_dodeca/status" {
+            if identity.is_none() {
+                return ServeContent::Redirect {
+                    location: format!("/oauth2/start?rd={path}"),
+                    generation,
+                };
+            }
             return ServeContent::StaticNoCache {
                 content: self.server.status_html().into_bytes(),
                 mime: "text/html; charset=utf-8".to_string(),

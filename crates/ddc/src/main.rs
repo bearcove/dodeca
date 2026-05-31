@@ -3335,8 +3335,12 @@ async fn serve_static(
     }
 
     impl ContentService for StaticContentService {
-        async fn find_content(&self, path: String) -> ServeContent {
-            // Normalize path - remove leading slash
+        async fn find_content(
+            &self,
+            path: String,
+            _identity: Option<cell_http_proto::Identity>,
+        ) -> ServeContent {
+            // Static serve has no auth gating. Normalize path - remove leading slash
             let path = path.trim_start_matches('/');
 
             // Try the exact path first, then index.html for directories

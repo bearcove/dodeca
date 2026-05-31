@@ -46,6 +46,35 @@ impl RouterContext for CellRouterContext {
     }
 }
 
+/// Build the forwarded auth identity from a request's `X-Forwarded-*` headers
+/// (set by oauth2-proxy in front of dodeca). `None` if `X-Forwarded-User` is
+/// absent/empty — i.e. unauthenticated. HTTP/header parsing stays in the cell;
+/// the host only ever sees the resolved [`cell_http_proto::Identity`].
+fn extract_identity(request: &axum::extract::Request) -> Option<cell_http_proto::Identity> {
+    let headers = request.headers();
+    let get = |name: &str| {
+        headers
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string)
+    };
+    let user = get("x-forwarded-user").filter(|u| !u.is_empty())?;
+    let groups = get("x-forwarded-groups")
+        .map(|g| {
+            g.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(cell_http_proto::Identity {
+        user,
+        email: get("x-forwarded-email").unwrap_or_default(),
+        name: get("x-forwarded-preferred-username").unwrap_or_default(),
+        groups,
+    })
+}
+
 /// Convenience: get a connected `HostServiceClient`.
 pub async fn host_client(ctx: &Arc<dyn RouterContext>) -> HostServiceClient {
     ctx.host().client().await
@@ -91,10 +120,15 @@ fn build_router(ctx: Arc<dyn RouterContext>) -> axum::Router {
 
         let client = crate::host_client(&ctx).await;
 
+        // The forwarded auth identity (oauth2-proxy → these headers). The host
+        // uses it to gate `/_dodeca/*`. HTTP/header parsing lives here in the
+        // cell; the host only sees the resolved identity.
+        let identity = extract_identity(&request);
+
         // Call host to get content
         let host_call_started_at = Instant::now();
         tracing::debug!(path, "http cell host find_content started");
-        let content = match client.find_content(path.clone()).await {
+        let content = match client.find_content(path.clone(), identity).await {
             Ok(c) => {
                 tracing::debug!(
                     path,
