@@ -236,6 +236,31 @@ impl DevtoolsService for HostDevtoolsService {
 
         result
     }
+
+    async fn edit_load(&self, token: String, route: String) -> dodeca_protocol::EditLoad {
+        tracing::debug!(browser_id = self.browser_id, route = %route, "devtools edit_load");
+        self.server.edit_load(&token, &route).await
+    }
+
+    async fn edit_preview(
+        &self,
+        token: String,
+        source_key: String,
+        buffer: String,
+    ) -> dodeca_protocol::EditPreview {
+        tracing::debug!(browser_id = self.browser_id, source_key = %source_key, "devtools edit_preview");
+        self.server.edit_preview(&token, &source_key, &buffer).await
+    }
+
+    async fn edit_save(
+        &self,
+        token: String,
+        source_key: String,
+        buffer: String,
+    ) -> dodeca_protocol::EditSave {
+        tracing::debug!(browser_id = self.browser_id, source_key = %source_key, "devtools edit_save");
+        self.server.edit_save(&token, &source_key, &buffer).await
+    }
 }
 
 /// Start the HTTP cell server with optional shutdown signal

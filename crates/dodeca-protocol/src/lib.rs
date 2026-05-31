@@ -76,6 +76,21 @@ pub trait DevtoolsService {
 
     /// Create a source stub for a dead link target, then open it in the editor.
     async fn open_dead_link(&self, route: String, target: DeadLinkTarget) -> OpenSourceResult;
+
+    /// Load the raw markdown of the page at `route` for in-browser editing.
+    ///
+    /// `token` is the editor session token embedded in the `/_dodeca/edit/<page>`
+    /// shell (minted only for verified editors). An invalid/expired token, or a
+    /// later config change that revokes edit rights, yields `EditLoad::Denied`.
+    async fn edit_load(&self, token: String, route: String) -> EditLoad;
+
+    /// Render `buffer` overlaid on `source_key` (from `edit_load`), isolated
+    /// from live state via a db snapshot — the editor's live preview. Byte
+    /// identical to what publishing the buffer would produce.
+    async fn edit_preview(&self, token: String, source_key: String, buffer: String) -> EditPreview;
+
+    /// Commit `buffer` to `source_key` authored as the editing user, then push.
+    async fn edit_save(&self, token: String, source_key: String, buffer: String) -> EditSave;
 }
 
 /// Events pushed from server to browser devtools.
@@ -110,6 +125,51 @@ pub enum OpenSourceResult {
 pub enum DeadLinkTarget {
     Wiki { key: String, title: String },
     Internal { href: String, title: String },
+}
+
+/// Result of `DevtoolsService::edit_load`.
+#[derive(Debug, Clone, PartialEq, Facet)]
+#[repr(u8)]
+pub enum EditLoad {
+    /// The page's raw markdown, plus the `source_key` to pass back to
+    /// `edit_preview`/`edit_save` and the normalized route.
+    Ok {
+        source_key: String,
+        route: String,
+        content: String,
+    },
+    /// Not a verified editor (bad/expired token, or rights revoked).
+    Denied,
+    /// No editable source owns that route.
+    NotFound,
+}
+
+/// Result of `DevtoolsService::edit_preview`.
+#[derive(Debug, Clone, PartialEq, Facet)]
+#[repr(u8)]
+pub enum EditPreview {
+    /// Rendered HTML for the overlaid buffer.
+    Ok {
+        html: String,
+    },
+    Denied,
+    NotFound,
+}
+
+/// Result of `DevtoolsService::edit_save`.
+#[derive(Debug, Clone, PartialEq, Facet)]
+#[repr(u8)]
+pub enum EditSave {
+    /// Saved; `commit` is the new commit hash.
+    Ok {
+        commit: String,
+    },
+    Denied,
+    NotFound,
+    /// The write/commit/push failed; `message` is safe to show the editor.
+    Error {
+        message: String,
+    },
 }
 
 // ============================================================================

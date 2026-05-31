@@ -50,6 +50,39 @@ impl ContentService for HostContentService {
             };
         }
 
+        // In-browser editor shell. Fail closed: mint a token only for a verified
+        // editor; anyone else is treated as if the page doesn't exist (we don't
+        // reveal that it's editable). Unauthenticated requests behind the proxy
+        // bounce to login first.
+        if let Some(rest) = path.strip_prefix("/_dodeca/edit/") {
+            match self.server.mint_edit_token(identity.as_ref()) {
+                Some(token) => {
+                    let route = format!("/{}", rest.trim_start_matches('/'));
+                    let html = crate::edit_shell::render_edit_shell(&route, &token);
+                    return ServeContent::StaticNoCache {
+                        content: html.into_bytes(),
+                        mime: "text/html; charset=utf-8".to_string(),
+                        generation,
+                    };
+                }
+                None => {
+                    let auth_enabled = crate::config::global_config()
+                        .and_then(|c| c.auth.as_ref())
+                        .is_some();
+                    if auth_enabled && identity.is_none() {
+                        return ServeContent::Redirect {
+                            location: format!("/oauth2/start?rd={path}"),
+                            generation,
+                        };
+                    }
+                    return ServeContent::NotFound {
+                        html: "<!doctype html><title>not found</title>not found".to_string(),
+                        generation,
+                    };
+                }
+            }
+        }
+
         // Git webhook: `/_dodeca/pull` pulls every git source; `/_dodeca/pull/<name>`
         // pulls one. The push-driven (ideal) counterpart to `--git-poll`. The
         // file watcher re-renders whatever the pull brings in.

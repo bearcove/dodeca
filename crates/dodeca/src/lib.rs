@@ -18,6 +18,7 @@ pub mod content_service;
 pub mod data;
 pub mod db;
 pub mod edit_session;
+pub mod edit_shell;
 pub mod error_pages;
 pub mod file_watcher;
 pub mod frontmatter_schema;

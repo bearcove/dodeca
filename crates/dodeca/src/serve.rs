@@ -234,6 +234,9 @@ pub struct SiteServer {
     site_port: RwLock<u16>,
     /// When the server started, for the status page's uptime.
     started: std::time::Instant,
+    /// Live in-browser editing sessions, keyed by opaque token. Minted at the
+    /// identity-bearing `GET /_dodeca/edit/<page>` load, presented on `edit_*`.
+    edit_sessions: crate::edit_session::EditSessionStore,
 }
 
 /// Registry of connected browsers for direct event pushing.
@@ -301,6 +304,7 @@ impl SiteServer {
             status_sources: RwLock::new(Vec::new()),
             site_port: RwLock::new(0),
             started: std::time::Instant::now(),
+            edit_sessions: crate::edit_session::EditSessionStore::default(),
         }
     }
 
@@ -1113,6 +1117,133 @@ impl SiteServer {
                 }
             })
             .await
+    }
+
+    /// Mint an editor session token, but only if `identity` is a verified
+    /// editor per the site's `auth` config. `None` (fail closed) when there's
+    /// no `auth`, no identity, or the identity isn't on an allowlist.
+    pub fn mint_edit_token(&self, identity: Option<&cell_http_proto::Identity>) -> Option<String> {
+        let cfg = crate::config::global_config()?;
+        let auth = cfg.auth.as_ref()?;
+        if !crate::authz::is_editor(identity, auth) {
+            return None;
+        }
+        // is_editor is false for a None identity, so unwrap is safe here.
+        Some(self.edit_sessions.mint(identity?.clone()))
+    }
+
+    /// Resolve an editor token to its identity, re-checking edit rights against
+    /// the *current* config so revoking access takes effect mid-session.
+    fn resolve_editor(&self, token: &str) -> Option<cell_http_proto::Identity> {
+        let identity = self.edit_sessions.resolve(token)?;
+        let cfg = crate::config::global_config()?;
+        let auth = cfg.auth.as_ref()?;
+        crate::authz::is_editor(Some(&identity), auth).then_some(identity)
+    }
+
+    /// The editable source key that renders `route` (inverse of source→route).
+    async fn source_key_for_route(self: &Arc<Self>, route: &str) -> Option<String> {
+        let db = self.db.clone();
+        let snapshot = DatabaseSnapshot::from_database(&self.db).await;
+        let want = normalize_route(route);
+        crate::db::TASK_DB
+            .scope(db, async move {
+                let map = crate::queries::source_to_route_map(&snapshot)
+                    .await
+                    .unwrap_or_default();
+                map.into_iter()
+                    .find(|(_key, r)| normalize_route(r) == want)
+                    .map(|(key, _)| key)
+            })
+            .await
+    }
+
+    /// Raw markdown currently held for `source_key` in the live db.
+    fn source_content(&self, source_key: &str) -> Option<String> {
+        self.get_sources().into_iter().find_map(|sf| {
+            let path = sf.path(&*self.db).ok()?;
+            if path.as_str() != source_key {
+                return None;
+            }
+            Some(sf.content(&*self.db).ok()?.as_str().to_string())
+        })
+    }
+
+    /// Editor: load the raw markdown of the page at `route`.
+    pub async fn edit_load(
+        self: &Arc<Self>,
+        token: &str,
+        route: &str,
+    ) -> dodeca_protocol::EditLoad {
+        use dodeca_protocol::EditLoad;
+        if self.resolve_editor(token).is_none() {
+            return EditLoad::Denied;
+        }
+        let Some(source_key) = self.source_key_for_route(route).await else {
+            return EditLoad::NotFound;
+        };
+        match self.source_content(&source_key) {
+            Some(content) => EditLoad::Ok {
+                source_key,
+                route: normalize_route(route),
+                content,
+            },
+            None => EditLoad::NotFound,
+        }
+    }
+
+    /// Editor: live preview of `buffer` overlaid on `source_key`, isolated.
+    pub async fn edit_preview(
+        self: &Arc<Self>,
+        token: &str,
+        source_key: &str,
+        buffer: &str,
+    ) -> dodeca_protocol::EditPreview {
+        use dodeca_protocol::EditPreview;
+        if self.resolve_editor(token).is_none() {
+            return EditPreview::Denied;
+        }
+        match self.preview_overlay(source_key, buffer).await {
+            Ok(Some(html)) => EditPreview::Ok { html },
+            Ok(None) => EditPreview::NotFound,
+            Err(error) => {
+                tracing::warn!(source_key, %error, "edit_preview render failed");
+                EditPreview::NotFound
+            }
+        }
+    }
+
+    /// Editor: commit `buffer` to `source_key` authored as the editing user.
+    pub async fn edit_save(
+        self: &Arc<Self>,
+        token: &str,
+        source_key: &str,
+        buffer: &str,
+    ) -> dodeca_protocol::EditSave {
+        use dodeca_protocol::EditSave;
+        let Some(identity) = self.resolve_editor(token) else {
+            return EditSave::Denied;
+        };
+        let sources = self.status_sources.read().unwrap().clone();
+        let Some((source, rel)) = crate::build_context::source_for_key(&sources, source_key) else {
+            return EditSave::NotFound;
+        };
+        // Git repo root: the checkout for git-backed sources, else the content
+        // dir itself (a local source that happens to be in a repo).
+        let repo = source
+            .checkout_dir
+            .clone()
+            .unwrap_or_else(|| source.content_dir.clone());
+        let file = source.content_dir.join(&rel);
+        match commit_as_user(&repo, &file, buffer, &identity, &rel).await {
+            Ok(commit) => EditSave::Ok { commit },
+            Err(error) => {
+                tracing::warn!(source_key, %error, "edit_save failed");
+                EditSave::Error {
+                    message: error.to_string(),
+                }
+            }
+        }
     }
 
     /// Inner implementation of find_content, runs within TASK_DB scope
@@ -2630,6 +2761,79 @@ pub fn mime_from_extension(path: &str) -> &'static str {
         Some("pf_index") | Some("pf_meta") | Some("pagefind") => "application/octet-stream",
         _ => "application/octet-stream",
     }
+}
+
+/// Write `buffer` to `file`, then commit it to `repo` authored and committed as
+/// the editing user, and push. Push relies on the repo's configured remote
+/// credentials (the service account's token) — the user is only the git
+/// author/committer, for attribution. Returns the new commit hash.
+async fn commit_as_user(
+    repo: &Utf8Path,
+    file: &Utf8Path,
+    buffer: &str,
+    identity: &cell_http_proto::Identity,
+    rel: &str,
+) -> Result<String> {
+    if let Some(parent) = file.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    tokio::fs::write(file, buffer).await?;
+
+    git(repo, &["add", file.as_str()]).await?;
+
+    // Nothing staged → the buffer already matched what's on disk.
+    if git_status(repo, &["diff", "--cached", "--quiet"])
+        .await?
+        .success()
+    {
+        bail!("no changes to save");
+    }
+
+    let name = if identity.name.trim().is_empty() {
+        identity.user.as_str()
+    } else {
+        identity.name.as_str()
+    };
+    let name_cfg = format!("user.name={name}");
+    let email_cfg = format!("user.email={}", identity.email);
+    let message = format!("docs: edit {rel} via web editor");
+    git(
+        repo,
+        &["-c", &name_cfg, "-c", &email_cfg, "commit", "-m", &message],
+    )
+    .await?;
+
+    let hash = git(repo, &["rev-parse", "HEAD"]).await?;
+    git(repo, &["push"]).await?;
+    Ok(hash)
+}
+
+/// Run `git -C <repo> <args>`, returning trimmed stdout, bailing on failure.
+async fn git(repo: &Utf8Path, args: &[&str]) -> Result<String> {
+    let output = tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(repo.as_str())
+        .args(args)
+        .output()
+        .await?;
+    if !output.status.success() {
+        bail!(
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+/// Run `git -C <repo> <args>` for its exit status only (no bail on failure).
+async fn git_status(repo: &Utf8Path, args: &[&str]) -> Result<std::process::ExitStatus> {
+    Ok(tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(repo.as_str())
+        .args(args)
+        .status()
+        .await?)
 }
 
 #[cfg(test)]
