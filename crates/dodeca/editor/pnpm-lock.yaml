@@ -78,6 +78,9 @@ importers:
       '@codingame/monaco-vscode-extensions-service-override':
         specifier: 31.0.1
         version: 31.0.1
+      '@codingame/monaco-vscode-files-service-override':
+        specifier: ^31.0.1
+        version: 31.0.1
       '@codingame/monaco-vscode-languages-service-override':
         specifier: 31.0.1
         version: 31.0.1

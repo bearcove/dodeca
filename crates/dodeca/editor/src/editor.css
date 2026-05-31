@@ -47,7 +47,50 @@ body,
   cursor: default;
 }
 
-.vx-editor {
+.vx-body {
   flex: 1;
   min-height: 0;
+  display: grid;
+  grid-template-columns: 200px 1fr 1fr;
+}
+
+.vx-tree {
+  border-right: 1px solid #ddd;
+  overflow-y: auto;
+  padding: 6px 0;
+  background: #fafafa;
+}
+
+.vx-tree-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 4px 14px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 13px;
+  color: #333;
+}
+
+.vx-tree-item:hover {
+  background: #ececec;
+}
+
+.vx-tree-item.vx-active {
+  background: #e2ecff;
+  font-weight: 600;
+}
+
+.vx-editor {
+  min-height: 0;
+  min-width: 0;
+}
+
+.vx-preview {
+  border: none;
+  border-left: 1px solid #ddd;
+  min-width: 0;
+  background: #fff;
 }

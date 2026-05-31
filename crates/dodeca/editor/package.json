@@ -15,6 +15,7 @@
     "@codingame/monaco-vscode-editor-api": "^31.0.1",
     "@codingame/monaco-vscode-editor-service-override": "^31.0.1",
     "@codingame/monaco-vscode-extensions-service-override": "^31.0.1",
+    "@codingame/monaco-vscode-files-service-override": "^31.0.1",
     "@codingame/monaco-vscode-languages-service-override": "^31.0.1",
     "@codingame/monaco-vscode-log-service-override": "^31.0.1",
     "@codingame/monaco-vscode-model-service-override": "^31.0.1",
