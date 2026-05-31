@@ -85,6 +85,18 @@ pub const TEMPLATE_SEMANTIC_TOKEN_NUMBER: u32 = 6;
 pub const TEMPLATE_SEMANTIC_TOKEN_KEYWORD: u32 = 7;
 
 pub async fn run(content: Option<String>, output: Option<String>) -> Result<()> {
+    serve_on(tokio::io::stdin(), tokio::io::stdout(), content, output).await;
+    Ok(())
+}
+
+/// Serve the authoring LSP over an arbitrary byte transport (LSP `Content-Length`
+/// framing). `run` uses stdio; the in-process browser editor bridges this onto a
+/// vox channel via an in-memory duplex, so no subprocess is spawned.
+pub async fn serve_on<R, W>(read: R, write: W, content: Option<String>, output: Option<String>)
+where
+    R: tokio::io::AsyncRead + Unpin,
+    W: tokio::io::AsyncWrite + Unpin,
+{
     let state = Arc::new(Mutex::new(AuthoringState {
         startup_args: LspStartupArgs { content, output },
         dirs: None,
@@ -95,15 +107,12 @@ pub async fn run(content: Option<String>, output: Option<String>) -> Result<()> 
         world_cache: None,
     }));
 
-    let stdin = tokio::io::stdin();
-    let stdout = tokio::io::stdout();
     let (service, socket) = LspService::new(|client| Backend {
         client,
         state: Arc::clone(&state),
     });
 
-    Server::new(stdin, stdout, socket).serve(service).await;
-    Ok(())
+    Server::new(read, write, socket).serve(service).await;
 }
 
 pub async fn authoring_diagnostics_for_content_dir(

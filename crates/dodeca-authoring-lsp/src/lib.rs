@@ -2,4 +2,4 @@
 
 pub mod authoring_lsp;
 
-pub use authoring_lsp::run;
+pub use authoring_lsp::{run, serve_on};

@@ -201,6 +201,19 @@ pub enum LiveReloadMsg {
     ErrorResolved { route: String },
 }
 
+/// Hook the binary installs to run the authoring LSP **in process** for the
+/// browser editor. Given the LSP side of an in-memory duplex (Content-Length
+/// framed JSON-RPC), serve the LSP on it for the session's lifetime. `dodeca`
+/// defines this trait; `ddc` — which depends on both `dodeca` and
+/// `dodeca-authoring-lsp` — provides the impl, breaking the crate cycle by
+/// inversion of control (no subprocess).
+pub trait LspRunner: Send + Sync {
+    fn serve(
+        &self,
+        transport: tokio::io::DuplexStream,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
+}
+
 /// Shared state for the dev server
 pub struct SiteServer {
     /// The picante database - all queries go through here
@@ -241,6 +254,8 @@ pub struct SiteServer {
     /// identity is treated as a verified editor, bypassing oauth2-proxy. Refused
     /// on non-loopback binds by the CLI. Never set in production.
     dev_editor: RwLock<Option<cell_http_proto::Identity>>,
+    /// In-process authoring-LSP runner, injected by the binary (see [`LspRunner`]).
+    lsp_runner: RwLock<Option<Arc<dyn LspRunner>>>,
 }
 
 /// Registry of connected browsers for direct event pushing.
@@ -310,12 +325,18 @@ impl SiteServer {
             started: std::time::Instant::now(),
             edit_sessions: crate::edit_session::EditSessionStore::default(),
             dev_editor: RwLock::new(None),
+            lsp_runner: RwLock::new(None),
         }
     }
 
     /// Set the local dev editor override (see the `dev_editor` field).
     pub fn set_dev_editor(&self, identity: Option<cell_http_proto::Identity>) {
         *self.dev_editor.write().unwrap() = identity;
+    }
+
+    /// Install the in-process authoring-LSP runner (see [`LspRunner`]).
+    pub fn set_lsp_runner(&self, runner: Arc<dyn LspRunner>) {
+        *self.lsp_runner.write().unwrap() = Some(runner);
     }
 
     /// Provide the status page its context (resolved sources + content port),
@@ -1272,12 +1293,13 @@ impl SiteServer {
         }
     }
 
-    /// Editor: tunnel an LSP session to a freshly spawned `ddc lsp` subprocess
-    /// pointed at the live workspace. The browser sends one JSON-RPC message per
-    /// `incoming` chunk; we add `Content-Length` framing for the subprocess, and
-    /// strip it from the subprocess's output back into one `outgoing` chunk per
-    /// message. Same binary as desktop editing → identical behaviour. Returns
-    /// when either side closes; the subprocess is then killed.
+    /// Editor: run an authoring LSP session **in process**, bridged to the vox
+    /// channel. The browser sends one JSON-RPC message per `incoming` chunk; we
+    /// add `Content-Length` framing onto an in-memory duplex that the installed
+    /// [`LspRunner`] serves the LSP on, and strip framing from its replies back
+    /// into one `outgoing` chunk per message. The runner is injected by the
+    /// binary (which depends on both `dodeca` and the LSP crate), so there's no
+    /// subprocess and no dependency cycle.
     pub async fn run_lsp_session(
         &self,
         token: &str,
@@ -1292,66 +1314,36 @@ impl SiteServer {
             return;
         }
 
-        let content_dir = self
-            .status_sources
-            .read()
-            .unwrap()
-            .first()
-            .map(|s| s.content_dir.clone());
-        let Some(content_dir) = content_dir else {
-            tracing::warn!("lsp: no workspace content dir; is the server fully started?");
+        let Some(runner) = self.lsp_runner.read().unwrap().clone() else {
+            tracing::warn!("lsp: no LspRunner installed (binary did not wire it up)");
             outgoing.close(Default::default()).await.ok();
             return;
         };
 
-        let exe = match std::env::current_exe() {
-            Ok(exe) => exe,
-            Err(error) => {
-                tracing::warn!(%error, "lsp: current_exe failed");
-                outgoing.close(Default::default()).await.ok();
-                return;
-            }
-        };
+        // In-memory duplex: the runner serves the LSP on `lsp_side`; we bridge the
+        // vox channel onto `host_side` with LSP `Content-Length` framing.
+        let (host_side, lsp_side) = tokio::io::duplex(64 * 1024);
+        let (host_read, mut host_write) = tokio::io::split(host_side);
+        tracing::info!("lsp: session started (in-process)");
 
-        let mut child = match tokio::process::Command::new(&exe)
-            .arg("lsp")
-            .arg("-c")
-            .arg(content_dir.as_str())
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::inherit())
-            .spawn()
-        {
-            Ok(child) => child,
-            Err(error) => {
-                tracing::warn!(%error, exe = %exe.display(), "lsp: failed to spawn `ddc lsp`");
-                outgoing.close(Default::default()).await.ok();
-                return;
-            }
-        };
-        tracing::info!(content_dir = %content_dir, "lsp: session started");
-
-        let mut child_stdin = child.stdin.take().expect("piped stdin");
-        let child_stdout = child.stdout.take().expect("piped stdout");
-
-        // Browser → subprocess: frame each message with Content-Length.
-        let to_child = async move {
+        // Browser → LSP: frame each message with Content-Length.
+        let to_lsp = async move {
             while let Ok(Some(message)) = incoming.recv().await {
                 let text = message.get();
                 let header = format!("Content-Length: {}\r\n\r\n", text.len());
-                if child_stdin.write_all(header.as_bytes()).await.is_err()
-                    || child_stdin.write_all(text.as_bytes()).await.is_err()
-                    || child_stdin.flush().await.is_err()
+                if host_write.write_all(header.as_bytes()).await.is_err()
+                    || host_write.write_all(text.as_bytes()).await.is_err()
+                    || host_write.flush().await.is_err()
                 {
                     break;
                 }
             }
-            child_stdin.shutdown().await.ok();
+            host_write.shutdown().await.ok();
         };
 
-        // Subprocess → browser: strip framing, one message per chunk.
+        // LSP → browser: strip framing, one message per chunk.
         let to_browser = async move {
-            let mut reader = BufReader::new(child_stdout);
+            let mut reader = BufReader::new(host_read);
             loop {
                 match read_lsp_message(&mut reader).await {
                     Ok(Some(body)) => {
@@ -1362,7 +1354,7 @@ impl SiteServer {
                     }
                     Ok(None) => break,
                     Err(error) => {
-                        tracing::debug!(%error, "lsp: failed reading subprocess frame");
+                        tracing::debug!(%error, "lsp: failed reading LSP frame");
                         break;
                     }
                 }
@@ -1370,8 +1362,7 @@ impl SiteServer {
             outgoing.close(Default::default()).await.ok();
         };
 
-        tokio::join!(to_child, to_browser);
-        child.kill().await.ok();
+        tokio::join!(to_lsp, to_browser, runner.serve(lsp_side));
         tracing::info!("lsp: session ended");
     }
 

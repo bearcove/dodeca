@@ -180,6 +180,14 @@ async function main(mount: HTMLElement): Promise<void> {
   status("ready");
   saveBtn.disabled = false;
 
+  // Debug handle for verifying the LSP from the browser console / automation.
+  (globalThis as unknown as { __vixen: unknown }).__vixen = {
+    editor,
+    languageClient,
+    monaco,
+    sourceKey,
+  };
+
   // 5. Save: commit the current buffer as the user.
   const save = async (): Promise<void> => {
     saveBtn.disabled = true;

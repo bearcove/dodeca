@@ -269,9 +269,15 @@ impl DevtoolsService for HostDevtoolsService {
         server_to_client: vox::Tx<String>,
     ) {
         tracing::debug!(browser_id = self.browser_id, "devtools lsp session opening");
-        self.server
-            .run_lsp_session(&token, client_to_server, server_to_client)
-            .await
+        // Return immediately: the vox request must succeed now, or its default
+        // 30s timeout fires and tears the channels down with it. The session
+        // runs on the channels, which outlive the request.
+        let server = self.server.clone();
+        tokio::spawn(async move {
+            server
+                .run_lsp_session(&token, client_to_server, server_to_client)
+                .await;
+        });
     }
 }
 

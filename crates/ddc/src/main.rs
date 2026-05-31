@@ -2160,6 +2160,27 @@ fn is_loopback_address(address: &str) -> bool {
             .unwrap_or(false)
 }
 
+/// In-process authoring-LSP runner for the browser editor. Serves the same
+/// `dodeca-authoring-lsp` Backend a desktop editor uses, but over an in-memory
+/// duplex instead of a subprocess — no `ddc lsp` spawn, no stdio boundary. The
+/// binary owns this because it depends on both `dodeca` and the LSP crate.
+struct AuthoringLspRunner {
+    content_dir: Utf8PathBuf,
+}
+
+impl serve::LspRunner for AuthoringLspRunner {
+    fn serve(
+        &self,
+        transport: tokio::io::DuplexStream,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+        let content = self.content_dir.to_string();
+        Box::pin(async move {
+            let (read, write) = tokio::io::split(transport);
+            dodeca_authoring_lsp::serve_on(read, write, Some(content), None).await;
+        })
+    }
+}
+
 /// Synthesize a local dev editor identity from a username (`--dev-editor`).
 fn dev_editor_identity(user: &str) -> cell_http_proto::Identity {
     cell_http_proto::Identity {
@@ -2312,6 +2333,9 @@ async fn serve_plain(
         Some(content_dir.to_path_buf()),
     ));
     server.set_git_checkouts(git_checkouts(sources));
+    server.set_lsp_runner(std::sync::Arc::new(AuthoringLspRunner {
+        content_dir: content_dir.clone(),
+    }));
     if let Some(user) = dev_editor {
         tracing::warn!(user = %user, "DEV: acting as editor (local-only auth bypass)");
         server.set_dev_editor(Some(dev_editor_identity(&user)));
@@ -2700,6 +2724,9 @@ async fn serve_with_tui(
         Some(content_dir.to_path_buf()),
     ));
     server.set_git_checkouts(git_checkouts(sources));
+    server.set_lsp_runner(std::sync::Arc::new(AuthoringLspRunner {
+        content_dir: content_dir.clone(),
+    }));
     if let Some(user) = dev_editor {
         tracing::warn!(user = %user, "DEV: acting as editor (local-only auth bypass)");
         server.set_dev_editor(Some(dev_editor_identity(&user)));
