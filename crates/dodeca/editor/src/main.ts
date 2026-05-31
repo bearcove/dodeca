@@ -42,6 +42,11 @@ function wsUrl(): string {
   return `${proto}://${location.host}/_/ws`;
 }
 
+/** Canonical route key: strip trailing slashes, keep "/" for the root. */
+function normalizeRoute(route: string): string {
+  return route.replace(/\/+$/, "") || "/";
+}
+
 function configureWorkerFactory(logger?: ILogger): void {
   const loaders = defineDefaultWorkerLoaders();
   loaders.TextMateWorker = undefined;
@@ -335,6 +340,44 @@ async function main(mount: HTMLElement): Promise<void> {
       renderTree();
     }
   };
+
+  // Internal links in the preview open an editor tab rather than navigating the
+  // whole editor away. cell-html already resolves wiki / @/ / relative links to
+  // canonical site routes during rendering, so we just map the rendered route
+  // back to a page and openTab — no href rewriting, no guessing.
+  const routeToEntry = new Map(entries.map((e) => [normalizeRoute(e.route), e]));
+  previewDoc.addEventListener("click", (ev) => {
+    const a = (ev.target as HTMLElement | null)?.closest?.("a");
+    if (!a) return;
+    const href = a.getAttribute("href");
+    if (!href) return;
+    if (href.startsWith("#")) {
+      ev.preventDefault();
+      previewDoc.querySelector(href)?.scrollIntoView({ behavior: "smooth" });
+      return;
+    }
+    let url: URL;
+    try {
+      url = new URL(href, location.origin);
+    } catch {
+      ev.preventDefault();
+      return;
+    }
+    if (url.origin === location.origin) {
+      const entry = routeToEntry.get(normalizeRoute(url.pathname));
+      if (entry) {
+        ev.preventDefault();
+        void openTab(entry);
+        return;
+      }
+    }
+    // External, or an internal route with no editable page (assets, section
+    // indexes): open in a new tab so the editor itself stays put.
+    ev.preventDefault();
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      window.open(url.href, "_blank", "noopener");
+    }
+  });
 
   (globalThis as unknown as { __vixen: unknown }).__vixen = {
     editor,
