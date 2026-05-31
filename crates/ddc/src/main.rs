@@ -510,8 +510,10 @@ async fn async_main(command: Command) -> Result<()> {
                 serve_with_tui(
                     &cfg.output_dir,
                     &cfg.sources,
-                    &args.address,
-                    args.port,
+                    Bind {
+                        address: args.address.clone(),
+                        port: args.port,
+                    },
                     args.open,
                     cfg.stable_assets,
                     args.public_access,
@@ -521,8 +523,10 @@ async fn async_main(command: Command) -> Result<()> {
             } else {
                 serve_plain(
                     &cfg.sources,
-                    &args.address,
-                    args.port,
+                    Bind {
+                        address: args.address.clone(),
+                        port: args.port,
+                    },
                     args.open,
                     cfg.stable_assets,
                     args.fd_socket,
@@ -2166,10 +2170,15 @@ fn dev_editor_identity(user: &str) -> cell_http_proto::Identity {
     }
 }
 
+/// Where the serve commands bind: an address and an optional port.
+struct Bind {
+    address: String,
+    port: Option<u16>,
+}
+
 async fn serve_plain(
     sources: &[dodeca::config::ResolvedSource],
-    address: &str,
-    port: Option<u16>,
+    bind: Bind,
     open: bool,
     stable_assets: Vec<String>,
     fd_socket: Option<String>,
@@ -2177,6 +2186,7 @@ async fn serve_plain(
     dev_editor: Option<String>,
 ) -> Result<()> {
     use std::sync::Arc;
+    let (address, port) = (bind.address.as_str(), bind.port);
 
     // Clone any git-backed source that isn't checked out yet.
     ensure_git_sources(sources)?;
@@ -2629,8 +2639,7 @@ async fn serve_plain(
 async fn serve_with_tui(
     _output_dir: &Utf8PathBuf,
     sources: &[dodeca::config::ResolvedSource],
-    address: &str,
-    port: Option<u16>,
+    bind: Bind,
     open: bool,
     stable_assets: Vec<String>,
     start_public: bool,
@@ -2638,6 +2647,7 @@ async fn serve_with_tui(
 ) -> Result<()> {
     use std::sync::Arc;
     use tokio::sync::watch;
+    let (address, port) = (bind.address.as_str(), bind.port);
 
     // Clone any git-backed source that isn't checked out yet.
     ensure_git_sources(sources)?;
