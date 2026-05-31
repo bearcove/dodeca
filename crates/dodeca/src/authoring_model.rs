@@ -521,8 +521,38 @@ impl AuthoringWorkspaceInputs {
     }
 }
 
+/// Borrowed inputs for building an `AuthoringProject` over any `DB: Db` — the
+/// owned `Database` (disk workspace) or a `DatabaseSnapshot` (host db, for the
+/// in-process LSP sharing the server's already-built + memoized state).
+pub struct ProjectBuildInputs<'a, DB> {
+    pub db: &'a DB,
+    pub content_dir: &'a Utf8Path,
+    pub sources: &'a std::collections::BTreeMap<SourcePath, SourceFile>,
+    pub templates: &'a std::collections::BTreeMap<TemplatePath, TemplateFile>,
+    pub static_files: &'a std::collections::BTreeMap<StaticPath, StaticFile>,
+    pub data_files: &'a std::collections::BTreeMap<DataPath, DataFile>,
+}
+
 async fn build_authoring_project_from_inputs(
     inputs: AuthoringWorkspaceInputs,
+) -> Result<AuthoringProject> {
+    build_authoring_project_on_db(ProjectBuildInputs {
+        db: &*inputs.db,
+        content_dir: &inputs.content_dir,
+        sources: &inputs.sources,
+        templates: &inputs.templates,
+        static_files: &inputs.static_files,
+        data_files: &inputs.data_files,
+    })
+    .await
+}
+
+/// Build an `AuthoringProject` from any database — the disk workspace or a host
+/// db snapshot. All queries (`build_tree`, `source_to_route_map`, content
+/// lookups, rendering) are `DB`-generic; a snapshot reuses the host's memoized
+/// renders, so only the edited file's dependents recompute.
+pub async fn build_authoring_project_on_db<DB: crate::db::Db>(
+    inputs: ProjectBuildInputs<'_, DB>,
 ) -> Result<AuthoringProject> {
     let site_tree = build_tree(&*inputs.db)
         .await?
@@ -534,7 +564,7 @@ async fn build_authoring_project_from_inputs(
         .collect::<HashMap<_, _>>();
 
     let mut source_contents = HashMap::new();
-    for (source_path, source) in &inputs.sources {
+    for (source_path, source) in inputs.sources {
         source_contents.insert(
             source_path.to_string(),
             source.content(&*inputs.db)?.as_str().to_string(),
@@ -622,7 +652,7 @@ async fn build_authoring_project_from_inputs(
     let project_dir = inputs
         .content_dir
         .parent()
-        .unwrap_or(&inputs.content_dir)
+        .unwrap_or(inputs.content_dir)
         .to_path_buf();
     let template_paths = inputs
         .templates
@@ -636,7 +666,7 @@ async fn build_authoring_project_from_inputs(
         .collect();
     let mut template_contents = HashMap::new();
     let mut template_semantics = HashMap::new();
-    for (template_path, template) in &inputs.templates {
+    for (template_path, template) in inputs.templates {
         let path = template_path.as_str().to_string();
         let content = template.content(&*inputs.db)?.as_str().to_string();
         let parsed_template = TemplateParser::new(&path, &content)
@@ -694,7 +724,7 @@ async fn build_authoring_project_from_inputs(
         .static_files
         .keys()
         .filter_map(|path| {
-            static_source_path(&inputs.content_dir, path.as_str())
+            static_source_path(inputs.content_dir, path.as_str())
                 .map(|source_path| (path.as_str().to_string(), source_path))
         })
         .collect();
