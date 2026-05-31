@@ -4,6 +4,7 @@
 styx_embed::embed_outdir_file!("schema.styx");
 
 pub mod authoring_model;
+pub mod authz;
 pub mod boot_state;
 pub mod build_context;
 pub mod build_steps;
