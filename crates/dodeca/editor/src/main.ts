@@ -109,12 +109,17 @@ async function main(mount: HTMLElement): Promise<void> {
   routeEl.textContent = route;
   const status = (text: string) => (statusEl.textContent = text);
 
-  // 1. Connect to the host over the existing devtools websocket.
+  // 1. Connect to the host over the existing devtools websocket. The root
+  // connection is the Noop service (handled by the cell); DevtoolsService runs
+  // on a secondary connection that the cell proxies to the host.
   status("connecting…");
   const established = await session.initiator(wsConnector(wsUrl()), {
-    metadata: voxServiceMetadata("DevtoolsService"),
+    metadata: voxServiceMetadata("Noop"),
   });
-  const client = new DevtoolsServiceClient(established.rootConnection().caller());
+  const devtools = await established
+    .handle()
+    .openConnection(undefined, voxServiceMetadata("DevtoolsService"));
+  const client = new DevtoolsServiceClient(devtools.caller());
 
   // 2. Load the page's raw markdown + the file URI the LSP keys it by.
   const loaded = await client.editLoad(token, route);

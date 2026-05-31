@@ -2811,14 +2811,30 @@ const SNIPPETS: &[(&str, &str)] = &[
 include!(concat!(env!("OUT_DIR"), "/editor_assets.rs"));
 
 /// Serve a built editor asset for a `/_/edit/<path>` request. Bare `/_/edit/`
-/// resolves to the entry bundle.
+/// resolves to the entry bundle. Any `?v=` cache-bust query is ignored.
 pub fn get_editor_asset(path: &str) -> Option<(Vec<u8>, &'static str)> {
     let rel = path.strip_prefix("/_/edit/")?;
+    let rel = rel.split('?').next().unwrap_or(rel);
     let rel = if rel.is_empty() { "edit.js" } else { rel };
     EDITOR_ASSETS
         .iter()
         .find(|(name, _)| *name == rel)
         .map(|(_, bytes)| (bytes.to_vec(), editor_asset_mime(rel)))
+}
+
+/// Short content hash of the editor bundle, for cache-busting the shell's
+/// `edit.js`/`edit.css` URLs (the entry filenames are unhashed).
+pub fn editor_version() -> String {
+    use std::sync::LazyLock;
+    static VERSION: LazyLock<String> = LazyLock::new(|| {
+        let bytes = EDITOR_ASSETS
+            .iter()
+            .find(|(name, _)| *name == "edit.js")
+            .map(|(_, b)| *b)
+            .unwrap_or(b"");
+        compute_hash(bytes)
+    });
+    VERSION.clone()
 }
 
 fn editor_asset_mime(path: &str) -> &'static str {

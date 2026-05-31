@@ -58,7 +58,11 @@ impl ContentService for HostContentService {
             match self.server.mint_edit_token(identity.as_ref()) {
                 Some(token) => {
                     let route = format!("/{}", rest.trim_start_matches('/'));
-                    let html = crate::edit_shell::render_edit_shell(&route, &token);
+                    let html = crate::edit_shell::render_edit_shell(
+                        &route,
+                        &token,
+                        &crate::serve::editor_version(),
+                    );
                     return ServeContent::StaticNoCache {
                         content: html.into_bytes(),
                         mime: "text/html; charset=utf-8".to_string(),
@@ -103,7 +107,9 @@ impl ContentService for HostContentService {
         if path.starts_with("/_/edit/")
             && let Some((content, mime)) = crate::serve::get_editor_asset(&path)
         {
-            return ServeContent::Static {
+            // No-cache: the entry (`edit.js`/`edit.css`) is unhashed and changes
+            // on rebuild, so it must not be cached immutably.
+            return ServeContent::StaticNoCache {
                 content,
                 mime: mime.to_string(),
                 generation,

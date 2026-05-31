@@ -4,10 +4,12 @@
 //! root-element `data-` attributes (no inline JSON). The token authorizes the
 //! `edit_*` vox RPC calls the app makes over the devtools websocket.
 
-/// Render the editor shell for `route`, embedding the session `token`.
-pub fn render_edit_shell(route: &str, token: &str) -> String {
+/// Render the editor shell for `route`, embedding the session `token`. `version`
+/// cache-busts the (unhashed) entry asset URLs.
+pub fn render_edit_shell(route: &str, token: &str, version: &str) -> String {
     let route = escape_attr(route);
     let token = escape_attr(token);
+    let version = escape_attr(version);
     format!(
         r#"<!doctype html>
 <html lang="en">
@@ -15,11 +17,11 @@ pub fn render_edit_shell(route: &str, token: &str) -> String {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>edit · {route}</title>
-<link rel="stylesheet" href="/_/edit/edit.css">
+<link rel="stylesheet" href="/_/edit/edit.css?v={version}">
 </head>
 <body>
 <div id="vixen-editor" data-route="{route}" data-token="{token}"></div>
-<script type="module" src="/_/edit/edit.js"></script>
+<script type="module" src="/_/edit/edit.js?v={version}"></script>
 </body>
 </html>
 "#
@@ -48,14 +50,14 @@ mod tests {
 
     #[test]
     fn embeds_route_and_token_in_data_attrs() {
-        let html = render_edit_shell("/overview", "abc123");
+        let html = render_edit_shell("/overview", "abc123", "v1");
         assert!(html.contains(r#"data-route="/overview""#));
         assert!(html.contains(r#"data-token="abc123""#));
     }
 
     #[test]
     fn escapes_attribute_injection() {
-        let html = render_edit_shell("/\"><script>x", "t");
+        let html = render_edit_shell("/\"><script>x", "t", "v1");
         assert!(!html.contains("<script>x"));
         assert!(html.contains("&quot;&gt;&lt;script&gt;x"));
     }
