@@ -534,6 +534,7 @@ mod tests {
             syntax_highlight: None,
             build_steps: None,
             page_types: None,
+            auth: None,
         }
     }
 
