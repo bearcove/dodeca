@@ -62,6 +62,7 @@ styx-embed.workspace = true
 styx-tree.workspace = true
 facet-value.workspace = true
 futures-util.workspace = true
+getrandom.workspace = true
 gingembre = { path = "../gingembre" }
 if-addrs.workspace = true
 ignore.workspace = true

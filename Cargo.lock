@@ -2863,6 +2863,7 @@ dependencies = [
  "facet-value",
  "figue",
  "futures-util",
+ "getrandom 0.3.4",
  "gingembre",
  "hotmeal",
  "hotmeal-server",
