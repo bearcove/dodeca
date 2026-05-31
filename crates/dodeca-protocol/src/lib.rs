@@ -185,9 +185,19 @@ pub enum EditPreview {
     /// Rendered HTML for the overlaid buffer.
     Ok {
         html: String,
+        /// `data-sid` → source line map for the rendered body, so the editor can
+        /// synchronize scrolling between the markdown source and the preview.
+        source_map: Vec<SidLine>,
     },
     Denied,
     NotFound,
+}
+
+/// One rendered element's `data-sid` and the 1-indexed source line it starts at.
+#[derive(Debug, Clone, PartialEq, Facet)]
+pub struct SidLine {
+    pub sid: String,
+    pub line: u32,
 }
 
 /// Result of `DevtoolsService::edit_read`.

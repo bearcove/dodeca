@@ -1133,7 +1133,7 @@ impl SiteServer {
         self: &Arc<Self>,
         source_key: &str,
         buffer: &str,
-    ) -> eyre::Result<Option<String>> {
+    ) -> eyre::Result<Option<(String, Vec<dodeca_protocol::SidLine>)>> {
         let db = self.db.clone();
         let snapshot = DatabaseSnapshot::from_database(&self.db).await;
 
@@ -1171,10 +1171,32 @@ impl SiteServer {
                 let Some(route) = routes.get(&source_key).cloned() else {
                     return Ok(None);
                 };
-                match serve_html(&snapshot, Route::new(route)).await {
-                    Ok(Ok(Some(served))) => Ok(Some(served.html)),
-                    _ => Ok(None),
-                }
+                let route = Route::new(route);
+                let html = match serve_html(&snapshot, route.clone()).await {
+                    Ok(Ok(Some(served))) => served.html,
+                    _ => return Ok(None),
+                };
+                // The page's source map (data-sid → source line) for scroll sync.
+                // Built on the same snapshot, so the sids match the rendered HTML.
+                let source_map = match build_tree(&snapshot).await {
+                    Ok(Ok(tree)) => tree
+                        .pages
+                        .get(&route)
+                        .map(|p| &p.source_map)
+                        .or_else(|| tree.sections.get(&route).map(|s| &s.source_map))
+                        .map(|sm| {
+                            sm.entries
+                                .iter()
+                                .map(|e| dodeca_protocol::SidLine {
+                                    sid: e.id.clone(),
+                                    line: e.line_start.max(1),
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                    _ => Vec::new(),
+                };
+                Ok(Some((html, source_map)))
             })
             .await
     }
@@ -1478,7 +1500,7 @@ impl SiteServer {
             return EditPreview::Denied;
         }
         match self.preview_overlay(source_key, buffer).await {
-            Ok(Some(html)) => EditPreview::Ok { html },
+            Ok(Some((html, source_map))) => EditPreview::Ok { html, source_map },
             Ok(None) => EditPreview::NotFound,
             Err(error) => {
                 tracing::warn!(source_key, %error, "edit_preview render failed");

@@ -281,6 +281,66 @@ async function main(mount: HTMLElement): Promise<void> {
     }
   };
 
+  // Scroll sync: the render returns a data-sid → source-line map, so we can map
+  // the editor's top line to a preview element and vice-versa. `lineIndex` is
+  // rebuilt (in source-line order) after each preview render.
+  let lineIndex: Array<{ el: HTMLElement; line: number }> = [];
+  const rebuildLineIndex = (map: Array<{ sid: string; line: number }>) => {
+    const sidToLine = new Map(map.map((s) => [s.sid, s.line]));
+    lineIndex = [...previewDoc.querySelectorAll<HTMLElement>("[data-sid]")]
+      .map((el) => ({ el, line: sidToLine.get(el.dataset.sid ?? "") ?? -1 }))
+      .filter((x) => x.line > 0)
+      .sort((a, b) => a.line - b.line);
+  };
+
+  // One side drives at a time; a short cooldown stops the reciprocal scroll
+  // event from echoing back.
+  let scrollSource: "editor" | "preview" | null = null;
+  let scrollReset: number | undefined;
+  const releaseScrollSoon = () => {
+    if (scrollReset) clearTimeout(scrollReset);
+    scrollReset = setTimeout(() => (scrollSource = null), 120) as unknown as number;
+  };
+  const syncPreviewToEditor = () => {
+    if (!editor || lineIndex.length === 0) return;
+    const ranges = editor.getVisibleRanges();
+    if (ranges.length === 0) return;
+    const topLine = ranges[0].startLineNumber;
+    let i = 0;
+    while (i + 1 < lineIndex.length && lineIndex[i + 1].line <= topLine) i++;
+    const cur = lineIndex[i];
+    const next = lineIndex[i + 1];
+    const containerTop = previewEl.getBoundingClientRect().top;
+    let delta = cur.el.getBoundingClientRect().top - containerTop;
+    if (next && next.line > cur.line) {
+      const frac = Math.min(1, Math.max(0, (topLine - cur.line) / (next.line - cur.line)));
+      delta += frac * (next.el.getBoundingClientRect().top - cur.el.getBoundingClientRect().top);
+    }
+    previewEl.scrollTop += delta;
+  };
+  const syncEditorToPreview = () => {
+    if (!editor || lineIndex.length === 0) return;
+    const containerTop = previewEl.getBoundingClientRect().top;
+    let target = lineIndex[0];
+    for (const item of lineIndex) {
+      if (item.el.getBoundingClientRect().top - containerTop <= 0) target = item;
+      else break;
+    }
+    editor.setScrollTop(editor.getTopForLineNumber(target.line));
+  };
+  editor?.onDidScrollChange(() => {
+    if (scrollSource === "preview") return;
+    scrollSource = "editor";
+    syncPreviewToEditor();
+    releaseScrollSoon();
+  });
+  previewEl.addEventListener("scroll", () => {
+    if (scrollSource === "editor") return;
+    scrollSource = "preview";
+    syncEditorToPreview();
+    releaseScrollSoon();
+  });
+
   // 8. Split preview — dodeca's real overlay render, live-patched into the
   //    shadow root with hotmeal (the same diff/patch engine as the served-page
   //    HMR), so it updates in place with no reload flash.
@@ -301,6 +361,7 @@ async function main(mount: HTMLElement): Promise<void> {
       }
     }
     tab.prevHtml = result.html;
+    rebuildLineIndex(result.source_map);
   };
   const schedulePreview = () => {
     if (previewTimer) clearTimeout(previewTimer);
