@@ -135,6 +135,10 @@ async function main(mount: HTMLElement): Promise<void> {
     viewsConfig: { $type: "EditorService", htmlContainer: editorEl },
     logLevel: LogLevel.Warning,
     monacoWorkerFactory: configureWorkerFactory,
+    // A markdown + LSP editor needs no VS Code extension host; loading it in
+    // classic mode tries to wire MainThreadTextEditors against a minimal editor
+    // service and throws.
+    advanced: { loadExtensionServices: false },
   };
   await new MonacoVscodeApiWrapper(vscodeApiConfig).start();
 
