@@ -1,4 +1,4 @@
-import * as monaco from "monaco-editor"; // aliased to @codingame/monaco-vscode-editor-api
+import * as monaco from "@codingame/monaco-vscode-editor-api";
 import { LogLevel } from "@codingame/monaco-vscode-api";
 import type { ILogger } from "@codingame/monaco-vscode-log-service-override";
 import { EditorApp, type EditorAppConfig } from "monaco-languageclient/editorApp";

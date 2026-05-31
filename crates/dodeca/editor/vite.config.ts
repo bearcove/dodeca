@@ -7,10 +7,11 @@ import { defineConfig } from "vite";
 export default defineConfig({
   base: "/_/edit/",
   worker: { format: "es" },
-  // monaco-languageclient drives Monaco through the VS Code API: the runtime
-  // `monaco` namespace must be the codegame editor-api, not vanilla monaco.
+  // monaco-languageclient drives Monaco through the VS Code API. We use the
+  // codegame editor-api as the `monaco` namespace (no vanilla monaco-editor),
+  // and alias any stray `monaco-editor` import onto it so only one copy loads.
   resolve: {
-    dedupe: ["monaco-editor", "vscode"],
+    dedupe: ["@codingame/monaco-vscode-editor-api", "@codingame/monaco-vscode-api", "vscode"],
     alias: { "monaco-editor": "@codingame/monaco-vscode-editor-api" },
   },
   build: {
