@@ -1182,10 +1182,17 @@ impl SiteServer {
         let Some(source_key) = self.source_key_for_route(route).await else {
             return EditLoad::NotFound;
         };
+        // file:// URI of the on-disk source, so the editor model URI matches the
+        // path the LSP keys documents by.
+        let sources = self.status_sources.read().unwrap().clone();
+        let uri = crate::build_context::source_for_key(&sources, &source_key)
+            .map(|(source, rel)| format!("file://{}", source.content_dir.join(&rel)))
+            .unwrap_or_default();
         match self.source_content(&source_key) {
             Some(content) => EditLoad::Ok {
                 source_key,
                 route: normalize_route(route),
+                uri,
                 content,
             },
             None => EditLoad::NotFound,

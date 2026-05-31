@@ -8,8 +8,27 @@
   },
   "dependencies": {
     "@bearcove/vox-core": "^0.8.2",
+    "@bearcove/vox-postcard": "^0.8.2",
     "@bearcove/vox-ws": "^0.8.2",
-    "monaco-editor": "^0.52.2"
+    "@codingame/monaco-vscode-api": "^25.1.2",
+    "@codingame/monaco-vscode-configuration-service-override": "^25.1.2",
+    "@codingame/monaco-vscode-editor-api": "^25.1.2",
+    "@codingame/monaco-vscode-editor-service-override": "^25.1.2",
+    "@codingame/monaco-vscode-extensions-service-override": "^25.1.2",
+    "@codingame/monaco-vscode-languages-service-override": "^25.1.2",
+    "@codingame/monaco-vscode-log-service-override": "^25.1.2",
+    "@codingame/monaco-vscode-model-service-override": "^25.1.2",
+    "@codingame/monaco-vscode-monarch-service-override": "^25.1.2",
+    "@codingame/monaco-vscode-textmate-service-override": "^25.1.2",
+    "@codingame/monaco-vscode-theme-defaults-default-extension": "^25.1.2",
+    "@codingame/monaco-vscode-theme-service-override": "^25.1.2",
+    "@codingame/monaco-vscode-views-service-override": "^25.1.2",
+    "@codingame/monaco-vscode-workbench-service-override": "^25.1.2",
+    "monaco-editor": "^0.52.2",
+    "monaco-languageclient": "^10.7.0",
+    "vscode": "npm:@codingame/monaco-vscode-extension-api@^25.1.2",
+    "vscode-jsonrpc": "^8.2.1",
+    "vscode-languageclient": "~9.0.1"
   },
   "devDependencies": {
     "typescript": "^5.7.2",

@@ -151,10 +151,13 @@ pub enum DeadLinkTarget {
 #[repr(u8)]
 pub enum EditLoad {
     /// The page's raw markdown, plus the `source_key` to pass back to
-    /// `edit_preview`/`edit_save` and the normalized route.
+    /// `edit_preview`/`edit_save`, the normalized route, and the `file://` URI
+    /// of the on-disk source (so the editor's model URI matches what the LSP
+    /// keys documents by).
     Ok {
         source_key: String,
         route: String,
+        uri: String,
         content: String,
     },
     /// Not a verified editor (bad/expired token, or rights revoked).
