@@ -255,11 +255,18 @@ impl DevtoolsService for HostDevtoolsService {
     async fn edit_save(
         &self,
         token: String,
-        source_key: String,
-        buffer: String,
+        req: dodeca_protocol::EditSaveReq,
     ) -> dodeca_protocol::EditSave {
-        tracing::debug!(browser_id = self.browser_id, source_key = %source_key, "devtools edit_save");
-        self.server.edit_save(&token, &source_key, &buffer).await
+        tracing::debug!(browser_id = self.browser_id, source_key = %req.source_key, "devtools edit_save");
+        self.server
+            .edit_save(
+                &token,
+                &req.source_key,
+                &req.buffer,
+                &req.base,
+                &req.message,
+            )
+            .await
     }
 
     async fn lsp(

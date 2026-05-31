@@ -34,6 +34,16 @@ body,
   font-size: 13px;
 }
 
+.vx-commitmsg {
+  width: 280px;
+  max-width: 32vw;
+  padding: 4px 8px;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  font: inherit;
+  font-size: 13px;
+}
+
 .vx-save {
   padding: 4px 14px;
   border: 1px solid #bbb;

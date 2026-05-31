@@ -1258,12 +1258,16 @@ impl SiteServer {
             .map(|(source, rel)| format!("file://{}", source.content_dir.join(&rel)))
             .unwrap_or_default();
         match self.source_content(&source_key) {
-            Some(content) => EditLoad::Ok {
-                source_key,
-                route: normalize_route(route),
-                uri,
-                content,
-            },
+            Some(content) => {
+                let base = self.edit_base_oid(&source_key).await;
+                EditLoad::Ok {
+                    source_key: source_key.clone(),
+                    route: normalize_route(route),
+                    uri,
+                    content,
+                    base,
+                }
+            }
             None => EditLoad::NotFound,
         }
     }
@@ -1284,6 +1288,33 @@ impl SiteServer {
         None
     }
 
+    /// Resolve a `source_key` to its git repo root, absolute on-disk file path,
+    /// and content-dir-relative path (the inputs every git edit operation needs).
+    fn repo_and_file(
+        &self,
+        source_key: &str,
+    ) -> Option<(camino::Utf8PathBuf, camino::Utf8PathBuf, String)> {
+        let sources = self.status_sources.read().unwrap().clone();
+        let (source, rel) = crate::build_context::source_for_key(&sources, source_key)?;
+        // Git repo root: the checkout for git-backed sources, else the content
+        // dir itself (a local source that happens to be in a repo).
+        let repo = source
+            .checkout_dir
+            .clone()
+            .unwrap_or_else(|| source.content_dir.clone());
+        let file = source.content_dir.join(&rel);
+        Some((repo, file, rel))
+    }
+
+    /// The on-disk blob oid for `source_key`, the conflict-detection base handed
+    /// to the editor at load time (empty when the file doesn't exist yet).
+    async fn edit_base_oid(&self, source_key: &str) -> String {
+        match self.repo_and_file(source_key) {
+            Some((repo, file, _)) => git_blob_oid(&repo, &file).await.unwrap_or_default(),
+            None => String::new(),
+        }
+    }
+
     /// Editor: read a source file by `file://` URI (file-system provider).
     pub async fn edit_read(self: &Arc<Self>, token: &str, uri: &str) -> dodeca_protocol::EditRead {
         use dodeca_protocol::EditRead;
@@ -1295,7 +1326,10 @@ impl SiteServer {
             return EditRead::NotFound;
         };
         match self.source_content(&source_key) {
-            Some(content) => EditRead::Ok { content },
+            Some(content) => {
+                let base = self.edit_base_oid(&source_key).await;
+                EditRead::Ok { content, base }
+            }
             None => EditRead::NotFound,
         }
     }
@@ -1459,24 +1493,34 @@ impl SiteServer {
         token: &str,
         source_key: &str,
         buffer: &str,
+        base: &str,
+        message: &str,
     ) -> dodeca_protocol::EditSave {
         use dodeca_protocol::EditSave;
         let Some(identity) = self.resolve_editor(token) else {
             return EditSave::Denied;
         };
-        let sources = self.status_sources.read().unwrap().clone();
-        let Some((source, rel)) = crate::build_context::source_for_key(&sources, source_key) else {
+        let Some((repo, file, rel)) = self.repo_and_file(source_key) else {
             return EditSave::NotFound;
         };
-        // Git repo root: the checkout for git-backed sources, else the content
-        // dir itself (a local source that happens to be in a repo).
-        let repo = source
-            .checkout_dir
-            .clone()
-            .unwrap_or_else(|| source.content_dir.clone());
-        let file = source.content_dir.join(&rel);
-        match commit_as_user(&repo, &file, buffer, &identity, &rel).await {
-            Ok(commit) => EditSave::Ok { commit },
+        // Optimistic concurrency: refuse to clobber a file that changed on disk
+        // since the editor loaded it. `base` empty means "didn't exist at load";
+        // only treat a present-now file as a conflict in that case.
+        let current = git_blob_oid(&repo, &file).await.unwrap_or_default();
+        let conflict = if base.is_empty() {
+            !current.is_empty()
+        } else {
+            base != current
+        };
+        if conflict {
+            tracing::info!(source_key, base, current, "edit_save conflict");
+            return EditSave::Conflict { current };
+        }
+        match commit_as_user(&repo, &file, buffer, &identity, &rel, message).await {
+            Ok(commit) => {
+                let base = git_blob_oid(&repo, &file).await.unwrap_or_default();
+                EditSave::Ok { commit, base }
+            }
             Err(error) => {
                 tracing::warn!(source_key, %error, "edit_save failed");
                 EditSave::Error {
@@ -3117,6 +3161,7 @@ async fn commit_as_user(
     buffer: &str,
     identity: &cell_http_proto::Identity,
     rel: &str,
+    message: &str,
 ) -> Result<String> {
     if let Some(parent) = file.parent() {
         tokio::fs::create_dir_all(parent).await?;
@@ -3140,7 +3185,11 @@ async fn commit_as_user(
     };
     let name_cfg = format!("user.name={name}");
     let email_cfg = format!("user.email={}", identity.email);
-    let message = format!("docs: edit {rel} via web editor");
+    let message = if message.trim().is_empty() {
+        format!("docs: edit {rel} via web editor")
+    } else {
+        message.to_string()
+    };
     git(
         repo,
         &["-c", &name_cfg, "-c", &email_cfg, "commit", "-m", &message],
@@ -3188,6 +3237,13 @@ where
 }
 
 /// Run `git -C <repo> <args>`, returning trimmed stdout, bailing on failure.
+/// Git blob oid of `file`'s current on-disk content, or `None` if it doesn't
+/// exist / isn't hashable. Used as an optimistic-concurrency token for edits.
+async fn git_blob_oid(repo: &Utf8Path, file: &Utf8Path) -> Option<String> {
+    let oid = git(repo, &["hash-object", file.as_str()]).await.ok()?;
+    (!oid.is_empty()).then_some(oid)
+}
+
 async fn git(repo: &Utf8Path, args: &[&str]) -> Result<String> {
     let output = tokio::process::Command::new("git")
         .arg("-C")

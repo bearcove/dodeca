@@ -101,6 +101,7 @@ async function main(mount: HTMLElement): Promise<void> {
       <span class="vx-route"></span>
       <span class="vx-spacer"></span>
       <span class="vx-status"></span>
+      <input class="vx-commitmsg" type="text" placeholder="commit message (optional)" />
       <button class="vx-save" disabled>Save</button>
     </div>
     <div class="vx-body vx-tree-collapsed">
@@ -117,6 +118,7 @@ async function main(mount: HTMLElement): Promise<void> {
   const statusEl = mount.querySelector(".vx-status") as HTMLElement;
   const saveBtn = mount.querySelector(".vx-save") as HTMLButtonElement;
   const treeToggle = mount.querySelector(".vx-tree-toggle") as HTMLButtonElement;
+  const commitMsgEl = mount.querySelector(".vx-commitmsg") as HTMLInputElement;
   const treeEl = mount.querySelector(".vx-tree") as HTMLElement;
   const tabsEl = mount.querySelector(".vx-tabs") as HTMLElement;
   const editorEl = mount.querySelector(".vx-editor") as HTMLElement;
@@ -167,7 +169,11 @@ async function main(mount: HTMLElement): Promise<void> {
   const contents = await Promise.all(
     entries.map(async (e) => {
       const r = await client.editRead(token, e.uri);
-      return { uri: e.uri, content: r.tag === "Ok" ? r.content : "" };
+      return {
+        uri: e.uri,
+        content: r.tag === "Ok" ? r.content : "",
+        base: r.tag === "Ok" ? r.base : "",
+      };
     }),
   );
   for (const { uri, content } of contents) {
@@ -215,11 +221,12 @@ async function main(mount: HTMLElement): Promise<void> {
   // 7. Tabs — one Monaco model per opened file, each with its own dirty state
   //    and preview baseline. Switching tabs is `editor.setModel`, so unsaved
   //    edits in other tabs are preserved (no destructive code-resource swap).
-  const contentByUri = new Map(contents.map((c) => [c.uri, c.content]));
+  const loadedByUri = new Map(contents.map((c) => [c.uri, { content: c.content, base: c.base }]));
   interface Tab {
     entry: EditEntry;
     model: monaco.editor.ITextModel;
     baseline: string; // last-saved content; drives the dirty marker
+    base: string; // on-disk blob oid at load/last-save; conflict-detection token
     prevHtml?: string; // last preview HTML, for hotmeal diffing
   }
   const tabs = new Map<string, Tab>();
@@ -315,13 +322,21 @@ async function main(mount: HTMLElement): Promise<void> {
 
   const openTab = async (entry: EditEntry) => {
     if (!tabs.has(entry.uri)) {
-      let content = contentByUri.get(entry.uri);
-      if (content === undefined) {
+      let loadedFile = loadedByUri.get(entry.uri);
+      if (!loadedFile) {
         const r = await client.editRead(token, entry.uri);
-        content = r.tag === "Ok" ? r.content : "";
+        loadedFile = {
+          content: r.tag === "Ok" ? r.content : "",
+          base: r.tag === "Ok" ? r.base : "",
+        };
       }
-      const model = modelFor(entry.uri, content);
-      tabs.set(entry.uri, { entry, model, baseline: content });
+      const model = modelFor(entry.uri, loadedFile.content);
+      tabs.set(entry.uri, {
+        entry,
+        model,
+        baseline: loadedFile.content,
+        base: loadedFile.base,
+      });
       tabOrder.push(entry.uri);
     }
     activate(entry.uri);
@@ -387,7 +402,9 @@ async function main(mount: HTMLElement): Promise<void> {
     tabs,
   };
 
-  // Open the initial page as the first tab (reusing EditorApp's model).
+  // Open the initial page as the first tab (reusing EditorApp's model + the
+  // base oid from edit_load, so we don't re-fetch it).
+  loadedByUri.set(loaded.uri, { content: loaded.content, base: loaded.base });
   await openTab({
     source_key: loaded.source_key,
     route: loaded.route,
@@ -410,13 +427,23 @@ async function main(mount: HTMLElement): Promise<void> {
     status("saving…");
     try {
       const value = tab.model.getValue();
-      const result = await client.editSave(token, tab.entry.source_key, value);
+      const result = await client.editSave(token, {
+        source_key: tab.entry.source_key,
+        buffer: value,
+        base: tab.base,
+        message: commitMsgEl.value.trim(),
+      });
       switch (result.tag) {
         case "Ok":
           tab.baseline = value;
+          tab.base = result.base; // adopt the new oid for the next save
+          commitMsgEl.value = "";
           status(`saved ${result.commit.slice(0, 8)}`);
           renderTabs();
           renderTree();
+          break;
+        case "Conflict":
+          status("conflict: file changed on disk since you opened it — reload to merge");
           break;
         case "Error":
           status(`error: ${result.message}`);

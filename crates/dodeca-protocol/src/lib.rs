@@ -89,8 +89,9 @@ pub trait DevtoolsService {
     /// identical to what publishing the buffer would produce.
     async fn edit_preview(&self, token: String, source_key: String, buffer: String) -> EditPreview;
 
-    /// Commit `buffer` to `source_key` authored as the editing user, then push.
-    async fn edit_save(&self, token: String, source_key: String, buffer: String) -> EditSave;
+    /// Commit a buffer authored as the editing user, then push. See
+    /// [`EditSaveReq`] for the fields and the conflict semantics.
+    async fn edit_save(&self, token: String, req: EditSaveReq) -> EditSave;
 
     /// Tunnel a Language Server session for the in-browser editor.
     ///
@@ -167,6 +168,9 @@ pub enum EditLoad {
         route: String,
         uri: String,
         content: String,
+        /// Git blob oid of the on-disk file (empty if it doesn't exist yet).
+        /// Pass back to `edit_save` for optimistic-concurrency conflict checks.
+        base: String,
     },
     /// Not a verified editor (bad/expired token, or rights revoked).
     Denied,
@@ -190,12 +194,30 @@ pub enum EditPreview {
 #[derive(Debug, Clone, PartialEq, Facet)]
 #[repr(u8)]
 pub enum EditRead {
-    Ok { content: String },
+    Ok {
+        content: String,
+        /// Git blob oid of the on-disk file (see `EditLoad::Ok::base`).
+        base: String,
+    },
     Denied,
     NotFound,
 }
 
 /// One editable page in the file tree.
+#[derive(Debug, Clone, PartialEq, Facet)]
+pub struct EditSaveReq {
+    /// Mount-prefixed source key (from `edit_load`).
+    pub source_key: String,
+    /// The full edited buffer to commit.
+    pub buffer: String,
+    /// Git blob oid the buffer was opened against (empty if the file didn't
+    /// exist yet). The save is rejected with `EditSave::Conflict` if the on-disk
+    /// file no longer hashes to `base` — i.e. it changed since it was loaded.
+    pub base: String,
+    /// Commit subject; empty falls back to a generated one.
+    pub message: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Facet)]
 pub struct EditEntry {
     /// Mount-prefixed source key (pass to `edit_preview`/`edit_save`).
@@ -220,12 +242,20 @@ pub enum EditList {
 #[derive(Debug, Clone, PartialEq, Facet)]
 #[repr(u8)]
 pub enum EditSave {
-    /// Saved; `commit` is the new commit hash.
+    /// Saved; `commit` is the new commit hash and `base` is the saved file's new
+    /// blob oid (the editor adopts it so the next save on this tab compares against
+    /// what it just wrote, not the pre-save state).
     Ok {
         commit: String,
+        base: String,
     },
     Denied,
     NotFound,
+    /// The on-disk file changed since it was loaded; `current` is its new blob
+    /// oid. The editor should reload (or merge) rather than clobber the change.
+    Conflict {
+        current: String,
+    },
     /// The write/commit/push failed; `message` is safe to show the editor.
     Error {
         message: String,
