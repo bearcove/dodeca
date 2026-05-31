@@ -261,6 +261,18 @@ impl DevtoolsService for HostDevtoolsService {
         tracing::debug!(browser_id = self.browser_id, source_key = %source_key, "devtools edit_save");
         self.server.edit_save(&token, &source_key, &buffer).await
     }
+
+    async fn lsp(
+        &self,
+        token: String,
+        client_to_server: vox::Rx<String>,
+        server_to_client: vox::Tx<String>,
+    ) {
+        tracing::debug!(browser_id = self.browser_id, "devtools lsp session opening");
+        self.server
+            .run_lsp_session(&token, client_to_server, server_to_client)
+            .await
+    }
 }
 
 /// Start the HTTP cell server with optional shutdown signal

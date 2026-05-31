@@ -1246,6 +1246,109 @@ impl SiteServer {
         }
     }
 
+    /// Editor: tunnel an LSP session to a freshly spawned `ddc lsp` subprocess
+    /// pointed at the live workspace. The browser sends one JSON-RPC message per
+    /// `incoming` chunk; we add `Content-Length` framing for the subprocess, and
+    /// strip it from the subprocess's output back into one `outgoing` chunk per
+    /// message. Same binary as desktop editing → identical behaviour. Returns
+    /// when either side closes; the subprocess is then killed.
+    pub async fn run_lsp_session(
+        &self,
+        token: &str,
+        mut incoming: vox::Rx<String>,
+        outgoing: vox::Tx<String>,
+    ) {
+        use tokio::io::{AsyncWriteExt, BufReader};
+
+        if self.resolve_editor(token).is_none() {
+            tracing::warn!("lsp: rejecting session with invalid/expired editor token");
+            outgoing.close(Default::default()).await.ok();
+            return;
+        }
+
+        let content_dir = self
+            .status_sources
+            .read()
+            .unwrap()
+            .first()
+            .map(|s| s.content_dir.clone());
+        let Some(content_dir) = content_dir else {
+            tracing::warn!("lsp: no workspace content dir; is the server fully started?");
+            outgoing.close(Default::default()).await.ok();
+            return;
+        };
+
+        let exe = match std::env::current_exe() {
+            Ok(exe) => exe,
+            Err(error) => {
+                tracing::warn!(%error, "lsp: current_exe failed");
+                outgoing.close(Default::default()).await.ok();
+                return;
+            }
+        };
+
+        let mut child = match tokio::process::Command::new(&exe)
+            .arg("lsp")
+            .arg("-c")
+            .arg(content_dir.as_str())
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::inherit())
+            .spawn()
+        {
+            Ok(child) => child,
+            Err(error) => {
+                tracing::warn!(%error, exe = %exe.display(), "lsp: failed to spawn `ddc lsp`");
+                outgoing.close(Default::default()).await.ok();
+                return;
+            }
+        };
+        tracing::info!(content_dir = %content_dir, "lsp: session started");
+
+        let mut child_stdin = child.stdin.take().expect("piped stdin");
+        let child_stdout = child.stdout.take().expect("piped stdout");
+
+        // Browser → subprocess: frame each message with Content-Length.
+        let to_child = async move {
+            while let Ok(Some(message)) = incoming.recv().await {
+                let text = message.get();
+                let header = format!("Content-Length: {}\r\n\r\n", text.len());
+                if child_stdin.write_all(header.as_bytes()).await.is_err()
+                    || child_stdin.write_all(text.as_bytes()).await.is_err()
+                    || child_stdin.flush().await.is_err()
+                {
+                    break;
+                }
+            }
+            child_stdin.shutdown().await.ok();
+        };
+
+        // Subprocess → browser: strip framing, one message per chunk.
+        let to_browser = async move {
+            let mut reader = BufReader::new(child_stdout);
+            loop {
+                match read_lsp_message(&mut reader).await {
+                    Ok(Some(body)) => {
+                        let text = String::from_utf8_lossy(&body).into_owned();
+                        if outgoing.send(text).await.is_err() {
+                            break;
+                        }
+                    }
+                    Ok(None) => break,
+                    Err(error) => {
+                        tracing::debug!(%error, "lsp: failed reading subprocess frame");
+                        break;
+                    }
+                }
+            }
+            outgoing.close(Default::default()).await.ok();
+        };
+
+        tokio::join!(to_child, to_browser);
+        child.kill().await.ok();
+        tracing::info!("lsp: session ended");
+    }
+
     /// Inner implementation of find_content, runs within TASK_DB scope
     async fn find_content_inner(
         self: &Arc<Self>,
@@ -2806,6 +2909,41 @@ async fn commit_as_user(
     let hash = git(repo, &["rev-parse", "HEAD"]).await?;
     git(repo, &["push"]).await?;
     Ok(hash)
+}
+
+/// Read one `Content-Length`-framed LSP message body from `reader`, or `None`
+/// at clean EOF. Ignores headers other than `Content-Length` (e.g. the optional
+/// `Content-Type`).
+async fn read_lsp_message<R>(reader: &mut R) -> std::io::Result<Option<Vec<u8>>>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+{
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt};
+
+    let mut content_length: Option<usize> = None;
+    loop {
+        let mut line = String::new();
+        if reader.read_line(&mut line).await? == 0 {
+            return Ok(None); // EOF
+        }
+        let trimmed = line.trim_end_matches(['\r', '\n']);
+        if trimmed.is_empty() {
+            break; // blank line terminates headers
+        }
+        if let Some(value) = trimmed.strip_prefix("Content-Length:") {
+            content_length = value.trim().parse().ok();
+        }
+    }
+
+    let len = content_length.ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "LSP frame missing Content-Length",
+        )
+    })?;
+    let mut body = vec![0u8; len];
+    reader.read_exact(&mut body).await?;
+    Ok(Some(body))
 }
 
 /// Run `git -C <repo> <args>`, returning trimmed stdout, bailing on failure.

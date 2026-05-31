@@ -91,6 +91,25 @@ pub trait DevtoolsService {
 
     /// Commit `buffer` to `source_key` authored as the editing user, then push.
     async fn edit_save(&self, token: String, source_key: String, buffer: String) -> EditSave;
+
+    /// Tunnel a Language Server session for the in-browser editor.
+    ///
+    /// The browser's `monaco-languageclient` pipes raw JSON-RPC messages in on
+    /// `client_to_server` (one message per chunk) and reads the server's
+    /// messages from `server_to_client`. The host runs the **same `ddc lsp`
+    /// binary** a desktop editor would, pointed at the live workspace, so online
+    /// editing matches offline exactly — the host only translates between this
+    /// message-framed channel and the subprocess's `Content-Length` framing.
+    ///
+    /// `token` gates the session to a verified editor. The call runs for the
+    /// session's lifetime; a dropped channel ends the subprocess, which the
+    /// client treats as a server restart.
+    async fn lsp(
+        &self,
+        token: String,
+        client_to_server: vox::Rx<String>,
+        server_to_client: vox::Tx<String>,
+    );
 }
 
 /// Events pushed from server to browser devtools.
