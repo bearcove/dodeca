@@ -1,0 +1,53 @@
+html,
+body,
+#vixen-editor {
+  height: 100%;
+  margin: 0;
+}
+
+#vixen-editor {
+  display: flex;
+  flex-direction: column;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.vx-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  border-bottom: 1px solid #ddd;
+  background: #fafafa;
+}
+
+.vx-route {
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.vx-spacer {
+  flex: 1;
+}
+
+.vx-status {
+  color: #666;
+  font-size: 13px;
+}
+
+.vx-save {
+  padding: 4px 14px;
+  border: 1px solid #bbb;
+  border-radius: 5px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.vx-save:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.vx-editor {
+  flex: 1;
+  min-height: 0;
+}

@@ -2779,6 +2779,36 @@ const SNIPPETS: &[(&str, &str)] = &[
     // ),
 ];
 
+// Built browser-editor assets (vite/Monaco bundle), generated at build time.
+// Maps each served path (e.g. `edit.js`, `edit.css`, hashed chunks) to bytes.
+// Empty when the editor wasn't built (no node/pnpm) — `/_/edit/*` then 404s.
+include!(concat!(env!("OUT_DIR"), "/editor_assets.rs"));
+
+/// Serve a built editor asset for a `/_/edit/<path>` request. Bare `/_/edit/`
+/// resolves to the entry bundle.
+pub fn get_editor_asset(path: &str) -> Option<(Vec<u8>, &'static str)> {
+    let rel = path.strip_prefix("/_/edit/")?;
+    let rel = if rel.is_empty() { "edit.js" } else { rel };
+    EDITOR_ASSETS
+        .iter()
+        .find(|(name, _)| *name == rel)
+        .map(|(_, bytes)| (bytes.to_vec(), editor_asset_mime(rel)))
+}
+
+fn editor_asset_mime(path: &str) -> &'static str {
+    match path.rsplit('.').next() {
+        Some("js") | Some("mjs") => "text/javascript; charset=utf-8",
+        Some("css") => "text/css; charset=utf-8",
+        Some("json") | Some("map") => "application/json; charset=utf-8",
+        Some("wasm") => "application/wasm",
+        Some("ttf") => "font/ttf",
+        Some("woff") => "font/woff",
+        Some("woff2") => "font/woff2",
+        Some("svg") => "image/svg+xml",
+        _ => "application/octet-stream",
+    }
+}
+
 /// Get devtools asset content by path (for RPC serving)
 ///
 /// Returns (content, mime_type) if found.

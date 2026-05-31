@@ -91,7 +91,10 @@ ariadne.workspace = true
 
 [build-dependencies]
 dodeca-config = { path = "../dodeca-config" }
+dodeca-protocol = { path = "../dodeca-protocol" }
 facet-styx.workspace = true
+# Generates the browser editor's TypeScript vox client from DevtoolsService.
+vox-codegen = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }
 
 [dev-dependencies]
 tokio.workspace = true

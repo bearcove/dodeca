@@ -98,6 +98,18 @@ impl ContentService for HostContentService {
             };
         }
 
+        // Built browser-editor bundle (vite/Monaco) at /_/edit/*. Public assets
+        // (JS/CSS) — the editing capability behind them is token-gated.
+        if path.starts_with("/_/edit/")
+            && let Some((content, mime)) = crate::serve::get_editor_asset(&path)
+        {
+            return ServeContent::Static {
+                content,
+                mime: mime.to_string(),
+                generation,
+            };
+        }
+
         // Check devtools assets first (/_/*.js, /_/*.wasm, /_/snippets/*)
         if path.starts_with("/_/")
             && let Some((content, mime)) = get_devtools_asset(&path)
