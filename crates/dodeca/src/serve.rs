@@ -1061,6 +1061,60 @@ impl SiteServer {
             .await
     }
 
+    /// Render the page owned by `source_key` with `buffer` overlaid on that one
+    /// file — the editor's live preview. Uses a db **snapshot** with the one
+    /// input overridden in isolation, then the real `serve_html` pipeline, so
+    /// the preview is byte-identical to publish and never touches live state or
+    /// what other viewers see. Returns `None` if the key has no route.
+    pub async fn preview_overlay(
+        self: &Arc<Self>,
+        source_key: &str,
+        buffer: &str,
+    ) -> eyre::Result<Option<String>> {
+        let db = self.db.clone();
+        let snapshot = DatabaseSnapshot::from_database(&self.db).await;
+
+        // Override just this one source file in the snapshot's isolated copy.
+        let mut sources = SourceRegistry::sources(&snapshot)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        let overlaid = SourceFile::new(
+            &snapshot,
+            crate::types::SourcePath::new(source_key.to_string()),
+            crate::types::SourceContent::new(buffer.to_string()),
+            0,
+        )
+        .map_err(|e| eyre::eyre!("overlay source file: {e:?}"))?;
+        match sources.iter().position(|s| {
+            s.path(&snapshot)
+                .ok()
+                .map(|p| p.as_str() == source_key)
+                .unwrap_or(false)
+        }) {
+            Some(pos) => sources[pos] = overlaid,
+            None => sources.push(overlaid),
+        }
+        SourceRegistry::set(&snapshot, sources)
+            .map_err(|e| eyre::eyre!("set overlaid sources: {e:?}"))?;
+
+        let source_key = source_key.to_string();
+        crate::db::TASK_DB
+            .scope(db, async move {
+                let routes = crate::queries::source_to_route_map(&snapshot)
+                    .await
+                    .unwrap_or_default();
+                let Some(route) = routes.get(&source_key).cloned() else {
+                    return Ok(None);
+                };
+                match serve_html(&snapshot, Route::new(route)).await {
+                    Ok(Ok(Some(served))) => Ok(Some(served.html)),
+                    _ => Ok(None),
+                }
+            })
+            .await
+    }
+
     /// Inner implementation of find_content, runs within TASK_DB scope
     async fn find_content_inner(
         self: &Arc<Self>,
@@ -2581,6 +2635,52 @@ pub fn mime_from_extension(path: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The editor preview overlays an edited buffer onto a **snapshot** of the
+    /// live db and renders that. This proves the override is isolated: setting
+    /// an input on the snapshot must NOT mutate the live db, or one user's
+    /// preview would corrupt what every other viewer sees.
+    #[tokio::test]
+    async fn snapshot_input_override_is_isolated() {
+        use crate::types::{SourceContent, SourcePath};
+
+        let db = Database::new(None);
+        let key = SourcePath::new("kb/overview.md".to_string());
+        let live = SourceFile::new(&db, key.clone(), SourceContent::new("LIVE".to_string()), 0)
+            .expect("create live source");
+        SourceRegistry::set(&db, vec![live]).expect("set live sources");
+
+        // Snapshot, then override the one file in the snapshot's own copy.
+        let snapshot = DatabaseSnapshot::from_database(&db).await;
+        let edited = SourceFile::new(
+            &snapshot,
+            key.clone(),
+            SourceContent::new("EDITED".to_string()),
+            0,
+        )
+        .expect("create edited source");
+        SourceRegistry::set(&snapshot, vec![edited]).expect("set edited sources on snapshot");
+
+        // Snapshot sees the edit...
+        let snap_sources = SourceRegistry::sources(&snapshot)
+            .unwrap()
+            .unwrap_or_default();
+        assert_eq!(snap_sources.len(), 1);
+        assert_eq!(
+            snap_sources[0].content(&snapshot).unwrap().as_str(),
+            "EDITED",
+            "snapshot must see the overlaid buffer"
+        );
+
+        // ...but the live db is untouched.
+        let live_sources = SourceRegistry::sources(&db).unwrap().unwrap_or_default();
+        assert_eq!(live_sources.len(), 1);
+        assert_eq!(
+            live_sources[0].content(&db).unwrap().as_str(),
+            "LIVE",
+            "live db must NOT be mutated by a snapshot override"
+        );
+    }
 
     #[test]
     fn parses_associated_app_output() {
