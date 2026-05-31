@@ -181,6 +181,43 @@ pub fn apply_patches_postcard_on(
 }
 
 // ============================================================================
+// Element-based public API
+//
+// Like the selector-based API, but the mount root is passed directly as a DOM
+// element. A CSS selector resolves through `document.querySelector`, which can't
+// reach inside a shadow root; pass the element when the root lives in a shadow
+// tree (e.g. an isolated live-preview pane).
+// ============================================================================
+
+/// Apply patches (JSON) to a mount-point element passed directly.
+#[wasm_bindgen]
+pub fn apply_patches_json_on_element(
+    patches_json: &str,
+    root: web_sys::Element,
+) -> Result<usize, JsValue> {
+    let patches: Vec<Patch> = facet_json::from_str(patches_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse patches: {e}")))?;
+    let document = get_document()?;
+    let root: Node = root.into();
+    let mut slots = Slots::new();
+    apply_patches_with_slots_on_root(&document, &root, &patches, &mut slots)
+}
+
+/// Apply postcard-serialized patches to a mount-point element passed directly.
+#[wasm_bindgen]
+pub fn apply_patches_postcard_on_element(
+    patches_blob: &[u8],
+    root: web_sys::Element,
+) -> Result<usize, JsValue> {
+    let patches: Vec<Patch<'static>> = facet_postcard::from_slice(patches_blob)
+        .map_err(|e| JsValue::from_str(&format!("Failed to deserialize patches: {e}")))?;
+    let document = get_document()?;
+    let root: Node = root.into();
+    let mut slots = Slots::new();
+    apply_patches_with_slots_on_root(&document, &root, &patches, &mut slots)
+}
+
+// ============================================================================
 // Live-reload vox RPC client (wasm32 only)
 // ============================================================================
 
