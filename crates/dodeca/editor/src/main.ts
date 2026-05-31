@@ -28,6 +28,7 @@ import {
 } from "vscode-jsonrpc";
 import { session, voxServiceMetadata, channel } from "@bearcove/vox-core";
 import { wsConnector } from "@bearcove/vox-ws";
+import initHotmeal, { diff_html, apply_patches_json_on_element } from "hotmeal-wasm";
 import { DevtoolsServiceClient, type EditEntry } from "./devtools.generated";
 import "./editor.css";
 
@@ -91,24 +92,37 @@ class VoxMessageWriter extends AbstractMessageWriter implements MessageWriter {
 async function main(mount: HTMLElement): Promise<void> {
   mount.innerHTML = `
     <div class="vx-toolbar">
+      <button class="vx-tree-toggle" title="Toggle file tree">☰</button>
       <span class="vx-route"></span>
       <span class="vx-spacer"></span>
       <span class="vx-status"></span>
       <button class="vx-save" disabled>Save</button>
     </div>
-    <div class="vx-body">
+    <div class="vx-body vx-tree-collapsed">
       <div class="vx-tree"></div>
       <div class="vx-editor"></div>
-      <iframe class="vx-preview" sandbox="allow-same-origin"></iframe>
+      <div class="vx-preview"></div>
     </div>
   `;
+  const bodyEl = mount.querySelector(".vx-body") as HTMLElement;
   const routeEl = mount.querySelector(".vx-route") as HTMLElement;
   const statusEl = mount.querySelector(".vx-status") as HTMLElement;
   const saveBtn = mount.querySelector(".vx-save") as HTMLButtonElement;
+  const treeToggle = mount.querySelector(".vx-tree-toggle") as HTMLButtonElement;
   const treeEl = mount.querySelector(".vx-tree") as HTMLElement;
   const editorEl = mount.querySelector(".vx-editor") as HTMLElement;
-  const previewEl = mount.querySelector(".vx-preview") as HTMLIFrameElement;
+  const previewEl = mount.querySelector(".vx-preview") as HTMLElement;
   const status = (text: string) => (statusEl.textContent = text);
+
+  // Tree collapses by default; the toolbar button toggles it.
+  treeToggle.addEventListener("click", () => bodyEl.classList.toggle("vx-tree-collapsed"));
+
+  // Preview lives in a shadow root: style-isolated, no iframe, and innerHTML in
+  // a shadow root does not execute scripts — so no sandbox needed.
+  const previewShadow = previewEl.attachShadow({ mode: "open" });
+  const previewDoc = document.createElement("div");
+  previewDoc.className = "vx-doc";
+  previewShadow.appendChild(previewDoc);
 
   // 1. Connect over the devtools websocket (Noop root + DevtoolsService sub-connection).
   status("connecting…");
@@ -206,11 +220,25 @@ async function main(mount: HTMLElement): Promise<void> {
     }
   };
 
-  // 8. Split preview — dodeca's real overlay render of the current buffer.
+  // 8. Split preview — dodeca's real overlay render, live-patched into the
+  // shadow root with hotmeal (the same diff/patch engine as the served-page HMR),
+  // so it updates in place with no reload flash.
+  await initHotmeal();
   let previewTimer: number | undefined;
+  let prevHtml: string | undefined;
   const refreshPreview = async () => {
     const result = await client.editPreview(token, current.sourceKey, editor?.getValue() ?? "");
-    if (result.tag === "Ok") previewEl.srcdoc = result.html;
+    if (result.tag !== "Ok") return;
+    if (prevHtml === undefined) {
+      previewDoc.innerHTML = result.html;
+    } else {
+      try {
+        apply_patches_json_on_element(diff_html(prevHtml, result.html), previewDoc);
+      } catch {
+        previewDoc.innerHTML = result.html; // fall back to a full replace
+      }
+    }
+    prevHtml = result.html;
   };
   const schedulePreview = () => {
     if (previewTimer) clearTimeout(previewTimer);
@@ -228,6 +256,7 @@ async function main(mount: HTMLElement): Promise<void> {
     routeEl.textContent = l.route;
     await editorApp.updateCodeResources({ modified: { text: l.content, uri: l.uri } });
     renderTree();
+    prevHtml = undefined; // different page → full render, not a diff
     void refreshPreview();
   };
 

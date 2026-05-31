@@ -1149,12 +1149,13 @@ impl SiteServer {
             0,
         )
         .map_err(|e| eyre::eyre!("overlay source file: {e:?}"))?;
-        match sources.iter().position(|s| {
+        let pos = sources.iter().position(|s| {
             s.path(&snapshot)
                 .ok()
                 .map(|p| p.as_str() == source_key)
                 .unwrap_or(false)
-        }) {
+        });
+        match pos {
             Some(pos) => sources[pos] = overlaid,
             None => sources.push(overlaid),
         }

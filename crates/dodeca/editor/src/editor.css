@@ -51,7 +51,29 @@ body,
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 200px 1fr 1fr;
+  grid-template-columns: 220px 1fr 1fr;
+}
+
+.vx-body.vx-tree-collapsed {
+  grid-template-columns: 1fr 1fr;
+}
+
+.vx-body.vx-tree-collapsed .vx-tree {
+  display: none;
+}
+
+.vx-tree-toggle {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 8px;
+  color: #555;
+}
+
+.vx-tree-toggle:hover {
+  color: #000;
 }
 
 .vx-tree {
@@ -89,8 +111,9 @@ body,
 }
 
 .vx-preview {
-  border: none;
   border-left: 1px solid #ddd;
   min-width: 0;
+  height: 100%;
+  overflow: auto;
   background: #fff;
 }

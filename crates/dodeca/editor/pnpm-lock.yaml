@@ -79,7 +79,7 @@ importers:
         specifier: 31.0.1
         version: 31.0.1
       '@codingame/monaco-vscode-files-service-override':
-        specifier: ^31.0.1
+        specifier: 31.0.1
         version: 31.0.1
       '@codingame/monaco-vscode-languages-service-override':
         specifier: 31.0.1
@@ -108,6 +108,9 @@ importers:
       '@codingame/monaco-vscode-workbench-service-override':
         specifier: 31.0.1
         version: 31.0.1
+      hotmeal-wasm:
+        specifier: file:../../../../hotmeal/hotmeal-wasm/pkg
+        version: file:../../../../hotmeal/hotmeal-wasm/pkg
       monaco-languageclient:
         specifier: ^10.7.0
         version: 10.7.0
@@ -601,6 +604,9 @@ packages:
     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==}
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
+
+  hotmeal-wasm@file:../../../../hotmeal/hotmeal-wasm/pkg:
+    resolution: {directory: ../../../../hotmeal/hotmeal-wasm/pkg, type: directory}
 
   jschardet@3.1.4:
     resolution: {integrity: sha512-/kmVISmrwVwtyYU40iQUOp3SUPk2dhNCMsZBQX0R1/jZ8maaXJ/oZIzUOiyOqcgtLnETFKYChbJ5iDC/eWmFHg==}
@@ -1144,6 +1150,8 @@ snapshots:
 
   fsevents@2.3.3:
     optional: true
+
+  hotmeal-wasm@file:../../../../hotmeal/hotmeal-wasm/pkg: {}
 
   jschardet@3.1.4: {}
 
