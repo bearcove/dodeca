@@ -110,6 +110,14 @@ pub trait DevtoolsService {
         client_to_server: vox::Rx<String>,
         server_to_client: vox::Tx<String>,
     );
+
+    /// Read a source file by its `file://` URI — backs the editor's file-system
+    /// provider so go-to-definition (and opening any page) works. Content comes
+    /// from the live db, not disk.
+    async fn edit_read(&self, token: String, uri: String) -> EditRead;
+
+    /// List every editable page (for the file tree).
+    async fn edit_list(&self, token: String) -> EditList;
 }
 
 /// Events pushed from server to browser devtools.
@@ -176,6 +184,36 @@ pub enum EditPreview {
     },
     Denied,
     NotFound,
+}
+
+/// Result of `DevtoolsService::edit_read`.
+#[derive(Debug, Clone, PartialEq, Facet)]
+#[repr(u8)]
+pub enum EditRead {
+    Ok { content: String },
+    Denied,
+    NotFound,
+}
+
+/// One editable page in the file tree.
+#[derive(Debug, Clone, PartialEq, Facet)]
+pub struct EditEntry {
+    /// Mount-prefixed source key (pass to `edit_preview`/`edit_save`).
+    pub source_key: String,
+    /// Normalized route, e.g. `/company`.
+    pub route: String,
+    /// `file://` URI of the on-disk source (the editor model URI).
+    pub uri: String,
+    /// Page title, best-effort (falls back to the route).
+    pub title: String,
+}
+
+/// Result of `DevtoolsService::edit_list`.
+#[derive(Debug, Clone, PartialEq, Facet)]
+#[repr(u8)]
+pub enum EditList {
+    Ok { entries: Vec<EditEntry> },
+    Denied,
 }
 
 /// Result of `DevtoolsService::edit_save`.

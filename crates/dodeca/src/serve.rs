@@ -1239,6 +1239,75 @@ impl SiteServer {
         }
     }
 
+    /// The editable source key whose on-disk path is `abs`, if any (inverse of
+    /// `source_for_key`'s path-building — for the file-system provider).
+    fn source_key_for_path(&self, abs: &str) -> Option<String> {
+        let abs = Utf8Path::new(abs);
+        let sources = self.status_sources.read().unwrap();
+        for source in sources.iter() {
+            if let Ok(rel) = abs.strip_prefix(&source.content_dir) {
+                return Some(crate::build_context::mounted_key(
+                    &source.mount,
+                    rel.as_str(),
+                ));
+            }
+        }
+        None
+    }
+
+    /// Editor: read a source file by `file://` URI (file-system provider).
+    pub async fn edit_read(self: &Arc<Self>, token: &str, uri: &str) -> dodeca_protocol::EditRead {
+        use dodeca_protocol::EditRead;
+        if self.resolve_editor(token).is_none() {
+            return EditRead::Denied;
+        }
+        let path = uri.strip_prefix("file://").unwrap_or(uri);
+        let Some(source_key) = self.source_key_for_path(path) else {
+            return EditRead::NotFound;
+        };
+        match self.source_content(&source_key) {
+            Some(content) => EditRead::Ok { content },
+            None => EditRead::NotFound,
+        }
+    }
+
+    /// Editor: list every editable page (file tree).
+    pub async fn edit_list(self: &Arc<Self>, token: &str) -> dodeca_protocol::EditList {
+        use dodeca_protocol::{EditEntry, EditList};
+        if self.resolve_editor(token).is_none() {
+            return EditList::Denied;
+        }
+        let db = self.db.clone();
+        let snapshot = DatabaseSnapshot::from_database(&self.db).await;
+        let map = crate::db::TASK_DB
+            .scope(db, async move {
+                crate::queries::source_to_route_map(&snapshot)
+                    .await
+                    .unwrap_or_default()
+            })
+            .await;
+        let sources = self.status_sources.read().unwrap().clone();
+        let mut entries: Vec<EditEntry> = map
+            .into_iter()
+            .filter_map(|(source_key, route)| {
+                let (source, rel) = crate::build_context::source_for_key(&sources, &source_key)?;
+                let route = normalize_route(&route);
+                let title = match route.trim_start_matches('/') {
+                    "" => "/".to_string(),
+                    rest => rest.to_string(),
+                };
+                Some(EditEntry {
+                    uri: format!("file://{}", source.content_dir.join(&rel)),
+                    source_key,
+                    route,
+                    title,
+                })
+            })
+            .collect();
+        entries.sort_by(|a, b| a.route.cmp(&b.route));
+        EditList::Ok { entries }
+    }
+
     /// Editor: live preview of `buffer` overlaid on `source_key`, isolated.
     pub async fn edit_preview(
         self: &Arc<Self>,

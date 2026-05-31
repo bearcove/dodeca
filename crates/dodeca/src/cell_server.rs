@@ -279,6 +279,14 @@ impl DevtoolsService for HostDevtoolsService {
                 .await;
         });
     }
+
+    async fn edit_read(&self, token: String, uri: String) -> dodeca_protocol::EditRead {
+        self.server.edit_read(&token, &uri).await
+    }
+
+    async fn edit_list(&self, token: String) -> dodeca_protocol::EditList {
+        self.server.edit_list(&token).await
+    }
 }
 
 /// Start the HTTP cell server with optional shutdown signal
