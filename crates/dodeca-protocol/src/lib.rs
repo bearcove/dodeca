@@ -313,3 +313,21 @@ impl ScopeValue {
         }
     }
 }
+
+#[cfg(test)]
+mod editor_descriptor_tests {
+    //! The browser editor's TypeScript client is generated from this service
+    //! descriptor (vox-codegen). Guard that the methods the editor relies on are
+    //! actually present, so a rename can't silently break codegen.
+    #[test]
+    fn devtools_descriptor_exposes_editor_and_lsp_methods() {
+        let descriptor = super::devtools_service_service_descriptor();
+        let names: Vec<&str> = descriptor.methods.iter().map(|m| m.method_name).collect();
+        for expected in ["edit_load", "edit_preview", "edit_save", "lsp"] {
+            assert!(
+                names.contains(&expected),
+                "DevtoolsService is missing `{expected}`; have {names:?}"
+            );
+        }
+    }
+}
