@@ -30,10 +30,14 @@ impl ContentService for HostContentService {
         // Get current generation
         let generation = self.server.current_generation();
 
-        // Status page — gated: requires an authenticated identity (forwarded by
-        // oauth2-proxy). Fail-closed: no identity → bounce to the proxy login.
+        // Status page. Gated only when `auth` is configured (deployed behind
+        // oauth2-proxy); fail-closed there — no identity → bounce to the proxy
+        // login. With no `auth` config (local `ddc serve`) it's open.
         if path == "/_dodeca/status" {
-            if identity.is_none() {
+            let auth_enabled = crate::config::global_config()
+                .and_then(|c| c.auth.as_ref())
+                .is_some();
+            if auth_enabled && identity.is_none() {
                 return ServeContent::Redirect {
                     location: format!("/oauth2/start?rd={path}"),
                     generation,

@@ -58,6 +58,13 @@ pub struct DodecaConfig {
     #[facet(default)]
     pub syntax_highlight: Option<SyntaxHighlightConfig>,
 
+    /// Authentication (oauth2-proxy / Forgejo OIDC in front of dodeca). When
+    /// **present**, `/_dodeca/*` (status, editing) is gated on a forwarded
+    /// identity; when **absent**, those are open — which is what you want for
+    /// local `ddc serve` with no proxy in front.
+    #[facet(default)]
+    pub auth: Option<AuthConfig>,
+
     /// Build steps - parameterized commands invoked from templates.
     /// Keys are step names, values define params and command.
     #[facet(default)]
@@ -288,6 +295,21 @@ pub struct SourceDef {
     /// `git pull` from on a webhook/poll. Only meaningful with `checkout`.
     #[facet(default)]
     pub git: Option<String>,
+}
+
+/// Authentication / authorization config. Its mere presence turns on gating of
+/// `/_dodeca/*` behind a forwarded identity (oauth2-proxy). Editing is
+/// **fail-closed**: a user may edit only if listed in `editors` or a member of
+/// an `editor_groups` group — no allowlist means no one edits.
+#[derive(Debug, Clone, Default, Facet)]
+#[facet(rename_all = "snake_case")]
+pub struct AuthConfig {
+    /// Forgejo groups whose members may edit (matched against forwarded groups).
+    #[facet(default)]
+    pub editor_groups: Option<Vec<String>>,
+    /// Explicit user allowlist for editing (matched against the forwarded user).
+    #[facet(default)]
+    pub editors: Option<Vec<String>>,
 }
 
 /// Syntax highlighting theme configuration

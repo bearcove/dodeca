@@ -14,7 +14,7 @@ use std::sync::OnceLock;
 
 // Re-export config types from dodeca-config crate
 pub use dodeca_config::{
-    CodeExecutionConfig, DodecaConfig, LinkCheckMode, PageTypeSchema, SourceDef,
+    AuthConfig, CodeExecutionConfig, DodecaConfig, LinkCheckMode, PageTypeSchema, SourceDef,
 };
 
 /// Configuration file names
@@ -173,6 +173,9 @@ pub struct ResolvedConfig {
     pub build_steps: Option<std::collections::HashMap<String, dodeca_config::BuildStepDef>>,
     /// Frontmatter schemas keyed by page type.
     pub page_types: Option<std::collections::HashMap<String, PageTypeSchema>>,
+    /// Auth config. `Some` ⇒ gate `/_dodeca/*` on a forwarded identity; `None`
+    /// ⇒ open (local dev, no proxy).
+    pub auth: Option<AuthConfig>,
 }
 
 impl ResolvedConfig {
@@ -398,6 +401,7 @@ fn load_config(config_path: &Utf8Path) -> Result<ResolvedConfig> {
         dark_theme_css,
         build_steps: config.build_steps,
         page_types: config.page_types,
+        auth: config.auth,
     })
 }
 
