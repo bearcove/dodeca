@@ -1,0 +1,14 @@
+/Users/amos/dodeca/crates/dodeca-search-wasm/target-wasm/wasm32-unknown-unknown/release/deps/serde-98c471f8df27025d.d: /Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/amos/dodeca/crates/dodeca-search-wasm/target-wasm/wasm32-unknown-unknown/release/build/serde-90f12cc3a51c34f4/out/private.rs
+
+/Users/amos/dodeca/crates/dodeca-search-wasm/target-wasm/wasm32-unknown-unknown/release/deps/libserde-98c471f8df27025d.rlib: /Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/amos/dodeca/crates/dodeca-search-wasm/target-wasm/wasm32-unknown-unknown/release/build/serde-90f12cc3a51c34f4/out/private.rs
+
+/Users/amos/dodeca/crates/dodeca-search-wasm/target-wasm/wasm32-unknown-unknown/release/deps/libserde-98c471f8df27025d.rmeta: /Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/amos/dodeca/crates/dodeca-search-wasm/target-wasm/wasm32-unknown-unknown/release/build/serde-90f12cc3a51c34f4/out/private.rs
+
+/Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs:
+/Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs:
+/Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs:
+/Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs:
+/Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs:
+/Users/amos/dodeca/crates/dodeca-search-wasm/target-wasm/wasm32-unknown-unknown/release/build/serde-90f12cc3a51c34f4/out/private.rs:
+
+# env-dep:OUT_DIR=/Users/amos/dodeca/crates/dodeca-search-wasm/target-wasm/wasm32-unknown-unknown/release/build/serde-90f12cc3a51c34f4/out

@@ -2822,21 +2822,6 @@ pub fn get_editor_asset(path: &str) -> Option<(Vec<u8>, &'static str)> {
         .map(|(_, bytes)| (bytes.to_vec(), editor_asset_mime(rel)))
 }
 
-/// Short content hash of the editor bundle, for cache-busting the shell's
-/// `edit.js`/`edit.css` URLs (the entry filenames are unhashed).
-pub fn editor_version() -> String {
-    use std::sync::LazyLock;
-    static VERSION: LazyLock<String> = LazyLock::new(|| {
-        let bytes = EDITOR_ASSETS
-            .iter()
-            .find(|(name, _)| *name == "edit.js")
-            .map(|(_, b)| *b)
-            .unwrap_or(b"");
-        compute_hash(bytes)
-    });
-    VERSION.clone()
-}
-
 fn editor_asset_mime(path: &str) -> &'static str {
     match path.rsplit('.').next() {
         Some("js") | Some("mjs") => "text/javascript; charset=utf-8",

@@ -4,12 +4,16 @@
 //! root-element `data-` attributes (no inline JSON). The token authorizes the
 //! `edit_*` vox RPC calls the app makes over the devtools websocket.
 
-/// Render the editor shell for `route`, embedding the session `token`. `version`
-/// cache-busts the (unhashed) entry asset URLs.
-pub fn render_edit_shell(route: &str, token: &str, version: &str) -> String {
+/// Render the editor shell for `route`, embedding the session `token`.
+///
+/// The entry URLs are unversioned on purpose: the bundle re-references its own
+/// entry (`/_/edit/edit.js`) internally for workers / the vscode extension host,
+/// so a `?v=` query on the `<script>` tag would load the module twice (two
+/// `monaco-vscode-api` inits). `/_/edit/*` is served `no-cache`, so revalidation
+/// keeps it fresh without a query.
+pub fn render_edit_shell(route: &str, token: &str) -> String {
     let route = escape_attr(route);
     let token = escape_attr(token);
-    let version = escape_attr(version);
     format!(
         r#"<!doctype html>
 <html lang="en">
@@ -17,11 +21,11 @@ pub fn render_edit_shell(route: &str, token: &str, version: &str) -> String {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>edit · {route}</title>
-<link rel="stylesheet" href="/_/edit/edit.css?v={version}">
+<link rel="stylesheet" href="/_/edit/edit.css">
 </head>
 <body>
 <div id="vixen-editor" data-route="{route}" data-token="{token}"></div>
-<script type="module" src="/_/edit/edit.js?v={version}"></script>
+<script type="module" src="/_/edit/edit.js"></script>
 </body>
 </html>
 "#
@@ -50,14 +54,14 @@ mod tests {
 
     #[test]
     fn embeds_route_and_token_in_data_attrs() {
-        let html = render_edit_shell("/overview", "abc123", "v1");
+        let html = render_edit_shell("/overview", "abc123");
         assert!(html.contains(r#"data-route="/overview""#));
         assert!(html.contains(r#"data-token="abc123""#));
     }
 
     #[test]
     fn escapes_attribute_injection() {
-        let html = render_edit_shell("/\"><script>x", "t", "v1");
+        let html = render_edit_shell("/\"><script>x", "t");
         assert!(!html.contains("<script>x"));
         assert!(html.contains("&quot;&gt;&lt;script&gt;x"));
     }

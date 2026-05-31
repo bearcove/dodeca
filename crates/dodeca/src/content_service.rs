@@ -58,11 +58,7 @@ impl ContentService for HostContentService {
             match self.server.mint_edit_token(identity.as_ref()) {
                 Some(token) => {
                     let route = format!("/{}", rest.trim_start_matches('/'));
-                    let html = crate::edit_shell::render_edit_shell(
-                        &route,
-                        &token,
-                        &crate::serve::editor_version(),
-                    );
+                    let html = crate::edit_shell::render_edit_shell(&route, &token);
                     return ServeContent::StaticNoCache {
                         content: html.into_bytes(),
                         mime: "text/html; charset=utf-8".to_string(),
