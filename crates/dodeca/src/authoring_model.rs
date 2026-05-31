@@ -114,18 +114,27 @@ pub struct RenderedHrefOrigin {
 }
 
 pub async fn load_authoring_project(
-    content_dir: &Utf8Path,
+    sources: &[crate::config::ResolvedSource],
     overlays: &[AuthoringDocumentOverlay],
 ) -> Result<AuthoringProject> {
-    let mut workspace = AuthoringWorkspace::new(content_dir)?;
+    let mut workspace = AuthoringWorkspace::new(sources)?;
     workspace.apply_overlays(overlays)?;
     workspace.inputs().project().await
 }
 
 impl AuthoringWorkspace {
-    pub fn new(content_dir: &Utf8Path) -> Result<Self> {
-        let output_dir = content_dir.parent().unwrap_or(content_dir).join("public");
-        let mut ctx = BuildContext::new(content_dir, &output_dir);
+    /// Build an authoring workspace over all `sources` (multi-source aware —
+    /// same mount-prefixed keys as `BuildContext`/serve). The first source's
+    /// content dir is the primary, from which templates/sass/static/data are
+    /// derived. Markdown is loaded from every source.
+    pub fn new(sources: &[crate::config::ResolvedSource]) -> Result<Self> {
+        let primary = sources
+            .first()
+            .map(|s| s.content_dir.clone())
+            .ok_or_else(|| eyre!("authoring workspace needs at least one source"))?;
+        let output_dir = primary.parent().unwrap_or(&primary).join("public");
+        let mut ctx = BuildContext::new(&primary, &output_dir);
+        ctx.set_source_roots(sources.to_vec());
         MarkdownRenderSettings::set(&*ctx.db, false)?;
 
         ctx.load_sources()?;
@@ -278,11 +287,17 @@ impl AuthoringWorkspace {
     }
 
     fn update_source(&mut self, source_file: &str, content: Option<&str>) -> Result<()> {
-        let path = self.ctx.content_dir.join(source_file);
         let source_path = SourcePath::new(source_file.to_string());
+        // `source_file` is a mount-prefixed key; reverse it to the on-disk path
+        // under the owning source's content dir.
+        let (root_dir, rel) =
+            crate::build_context::source_for_key(&self.ctx.source_roots, source_file)
+                .map(|(src, rel)| (src.content_dir, rel))
+                .unwrap_or_else(|| (self.ctx.content_dir.clone(), source_file.to_string()));
+        let on_disk = root_dir.join(&rel);
         let content = match content {
             Some(content) => content.to_string(),
-            None if path.exists() => std::fs::read_to_string(&path)?,
+            None if on_disk.exists() => std::fs::read_to_string(&on_disk)?,
             None => {
                 self.ctx.sources.remove(&source_path);
                 return Ok(());
@@ -292,7 +307,7 @@ impl AuthoringWorkspace {
             &*self.ctx.db,
             source_path.clone(),
             SourceContent::new(content),
-            source_last_modified(&self.ctx.content_dir, source_file),
+            source_last_modified(&root_dir, &rel),
         )?;
         self.ctx.sources.insert(source_path, source);
         Ok(())
@@ -451,9 +466,23 @@ fn input_path_for_absolute_path(
     ctx: &BuildContext,
     path: &Utf8Path,
 ) -> Result<Option<AuthoringInputPath>> {
-    if let Ok(relative) = path.strip_prefix(&ctx.content_dir) {
-        if path.extension() == Some("md") {
-            return Ok(Some(AuthoringInputPath::Source(relative.to_string())));
+    // Content is per-source: attribute the file to the owning source (longest
+    // content-dir prefix) and key it mount-prefixed, exactly as `load_sources`.
+    if path.extension() == Some("md") {
+        let mut best: Option<(&crate::config::ResolvedSource, Utf8PathBuf)> = None;
+        for root in &ctx.source_roots {
+            if let Ok(relative) = path.strip_prefix(&root.content_dir) {
+                let longer = best.as_ref().is_none_or(|(b, _)| {
+                    root.content_dir.as_str().len() > b.content_dir.as_str().len()
+                });
+                if longer {
+                    best = Some((root, relative.to_owned()));
+                }
+            }
+        }
+        if let Some((root, relative)) = best {
+            let key = crate::build_context::mounted_key(&root.mount, relative.as_str());
+            return Ok(Some(AuthoringInputPath::Source(key)));
         }
     }
 

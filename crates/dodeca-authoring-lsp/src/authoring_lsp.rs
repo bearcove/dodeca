@@ -41,8 +41,31 @@ use dodeca::authoring_model::{
     AuthoringDocumentOverlay, AuthoringInputPath, AuthoringPage, AuthoringPageKind,
     AuthoringProject, AuthoringWorkspace, RenderedHref, RenderedHrefOrigin,
 };
-use dodeca::config::ResolvedConfig;
+use dodeca::config::{ResolvedConfig, ResolvedSource};
 use dodeca::queries::{Frontmatter, default_title_from_source_path};
+
+/// Resolve the source set for an authoring workspace rooted at `content_dir`.
+///
+/// Discovers the config from the workspace (the aggregator config, when you've
+/// opened the aggregate) and uses its `sources` — so the LSP sees the full
+/// multi-source world (cross-source links, files in mounted sub-repos). Also
+/// publishes it as the global config so source/wiki resolution works. Falls
+/// back to a single source for a config-less directory.
+fn workspace_sources(content_dir: &camino::Utf8Path) -> Vec<ResolvedSource> {
+    if let Ok(Some(cfg)) = ResolvedConfig::discover_containing(content_dir) {
+        let _ = dodeca::config::set_global_config(cfg.clone());
+        if !cfg.sources.is_empty() {
+            return cfg.sources;
+        }
+    }
+    vec![ResolvedSource {
+        name: String::new(),
+        mount: "/".to_string(),
+        content_dir: content_dir.to_owned(),
+        checkout_dir: None,
+        git: None,
+    }]
+}
 use dodeca::template_host::TEMPLATE_FUNCTION_NAMES;
 use dodeca::template_paths::{logical_template_path, physical_template_path};
 use dodeca::types::SourcePath;
@@ -86,7 +109,7 @@ pub async fn run(content: Option<String>, output: Option<String>) -> Result<()> 
 pub async fn authoring_diagnostics_for_content_dir(
     content_dir: &Utf8Path,
 ) -> Result<Vec<AuthoringDiagnostic>> {
-    let workspace = AuthoringWorkspace::new(content_dir)?;
+    let workspace = AuthoringWorkspace::new(&workspace_sources(content_dir))?;
     let project = workspace.inputs().project().await?;
     let world = AuthoringWorld::new(project)?;
     Ok(load_authoring_diagnostics_for_world(&world))
@@ -691,7 +714,9 @@ impl Backend {
                 .is_none_or(|workspace| workspace.content_dir() != dirs.content_dir);
 
             if needs_workspace {
-                state.workspace = Some(AuthoringWorkspace::new(&dirs.content_dir)?);
+                state.workspace = Some(AuthoringWorkspace::new(&workspace_sources(
+                    &dirs.content_dir,
+                ))?);
                 state.applied_input_revision = None;
                 state.world_cache = None;
             }
@@ -800,7 +825,9 @@ impl Backend {
                 .is_none_or(|workspace| workspace.content_dir() != dirs.content_dir);
 
             if needs_workspace {
-                state.workspace = Some(AuthoringWorkspace::new(&dirs.content_dir)?);
+                state.workspace = Some(AuthoringWorkspace::new(&workspace_sources(
+                    &dirs.content_dir,
+                ))?);
                 state.applied_input_revision = None;
                 state.world_cache = None;
             }
