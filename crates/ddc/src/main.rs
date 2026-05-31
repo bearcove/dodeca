@@ -2166,6 +2166,7 @@ fn is_loopback_address(address: &str) -> bool {
 /// binary owns this because it depends on both `dodeca` and the LSP crate.
 struct AuthoringLspRunner {
     content_dir: Utf8PathBuf,
+    provider: std::sync::Arc<dyn dodeca::authoring_model::AuthoringProjectProvider>,
 }
 
 impl serve::LspRunner for AuthoringLspRunner {
@@ -2174,9 +2175,11 @@ impl serve::LspRunner for AuthoringLspRunner {
         transport: tokio::io::DuplexStream,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
         let content = self.content_dir.to_string();
+        let provider = self.provider.clone();
         Box::pin(async move {
             let (read, write) = tokio::io::split(transport);
-            dodeca_authoring_lsp::serve_on(read, write, Some(content), None).await;
+            // The provider reuses the server's built db — no disk re-load.
+            dodeca_authoring_lsp::serve_on(read, write, Some(content), None, Some(provider)).await;
         })
     }
 }
@@ -2335,6 +2338,7 @@ async fn serve_plain(
     server.set_git_checkouts(git_checkouts(sources));
     server.set_lsp_runner(std::sync::Arc::new(AuthoringLspRunner {
         content_dir: content_dir.clone(),
+        provider: serve::authoring_project_provider(server.clone()),
     }));
     if let Some(user) = dev_editor {
         tracing::warn!(user = %user, "DEV: acting as editor (local-only auth bypass)");
@@ -2726,6 +2730,7 @@ async fn serve_with_tui(
     server.set_git_checkouts(git_checkouts(sources));
     server.set_lsp_runner(std::sync::Arc::new(AuthoringLspRunner {
         content_dir: content_dir.clone(),
+        provider: serve::authoring_project_provider(server.clone()),
     }));
     if let Some(user) = dev_editor {
         tracing::warn!(user = %user, "DEV: acting as editor (local-only auth bypass)");

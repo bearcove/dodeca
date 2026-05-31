@@ -214,6 +214,34 @@ pub trait LspRunner: Send + Sync {
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
 }
 
+/// [`AuthoringProjectProvider`](crate::authoring_model::AuthoringProjectProvider)
+/// backed by a live `SiteServer` — snapshots its db + overlays open documents.
+struct HostAuthoringProvider {
+    server: Arc<SiteServer>,
+}
+
+impl crate::authoring_model::AuthoringProjectProvider for HostAuthoringProvider {
+    fn project<'a>(
+        &'a self,
+        overlays: Vec<(String, String)>,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = eyre::Result<crate::authoring_model::AuthoringProject>>
+                + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move { self.server.authoring_project_overlay(overlays).await })
+    }
+}
+
+/// A project provider that reuses `server`'s built db, for the in-process LSP.
+pub fn authoring_project_provider(
+    server: Arc<SiteServer>,
+) -> Arc<dyn crate::authoring_model::AuthoringProjectProvider> {
+    Arc::new(HostAuthoringProvider { server })
+}
+
 /// Shared state for the dev server
 pub struct SiteServer {
     /// The picante database - all queries go through here
@@ -1306,6 +1334,101 @@ impl SiteServer {
             .collect();
         entries.sort_by(|a, b| a.route.cmp(&b.route));
         EditList::Ok { entries }
+    }
+
+    /// Build an authoring project from a **snapshot** of the live db with the
+    /// given source overlays applied (open documents). Reuses the host's already
+    /// computed + memoized renders — only the overlaid sources' dependents
+    /// recompute. Powers the in-process LSP without re-loading from disk.
+    pub async fn authoring_project_overlay(
+        &self,
+        overlays: Vec<(String, String)>,
+    ) -> Result<crate::authoring_model::AuthoringProject> {
+        use crate::authoring_model::{ProjectBuildInputs, build_authoring_project_on_db};
+        use crate::db::{
+            DataRegistry, SourceFile, SourceRegistry, StaticRegistry, TemplateRegistry,
+        };
+
+        let content_dir = self
+            .status_sources
+            .read()
+            .unwrap()
+            .first()
+            .map(|s| s.content_dir.clone())
+            .ok_or_else(|| eyre!("no workspace content dir"))?;
+
+        let db = self.db.clone();
+        let snapshot = DatabaseSnapshot::from_database(&self.db).await;
+
+        // Override open documents in the snapshot's isolated copy.
+        let mut sources = SourceRegistry::sources(&snapshot)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        for (path, content) in &overlays {
+            let Some(key) = self.source_key_for_path(path) else {
+                continue;
+            };
+            let file = SourceFile::new(
+                &snapshot,
+                crate::types::SourcePath::new(key.clone()),
+                crate::types::SourceContent::new(content.clone()),
+                0,
+            )
+            .map_err(|e| eyre!("overlay source: {e:?}"))?;
+            match sources.iter().position(|s| {
+                s.path(&snapshot)
+                    .ok()
+                    .map(|p| p.as_str() == key)
+                    .unwrap_or(false)
+            }) {
+                Some(i) => sources[i] = file,
+                None => sources.push(file),
+            }
+        }
+        SourceRegistry::set(&snapshot, sources).map_err(|e| eyre!("set overlays: {e:?}"))?;
+
+        crate::db::TASK_DB
+            .scope(db, async move {
+                let sources = SourceRegistry::sources(&snapshot)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(|f| Some(((*f.path(&snapshot).ok()?).clone(), f)))
+                    .collect();
+                let templates = TemplateRegistry::templates(&snapshot)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(|f| Some(((*f.path(&snapshot).ok()?).clone(), f)))
+                    .collect();
+                let static_files = StaticRegistry::files(&snapshot)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(|f| Some(((*f.path(&snapshot).ok()?).clone(), f)))
+                    .collect();
+                let data_files = DataRegistry::files(&snapshot)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(|f| Some(((*f.path(&snapshot).ok()?).clone(), f)))
+                    .collect();
+                build_authoring_project_on_db(ProjectBuildInputs {
+                    db: &snapshot,
+                    content_dir: &content_dir,
+                    sources: &sources,
+                    templates: &templates,
+                    static_files: &static_files,
+                    data_files: &data_files,
+                })
+                .await
+            })
+            .await
     }
 
     /// Editor: live preview of `buffer` overlaid on `source_key`, isolated.

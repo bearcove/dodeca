@@ -85,15 +85,29 @@ pub const TEMPLATE_SEMANTIC_TOKEN_NUMBER: u32 = 6;
 pub const TEMPLATE_SEMANTIC_TOKEN_KEYWORD: u32 = 7;
 
 pub async fn run(content: Option<String>, output: Option<String>) -> Result<()> {
-    serve_on(tokio::io::stdin(), tokio::io::stdout(), content, output).await;
+    serve_on(
+        tokio::io::stdin(),
+        tokio::io::stdout(),
+        content,
+        output,
+        None,
+    )
+    .await;
     Ok(())
 }
 
 /// Serve the authoring LSP over an arbitrary byte transport (LSP `Content-Length`
 /// framing). `run` uses stdio; the in-process browser editor bridges this onto a
-/// vox channel via an in-memory duplex, so no subprocess is spawned.
-pub async fn serve_on<R, W>(read: R, write: W, content: Option<String>, output: Option<String>)
-where
+/// vox channel via an in-memory duplex, so no subprocess is spawned. When
+/// `provider` is set, the project is built from the host's live db instead of a
+/// disk workspace.
+pub async fn serve_on<R, W>(
+    read: R,
+    write: W,
+    content: Option<String>,
+    output: Option<String>,
+    provider: Option<Arc<dyn dodeca::authoring_model::AuthoringProjectProvider>>,
+) where
     R: tokio::io::AsyncRead + Unpin,
     W: tokio::io::AsyncWrite + Unpin,
 {
@@ -105,6 +119,7 @@ where
         workspace: None,
         applied_input_revision: None,
         world_cache: None,
+        project_provider: provider,
     }));
 
     let (service, socket) = LspService::new(|client| Backend {
@@ -138,6 +153,9 @@ pub struct AuthoringState {
     pub workspace: Option<AuthoringWorkspace>,
     pub applied_input_revision: Option<u64>,
     pub world_cache: Option<CachedAuthoringWorld>,
+    /// When set (browser editor), build the project from the host's live db
+    /// (snapshot + overlays) instead of loading a disk workspace.
+    pub project_provider: Option<Arc<dyn dodeca::authoring_model::AuthoringProjectProvider>>,
 }
 
 #[derive(Debug, Clone)]
@@ -822,6 +840,37 @@ impl Backend {
                 .map(|cached| cached.world.clone())
         };
         if let Some(world) = cached {
+            return Ok(world);
+        }
+
+        // Shared path: build the project from the host's live db (snapshot +
+        // open-document overlays) instead of a disk workspace.
+        let provider = self.state.lock().unwrap().project_provider.clone();
+        if let Some(provider) = provider {
+            let (overlays, revision) = {
+                let state = self.state.lock().unwrap();
+                let overlays = state
+                    .documents
+                    .iter()
+                    .filter_map(|(uri, content)| {
+                        Some((
+                            lsp_file_uri_to_utf8_path(uri).ok()?.to_string(),
+                            content.clone(),
+                        ))
+                    })
+                    .collect::<Vec<_>>();
+                (overlays, state.input_revision)
+            };
+            let project = provider.project(overlays).await?;
+            let world = AuthoringWorld::new(project)?;
+            let mut state = self.state.lock().unwrap();
+            if state.input_revision == revision {
+                state.world_cache = Some(CachedAuthoringWorld {
+                    content_dir: dirs.content_dir.clone(),
+                    input_revision: revision,
+                    world: world.clone(),
+                });
+            }
             return Ok(world);
         }
 

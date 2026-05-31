@@ -521,6 +521,19 @@ impl AuthoringWorkspaceInputs {
     }
 }
 
+/// Builds an `AuthoringProject` from the host's live db (snapshot + overlays),
+/// so the in-process LSP reuses the server's already-built + memoized state
+/// instead of re-loading the workspace from disk. The binary injects the impl
+/// (it has the `SiteServer`); the LSP Backend calls it via this trait — same
+/// inversion of control as the LSP runner, breaking the crate cycle.
+pub trait AuthoringProjectProvider: Send + Sync {
+    /// `overlays` are open documents as `(absolute_path, content)`.
+    fn project<'a>(
+        &'a self,
+        overlays: Vec<(String, String)>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<AuthoringProject>> + Send + 'a>>;
+}
+
 /// Borrowed inputs for building an `AuthoringProject` over any `DB: Db` — the
 /// owned `Database` (disk workspace) or a `DatabaseSnapshot` (host db, for the
 /// in-process LSP sharing the server's already-built + memoized state).
@@ -554,10 +567,10 @@ async fn build_authoring_project_from_inputs(
 pub async fn build_authoring_project_on_db<DB: crate::db::Db>(
     inputs: ProjectBuildInputs<'_, DB>,
 ) -> Result<AuthoringProject> {
-    let site_tree = build_tree(&*inputs.db)
+    let site_tree = build_tree(inputs.db)
         .await?
         .map_err(|errors| eyre!("failed to parse source files for authoring model: {errors:?}"))?;
-    let source_to_route = source_to_route_map(&*inputs.db).await?;
+    let source_to_route = source_to_route_map(inputs.db).await?;
     let route_to_source = source_to_route
         .iter()
         .map(|(source, route)| (route.clone(), source.clone()))
@@ -567,7 +580,7 @@ pub async fn build_authoring_project_on_db<DB: crate::db::Db>(
     for (source_path, source) in inputs.sources {
         source_contents.insert(
             source_path.to_string(),
-            source.content(&*inputs.db)?.as_str().to_string(),
+            source.content(inputs.db)?.as_str().to_string(),
         );
     }
 
@@ -668,7 +681,7 @@ pub async fn build_authoring_project_on_db<DB: crate::db::Db>(
     let mut template_semantics = HashMap::new();
     for (template_path, template) in inputs.templates {
         let path = template_path.as_str().to_string();
-        let content = template.content(&*inputs.db)?.as_str().to_string();
+        let content = template.content(inputs.db)?.as_str().to_string();
         let parsed_template = TemplateParser::new(&path, &content)
             .parse_recovered()
             .template;
@@ -684,7 +697,7 @@ pub async fn build_authoring_project_on_db<DB: crate::db::Db>(
     }
     let static_template_href_origins = static_template_href_origins(&template_contents);
     let mut rendered_hrefs_by_route = HashMap::new();
-    let render_templates = load_all_templates(&*inputs.db).await?;
+    let render_templates = load_all_templates(inputs.db).await?;
     for page in &pages {
         let route = Route::new(page.route.clone());
         let rendered = match page.kind {
