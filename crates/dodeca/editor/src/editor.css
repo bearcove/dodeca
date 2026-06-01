@@ -185,6 +185,65 @@ body,
   min-width: 0;
 }
 
+/* arborium syntax highlighting (applied as Monaco inline decorations, classed
+   by capture category). github-light-ish palette to match the light editor. */
+.monaco-editor .arb-comment {
+  color: #6e7781;
+  font-style: italic;
+}
+.monaco-editor .arb-keyword,
+.monaco-editor .arb-keyword_directive,
+.monaco-editor .arb-conditional,
+.monaco-editor .arb-repeat,
+.monaco-editor .arb-include,
+.monaco-editor .arb-storageclass {
+  color: #cf222e;
+}
+.monaco-editor .arb-string,
+.monaco-editor .arb-character {
+  color: #0a3069;
+}
+.monaco-editor .arb-number,
+.monaco-editor .arb-boolean,
+.monaco-editor .arb-constant,
+.monaco-editor .arb-float {
+  color: #0550ae;
+}
+.monaco-editor .arb-function,
+.monaco-editor .arb-method,
+.monaco-editor .arb-constructor {
+  color: #8250df;
+}
+.monaco-editor .arb-type,
+.monaco-editor .arb-namespace,
+.monaco-editor .arb-module {
+  color: #953800;
+}
+.monaco-editor .arb-property,
+.monaco-editor .arb-field,
+.monaco-editor .arb-attribute,
+.monaco-editor .arb-label {
+  color: #0550ae;
+}
+.monaco-editor .arb-tag {
+  color: #116329;
+}
+.monaco-editor .arb-operator,
+.monaco-editor .arb-escape {
+  color: #cf222e;
+}
+.monaco-editor .arb-title,
+.monaco-editor .arb-heading {
+  color: #0550ae;
+  font-weight: 600;
+}
+.monaco-editor .arb-emphasis {
+  font-style: italic;
+}
+.monaco-editor .arb-strong {
+  font-weight: 600;
+}
+
 .vx-preview {
   border-left: 1px solid #ddd;
   min-width: 0;

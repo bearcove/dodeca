@@ -30,6 +30,7 @@ import { session, voxServiceMetadata, channel } from "@bearcove/vox-core";
 import { wsConnector } from "@bearcove/vox-ws";
 import initHotmeal, { diff_html, apply_patches_json_on_element } from "hotmeal-wasm";
 import { DevtoolsServiceClient, type EditEntry } from "./devtools.generated";
+import { ArboriumHighlighter } from "./highlight";
 import "./editor.css";
 
 const root = document.getElementById("vixen-editor");
@@ -228,6 +229,7 @@ async function main(mount: HTMLElement): Promise<void> {
     baseline: string; // last-saved content; drives the dirty marker
     base: string; // on-disk blob oid at load/last-save; conflict-detection token
     prevHtml?: string; // last preview HTML, for hotmeal diffing
+    highlighter: ArboriumHighlighter; // incremental tree-sitter highlighting
   }
   const tabs = new Map<string, Tab>();
   const tabOrder: string[] = [];
@@ -392,11 +394,14 @@ async function main(mount: HTMLElement): Promise<void> {
         };
       }
       const model = modelFor(entry.uri, loadedFile.content);
+      const highlighter = new ArboriumHighlighter(model, monaco);
+      void highlighter.start();
       tabs.set(entry.uri, {
         entry,
         model,
         baseline: loadedFile.content,
         base: loadedFile.base,
+        highlighter,
       });
       tabOrder.push(entry.uri);
     }
@@ -408,6 +413,7 @@ async function main(mount: HTMLElement): Promise<void> {
     const idx = tabOrder.indexOf(uri);
     if (idx < 0) return;
     tabOrder.splice(idx, 1);
+    tabs.get(uri)?.highlighter.dispose();
     tabs.delete(uri);
     if (activeUri === uri) {
       activate(tabOrder[Math.min(idx, tabOrder.length - 1)]);

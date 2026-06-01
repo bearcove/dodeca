@@ -54,6 +54,9 @@ importers:
 
   .:
     dependencies:
+      '@arborium/arborium':
+        specifier: ^2.18.0
+        version: 2.18.0
       '@bearcove/vox-core':
         specifier: ^0.8.2
         version: 0.8.2
@@ -132,6 +135,9 @@ importers:
         version: 6.4.2
 
 packages:
+
+  '@arborium/arborium@2.18.0':
+    resolution: {integrity: sha512-Qtwxr9wkrPbU8BfeXKQxCkSLbWsNdDvZRzncJ/ZJS6BaU5MxdyGuI2STBUrKxsaibRkmB+ilsmGBwQbSZUegNw==}
 
   '@bearcove/vox-core@0.8.2':
     resolution: {integrity: sha512-mpzO2jRskCQbMM/3wRGA21DbOFvO53u/fjx/4z2V7rWEieF1DvKuhJIOToTd+6EisqGyHqvP4AJWAKsfMNekfQ==}
@@ -727,6 +733,8 @@ packages:
     engines: {node: '>=20.10.0', npm: '>=10.2.3'}
 
 snapshots:
+
+  '@arborium/arborium@2.18.0': {}
 
   '@bearcove/vox-core@0.8.2':
     dependencies:

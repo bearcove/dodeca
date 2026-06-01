@@ -7,6 +7,7 @@
     "build": "vite build"
   },
   "dependencies": {
+    "@arborium/arborium": "^2.18.0",
     "@bearcove/vox-core": "^0.8.2",
     "@bearcove/vox-postcard": "^0.8.2",
     "@bearcove/vox-ws": "^0.8.2",
