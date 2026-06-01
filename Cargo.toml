@@ -94,7 +94,8 @@ vox-stream = "0.8.1"
 ur-taking-me-with-you = { version = "8", features = ["tokio"] }
 
 # Incremental computation
-picante = "2"
+# 2.0.1 carries the snapshot result-cache isolation fix the editor preview needs.
+picante = "2.0.1"
 
 # File system
 fs-err = "3"
