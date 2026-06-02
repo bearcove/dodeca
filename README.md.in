@@ -24,10 +24,10 @@ highlighting, and more can be plugged in independently.
 
 Install dodeca:
 
-The recommended way to install dodeca is from GitHub releases. Releases ship the `ddc` binary plus a set of helper binaries (`ddc-cell-*`) used for things like image processing, Sass, search indexing, etc.
+The recommended way to install dodeca is the install script, which fetches prebuilt binaries from object storage. Releases ship the `ddc` binary plus a set of helper binaries (`ddc-cell-*`) used for things like image processing, Sass, search indexing, etc.
 
 ```bash
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/bearcove/dodeca/releases/latest/download/dodeca-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://vixen-misc.s3-website.fr-par.scw.cloud/dodeca/install.sh | sh
 ```
 
 Supported by the installer:

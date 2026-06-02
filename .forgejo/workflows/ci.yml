@@ -541,3 +541,55 @@ jobs:
         with:
           name: build-macos-arm64
           path: dist/dodeca-aarch64-apple-darwin.tar.xz
+  publish:
+    name: Publish release
+    runs-on:
+      - linux-x86_64-trusted
+    container:
+      image: "code.vixen.rs/vixen/vixen-ci:latest"
+      volumes:
+        - "/srv/ci/cache/dodeca:/srv/ci/cache/dodeca"
+    timeout-minutes: 30
+    needs:
+      - forgejo-linux-x64
+      - forgejo-macos-arm64
+    if: "startsWith(github.ref, 'refs/tags/')"
+    env:
+      HOME: /srv/ci/cache/dodeca/home
+      FORGEJO_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout repository
+        run: |-
+          mkdir -p "$GITHUB_WORKSPACE"
+          cd "$GITHUB_WORKSPACE"
+          git init -q
+          git remote remove origin 2>/dev/null || true
+          git remote add origin https://code.vixen.rs/bearcove/dodeca.git
+          git -c http.extraHeader="Authorization: token ${FORGEJO_TOKEN}" fetch --depth 1 origin "${GITHUB_SHA}"
+          git checkout -q --detach FETCH_HEAD
+        shell: bash
+      - name: Download artifact
+        uses: "https://data.forgejo.org/actions/download-artifact@v3"
+        with:
+          name: build-linux-x64
+          path: dist
+      - name: Download artifact
+        uses: "https://data.forgejo.org/actions/download-artifact@v3"
+        with:
+          name: build-macos-arm64
+          path: dist
+      - name: Flatten artifact directories
+        run: find dist -mindepth 2 -type f -exec mv -t dist {} + 2>/dev/null || true; find dist -mindepth 1 -type d -empty -delete 2>/dev/null || true
+      - name: List artifacts
+        run: ls -la dist/
+      - name: Prepare release artifacts
+        run: bash scripts/release.sh
+        shell: bash
+      - name: Publish to object storage
+        run: "bash scripts/publish-release.sh \"${GITHUB_REF_NAME}\""
+        shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.ACCESS_SECRET_KEY }}
+          AWS_DEFAULT_REGION: fr-par
+          AWS_EC2_METADATA_DISABLED: "true"

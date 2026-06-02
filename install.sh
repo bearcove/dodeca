@@ -1,10 +1,13 @@
 #!/bin/sh
 # Installer for dodeca
-# Usage: curl -fsSL https://raw.githubusercontent.com/bearcove/dodeca/main/install.sh | sh
+# Usage: curl -fsSL https://vixen-misc.s3-website.fr-par.scw.cloud/dodeca/install.sh | sh
 
 set -eu
 
-REPO="bearcove/dodeca"
+# Release artifacts live in a Scaleway Object Storage bucket we control.
+# Override BASE_URL for a mirror or local testing; DODECA_VERSION pins a
+# specific version (otherwise the `latest` pointer is read).
+BASE_URL="${DODECA_BASE_URL:-https://vixen-misc.s3-website.fr-par.scw.cloud/dodeca/releases}"
 
 # Detect platform (only linux-x64 and macos-arm64 are supported)
 detect_platform() {
@@ -33,11 +36,9 @@ detect_platform() {
     esac
 }
 
-# Get latest release version
+# Read the `latest` pointer (a text file holding the newest version string).
 get_latest_version() {
-    curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | \
-        grep '"tag_name":' | \
-        sed -E 's/.*"([^"]+)".*/\1/'
+    curl -fsSL "$BASE_URL/latest"
 }
 
 main() {
@@ -46,7 +47,7 @@ main() {
     platform="$(detect_platform)"
     version="${DODECA_VERSION:-$(get_latest_version)}"
     archive_name="dodeca-$platform.tar.xz"
-    url="https://github.com/$REPO/releases/download/$version/$archive_name"
+    url="$BASE_URL/$version/$archive_name"
     install_dir="${DODECA_INSTALL_DIR:-$HOME/.cargo/bin}"
 
     echo "Installing dodeca $version for $platform..."

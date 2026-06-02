@@ -1,9 +1,11 @@
 # Installer for dodeca
-# Usage: powershell -ExecutionPolicy Bypass -c "irm https://github.com/bearcove/dodeca/releases/latest/download/dodeca-installer.ps1 | iex"
+# Usage: powershell -ExecutionPolicy Bypass -c "irm https://vixen-misc.s3-website.fr-par.scw.cloud/dodeca/install.ps1 | iex"
 
 $ErrorActionPreference = 'Stop'
 
-$REPO = "bearcove/dodeca"
+# Release artifacts live in a Scaleway Object Storage bucket we control.
+# Override with $env:DODECA_BASE_URL; $env:DODECA_VERSION pins a version.
+$BaseUrl = if ($env:DODECA_BASE_URL) { $env:DODECA_BASE_URL } else { "https://vixen-misc.s3-website.fr-par.scw.cloud/dodeca/releases" }
 
 function Get-Architecture {
     $arch = [System.Environment]::Is64BitOperatingSystem
@@ -17,8 +19,7 @@ function Get-Architecture {
 
 function Get-LatestVersion {
     try {
-        $response = Invoke-RestMethod -Uri "https://api.github.com/repos/$REPO/releases/latest"
-        return $response.tag_name
+        return (Invoke-RestMethod -Uri "$BaseUrl/latest").Trim()
     } catch {
         Write-Error "Failed to get latest version: $_"
         exit 1
@@ -29,7 +30,7 @@ function Main {
     $arch = Get-Architecture
     $version = if ($env:DODECA_VERSION) { $env:DODECA_VERSION } else { Get-LatestVersion }
     $archiveName = "dodeca-x86_64-pc-windows-msvc.zip"
-    $url = "https://github.com/$REPO/releases/download/$version/$archiveName"
+    $url = "$BaseUrl/$version/$archiveName"
 
     # Default install location
     $installDir = if ($env:DODECA_INSTALL_DIR) {

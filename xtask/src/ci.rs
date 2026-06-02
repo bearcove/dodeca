@@ -1875,6 +1875,62 @@ ls -la "$GITHUB_WORKSPACE/dist/""#,
         jobs.insert(job_id.to_string(), job);
     }
 
+    // Release publish job. On a tag build only, after both platforms are built,
+    // download the two archives and push them to the Scaleway bucket the
+    // installer reads from (scripts/publish-release.sh). This mirrors how
+    // vixen-ci publishes itself: upload via the S3 API endpoint with
+    // public-read, served via the website endpoint (RELEASE_BASE_URL).
+    // Credentials are the ACCESS_KEY_ID / ACCESS_SECRET_KEY Forgejo secrets
+    // (the Scaleway Object Storage key, same as vixen-ci's publish step).
+    let publish = Job::with_runner(linux_runner(platform).to_runs_on())
+        .name("Publish release")
+        .timeout(30)
+        .needs(["forgejo-linux-x64", "forgejo-macos-arm64"])
+        .if_condition("startsWith(github.ref, 'refs/tags/')")
+        .container(
+            "code.vixen.rs/vixen/vixen-ci:latest",
+            ["/srv/ci/cache/dodeca:/srv/ci/cache/dodeca"],
+        )
+        .env([
+            ("HOME", "/srv/ci/cache/dodeca/home"),
+            ("FORGEJO_TOKEN", "${{ github.token }}"),
+        ])
+        .steps([
+            Step::run(
+                "Checkout repository",
+                r#"mkdir -p "$GITHUB_WORKSPACE"
+cd "$GITHUB_WORKSPACE"
+git init -q
+git remote remove origin 2>/dev/null || true
+git remote add origin https://code.vixen.rs/bearcove/dodeca.git
+git -c http.extraHeader="Authorization: token ${FORGEJO_TOKEN}" fetch --depth 1 origin "${GITHUB_SHA}"
+git checkout -q --detach FETCH_HEAD"#,
+            )
+            .shell("bash"),
+            download_artifact(platform, "build-linux-x64", "dist"),
+            download_artifact(platform, "build-macos-arm64", "dist"),
+            // Forgejo's download-artifact may nest each artifact in a subdir;
+            // hoist every file to dist/ so scripts/release.sh finds the tarballs.
+            Step::run(
+                "Flatten artifact directories",
+                "find dist -mindepth 2 -type f -exec mv -t dist {} + 2>/dev/null || true; find dist -mindepth 1 -type d -empty -delete 2>/dev/null || true",
+            ),
+            Step::run("List artifacts", "ls -la dist/"),
+            Step::run("Prepare release artifacts", "bash scripts/release.sh").shell("bash"),
+            Step::run(
+                "Publish to object storage",
+                r#"bash scripts/publish-release.sh "${GITHUB_REF_NAME}""#,
+            )
+            .shell("bash")
+            .with_env([
+                ("AWS_ACCESS_KEY_ID", "${{ secrets.ACCESS_KEY_ID }}"),
+                ("AWS_SECRET_ACCESS_KEY", "${{ secrets.ACCESS_SECRET_KEY }}"),
+                ("AWS_DEFAULT_REGION", "fr-par"),
+                ("AWS_EC2_METADATA_DISABLED", "true"),
+            ]),
+        ]);
+    jobs.insert("publish".to_string(), publish);
+
     Workflow {
         name: "CI".into(),
         on: On {
@@ -1919,18 +1975,33 @@ const GENERATED_HEADER: &str =
 // Installer scripts
 // =============================================================================
 
+/// Base URL for release artifacts: a Scaleway Object Storage bucket we control
+/// (`vixen-misc`, fr-par), under the `dodeca/releases/` prefix, served via the
+/// public **website** endpoint (same bucket + endpoint that already serves the
+/// `vixen-ci` binary). Each release is `<base>/<version>/dodeca-<platform>.tar.xz`;
+/// `<base>/latest` is a text file holding the newest version string. Overridable
+/// at install time via `DODECA_BASE_URL` (mirrors / testing).
+///
+/// Note the asymmetry, matching vixen-ci's publish flow: artifacts are *uploaded*
+/// through the S3 API endpoint (`s3.fr-par.scw.cloud`, see scripts/publish-release.sh)
+/// but *served* through the website endpoint (`s3-website.fr-par.scw.cloud`).
+pub const RELEASE_BASE_URL: &str = "https://vixen-misc.s3-website.fr-par.scw.cloud/dodeca/releases";
+
 /// Generate the shell installer script content.
 pub fn generate_installer_script() -> String {
-    let repo = "bearcove/dodeca";
-
+    // No Rust interpolation needed — everything below is shell. The default
+    // base URL is injected once so the generator stays the single source.
     format!(
         r##"#!/bin/sh
 # Installer for dodeca
-# Usage: curl -fsSL https://raw.githubusercontent.com/{repo}/main/install.sh | sh
+# Usage: curl -fsSL https://vixen-misc.s3-website.fr-par.scw.cloud/dodeca/install.sh | sh
 
 set -eu
 
-REPO="{repo}"
+# Release artifacts live in a Scaleway Object Storage bucket we control.
+# Override BASE_URL for a mirror or local testing; DODECA_VERSION pins a
+# specific version (otherwise the `latest` pointer is read).
+BASE_URL="${{DODECA_BASE_URL:-{base_url}}}"
 
 # Detect platform (only linux-x64 and macos-arm64 are supported)
 detect_platform() {{
@@ -1959,11 +2030,9 @@ detect_platform() {{
     esac
 }}
 
-# Get latest release version
+# Read the `latest` pointer (a text file holding the newest version string).
 get_latest_version() {{
-    curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | \
-        grep '"tag_name":' | \
-        sed -E 's/.*"([^"]+)".*/\1/'
+    curl -fsSL "$BASE_URL/latest"
 }}
 
 main() {{
@@ -1972,7 +2041,7 @@ main() {{
     platform="$(detect_platform)"
     version="${{DODECA_VERSION:-$(get_latest_version)}}"
     archive_name="dodeca-$platform.tar.xz"
-    url="https://github.com/$REPO/releases/download/$version/$archive_name"
+    url="$BASE_URL/$version/$archive_name"
     install_dir="${{DODECA_INSTALL_DIR:-$HOME/.cargo/bin}}"
 
     echo "Installing dodeca $version for $platform..."
@@ -2024,21 +2093,21 @@ main() {{
 
 main "$@"
 "##,
-        repo = repo
+        base_url = RELEASE_BASE_URL
     )
 }
 
 /// Generate the PowerShell installer script content.
 pub fn generate_powershell_installer() -> String {
-    let repo = "bearcove/dodeca";
-
     format!(
         r##"# Installer for dodeca
-# Usage: powershell -ExecutionPolicy Bypass -c "irm https://github.com/{repo}/releases/latest/download/dodeca-installer.ps1 | iex"
+# Usage: powershell -ExecutionPolicy Bypass -c "irm https://vixen-misc.s3-website.fr-par.scw.cloud/dodeca/install.ps1 | iex"
 
 $ErrorActionPreference = 'Stop'
 
-$REPO = "{repo}"
+# Release artifacts live in a Scaleway Object Storage bucket we control.
+# Override with $env:DODECA_BASE_URL; $env:DODECA_VERSION pins a version.
+$BaseUrl = if ($env:DODECA_BASE_URL) {{ $env:DODECA_BASE_URL }} else {{ "{base_url}" }}
 
 function Get-Architecture {{
     $arch = [System.Environment]::Is64BitOperatingSystem
@@ -2052,8 +2121,7 @@ function Get-Architecture {{
 
 function Get-LatestVersion {{
     try {{
-        $response = Invoke-RestMethod -Uri "https://api.github.com/repos/$REPO/releases/latest"
-        return $response.tag_name
+        return (Invoke-RestMethod -Uri "$BaseUrl/latest").Trim()
     }} catch {{
         Write-Error "Failed to get latest version: $_"
         exit 1
@@ -2064,7 +2132,7 @@ function Main {{
     $arch = Get-Architecture
     $version = if ($env:DODECA_VERSION) {{ $env:DODECA_VERSION }} else {{ Get-LatestVersion }}
     $archiveName = "dodeca-x86_64-pc-windows-msvc.zip"
-    $url = "https://github.com/$REPO/releases/download/$version/$archiveName"
+    $url = "$BaseUrl/$version/$archiveName"
 
     # Default install location
     $installDir = if ($env:DODECA_INSTALL_DIR) {{
@@ -2131,7 +2199,7 @@ function Main {{
 
 Main
 "##,
-        repo = repo
+        base_url = RELEASE_BASE_URL
     )
 }
 
