@@ -269,6 +269,17 @@ impl DevtoolsService for HostDevtoolsService {
             .await
     }
 
+    async fn edit_upload(
+        &self,
+        token: String,
+        req: dodeca_protocol::EditUploadReq,
+    ) -> dodeca_protocol::EditUpload {
+        tracing::debug!(browser_id = self.browser_id, source_key = %req.source_key, bytes = req.bytes.len(), "devtools edit_upload");
+        self.server
+            .edit_upload(&token, &req.source_key, &req.filename, &req.bytes)
+            .await
+    }
+
     async fn lsp(
         &self,
         token: String,

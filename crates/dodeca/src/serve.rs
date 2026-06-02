@@ -1552,6 +1552,49 @@ impl SiteServer {
         }
     }
 
+    /// Editor: store an uploaded image next to `source_key`'s page, commit it as
+    /// the user, and return the markdown to insert. The file then flows through
+    /// the normal image pipeline (responsive variants) on the next rebuild.
+    pub async fn edit_upload(
+        self: &Arc<Self>,
+        token: &str,
+        source_key: &str,
+        filename: &str,
+        bytes: &[u8],
+    ) -> dodeca_protocol::EditUpload {
+        use dodeca_protocol::EditUpload;
+        let Some(identity) = self.resolve_editor(token) else {
+            return EditUpload::Denied;
+        };
+        let Some((repo, page_file, _rel)) = self.repo_and_file(source_key) else {
+            return EditUpload::NotFound;
+        };
+        let dir = page_file.parent().unwrap_or(&page_file).to_path_buf();
+        let name = sanitize_filename(filename);
+        let target = unique_target(&dir, &name);
+        // page-relative reference (image lives in the same directory as the page).
+        let rel_name = target.file_name().unwrap_or("image").to_string();
+
+        if let Err(error) = tokio::fs::write(&target, bytes).await {
+            return EditUpload::Error {
+                message: format!("write {target}: {error}"),
+            };
+        }
+        let message = format!("docs: add image {rel_name}");
+        match commit_path_as_user(&repo, &target, &identity, &message).await {
+            Ok(()) => EditUpload::Ok {
+                markdown: format!("![]({rel_name})"),
+                path: rel_name,
+            },
+            Err(error) => {
+                tracing::warn!(source_key, %error, "edit_upload failed");
+                EditUpload::Error {
+                    message: error.to_string(),
+                }
+            }
+        }
+    }
+
     /// Editor: run an authoring LSP session **in process**, bridged to the vox
     /// channel. The browser sends one JSON-RPC message per `incoming` chunk; we
     /// add `Content-Length` framing onto an in-memory duplex that the installed
@@ -3177,6 +3220,80 @@ pub fn mime_from_extension(path: &str) -> &'static str {
 /// the editing user, and push. Push relies on the repo's configured remote
 /// credentials (the service account's token) — the user is only the git
 /// author/committer, for attribution. Returns the new commit hash.
+/// Reduce an uploaded filename to a safe base name: strip any directory, keep
+/// ASCII alphanumerics / `-` / `_` / `.`, collapse the rest to `-`.
+fn sanitize_filename(name: &str) -> String {
+    let base = std::path::Path::new(name)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("image");
+    let cleaned: String = base
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let cleaned = cleaned.trim_matches(['-', '.']).to_string();
+    if cleaned.is_empty() {
+        "image.png".to_string()
+    } else {
+        cleaned
+    }
+}
+
+/// First free path of the form `dir/name`, `dir/name-1.ext`, … (avoids clobber).
+fn unique_target(dir: &Utf8Path, filename: &str) -> camino::Utf8PathBuf {
+    let first = dir.join(filename);
+    if !first.exists() {
+        return first;
+    }
+    let (stem, ext) = match filename.rsplit_once('.') {
+        Some((s, e)) => (s.to_string(), format!(".{e}")),
+        None => (filename.to_string(), String::new()),
+    };
+    for n in 1.. {
+        let cand = dir.join(format!("{stem}-{n}{ext}"));
+        if !cand.exists() {
+            return cand;
+        }
+    }
+    unreachable!()
+}
+
+/// Stage, commit (as `identity`), and push a single already-written file.
+async fn commit_path_as_user(
+    repo: &Utf8Path,
+    file: &Utf8Path,
+    identity: &cell_http_proto::Identity,
+    message: &str,
+) -> Result<()> {
+    git(repo, &["add", file.as_str()]).await?;
+    if git_status(repo, &["diff", "--cached", "--quiet"])
+        .await?
+        .success()
+    {
+        bail!("no changes to commit");
+    }
+    let name = if identity.name.trim().is_empty() {
+        identity.user.as_str()
+    } else {
+        identity.name.as_str()
+    };
+    let name_cfg = format!("user.name={name}");
+    let email_cfg = format!("user.email={}", identity.email);
+    git(
+        repo,
+        &["-c", &name_cfg, "-c", &email_cfg, "commit", "-m", message],
+    )
+    .await?;
+    git(repo, &["push"]).await?;
+    Ok(())
+}
+
 async fn commit_as_user(
     repo: &Utf8Path,
     file: &Utf8Path,

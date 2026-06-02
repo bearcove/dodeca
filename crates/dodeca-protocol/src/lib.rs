@@ -93,6 +93,12 @@ pub trait DevtoolsService {
     /// [`EditSaveReq`] for the fields and the conflict semantics.
     async fn edit_save(&self, token: String, req: EditSaveReq) -> EditSave;
 
+    /// Store an uploaded image next to the page being edited (committed as the
+    /// user), and return the markdown snippet to insert. The on-disk file flows
+    /// through the normal image pipeline (responsive AVIF/WebP/JXL variants).
+    /// See [`EditUploadReq`].
+    async fn edit_upload(&self, token: String, req: EditUploadReq) -> EditUpload;
+
     /// Tunnel a Language Server session for the in-browser editor.
     ///
     /// The browser's `monaco-languageclient` pipes raw JSON-RPC messages in on
@@ -214,6 +220,31 @@ pub enum EditRead {
 }
 
 /// One editable page in the file tree.
+#[derive(Debug, Clone, PartialEq, Facet)]
+pub struct EditUploadReq {
+    /// The page the image is being added to — determines which directory the
+    /// file lands in (alongside the page source).
+    pub source_key: String,
+    /// Original filename; its base name + extension are sanitized and reused.
+    pub filename: String,
+    /// The raw image bytes.
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Facet)]
+#[repr(u8)]
+pub enum EditUpload {
+    /// Stored + committed. `markdown` is ready to insert at the cursor; `path` is
+    /// the page-relative path the file was written to.
+    Ok { markdown: String, path: String },
+    /// Not a verified editor.
+    Denied,
+    /// No editable page owns `source_key`.
+    NotFound,
+    /// Write/commit/push failed; `message` is safe to show.
+    Error { message: String },
+}
+
 #[derive(Debug, Clone, PartialEq, Facet)]
 pub struct EditSaveReq {
     /// Mount-prefixed source key (from `edit_load`).

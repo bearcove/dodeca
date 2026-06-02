@@ -584,6 +584,88 @@ async function main(mount: HTMLElement): Promise<void> {
   };
   saveBtn.addEventListener("click", () => void save());
   editor?.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => void save());
+
+  // 11. Image upload — paste or drop an image onto the editor; it's stored next
+  //     to the page (committed as you) and a markdown ref is inserted at the
+  //     cursor. The on-disk file then flows through dodeca's image pipeline.
+  const firstImage = (
+    items: DataTransferItemList | undefined,
+    files: FileList | undefined,
+  ): File | null => {
+    if (items) {
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        if (it.kind === "file" && it.type.startsWith("image/")) {
+          const f = it.getAsFile();
+          if (f) return f;
+        }
+      }
+    }
+    if (files) {
+      for (let i = 0; i < files.length; i++) {
+        if (files[i].type.startsWith("image/")) return files[i];
+      }
+    }
+    return null;
+  };
+
+  const uploadImage = async (file: File): Promise<void> => {
+    const tab = activeTab();
+    if (!tab || !editor) return;
+    status(`uploading ${file.name || "image"}…`);
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const r = await client.editUpload(token, {
+        source_key: tab.entry.source_key,
+        filename: file.name || "image.png",
+        bytes,
+      });
+      if (r.tag !== "Ok") {
+        status(r.tag === "Error" ? `upload failed: ${r.message}` : r.tag.toLowerCase());
+        return;
+      }
+      const sel = editor.getSelection();
+      if (sel) {
+        editor.executeEdits("upload", [{ range: sel, text: r.markdown, forceMoveMarkers: true }]);
+      }
+      editor.focus();
+      status(`inserted ${r.path}`);
+    } catch (err) {
+      status(`upload failed: ${String(err)}`);
+    }
+  };
+
+  editorEl.addEventListener(
+    "paste",
+    (e) => {
+      const img = firstImage(e.clipboardData?.items, e.clipboardData?.files);
+      if (img) {
+        e.preventDefault();
+        e.stopPropagation();
+        void uploadImage(img);
+      }
+    },
+    true,
+  );
+  editorEl.addEventListener(
+    "dragover",
+    (e) => {
+      if (e.dataTransfer?.types?.includes("Files")) e.preventDefault();
+    },
+    true,
+  );
+  editorEl.addEventListener(
+    "drop",
+    (e) => {
+      const img = firstImage(e.dataTransfer?.items, e.dataTransfer?.files);
+      if (img) {
+        e.preventDefault();
+        e.stopPropagation();
+        void uploadImage(img);
+      }
+    },
+    true,
+  );
 }
 
 main(root).catch((err) => {
