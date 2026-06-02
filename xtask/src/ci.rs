@@ -1755,6 +1755,10 @@ fi
 # lockfile, which a frozen (CI default) install rejects. build.rs then finds
 # node_modules/.bin/vite and just runs `vite build`. Non-fatal: if it fails the
 # release still ships (editor degrades to absent) and the log shows why.
+# Nuke any node_modules left in the build cache first: a stale one makes pnpm a
+# near-no-op ("+1, Done in 434ms") that never links .bin/vite; a clean install
+# does (verified locally).
+rm -rf crates/dodeca/editor/node_modules
 (cd crates/dodeca/editor && pnpm install --no-frozen-lockfile) || true
 "#
         } else {
