@@ -157,16 +157,23 @@ fn build_wasm_crate(name: &str) {
     let crate_path = format!("../{name}");
     let pkg_dir = std::path::Path::new(&crate_path).join("pkg");
 
-    // Re-run if the source changes
-    println!("cargo::rerun-if-changed={crate_path}/src/lib.rs");
+    // Re-run if the crate's sources change (whole src/ tree, not just lib.rs).
+    println!("cargo::rerun-if-changed={crate_path}/src");
     println!("cargo::rerun-if-changed={crate_path}/Cargo.toml");
 
     // Compute expected output filename (crate name with - replaced by _)
     let output_name = name.replace('-', "_");
-    let js_file = format!("{output_name}.js");
+    let wasm_file = format!("{output_name}_bg.wasm");
+    let output = pkg_dir.join(&wasm_file);
 
-    // If pkg already exists, we're good
-    if pkg_dir.join(&js_file).exists() {
+    // Skip the (slow) wasm-pack build only if the output exists AND is newer
+    // than every source file in this crate. The old "skip if pkg/ exists at
+    // all" check let a stale pkg/ ship: combined with CI caches that preserve
+    // pkg/ across builds, that's how v0.14.4 shipped an out-of-date search
+    // reader (index parse failed with "invalid UTF-8"). NOTE: this only sees
+    // *this* crate's sources, not shared deps like dodeca-search-format, so CI
+    // additionally `rm -rf`s pkg/ before a release build for a clean rebuild.
+    if output.exists() && !wasm_sources_newer_than(&crate_path, &output) {
         return;
     }
 
@@ -183,4 +190,43 @@ fn build_wasm_crate(name: &str) {
             "cargo::warning=wasm-pack not found. Run: wasm-pack build --target web {crate_path}"
         ),
     }
+}
+
+/// Whether any file under `<crate_path>/src` (recursive) or
+/// `<crate_path>/Cargo.toml` has an mtime newer than `reference`. Conservative:
+/// if `reference` can't be stat'd, returns true (forces a rebuild).
+fn wasm_sources_newer_than(crate_path: &str, reference: &std::path::Path) -> bool {
+    let Ok(ref_mtime) = reference.metadata().and_then(|m| m.modified()) else {
+        return true;
+    };
+    let cargo_toml = std::path::Path::new(crate_path).join("Cargo.toml");
+    let cargo_newer = cargo_toml
+        .metadata()
+        .and_then(|m| m.modified())
+        .map(|t| t > ref_mtime)
+        .unwrap_or(false);
+    let src_newer = newest_mtime_under(&std::path::Path::new(crate_path).join("src"))
+        .map(|t| t > ref_mtime)
+        .unwrap_or(false);
+    cargo_newer || src_newer
+}
+
+/// Newest file mtime under `dir` (recursive), or `None` if it's empty/missing.
+fn newest_mtime_under(dir: &std::path::Path) -> Option<std::time::SystemTime> {
+    let mut newest: Option<std::time::SystemTime> = None;
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&d) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if let Ok(mtime) = path.metadata().and_then(|m| m.modified()) {
+                newest = Some(newest.map_or(mtime, |n| n.max(mtime)));
+            }
+        }
+    }
+    newest
 }

@@ -1781,7 +1781,13 @@ echo "CARGO_TARGET_DIR=$CARGO_TARGET_DIR""#
 cd "$STABLE_SRC"
 {maybe_check_ci}
 rustup target add wasm32-unknown-unknown
-{maybe_install_wasm_pack}cargo nextest run
+{maybe_install_wasm_pack}# Force a clean wasm rebuild before compiling ddc (which embeds the search +
+# devtools wasm via include_bytes!). build.rs skips when pkg/ exists, and the
+# stable-src cache preserves a stale pkg/ across runs — that combination
+# shipped an out-of-date search reader in v0.14.4. Removing it makes build.rs
+# regenerate from the current source on every release.
+rm -rf crates/dodeca-devtools/pkg crates/dodeca-search-wasm/pkg
+cargo nextest run
 cargo xtask integration
 if [[ "${{GITHUB_REF_TYPE:-}}" == "tag" && -n "${{GITHUB_REF_NAME:-}}" ]]; then
   export DODECA_RELEASE_VERSION="${{GITHUB_REF_NAME}}"

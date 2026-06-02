@@ -60,6 +60,12 @@ jobs:
           cargo xtask ci-forgejo --check
 
           rustup target add wasm32-unknown-unknown
+          # Force a clean wasm rebuild before compiling ddc (which embeds the search +
+          # devtools wasm via include_bytes!). build.rs skips when pkg/ exists, and the
+          # stable-src cache preserves a stale pkg/ across runs — that combination
+          # shipped an out-of-date search reader in v0.14.4. Removing it makes build.rs
+          # regenerate from the current source on every release.
+          rm -rf crates/dodeca-devtools/pkg crates/dodeca-search-wasm/pkg
           cargo nextest run
           cargo xtask integration
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
@@ -326,6 +332,12 @@ jobs:
           if ! command -v wasm-pack >/dev/null 2>&1; then
             cargo install wasm-pack --locked
           fi
+          # Force a clean wasm rebuild before compiling ddc (which embeds the search +
+          # devtools wasm via include_bytes!). build.rs skips when pkg/ exists, and the
+          # stable-src cache preserves a stale pkg/ across runs — that combination
+          # shipped an out-of-date search reader in v0.14.4. Removing it makes build.rs
+          # regenerate from the current source on every release.
+          rm -rf crates/dodeca-devtools/pkg crates/dodeca-search-wasm/pkg
           cargo nextest run
           cargo xtask integration
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
