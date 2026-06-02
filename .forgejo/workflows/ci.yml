@@ -60,6 +60,7 @@ jobs:
           cargo xtask ci-forgejo --check
 
           rustup target add wasm32-unknown-unknown
+          npm install -g pnpm
           # Force a clean wasm rebuild before compiling ddc (which embeds the search +
           # devtools wasm via include_bytes!). build.rs skips when pkg/ exists, and the
           # stable-src cache preserves a stale pkg/ across runs — that combination
@@ -332,6 +333,7 @@ jobs:
           if ! command -v wasm-pack >/dev/null 2>&1; then
             cargo install wasm-pack --locked
           fi
+          command -v pnpm >/dev/null 2>&1 || npm install -g pnpm || corepack enable || true
           # Force a clean wasm rebuild before compiling ddc (which embeds the search +
           # devtools wasm via include_bytes!). build.rs skips when pkg/ exists, and the
           # stable-src cache preserves a stale pkg/ across runs — that combination

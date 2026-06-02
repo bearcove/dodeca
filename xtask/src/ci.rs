@@ -1724,6 +1724,16 @@ pub fn build_forgejo_workflow(repo_root: &Utf8Path) -> Workflow {
 fi
 "#
         };
+        // The browser editor (build.rs `build_editor`) bundles /_/edit/* with
+        // pnpm. vixen-ci ships node but not pnpm, so without this build.rs
+        // silently ships an empty editor bundle and /_dodeca/edit/<page> is a
+        // blank page. Linux is the release-critical platform (the kb installs
+        // the linux ddc), so install loudly there; macOS is best-effort.
+        let maybe_install_pnpm = if is_linux {
+            "npm install -g pnpm\n"
+        } else {
+            "command -v pnpm >/dev/null 2>&1 || npm install -g pnpm || corepack enable || true\n"
+        };
         let maybe_browser_tests = if is_linux {
             r#"DODECA_BIN="$STABLE_SRC/target/release/ddc" \
 DODECA_CELL_PATH="$STABLE_SRC/target/release" \
@@ -1781,7 +1791,7 @@ echo "CARGO_TARGET_DIR=$CARGO_TARGET_DIR""#
 cd "$STABLE_SRC"
 {maybe_check_ci}
 rustup target add wasm32-unknown-unknown
-{maybe_install_wasm_pack}# Force a clean wasm rebuild before compiling ddc (which embeds the search +
+{maybe_install_wasm_pack}{maybe_install_pnpm}# Force a clean wasm rebuild before compiling ddc (which embeds the search +
 # devtools wasm via include_bytes!). build.rs skips when pkg/ exists, and the
 # stable-src cache preserves a stale pkg/ across runs — that combination
 # shipped an out-of-date search reader in v0.14.4. Removing it makes build.rs
