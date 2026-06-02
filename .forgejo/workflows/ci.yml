@@ -61,6 +61,13 @@ jobs:
 
           rustup target add wasm32-unknown-unknown
           npm install -g pnpm
+          HOTMEAL_DIR="$(dirname "$STABLE_SRC")/hotmeal"
+          if [ -d "$HOTMEAL_DIR/.git" ]; then
+            git -C "$HOTMEAL_DIR" fetch --depth 1 origin HEAD && git -C "$HOTMEAL_DIR" reset --hard FETCH_HEAD
+          else
+            rm -rf "$HOTMEAL_DIR" && git clone --depth 1 https://github.com/bearcove/hotmeal.git "$HOTMEAL_DIR"
+          fi
+          (cd "$HOTMEAL_DIR/hotmeal-wasm" && wasm-pack build --target web --dev --target-dir target-wasm)
           # Force a clean wasm rebuild before compiling ddc (which embeds the search +
           # devtools wasm via include_bytes!). build.rs skips when pkg/ exists, and the
           # stable-src cache preserves a stale pkg/ across runs — that combination

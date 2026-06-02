@@ -1734,6 +1734,25 @@ fi
         } else {
             "command -v pnpm >/dev/null 2>&1 || npm install -g pnpm || corepack enable || true\n"
         };
+        // The browser editor's package.json file:-links `hotmeal-wasm` from the
+        // sibling bearcove/hotmeal repo (../../../../hotmeal/hotmeal-wasm/pkg),
+        // which CI doesn't check out — so the editor's `pnpm install` ENOENTs and
+        // build.rs ships an empty editor. Clone hotmeal (public) where that path
+        // resolves (next to the stable-src dir) and wasm-pack-build its pkg before
+        // the editor build. Linux only: that's the platform the kb installs;
+        // macOS degrades to an empty editor (build still succeeds).
+        let maybe_build_hotmeal = if is_linux {
+            r#"HOTMEAL_DIR="$(dirname "$STABLE_SRC")/hotmeal"
+if [ -d "$HOTMEAL_DIR/.git" ]; then
+  git -C "$HOTMEAL_DIR" fetch --depth 1 origin HEAD && git -C "$HOTMEAL_DIR" reset --hard FETCH_HEAD
+else
+  rm -rf "$HOTMEAL_DIR" && git clone --depth 1 https://github.com/bearcove/hotmeal.git "$HOTMEAL_DIR"
+fi
+(cd "$HOTMEAL_DIR/hotmeal-wasm" && wasm-pack build --target web --dev --target-dir target-wasm)
+"#
+        } else {
+            ""
+        };
         let maybe_browser_tests = if is_linux {
             r#"DODECA_BIN="$STABLE_SRC/target/release/ddc" \
 DODECA_CELL_PATH="$STABLE_SRC/target/release" \
@@ -1791,7 +1810,7 @@ echo "CARGO_TARGET_DIR=$CARGO_TARGET_DIR""#
 cd "$STABLE_SRC"
 {maybe_check_ci}
 rustup target add wasm32-unknown-unknown
-{maybe_install_wasm_pack}{maybe_install_pnpm}# Force a clean wasm rebuild before compiling ddc (which embeds the search +
+{maybe_install_wasm_pack}{maybe_install_pnpm}{maybe_build_hotmeal}# Force a clean wasm rebuild before compiling ddc (which embeds the search +
 # devtools wasm via include_bytes!). build.rs skips when pkg/ exists, and the
 # stable-src cache preserves a stale pkg/ across runs — that combination
 # shipped an out-of-date search reader in v0.14.4. Removing it makes build.rs
