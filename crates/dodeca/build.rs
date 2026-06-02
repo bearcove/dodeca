@@ -74,6 +74,12 @@ fn run_editor_build(editor: &std::path::Path) -> bool {
     if !editor.join("package.json").exists() {
         return false; // not scaffolded yet
     }
+    // If the bundle is already built (CI builds it explicitly, with visible
+    // output, via `pnpm install` + `pnpm run build` — pnpm's .bin layout in CI
+    // differs from a direct `node_modules/.bin/vite` exec), just embed it.
+    if editor.join("dist/edit.js").exists() {
+        return true;
+    }
     let have_pnpm = Command::new("pnpm")
         .arg("--version")
         .output()
