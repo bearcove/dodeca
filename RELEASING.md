@@ -1,15 +1,15 @@
 # Releasing dodeca
 
 Releases are built **and published automatically** by the Forgejo tag build on
-`code.vixen.rs/vixen/dodeca`. Pushing a `vX.Y.Z` tag builds both platforms,
+`code.vixen.rs/bearcove/dodeca`. Pushing a `vX.Y.Z` tag builds both platforms,
 then the `publish` job uploads the archives + installers to the Scaleway
-`vixen-misc` bucket the installer reads from. There is no manual download /
+`bearcove-dist` bucket the installer reads from. There is no manual download /
 `gh release` step anymore.
 
 End users install via the bucket's website endpoint (see `README.md`):
 
 ```bash
-curl -fsSL https://vixen-misc.s3-website.fr-par.scw.cloud/dodeca/install.sh | sh
+curl -fsSL https://bearcove-dist.s3.fr-par.scw.cloud/dodeca/install.sh | sh
 ```
 
 ## How versioning works
@@ -33,11 +33,11 @@ Then watch the run:
 
 ```bash
 export FJ_TOKEN=...        # Forgejo token
-fj --host code.vixen.rs -R vixen/dodeca run list      # find the run for ref vX.Y.Z
-fj --host code.vixen.rs -R vixen/dodeca run watch <run-id>
+fj --host code.vixen.rs -R bearcove/dodeca run list      # find the run for ref vX.Y.Z
+fj --host code.vixen.rs -R bearcove/dodeca run watch <run-id>
 ```
 
-On success the `publish` job has uploaded, under `s3://vixen-misc/`:
+On success the `publish` job has uploaded, under `s3://bearcove-dist/`:
 
 - `dodeca/releases/<tag>/dodeca-x86_64-unknown-linux-gnu.tar.xz`
 - `dodeca/releases/<tag>/dodeca-aarch64-apple-darwin.tar.xz`
@@ -49,20 +49,18 @@ On success the `publish` job has uploaded, under `s3://vixen-misc/`:
 Verify:
 
 ```bash
-curl -fsSL https://vixen-misc.s3-website.fr-par.scw.cloud/dodeca/releases/latest
+curl -fsSL https://bearcove-dist.s3.fr-par.scw.cloud/dodeca/releases/latest
 DODECA_VERSION=vX.Y.Z curl -fsSL \
-  https://vixen-misc.s3-website.fr-par.scw.cloud/dodeca/install.sh | sh
+  https://bearcove-dist.s3.fr-par.scw.cloud/dodeca/install.sh | sh
 ```
 
 ## One-time prerequisites
 
-- The repo lives under the Forgejo `vixen` org (`code.vixen.rs/vixen/dodeca`),
-  so it inherits that org's Actions secrets `ACCESS_KEY_ID` / `ACCESS_SECRET_KEY`
-  — a Scaleway Object Storage key with write access to the `vixen-misc` bucket
-  (the same key `vixen-ci` publishes with). The `publish` job maps them to
-  `AWS_*` and `aws s3 cp`s with `--acl public-read` through the S3 API endpoint.
-  (The public GitHub mirror stays `github.com/bearcove/dodeca`; only the Forgejo
-  remote moved.)
+- The `bearcove` Forgejo org provides Actions secrets `ACCESS_KEY_ID` /
+  `ACCESS_SECRET_KEY` — a Scaleway Object Storage key with write access to the
+  `bearcove-dist` bucket (dodeca is a bearcove project, with its own bucket
+  separate from Vixen's). The `publish` job maps them to `AWS_*` and
+  `aws s3 cp`s with `--acl public-read` through the S3 API endpoint.
 
 ## Manual publish (fallback)
 

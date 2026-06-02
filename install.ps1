@@ -1,11 +1,11 @@
 # Installer for dodeca
-# Usage: powershell -ExecutionPolicy Bypass -c "irm https://vixen-misc.s3-website.fr-par.scw.cloud/dodeca/install.ps1 | iex"
+# Usage: powershell -ExecutionPolicy Bypass -c "irm https://bearcove-dist.s3.fr-par.scw.cloud/dodeca/install.ps1 | iex"
 
 $ErrorActionPreference = 'Stop'
 
 # Release artifacts live in a Scaleway Object Storage bucket we control.
 # Override with $env:DODECA_BASE_URL; $env:DODECA_VERSION pins a version.
-$BaseUrl = if ($env:DODECA_BASE_URL) { $env:DODECA_BASE_URL } else { "https://vixen-misc.s3-website.fr-par.scw.cloud/dodeca/releases" }
+$BaseUrl = if ($env:DODECA_BASE_URL) { $env:DODECA_BASE_URL } else { "https://bearcove-dist.s3.fr-par.scw.cloud/dodeca/releases" }
 
 function Get-Architecture {
     $arch = [System.Environment]::Is64BitOperatingSystem

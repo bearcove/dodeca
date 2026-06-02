@@ -1,13 +1,13 @@
 #!/bin/sh
 # Installer for dodeca
-# Usage: curl -fsSL https://vixen-misc.s3-website.fr-par.scw.cloud/dodeca/install.sh | sh
+# Usage: curl -fsSL https://bearcove-dist.s3.fr-par.scw.cloud/dodeca/install.sh | sh
 
 set -eu
 
 # Release artifacts live in a Scaleway Object Storage bucket we control.
 # Override BASE_URL for a mirror or local testing; DODECA_VERSION pins a
 # specific version (otherwise the `latest` pointer is read).
-BASE_URL="${DODECA_BASE_URL:-https://vixen-misc.s3-website.fr-par.scw.cloud/dodeca/releases}"
+BASE_URL="${DODECA_BASE_URL:-https://bearcove-dist.s3.fr-par.scw.cloud/dodeca/releases}"
 
 # Detect platform (only linux-x64 and macos-arm64 are supported)
 detect_platform() {

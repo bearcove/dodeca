@@ -1899,9 +1899,9 @@ ls -la "$GITHUB_WORKSPACE/dist/""#,
             Step::run(
                 "Checkout repository",
                 // Org-agnostic: derive the clone URL from the runner context so
-                // this survives the repo moving between Forgejo orgs (e.g.
-                // bearcove/dodeca -> vixen/dodeca). Only needs install.sh +
-                // scripts/, so a shallow fetch of the tagged commit is enough.
+                // it keeps working regardless of which Forgejo org owns the
+                // repo. Only needs install.sh + scripts/, so a shallow fetch of
+                // the tagged commit is enough.
                 r#"mkdir -p "$GITHUB_WORKSPACE"
 cd "$GITHUB_WORKSPACE"
 git init -q
@@ -1979,17 +1979,16 @@ const GENERATED_HEADER: &str =
 // Installer scripts
 // =============================================================================
 
-/// Base URL for release artifacts: a Scaleway Object Storage bucket we control
-/// (`vixen-misc`, fr-par), under the `dodeca/releases/` prefix, served via the
-/// public **website** endpoint (same bucket + endpoint that already serves the
-/// `vixen-ci` binary). Each release is `<base>/<version>/dodeca-<platform>.tar.xz`;
-/// `<base>/latest` is a text file holding the newest version string. Overridable
-/// at install time via `DODECA_BASE_URL` (mirrors / testing).
+/// Base URL for release artifacts: the `bearcove-dist` Scaleway Object Storage
+/// bucket (fr-par), under the `dodeca/releases/` prefix. dodeca is a bearcove
+/// project, so it has its own bucket separate from Vixen's. Each release is
+/// `<base>/<version>/dodeca-<platform>.tar.xz`; `<base>/latest` is a text file
+/// holding the newest version string. Overridable at install time via
+/// `DODECA_BASE_URL` (mirrors / testing).
 ///
-/// Note the asymmetry, matching vixen-ci's publish flow: artifacts are *uploaded*
-/// through the S3 API endpoint (`s3.fr-par.scw.cloud`, see scripts/publish-release.sh)
-/// but *served* through the website endpoint (`s3-website.fr-par.scw.cloud`).
-pub const RELEASE_BASE_URL: &str = "https://vixen-misc.s3-website.fr-par.scw.cloud/dodeca/releases";
+/// Objects are uploaded public-read and served from the same S3 API endpoint
+/// (`s3.fr-par.scw.cloud`); see scripts/publish-release.sh.
+pub const RELEASE_BASE_URL: &str = "https://bearcove-dist.s3.fr-par.scw.cloud/dodeca/releases";
 
 /// Generate the shell installer script content.
 pub fn generate_installer_script() -> String {
@@ -1998,7 +1997,7 @@ pub fn generate_installer_script() -> String {
     format!(
         r##"#!/bin/sh
 # Installer for dodeca
-# Usage: curl -fsSL https://vixen-misc.s3-website.fr-par.scw.cloud/dodeca/install.sh | sh
+# Usage: curl -fsSL https://bearcove-dist.s3.fr-par.scw.cloud/dodeca/install.sh | sh
 
 set -eu
 
@@ -2105,7 +2104,7 @@ main "$@"
 pub fn generate_powershell_installer() -> String {
     format!(
         r##"# Installer for dodeca
-# Usage: powershell -ExecutionPolicy Bypass -c "irm https://vixen-misc.s3-website.fr-par.scw.cloud/dodeca/install.ps1 | iex"
+# Usage: powershell -ExecutionPolicy Bypass -c "irm https://bearcove-dist.s3.fr-par.scw.cloud/dodeca/install.ps1 | iex"
 
 $ErrorActionPreference = 'Stop'
 

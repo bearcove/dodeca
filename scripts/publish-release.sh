@@ -8,22 +8,22 @@
 #
 # Requires:
 #   - aws CLI (Scaleway is S3-compatible; we pass --endpoint-url)
-#   - a Scaleway Object Storage key with write access to the `vixen-misc`
+#   - a Scaleway Object Storage key with write access to the `bearcove-dist`
 #     bucket (fr-par), exported as AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY.
 #
 # Layout (must match install.sh's BASE_URL = .../dodeca/releases):
-#   s3://vixen-misc/dodeca/releases/<version>/dodeca-<platform>.tar.xz
-#   s3://vixen-misc/dodeca/releases/<version>/SHA256SUMS
-#   s3://vixen-misc/dodeca/releases/latest      (text file: the version string)
-#   s3://vixen-misc/dodeca/install.sh           (stable installer, curl|sh)
-#   s3://vixen-misc/dodeca/install.ps1          (stable installer, irm|iex)
+#   s3://bearcove-dist/dodeca/releases/<version>/dodeca-<platform>.tar.xz
+#   s3://bearcove-dist/dodeca/releases/<version>/SHA256SUMS
+#   s3://bearcove-dist/dodeca/releases/latest      (text file: the version string)
+#   s3://bearcove-dist/dodeca/install.sh           (stable installer, curl|sh)
+#   s3://bearcove-dist/dodeca/install.ps1          (stable installer, irm|iex)
 set -euo pipefail
 
 VERSION="${1:?Usage: $0 vX.Y.Z [dist-dir]}"
 DIST="${2:-dist}"
 
 ENDPOINT="https://s3.fr-par.scw.cloud"
-BUCKET="vixen-misc"
+BUCKET="bearcove-dist"
 REL="dodeca/releases/$VERSION"
 
 LINUX="dodeca-x86_64-unknown-linux-gnu.tar.xz"
@@ -60,8 +60,8 @@ put "$DIST/$MACOS" "$REL/$MACOS"
 printf '%s' "$VERSION" | s3 cp - "s3://$BUCKET/dodeca/releases/latest" \
   --acl public-read --content-type "text/plain"
 
-# Public (download) URLs are the website endpoint, not the S3 API endpoint.
-WEB="https://$BUCKET.s3-website.fr-par.scw.cloud"
+# Objects are public-read; the same S3 API endpoint serves them anonymously.
+WEB="https://$BUCKET.s3.fr-par.scw.cloud"
 echo "Done."
 echo "  latest  -> $VERSION"
 echo "  verify  -> curl -fsSL $WEB/dodeca/releases/latest"
