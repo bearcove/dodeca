@@ -67,18 +67,12 @@ fn build_editor() {
     write_editor_assets(&assets);
 }
 
-/// `pnpm install` + `vite build` in the editor dir. Returns whether `dist/edit.js`
-/// was produced. Invokes the local `vite` binary directly to bypass pnpm's
-/// pre-run dependency check.
+/// `pnpm install` + `pnpm run build` in the editor dir. Returns whether
+/// `dist/edit.js` was produced. Runs *after* `generate_editor_client()` has
+/// written `src/devtools.generated.ts`, which the bundle imports.
 fn run_editor_build(editor: &std::path::Path) -> bool {
     if !editor.join("package.json").exists() {
         return false; // not scaffolded yet
-    }
-    // If the bundle is already built (CI builds it explicitly, with visible
-    // output, via `pnpm install` + `pnpm run build` — pnpm's .bin layout in CI
-    // differs from a direct `node_modules/.bin/vite` exec), just embed it.
-    if editor.join("dist/edit.js").exists() {
-        return true;
     }
     let have_pnpm = Command::new("pnpm")
         .arg("--version")
@@ -89,29 +83,29 @@ fn run_editor_build(editor: &std::path::Path) -> bool {
         println!("cargo::warning=pnpm not found; /_/edit/* (browser editor) will be unavailable");
         return false;
     }
-    // Install only when needed. We check the resulting `vite` binary rather than
-    // pnpm's exit code: pnpm exits non-zero on the (harmless) ignored esbuild
-    // build script when run without a TTY, even though deps install fine.
-    let vite = editor.join("node_modules/.bin/vite");
-    if !vite.exists() {
-        let _ = Command::new("pnpm")
-            .current_dir(editor)
-            .arg("install")
-            .status();
+    // In CI, nuke any cached node_modules first: a stale one (left in the
+    // build cache) makes `pnpm install` a near-no-op that never wires up vite.
+    // Locally we keep it for fast incremental builds.
+    if std::env::var_os("CI").is_some() {
+        let _ = std::fs::remove_dir_all(editor.join("node_modules"));
     }
-    if !vite.exists() {
-        println!("cargo::warning=editor deps missing after `pnpm install`; skipping editor build");
-        return false;
-    }
-    // Absolute path: a relative program is resolved from the child's `current_dir`,
-    // which would double-nest to `editor/editor/...`.
-    let vite = std::fs::canonicalize(&vite).expect("canonicalize vite binary");
-    let build = Command::new(&vite)
+    // --no-frozen-lockfile: the `hotmeal-wasm` directory dep is wasm-pack-built
+    // fresh in CI and drifts from the committed lockfile, which a frozen (CI
+    // default) install rejects. Exit code is ignored — pnpm exits non-zero on
+    // the harmless ignored esbuild build script even though deps install fine.
+    let _ = Command::new("pnpm")
         .current_dir(editor)
-        .arg("build")
+        .args(["install", "--no-frozen-lockfile"])
+        .status();
+    // Build through `pnpm run build` (the package's `vite build` script) rather
+    // than exec'ing node_modules/.bin/vite directly — pnpm resolves vite itself,
+    // and the .bin shim layout varies across pnpm versions / CI.
+    let build = Command::new("pnpm")
+        .current_dir(editor)
+        .args(["run", "build"])
         .status();
     if !matches!(build, Ok(s) if s.success()) {
-        println!("cargo::warning=editor `vite build` failed");
+        println!("cargo::warning=editor `pnpm run build` failed; /_/edit/* will be unavailable");
         return false;
     }
     editor.join("dist/edit.js").exists()

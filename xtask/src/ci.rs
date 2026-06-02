@@ -1749,18 +1749,6 @@ else
   rm -rf "$HOTMEAL_DIR" && git clone --depth 1 https://github.com/bearcove/hotmeal.git "$HOTMEAL_DIR"
 fi
 (cd "$HOTMEAL_DIR/hotmeal-wasm" && wasm-pack build --target web --dev --target-dir target-wasm)
-# Build the browser editor bundle here (visible output), then build.rs just
-# embeds the resulting dist/. Done in the workflow rather than build.rs because:
-# (a) --no-frozen-lockfile is needed (the freshly built hotmeal-wasm directory
-# dep drifts from the committed lockfile, which a frozen CI install rejects);
-# (b) a stale node_modules in the build cache makes pnpm a near-no-op that never
-# wires up vite, so nuke it first; (c) `pnpm run build` invokes vite the way the
-# package expects, instead of a direct node_modules/.bin/vite exec whose shim
-# layout differs in CI. Non-fatal: a failure ships an absent editor + logs why.
-rm -rf crates/dodeca/editor/node_modules
-(cd crates/dodeca/editor && pnpm install --no-frozen-lockfile && pnpm run build) || true
-echo "--- editor node_modules/.bin ---"; ls -la crates/dodeca/editor/node_modules/.bin 2>&1 | head -25 || true
-echo "--- editor dist ---"; ls -la crates/dodeca/editor/dist 2>&1 | head || true
 "#
         } else {
             ""
