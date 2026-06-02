@@ -564,7 +564,7 @@ jobs:
           cd "$GITHUB_WORKSPACE"
           git init -q
           git remote remove origin 2>/dev/null || true
-          git remote add origin https://code.vixen.rs/bearcove/dodeca.git
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
           git -c http.extraHeader="Authorization: token ${FORGEJO_TOKEN}" fetch --depth 1 origin "${GITHUB_SHA}"
           git checkout -q --detach FETCH_HEAD
         shell: bash

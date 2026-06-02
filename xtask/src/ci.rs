@@ -1898,11 +1898,15 @@ ls -la "$GITHUB_WORKSPACE/dist/""#,
         .steps([
             Step::run(
                 "Checkout repository",
+                // Org-agnostic: derive the clone URL from the runner context so
+                // this survives the repo moving between Forgejo orgs (e.g.
+                // bearcove/dodeca -> vixen/dodeca). Only needs install.sh +
+                // scripts/, so a shallow fetch of the tagged commit is enough.
                 r#"mkdir -p "$GITHUB_WORKSPACE"
 cd "$GITHUB_WORKSPACE"
 git init -q
 git remote remove origin 2>/dev/null || true
-git remote add origin https://code.vixen.rs/bearcove/dodeca.git
+git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
 git -c http.extraHeader="Authorization: token ${FORGEJO_TOKEN}" fetch --depth 1 origin "${GITHUB_SHA}"
 git checkout -q --detach FETCH_HEAD"#,
             )
