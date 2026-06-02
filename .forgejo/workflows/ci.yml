@@ -68,6 +68,13 @@ jobs:
             rm -rf "$HOTMEAL_DIR" && git clone --depth 1 https://github.com/bearcove/hotmeal.git "$HOTMEAL_DIR"
           fi
           (cd "$HOTMEAL_DIR/hotmeal-wasm" && wasm-pack build --target web --dev --target-dir target-wasm)
+          # Install the editor's JS deps here rather than inside build.rs's (cargo-hidden)
+          # build_editor, so the output is visible and we can use --no-frozen-lockfile:
+          # the freshly built hotmeal-wasm (a directory dep) drifts from the committed
+          # lockfile, which a frozen (CI default) install rejects. build.rs then finds
+          # node_modules/.bin/vite and just runs `vite build`. Non-fatal: if it fails the
+          # release still ships (editor degrades to absent) and the log shows why.
+          (cd crates/dodeca/editor && pnpm install --no-frozen-lockfile) || true
           # Force a clean wasm rebuild before compiling ddc (which embeds the search +
           # devtools wasm via include_bytes!). build.rs skips when pkg/ exists, and the
           # stable-src cache preserves a stale pkg/ across runs — that combination
