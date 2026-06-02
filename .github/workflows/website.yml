@@ -26,7 +26,7 @@ jobs:
 
       - name: Install dodeca
         run: |
-          curl --proto '=https' --tlsv1.2 -LsSf https://github.com/bearcove/dodeca/releases/latest/download/dodeca-installer.sh | sh
+          curl --proto '=https' --tlsv1.2 -LsSf https://bearcove-dist.s3.fr-par.scw.cloud/dodeca/install.sh | sh
 
       - name: Build website
         run: ~/.cargo/bin/ddc build
