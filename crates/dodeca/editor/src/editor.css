@@ -5,10 +5,68 @@ body,
   margin: 0;
 }
 
+/* Theme palette. JS sets `data-theme` on #vixen-editor (from prefers-color-scheme
+   + a manual toggle); the Monaco theme is switched in lockstep. */
+#vixen-editor {
+  --bg: #ffffff;
+  --bg-soft: #fafafa;
+  --bg-tabs: #f3f3f3;
+  --bg-tab: #ececec;
+  --border: #dddddd;
+  --fg: #24292f;
+  --fg-dim: #666666;
+  --fg-faint: #999999;
+  --hover: #ececec;
+  --active-bg: #e2ecff;
+  --input-border: #cccccc;
+  --btn-border: #bbbbbb;
+  --close-hover: #00000014;
+
+  --arb-comment: #6e7781;
+  --arb-keyword: #cf222e;
+  --arb-string: #0a3069;
+  --arb-number: #0550ae;
+  --arb-function: #8250df;
+  --arb-type: #953800;
+  --arb-property: #0550ae;
+  --arb-tag: #116329;
+  --arb-operator: #cf222e;
+  --arb-heading: #0550ae;
+}
+
+#vixen-editor[data-theme="dark"] {
+  --bg: #0d1117;
+  --bg-soft: #161b22;
+  --bg-tabs: #0d1117;
+  --bg-tab: #161b22;
+  --border: #30363d;
+  --fg: #c9d1d9;
+  --fg-dim: #8b949e;
+  --fg-faint: #6e7681;
+  --hover: #21262d;
+  --active-bg: #1f6feb33;
+  --input-border: #30363d;
+  --btn-border: #30363d;
+  --close-hover: #ffffff1a;
+
+  --arb-comment: #8b949e;
+  --arb-keyword: #ff7b72;
+  --arb-string: #a5d6ff;
+  --arb-number: #79c0ff;
+  --arb-function: #d2a8ff;
+  --arb-type: #ffa657;
+  --arb-property: #79c0ff;
+  --arb-tag: #7ee787;
+  --arb-operator: #ff7b72;
+  --arb-heading: #79c0ff;
+}
+
 #vixen-editor {
   display: flex;
   flex-direction: column;
   font-family: system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
 }
 
 .vx-toolbar {
@@ -16,8 +74,8 @@ body,
   align-items: center;
   gap: 12px;
   padding: 8px 14px;
-  border-bottom: 1px solid #ddd;
-  background: #fafafa;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-soft);
 }
 
 .vx-route {
@@ -30,7 +88,7 @@ body,
 }
 
 .vx-status {
-  color: #666;
+  color: var(--fg-dim);
   font-size: 13px;
 }
 
@@ -38,23 +96,47 @@ body,
   width: 280px;
   max-width: 32vw;
   padding: 4px 8px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--input-border);
   border-radius: 5px;
   font: inherit;
   font-size: 13px;
+  background: var(--bg);
+  color: var(--fg);
 }
 
 .vx-save {
   padding: 4px 14px;
-  border: 1px solid #bbb;
+  border: 1px solid var(--btn-border);
   border-radius: 5px;
-  background: #fff;
+  background: var(--bg);
+  color: var(--fg);
   cursor: pointer;
 }
 
 .vx-save:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+.vx-iconbtn {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 5px;
+  color: var(--fg-dim);
+}
+
+.vx-iconbtn:hover {
+  color: var(--fg);
+  background: var(--hover);
+}
+
+.vx-iconbtn.vx-on {
+  color: var(--fg);
+  background: var(--active-bg);
 }
 
 .vx-body {
@@ -79,18 +161,18 @@ body,
   font-size: 18px;
   line-height: 1;
   padding: 2px 8px;
-  color: #555;
+  color: var(--fg-dim);
 }
 
 .vx-tree-toggle:hover {
-  color: #000;
+  color: var(--fg);
 }
 
 .vx-tree {
-  border-right: 1px solid #ddd;
+  border-right: 1px solid var(--border);
   overflow-y: auto;
   padding: 6px 0;
-  background: #fafafa;
+  background: var(--bg-soft);
 }
 
 .vx-tree-item {
@@ -103,15 +185,15 @@ body,
   cursor: pointer;
   font-family: ui-monospace, SFMono-Regular, monospace;
   font-size: 13px;
-  color: #333;
+  color: var(--fg);
 }
 
 .vx-tree-item:hover {
-  background: #ececec;
+  background: var(--hover);
 }
 
 .vx-tree-item.vx-active {
-  background: #e2ecff;
+  background: var(--active-bg);
   font-weight: 600;
 }
 
@@ -126,8 +208,8 @@ body,
   display: flex;
   align-items: stretch;
   overflow-x: auto;
-  background: #f3f3f3;
-  border-bottom: 1px solid #ddd;
+  background: var(--bg-tabs);
+  border-bottom: 1px solid var(--border);
   min-height: 33px;
 }
 
@@ -137,17 +219,17 @@ body,
   gap: 2px;
   padding-left: 12px;
   padding-right: 4px;
-  border-right: 1px solid #ddd;
+  border-right: 1px solid var(--border);
   font-size: 13px;
-  color: #555;
+  color: var(--fg-dim);
   cursor: pointer;
   white-space: nowrap;
-  background: #ececec;
+  background: var(--bg-tab);
 }
 
 .vx-tab.vx-active {
-  background: #fff;
-  color: #000;
+  background: var(--bg);
+  color: var(--fg);
 }
 
 .vx-tab-label {
@@ -161,14 +243,14 @@ body,
   cursor: pointer;
   font-size: 14px;
   line-height: 1;
-  color: #999;
+  color: var(--fg-faint);
   padding: 2px 5px;
   border-radius: 3px;
 }
 
 .vx-tab-close:hover {
-  background: #00000014;
-  color: #000;
+  background: var(--close-hover);
+  color: var(--fg);
 }
 
 .vx-tree-item.vx-dirty::after {
@@ -176,7 +258,7 @@ body,
   margin-left: 6px;
   font-size: 10px;
   vertical-align: middle;
-  color: #888;
+  color: var(--fg-faint);
 }
 
 .vx-editor {
@@ -185,10 +267,26 @@ body,
   min-width: 0;
 }
 
-/* arborium syntax highlighting (applied as Monaco inline decorations, classed
-   by capture category). github-light-ish palette to match the light editor. */
+/* Vim status line under the editor (hidden until vim mode is on). */
+.vx-vim-status {
+  display: none;
+  padding: 2px 10px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 12px;
+  color: var(--fg-dim);
+  background: var(--bg-soft);
+  border-top: 1px solid var(--border);
+  min-height: 18px;
+}
+
+.vx-editorcol.vx-vim .vx-vim-status {
+  display: block;
+}
+
+/* arborium syntax highlighting (Monaco inline decorations, classed by capture
+   category). Colors come from the theme palette so they follow light/dark. */
 .monaco-editor .arb-comment {
-  color: #6e7781;
+  color: var(--arb-comment);
   font-style: italic;
 }
 .monaco-editor .arb-keyword,
@@ -197,44 +295,44 @@ body,
 .monaco-editor .arb-repeat,
 .monaco-editor .arb-include,
 .monaco-editor .arb-storageclass {
-  color: #cf222e;
+  color: var(--arb-keyword);
 }
 .monaco-editor .arb-string,
 .monaco-editor .arb-character {
-  color: #0a3069;
+  color: var(--arb-string);
 }
 .monaco-editor .arb-number,
 .monaco-editor .arb-boolean,
 .monaco-editor .arb-constant,
 .monaco-editor .arb-float {
-  color: #0550ae;
+  color: var(--arb-number);
 }
 .monaco-editor .arb-function,
 .monaco-editor .arb-method,
 .monaco-editor .arb-constructor {
-  color: #8250df;
+  color: var(--arb-function);
 }
 .monaco-editor .arb-type,
 .monaco-editor .arb-namespace,
 .monaco-editor .arb-module {
-  color: #953800;
+  color: var(--arb-type);
 }
 .monaco-editor .arb-property,
 .monaco-editor .arb-field,
 .monaco-editor .arb-attribute,
 .monaco-editor .arb-label {
-  color: #0550ae;
+  color: var(--arb-property);
 }
 .monaco-editor .arb-tag {
-  color: #116329;
+  color: var(--arb-tag);
 }
 .monaco-editor .arb-operator,
 .monaco-editor .arb-escape {
-  color: #cf222e;
+  color: var(--arb-operator);
 }
 .monaco-editor .arb-title,
 .monaco-editor .arb-heading {
-  color: #0550ae;
+  color: var(--arb-heading);
   font-weight: 600;
 }
 .monaco-editor .arb-emphasis {
@@ -245,9 +343,9 @@ body,
 }
 
 .vx-preview {
-  border-left: 1px solid #ddd;
+  border-left: 1px solid var(--border);
   min-width: 0;
   height: 100%;
   overflow: auto;
-  background: #fff;
+  background: var(--bg);
 }

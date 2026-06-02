@@ -28,6 +28,7 @@
     "@codingame/monaco-vscode-workbench-service-override": "^31.0.1",
     "hotmeal-wasm": "file:../../../../hotmeal/hotmeal-wasm/pkg",
     "monaco-languageclient": "^10.7.0",
+    "monaco-vim": "^0.4.1",
     "vscode": "npm:@codingame/monaco-vscode-extension-api@^31.0.1",
     "vscode-jsonrpc": "^8.2.1",
     "vscode-languageclient": "~9.0.1"

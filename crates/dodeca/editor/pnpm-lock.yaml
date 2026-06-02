@@ -117,6 +117,9 @@ importers:
       monaco-languageclient:
         specifier: ^10.7.0
         version: 10.7.0
+      monaco-vim:
+        specifier: ^0.4.1
+        version: 0.4.4(monaco-editor@0.55.1)
       vscode:
         specifier: npm:@codingame/monaco-vscode-extension-api@31.0.1
         version: '@codingame/monaco-vscode-extension-api@31.0.1'
@@ -589,6 +592,9 @@ packages:
   brace-expansion@2.1.1:
     resolution: {integrity: sha512-WR1cURNjuvBLMZBMbqM0UoE+WAfdUcEV1ccD8PVBVOI+Z3ND4+SZbN8RsfT2bMuG1qwz5RFvPukSZm5fF2D5eA==}
 
+  dompurify@3.2.7:
+    resolution: {integrity: sha512-WhL/YuveyGXJaerVlMYGWhvQswa7myDG17P7Vu65EWC05o8vfeNbvNf4d/BOvH99+ZW+LlQsc1GDKMa1vNK6dw==}
+
   dompurify@3.4.1:
     resolution: {integrity: sha512-JahakDAIg1gyOm7dlgWSDjV4n7Ip2PKR55NIT6jrMfIgLFgWo81vdr1/QGqWtFNRqXP9UV71oVePtjqS2ebnPw==}
 
@@ -627,9 +633,17 @@ packages:
     resolution: {integrity: sha512-7o1wEA2RyMP7Iu7GNba9vc0RWWGACJOCZBJX2GJWip0ikV+wcOsgVuY9uE8CPiyQhkGFSlhuSkZPavN7u1c2Fw==}
     engines: {node: '>=10'}
 
+  monaco-editor@0.55.1:
+    resolution: {integrity: sha512-jz4x+TJNFHwHtwuV9vA9rMujcZRb0CEilTEwG2rRSpe/A7Jdkuj8xPKttCgOh+v/lkHy7HsZ64oj+q3xoAFl9A==}
+
   monaco-languageclient@10.7.0:
     resolution: {integrity: sha512-oA5cOFixkF4bspVL2zMSn48LvlNR/Cu3vJ8MCVam3PdjobSULGgHtOASuZIi3FgWK42X1z8/6hrG0LCjvNu1Hw==}
     engines: {node: '>=20.10.0', npm: '>=10.2.3'}
+
+  monaco-vim@0.4.4:
+    resolution: {integrity: sha512-LNChAb//WEm/W+eyeHG/0+pdVEHotk2hLTN+M3sQZx5E8cAlSWSgqcxpcRuQnxDybSln7pfHF9i63HmbIQvrWw==}
+    peerDependencies:
+      monaco-editor: '*'
 
   nanoid@3.3.12:
     resolution: {integrity: sha512-ZB9RH/39qpq5Vu6Y+NmUaFhQR6pp+M2Xt76XBnEwDaGcVAqhlvxrl3B2bKS5D3NH3QR76v3aSrKaF/Kiy7lEtQ==}
@@ -1119,6 +1133,10 @@ snapshots:
     dependencies:
       balanced-match: 1.0.2
 
+  dompurify@3.2.7:
+    optionalDependencies:
+      '@types/trusted-types': 2.0.7
+
   dompurify@3.4.1:
     optionalDependencies:
       '@types/trusted-types': 2.0.7
@@ -1169,6 +1187,11 @@ snapshots:
     dependencies:
       brace-expansion: 2.1.1
 
+  monaco-editor@0.55.1:
+    dependencies:
+      dompurify: 3.2.7
+      marked: 14.0.0
+
   monaco-languageclient@10.7.0:
     dependencies:
       '@codingame/monaco-vscode-api': 31.0.1
@@ -1205,6 +1228,10 @@ snapshots:
       vscode-languageclient: 9.0.1
       vscode-languageserver-protocol: 3.17.5
       vscode-ws-jsonrpc: 3.5.0
+
+  monaco-vim@0.4.4(monaco-editor@0.55.1):
+    dependencies:
+      monaco-editor: 0.55.1
 
   nanoid@3.3.12: {}
 

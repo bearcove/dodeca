@@ -31,6 +31,8 @@ import { wsConnector } from "@bearcove/vox-ws";
 import initHotmeal, { diff_html, apply_patches_json_on_element } from "hotmeal-wasm";
 import { DevtoolsServiceClient, type EditEntry } from "./devtools.generated";
 import { ArboriumHighlighter } from "./highlight";
+// @ts-expect-error — monaco-vim ships no types; initVimMode(editor, statusNode) → { dispose() }.
+import { initVimMode } from "monaco-vim";
 import "./editor.css";
 
 const root = document.getElementById("vixen-editor");
@@ -101,6 +103,8 @@ async function main(mount: HTMLElement): Promise<void> {
       <button class="vx-tree-toggle" title="Toggle file tree">☰</button>
       <span class="vx-route"></span>
       <span class="vx-spacer"></span>
+      <button class="vx-vim-toggle vx-iconbtn" title="Toggle Vim mode">vim</button>
+      <button class="vx-theme-toggle vx-iconbtn" title="Toggle dark mode">🌙</button>
       <span class="vx-status"></span>
       <input class="vx-commitmsg" type="text" placeholder="commit message (optional)" />
       <button class="vx-save" disabled>Save</button>
@@ -110,6 +114,7 @@ async function main(mount: HTMLElement): Promise<void> {
       <div class="vx-editorcol">
         <div class="vx-tabs"></div>
         <div class="vx-editor"></div>
+        <div class="vx-vim-status"></div>
       </div>
       <div class="vx-preview"></div>
     </div>
@@ -120,9 +125,13 @@ async function main(mount: HTMLElement): Promise<void> {
   const saveBtn = mount.querySelector(".vx-save") as HTMLButtonElement;
   const treeToggle = mount.querySelector(".vx-tree-toggle") as HTMLButtonElement;
   const commitMsgEl = mount.querySelector(".vx-commitmsg") as HTMLInputElement;
+  const themeToggle = mount.querySelector(".vx-theme-toggle") as HTMLButtonElement;
+  const vimToggle = mount.querySelector(".vx-vim-toggle") as HTMLButtonElement;
   const treeEl = mount.querySelector(".vx-tree") as HTMLElement;
   const tabsEl = mount.querySelector(".vx-tabs") as HTMLElement;
+  const editorColEl = mount.querySelector(".vx-editorcol") as HTMLElement;
   const editorEl = mount.querySelector(".vx-editor") as HTMLElement;
+  const vimStatusEl = mount.querySelector(".vx-vim-status") as HTMLElement;
   const previewEl = mount.querySelector(".vx-preview") as HTMLElement;
   const status = (text: string) => (statusEl.textContent = text);
 
@@ -198,6 +207,55 @@ async function main(mount: HTMLElement): Promise<void> {
   const editorApp = new EditorApp(editorAppConfig);
   await editorApp.start(editorEl);
   const editor = editorApp.getEditor();
+
+  // 5b. Light/dark theme: follows the OS by default, with a manual override
+  //     persisted in localStorage. The Monaco theme is switched in lockstep with
+  //     the shell's `data-theme` (which drives the CSS palette + arborium colors).
+  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)");
+  let manualTheme = localStorage.getItem("vx-theme"); // "light" | "dark" | null
+  const themeNow = (): "light" | "dark" =>
+    manualTheme === "light" || manualTheme === "dark"
+      ? manualTheme
+      : prefersDark.matches
+        ? "dark"
+        : "light";
+  const applyTheme = (theme: "light" | "dark") => {
+    mount.dataset.theme = theme;
+    monaco.editor.setTheme(theme === "dark" ? "vs-dark" : "vs");
+    themeToggle.textContent = theme === "dark" ? "☀️" : "🌙";
+  };
+  applyTheme(themeNow());
+  themeToggle.addEventListener("click", () => {
+    manualTheme = themeNow() === "dark" ? "light" : "dark";
+    localStorage.setItem("vx-theme", manualTheme);
+    applyTheme(manualTheme as "light" | "dark");
+  });
+  prefersDark.addEventListener("change", () => {
+    if (!manualTheme) applyTheme(themeNow());
+  });
+
+  // 5c. Optional Vim mode (monaco-vim), persisted across reloads.
+  let vimMode: { dispose(): void } | null = null;
+  const setVim = (on: boolean) => {
+    if (on && !vimMode && editor) {
+      try {
+        vimMode = initVimMode(editor, vimStatusEl) as { dispose(): void };
+        editorColEl.classList.add("vx-vim");
+        vimToggle.classList.add("vx-on");
+      } catch (err) {
+        console.error("vim mode failed:", err);
+        return;
+      }
+    } else if (!on && vimMode) {
+      vimMode.dispose();
+      vimMode = null;
+      editorColEl.classList.remove("vx-vim");
+      vimToggle.classList.remove("vx-on");
+    }
+    localStorage.setItem("vx-vim", on ? "1" : "");
+  };
+  if (localStorage.getItem("vx-vim")) setVim(true);
+  vimToggle.addEventListener("click", () => setVim(!vimMode));
 
   // 6. LSP over a vox channel (in-process Backend on the host).
   const [c2sTx, c2sRx] = channel<string>();
