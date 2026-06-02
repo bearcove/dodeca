@@ -46,20 +46,28 @@ impl RouterContext for CellRouterContext {
     }
 }
 
-/// Build the forwarded auth identity from a request's `X-Forwarded-*` headers
-/// (set by oauth2-proxy in front of dodeca). `None` if `X-Forwarded-User` is
-/// absent/empty — i.e. unauthenticated. HTTP/header parsing stays in the cell;
-/// the host only ever sees the resolved [`cell_http_proto::Identity`].
+/// Build the forwarded auth identity from a request's oauth2-proxy identity
+/// headers. Prefers the `X-Auth-Request-*` set (what oauth2-proxy emits with
+/// `--set-xauthrequest` in forward-auth / static-upstream mode — the shape the
+/// cluster-wide Traefik forwardAuth gate copies onto the request), falling back
+/// to `X-Forwarded-*` (set by `--pass-user-headers` when oauth2-proxy is an
+/// inline reverse proxy). `None` if no user header is present — i.e.
+/// unauthenticated. HTTP/header parsing stays in the cell; the host only ever
+/// sees the resolved [`cell_http_proto::Identity`].
 fn extract_identity(request: &axum::extract::Request) -> Option<cell_http_proto::Identity> {
     let headers = request.headers();
-    let get = |name: &str| {
-        headers
-            .get(name)
-            .and_then(|v| v.to_str().ok())
-            .map(str::to_string)
+    // First non-empty value among `names`, tried in order.
+    let get = |names: &[&str]| {
+        names.iter().find_map(|name| {
+            headers
+                .get(*name)
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_string)
+                .filter(|v| !v.is_empty())
+        })
     };
-    let user = get("x-forwarded-user").filter(|u| !u.is_empty())?;
-    let groups = get("x-forwarded-groups")
+    let user = get(&["x-auth-request-user", "x-forwarded-user"])?;
+    let groups = get(&["x-auth-request-groups", "x-forwarded-groups"])
         .map(|g| {
             g.split(',')
                 .map(|s| s.trim().to_string())
@@ -69,8 +77,12 @@ fn extract_identity(request: &axum::extract::Request) -> Option<cell_http_proto:
         .unwrap_or_default();
     Some(cell_http_proto::Identity {
         user,
-        email: get("x-forwarded-email").unwrap_or_default(),
-        name: get("x-forwarded-preferred-username").unwrap_or_default(),
+        email: get(&["x-auth-request-email", "x-forwarded-email"]).unwrap_or_default(),
+        name: get(&[
+            "x-auth-request-preferred-username",
+            "x-forwarded-preferred-username",
+        ])
+        .unwrap_or_default(),
         groups,
     })
 }
