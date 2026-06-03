@@ -14,7 +14,7 @@ use crate::harness::run_git;
 
 use dodeca_protocol::{
     BrowserService, BrowserServiceDispatcher, DevtoolsEvent, DevtoolsServiceClient, EditLoad,
-    EditSave, EditSaveReq, EditTokenResponse,
+    EditPreview, EditSave, EditSaveReq, EditTokenResponse,
 };
 use std::path::Path;
 use vox::FromVoxSession;
@@ -273,6 +273,79 @@ pub async fn edit_button_hidden_from_anonymous() {
     resp.assert_ok();
     resp.assert_not_contains("data-n-edit");
     resp.assert_not_contains(">Edit<");
+}
+
+/// The editor PREVIEW must be the *full* served page, not a bare body fragment:
+/// `edit_preview` (serve.rs `preview_overlay`) now runs the SAME head injection
+/// the live serve path runs (`inject_livereload_with_build_info`), but with
+/// `livereload = false`. So the preview HTML carries the unconditionally injected
+/// head assets (copy-button styles, search assets) — proving the injection ran —
+/// while OMITTING the devtools/`/_/ws` client script, which `inject_*` only adds
+/// when `livereload` is true.
+///
+/// This is the oracle for the backend change: the server is spawned with
+/// `livereload = true` (the live `/page/` it serves *does* carry `mount_devtools`),
+/// so the preview lacking it can only mean `preview_overlay` forced the flag off
+/// — not that the assets are globally absent.
+pub async fn preview_is_full_page_without_devtools() {
+    let site = TestSite::with_editor_repo("editor-site", "editor");
+    site.wait_until("page renders", Duration::from_secs(30), async || {
+        let resp = site.get("/page/").await;
+        (resp.status == 200).then_some(())
+    })
+    .await;
+
+    // Sanity: the LIVE serve path (livereload = true) injects the devtools script,
+    // so its absence from the preview below is meaningful (the flag, not a missing
+    // asset).
+    let live = site.get("/page/").await;
+    live.assert_ok();
+    live.assert_contains("mount_devtools");
+
+    let token = edit_token(&site).await;
+    let editor = connect_editor(site.port).await;
+
+    let load = editor
+        .client
+        .edit_load(token.clone(), "/page".to_string())
+        .await
+        .expect("edit_load RPC");
+    let (source_key, _content, _base) = expect_load_ok(load);
+
+    let buffer = "+++\ntitle = \"Editable Page\"\n+++\n\n# Editable Page\n\nLive preview body.\n";
+    let preview = editor
+        .client
+        .edit_preview(token.clone(), source_key, buffer.to_string())
+        .await
+        .expect("edit_preview RPC");
+
+    let html = match preview {
+        EditPreview::Ok { html, .. } => html,
+        other => panic!("expected EditPreview::Ok, got {other:?}"),
+    };
+
+    // (a) The head injection ran: copy-button styles + search assets are
+    //     unconditionally added by `inject_livereload_with_build_info`, and the
+    //     page body text is present (it's the full page, head intact).
+    assert!(
+        html.contains("Live preview body."),
+        "preview should render the overlaid buffer's body, got:\n{html}"
+    );
+    assert!(
+        html.contains(".copy-btn"),
+        "preview should carry the injected copy-button styles, got:\n{html}"
+    );
+    assert!(
+        html.contains("window.__dodecaSources"),
+        "preview should carry the injected search assets, got:\n{html}"
+    );
+
+    // (b) The devtools/`/_/ws` client script is NOT injected (livereload forced
+    //     off for the preview), unlike the live `/page/` checked above.
+    assert!(
+        !html.contains("mount_devtools"),
+        "preview must NOT carry the devtools script (livereload forced off), got:\n{html}"
+    );
 }
 
 /// A genuine optimistic-concurrency conflict: the on-disk file changed since the

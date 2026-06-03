@@ -50,6 +50,12 @@ function normalizeRoute(route: string): string {
   return route.replace(/\/+$/, "") || "/";
 }
 
+/** Parse a full HTML document string into { head, body } inner-HTML strings. */
+function splitDocument(html: string): { head: string; body: string } {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  return { head: doc.head.innerHTML, body: doc.body.innerHTML };
+}
+
 function configureWorkerFactory(logger?: ILogger): void {
   const loaders = defineDefaultWorkerLoaders();
   loaders.TextMateWorker = undefined;
@@ -138,12 +144,17 @@ async function main(mount: HTMLElement): Promise<void> {
   // Tree collapses by default; the toolbar button toggles it.
   treeToggle.addEventListener("click", () => bodyEl.classList.toggle("vx-tree-collapsed"));
 
-  // Preview lives in a shadow root: style-isolated, no iframe, and innerHTML in
-  // a shadow root does not execute scripts — so no sandbox needed.
-  const previewShadow = previewEl.attachShadow({ mode: "open" });
-  const previewDoc = document.createElement("div");
-  previewDoc.className = "vx-doc";
-  previewShadow.appendChild(previewDoc);
+  // Preview lives in a same-origin <iframe> so it renders the full page exactly
+  // as served: the template's <head> (main.css, fonts) plus the injected syntax
+  // CSS / copy-button / search assets / build-info, AND the page's own client JS
+  // runs (e.g. data-timestamp date formatting, components). No sandbox: this is
+  // the user's own trusted, same-origin content and we WANT its scripts to run.
+  const previewFrame = document.createElement("iframe");
+  previewFrame.className = "vx-preview-frame";
+  previewEl.appendChild(previewFrame);
+  // Document inside the iframe; only valid after a srcdoc load has settled.
+  const previewBody = (): HTMLElement | null =>
+    previewFrame.contentDocument?.body ?? null;
 
   // 1. Connect over the devtools websocket (Noop root + DevtoolsService sub-connection).
   status("connecting…");
@@ -286,7 +297,8 @@ async function main(mount: HTMLElement): Promise<void> {
     model: monaco.editor.ITextModel;
     baseline: string; // last-saved content; drives the dirty marker
     base: string; // on-disk blob oid at load/last-save; conflict-detection token
-    prevHtml?: string; // last preview HTML, for hotmeal diffing
+    prevHead?: string; // last preview <head> inner HTML; re-srcdoc when it changes
+    prevBody?: string; // last preview <body> inner HTML, for hotmeal diffing
     highlighter: ArboriumHighlighter; // incremental tree-sitter highlighting
   }
   const tabs = new Map<string, Tab>();
@@ -347,7 +359,12 @@ async function main(mount: HTMLElement): Promise<void> {
   let lineIndex: Array<{ el: HTMLElement; line: number }> = [];
   const rebuildLineIndex = (map: Array<{ sid: string; line: number }>) => {
     const sidToLine = new Map(map.map((s) => [s.sid, s.line]));
-    lineIndex = [...previewDoc.querySelectorAll<HTMLElement>("[data-sid]")]
+    const doc = previewFrame.contentDocument;
+    if (!doc) {
+      lineIndex = [];
+      return;
+    }
+    lineIndex = [...doc.querySelectorAll<HTMLElement>("[data-sid]")]
       .map((el) => ({ el, line: sidToLine.get(el.dataset.sid ?? "") ?? -1 }))
       .filter((x) => x.line > 0)
       .sort((a, b) => a.line - b.line);
@@ -361,8 +378,12 @@ async function main(mount: HTMLElement): Promise<void> {
     if (scrollReset) clearTimeout(scrollReset);
     scrollReset = setTimeout(() => (scrollSource = null), 120) as unknown as number;
   };
+  // The preview scrolls inside its own iframe document, so the geometry is taken
+  // from the iframe's window/document rather than the wrapper element.
+  const previewWin = (): Window | null => previewFrame.contentWindow;
   const syncPreviewToEditor = () => {
-    if (!editor || lineIndex.length === 0) return;
+    const win = previewWin();
+    if (!editor || lineIndex.length === 0 || !win) return;
     const ranges = editor.getVisibleRanges();
     if (ranges.length === 0) return;
     const topLine = ranges[0].startLineNumber;
@@ -370,20 +391,19 @@ async function main(mount: HTMLElement): Promise<void> {
     while (i + 1 < lineIndex.length && lineIndex[i + 1].line <= topLine) i++;
     const cur = lineIndex[i];
     const next = lineIndex[i + 1];
-    const containerTop = previewEl.getBoundingClientRect().top;
-    let delta = cur.el.getBoundingClientRect().top - containerTop;
+    // Element rects are relative to the iframe's own viewport (top = 0).
+    let delta = cur.el.getBoundingClientRect().top;
     if (next && next.line > cur.line) {
       const frac = Math.min(1, Math.max(0, (topLine - cur.line) / (next.line - cur.line)));
       delta += frac * (next.el.getBoundingClientRect().top - cur.el.getBoundingClientRect().top);
     }
-    previewEl.scrollTop += delta;
+    win.scrollBy(0, delta);
   };
   const syncEditorToPreview = () => {
     if (!editor || lineIndex.length === 0) return;
-    const containerTop = previewEl.getBoundingClientRect().top;
     let target = lineIndex[0];
     for (const item of lineIndex) {
-      if (item.el.getBoundingClientRect().top - containerTop <= 0) target = item;
+      if (item.el.getBoundingClientRect().top <= 0) target = item;
       else break;
     }
     editor.setScrollTop(editor.getTopForLineNumber(target.line));
@@ -394,33 +414,59 @@ async function main(mount: HTMLElement): Promise<void> {
     syncPreviewToEditor();
     releaseScrollSoon();
   });
-  previewEl.addEventListener("scroll", () => {
-    if (scrollSource === "editor") return;
-    scrollSource = "preview";
-    syncEditorToPreview();
-    releaseScrollSoon();
-  });
+  // Scroll + click both fire inside the iframe document; (re)attach them
+  // whenever a fresh document is loaded via srcdoc.
+  const attachPreviewHandlers = () => {
+    const win = previewFrame.contentWindow;
+    const doc = previewFrame.contentDocument;
+    win?.addEventListener("scroll", () => {
+      if (scrollSource === "editor") return;
+      scrollSource = "preview";
+      syncEditorToPreview();
+      releaseScrollSoon();
+    });
+    doc?.addEventListener("click", handlePreviewClick);
+  };
 
-  // 8. Split preview — dodeca's real overlay render, live-patched into the
-  //    shadow root with hotmeal (the same diff/patch engine as the served-page
-  //    HMR), so it updates in place with no reload flash.
+  // 8. Split preview — dodeca's real full-page overlay render, shown in the
+  //    same-origin iframe. The first render (and any rare head change) loads the
+  //    whole document via `srcdoc`, so the page's CSS/fonts/JS load exactly as
+  //    served. Per-keystroke updates hotmeal-patch only the iframe's <body> (the
+  //    same diff/patch engine as the served-page HMR), so CSS/JS don't reload
+  //    and there's no flicker.
   await initHotmeal();
   let previewTimer: number | undefined;
+  // Load a full document into the iframe and resolve once it has settled, so the
+  // body / scroll listener are ready to use.
+  const srcdocOnce = (html: string) =>
+    new Promise<void>((resolve) => {
+      previewFrame.addEventListener("load", () => resolve(), { once: true });
+      previewFrame.srcdoc = html;
+    });
   const refreshPreview = async () => {
     const tab = activeTab();
     if (!tab) return;
     const result = await client.editPreview(token, tab.entry.source_key, tab.model.getValue());
     if (result.tag !== "Ok" || tab !== activeTab()) return; // tab switched mid-flight
-    if (tab.prevHtml === undefined) {
-      previewDoc.innerHTML = result.html;
+    const { head, body } = splitDocument(result.html);
+    // First render for this tab, or the <head> changed → reload the whole
+    // document so styles/scripts re-apply. Otherwise patch the body in place.
+    if (tab.prevHead !== head || !previewFrame.contentDocument) {
+      await srcdocOnce(result.html);
+      if (tab !== activeTab()) return; // tab switched while loading
+      attachPreviewHandlers();
     } else {
-      try {
-        apply_patches_json_on_element(diff_html(tab.prevHtml, result.html), previewDoc);
-      } catch {
-        previewDoc.innerHTML = result.html; // fall back to a full replace
+      const root = previewBody();
+      if (root) {
+        try {
+          apply_patches_json_on_element(diff_html(tab.prevBody ?? "", body), root);
+        } catch {
+          root.innerHTML = body; // fall back to a full body replace
+        }
       }
     }
-    tab.prevHtml = result.html;
+    tab.prevHead = head;
+    tab.prevBody = body;
     rebuildLineIndex(result.source_map);
   };
   const schedulePreview = () => {
@@ -434,7 +480,9 @@ async function main(mount: HTMLElement): Promise<void> {
     activeUri = uri;
     if (editor && editor.getModel() !== tab.model) editor.setModel(tab.model);
     routeEl.textContent = tab.entry.route;
-    tab.prevHtml = undefined; // switching files → full render, not a diff
+    // Switching files → fresh full render (re-srcdoc head + body), not a diff.
+    tab.prevHead = undefined;
+    tab.prevBody = undefined;
     renderTabs();
     renderTree();
     editor?.focus();
@@ -484,16 +532,17 @@ async function main(mount: HTMLElement): Promise<void> {
   // Internal links in the preview open an editor tab rather than navigating the
   // whole editor away. cell-html already resolves wiki / @/ / relative links to
   // canonical site routes during rendering, so we just map the rendered route
-  // back to a page and openTab — no href rewriting, no guessing.
+  // back to a page and openTab — no href rewriting, no guessing. The listener is
+  // attached to the iframe document (re)attached on each srcdoc load.
   const routeToEntry = new Map(entries.map((e) => [normalizeRoute(e.route), e]));
-  previewDoc.addEventListener("click", (ev) => {
+  function handlePreviewClick(ev: Event) {
     const a = (ev.target as HTMLElement | null)?.closest?.("a");
     if (!a) return;
     const href = a.getAttribute("href");
     if (!href) return;
     if (href.startsWith("#")) {
       ev.preventDefault();
-      previewDoc.querySelector(href)?.scrollIntoView({ behavior: "smooth" });
+      previewFrame.contentDocument?.querySelector(href)?.scrollIntoView({ behavior: "smooth" });
       return;
     }
     let url: URL;
@@ -517,7 +566,7 @@ async function main(mount: HTMLElement): Promise<void> {
     if (url.protocol === "http:" || url.protocol === "https:") {
       window.open(url.href, "_blank", "noopener");
     }
-  });
+  }
 
   (globalThis as unknown as { __vixen: unknown }).__vixen = {
     editor,

@@ -1169,6 +1169,15 @@ impl SiteServer {
             .map_err(|e| eyre::eyre!("set overlaid sources: {e:?}"))?;
 
         let source_key = source_key.to_string();
+        // Mirror the live serve path's head injection (syntax CSS, copy-button,
+        // search assets, per-page head_injections, build-info) but with
+        // livereload forced off so the preview is the full page WITHOUT the
+        // devtools/`/_/ws` client script.
+        let render_options = RenderOptions {
+            livereload: false,
+            ..self.render_options
+        };
+        let code_results: Vec<_> = self.code_execution_results.read().unwrap().clone();
         crate::db::TASK_DB
             .scope(db, async move {
                 let routes = crate::queries::source_to_route_map(&snapshot)
@@ -1180,10 +1189,35 @@ impl SiteServer {
                 let route = Route::new(route);
                 // The editor preview is the anonymous render (it only reflects
                 // the buffer overlay, not viewer-specific UI).
-                let html = match serve_html(&snapshot, route.clone(), false).await {
-                    Ok(Ok(Some(served))) => served.html,
+                let served = match serve_html(&snapshot, route.clone(), false).await {
+                    Ok(Ok(Some(served))) => served,
                     _ => return Ok(None),
                 };
+                // Dead-link detection set, same as `find_content_inner`.
+                let known_routes: Option<HashSet<String>> = match build_tree(&snapshot).await {
+                    Ok(Ok(site_tree)) => Some(
+                        site_tree
+                            .sections
+                            .keys()
+                            .chain(site_tree.pages.keys())
+                            .map(|r| r.as_str().to_string())
+                            .collect(),
+                    ),
+                    _ => None,
+                };
+                // Run the SAME injection the live serve runs (see
+                // `find_content_inner` ~serve.rs:1941), with `livereload = false`
+                // so the devtools script is skipped but everything else (head
+                // CSS/fonts via the template, syntax CSS, copy-button, search
+                // assets, `served.head_injections`, build-info) is present.
+                let html = inject_livereload_with_build_info(
+                    &served.html,
+                    render_options,
+                    known_routes.as_ref(),
+                    &code_results,
+                    &served.head_injections,
+                )
+                .await;
                 // The page's source map (data-sid → source line) for scroll sync.
                 // Built on the same snapshot, so the sids match the rendered HTML.
                 let source_map = match build_tree(&snapshot).await {
