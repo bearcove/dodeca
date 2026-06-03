@@ -3264,6 +3264,24 @@ fn unique_target(dir: &Utf8Path, filename: &str) -> camino::Utf8PathBuf {
     unreachable!()
 }
 
+/// Integrate remote moves before pushing: the `/_dodeca/pull` webhook, another
+/// editor, or a direct push can advance `origin` between a page's load and its
+/// save, which makes a bare `git push` non-fast-forward ("fetch first"). Fetch +
+/// rebase our commit(s) on top, then push. A failed rebase is a genuine
+/// concurrent edit of the same lines — abort and surface it so the editor can
+/// tell the user to reload and re-apply.
+async fn fetch_rebase_push(repo: &Utf8Path) -> Result<()> {
+    git(repo, &["fetch", "origin"]).await?;
+    let branch = git(repo, &["rev-parse", "--abbrev-ref", "HEAD"]).await?;
+    let upstream = format!("origin/{}", branch.trim());
+    if !git_status(repo, &["rebase", &upstream]).await?.success() {
+        let _ = git(repo, &["rebase", "--abort"]).await;
+        bail!("the page changed upstream while you were editing — reload and re-apply your change");
+    }
+    git(repo, &["push"]).await?;
+    Ok(())
+}
+
 /// Stage, commit (as `identity`), and push a single already-written file.
 async fn commit_path_as_user(
     repo: &Utf8Path,
@@ -3290,7 +3308,7 @@ async fn commit_path_as_user(
         &["-c", &name_cfg, "-c", &email_cfg, "commit", "-m", message],
     )
     .await?;
-    git(repo, &["push"]).await?;
+    fetch_rebase_push(repo).await?;
     Ok(())
 }
 
@@ -3335,8 +3353,8 @@ async fn commit_as_user(
     )
     .await?;
 
+    fetch_rebase_push(repo).await?;
     let hash = git(repo, &["rev-parse", "HEAD"]).await?;
-    git(repo, &["push"]).await?;
     Ok(hash)
 }
 
