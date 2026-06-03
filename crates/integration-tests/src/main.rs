@@ -1011,5 +1011,19 @@ fn collect_tests() -> Vec<Test> {
             func: || boxed(search::search_runtime_assets_served()),
             ignored: false,
         },
+        // editor tests (in-browser editor SAVE over vox-websocket; proves the
+        // fetch-before-push fix in serve.rs commit_as_user)
+        Test {
+            name: "moved_remote_save_succeeds",
+            module: "editor",
+            func: || boxed(editor::moved_remote_save_succeeds()),
+            ignored: false,
+        },
+        Test {
+            name: "stale_base_reports_conflict",
+            module: "editor",
+            func: || boxed(editor::stale_base_reports_conflict()),
+            ignored: false,
+        },
     ]
 }

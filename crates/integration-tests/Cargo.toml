@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 dodeca-search-format = { path = "../dodeca-search-format" }
+dodeca-protocol = { path = "../dodeca-protocol" }
 camino.workspace = true
 facet-json.workspace = true
 facet-value.workspace = true
@@ -21,6 +22,11 @@ owo-colors.workspace = true
 regex.workspace = true
 reqwest = { version = "0.13", default-features = false }
 serde_json.workspace = true
+# vox RPC + websocket transport for the in-browser editor client (mirrors
+# crates/dodeca-devtools, the browser editor). `runtime` carries the client
+# Driver/Caller/Session; vox-websocket gives the native (tokio-tungstenite) link.
+vox.workspace = true
+vox-websocket = "0.8"
 vox-fdpass.workspace = true
 vox-stream.workspace = true
 tempfile.workspace = true

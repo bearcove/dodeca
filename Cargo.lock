@@ -4702,6 +4702,7 @@ name = "integration-tests"
 version = "0.6.1"
 dependencies = [
  "camino",
+ "dodeca-protocol",
  "dodeca-search-format",
  "facet-json",
  "facet-value",
@@ -4718,8 +4719,10 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "ur-taking-me-with-you",
+ "vox 0.8.1",
  "vox-fdpass",
  "vox-stream",
+ "vox-websocket 0.8.1",
 ]
 
 [[package]]

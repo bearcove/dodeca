@@ -10,6 +10,7 @@ pub mod cache_busting;
 pub mod code_execution;
 pub mod content;
 pub mod dead_links;
+pub mod editor;
 pub mod error_detection;
 pub mod frontmatter_schemas;
 pub mod internal_links;

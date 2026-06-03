@@ -1,0 +1,5 @@
+.cache/
+public/
+.origin.git/
+.clone-concurrent/
+.clone-verify/

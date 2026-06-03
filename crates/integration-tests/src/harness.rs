@@ -310,6 +310,70 @@ pub struct TestSite {
     test_id: u64,
 }
 
+/// Initialize the copied fixture as a git repo tracking a bare `origin` remote.
+///
+/// Lays out, all inside the fixture temp dir (so it's cleaned up with the site):
+/// - `<fixture>/.git`     — the served working checkout
+/// - `<fixture>/.origin.git` — a bare repo registered as `origin` (gitignored)
+///
+/// Commits the fixture content to `main`, then `git push -u origin main`. The
+/// editor's git operations (`commit_as_user` → `fetch_rebase_push`) run against
+/// this `origin`; a test can clone `.origin.git` again to push a concurrent
+/// commit and exercise the non-fast-forward path.
+fn init_git_with_origin(fixture_dir: &Path) {
+    let bare = fixture_dir.join(".origin.git");
+    run_git(fixture_dir, &["init", "-b", "main"]);
+    run_git(fixture_dir, &["add", "-A"]);
+    run_git(
+        fixture_dir,
+        &[
+            "-c",
+            "user.email=fixture@localhost",
+            "-c",
+            "user.name=fixture",
+            "commit",
+            "-m",
+            "initial fixture content",
+        ],
+    );
+    run_git(
+        bare.parent().unwrap(),
+        &["init", "--bare", bare.to_str().expect("utf8 origin path")],
+    );
+    run_git(
+        fixture_dir,
+        &[
+            "remote",
+            "add",
+            "origin",
+            bare.to_str().expect("utf8 origin path"),
+        ],
+    );
+    run_git(fixture_dir, &["push", "-u", "origin", "main"]);
+}
+
+/// Run `git -C <cwd> <args>`, panicking with stderr on failure. Used only by the
+/// harness's fixture-repo setup (the dev-editor save tests).
+pub fn run_git(cwd: &Path, args: &[&str]) -> String {
+    let output = StdCommand::new("git")
+        .arg("-C")
+        .arg(cwd)
+        .args(args)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+        .unwrap_or_else(|e| panic!("spawn git {args:?} in {}: {e}", cwd.display()));
+    if !output.status.success() {
+        panic!(
+            "git {args:?} in {} failed:\n{}",
+            cwd.display(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
 fn fixture_root_dir() -> PathBuf {
     if let Ok(base) = std::env::var("DODECA_TEST_FIXTURES_DIR") {
         return PathBuf::from(base);
@@ -355,6 +419,26 @@ impl TestSite {
         Self::from_source_with_setup(&src, &[], setup)
     }
 
+    /// Create a new test site from a fixture, served as a git repo behind the
+    /// in-browser editor.
+    ///
+    /// Turns the copied fixture source into a git repository whose `main` branch
+    /// tracks a **bare `origin`** remote, then spawns `ddc serve --dev-editor
+    /// <user>` so the editor RPC works without an oauth2-proxy in front (the
+    /// `<user>` becomes the editing identity, e.g. its commits are authored as
+    /// `<user> <user@localhost>`). The bare origin lets a test simulate a
+    /// concurrent push (advancing `origin/main`) between an editor load and save
+    /// — the scenario the "fetch before push" fix in `commit_as_user` handles.
+    pub fn with_editor_repo(fixture_name: &str, dev_user: &str) -> Self {
+        let src = fixture_source_dir(fixture_name);
+        Self::from_source_with_setup_and_editor(
+            &src,
+            &[],
+            init_git_with_origin,
+            Some(dev_user.to_string()),
+        )
+    }
+
     /// Create a new test site from an arbitrary source directory
     pub fn from_source(src: &Path) -> Self {
         Self::from_source_with_files(src, &[])
@@ -366,6 +450,18 @@ impl TestSite {
     }
 
     fn from_source_with_setup<F>(src: &Path, files: &[(&str, &str)], setup: F) -> Self
+    where
+        F: FnOnce(&Path),
+    {
+        Self::from_source_with_setup_and_editor(src, files, setup, None)
+    }
+
+    fn from_source_with_setup_and_editor<F>(
+        src: &Path,
+        files: &[(&str, &str)],
+        setup: F,
+        dev_editor: Option<String>,
+    ) -> Self
     where
         F: FnOnce(&Path),
     {
@@ -448,13 +544,20 @@ impl TestSite {
         });
 
         let ddc = ddc_binary();
-        let ddc_args = [
+        let mut ddc_args: Vec<&str> = vec![
             "serve",
             &fixture_str,
             "--no-tui",
             "--fd-socket",
             &control_channel_path,
         ];
+        // `--dev-editor <user>` bypasses oauth2-proxy so the in-browser editor RPC
+        // works without forwarded auth headers; `<user>` becomes the editing
+        // identity. Refused on a non-loopback bind, so it's local-test only.
+        if let Some(user) = dev_editor.as_deref() {
+            ddc_args.push("--dev-editor");
+            ddc_args.push(user);
+        }
 
         // Build command, optionally wrapping with DODECA_TEST_WRAPPER
         let mut cmd = if let Some(wrapper_parts) = test_wrapper() {
@@ -464,12 +567,12 @@ impl TestSite {
             let mut cmd = StdCommand::new(wrapper_cmd);
             cmd.args(wrapper_args);
             cmd.arg(&ddc);
-            cmd.args(ddc_args);
+            cmd.args(&ddc_args);
             debug!(wrapper = %wrapper_cmd, "Using test wrapper");
             cmd
         } else {
             let mut cmd = StdCommand::new(&ddc);
-            cmd.args(ddc_args);
+            cmd.args(&ddc_args);
             cmd
         };
 
@@ -495,6 +598,16 @@ impl TestSite {
         // Enable death-watch so ddc (and its cells) die when the test process dies.
         // This prevents orphan accumulation when tests are killed or crash.
         cmd.env("DODECA_DIE_WITH_PARENT", "1");
+
+        // Editor mode: deny ddc any ambient git identity, reproducing the
+        // deployed pod (which has none — commits are made with per-call `-c`).
+        // This makes the editor-save test a real oracle for the rebase
+        // committer-identity path in fetch_rebase_push; without it the test
+        // would pass spuriously on a dev machine that has a global git user.
+        if dev_editor.is_some() {
+            cmd.env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_SYSTEM", "/dev/null");
+        }
 
         // Platform-specific: set up control channel listener before spawning
         #[cfg(unix)]

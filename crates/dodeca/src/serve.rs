@@ -3270,11 +3270,30 @@ fn unique_target(dir: &Utf8Path, filename: &str) -> camino::Utf8PathBuf {
 /// rebase our commit(s) on top, then push. A failed rebase is a genuine
 /// concurrent edit of the same lines — abort and surface it so the editor can
 /// tell the user to reload and re-apply.
-async fn fetch_rebase_push(repo: &Utf8Path) -> Result<()> {
+async fn fetch_rebase_push(repo: &Utf8Path, identity: &cell_http_proto::Identity) -> Result<()> {
     git(repo, &["fetch", "origin"]).await?;
     let branch = git(repo, &["rev-parse", "--abbrev-ref", "HEAD"]).await?;
     let upstream = format!("origin/{}", branch.trim());
-    if !git_status(repo, &["rebase", &upstream]).await?.success() {
+    // Replaying our commit onto the moved upstream writes a *new* commit, so the
+    // rebase needs a committer identity — and the serve runtime has no global git
+    // identity (commits are made with a per-call `-c`). Pass one here too:
+    // committer = the editing user, matching the author git preserves across the
+    // rebase. Without this the rebase aborts with "committer identity unknown" in
+    // a clean container.
+    let name = if identity.name.trim().is_empty() {
+        identity.user.as_str()
+    } else {
+        identity.name.as_str()
+    };
+    let name_cfg = format!("user.name={name}");
+    let email_cfg = format!("user.email={}", identity.email);
+    if !git_status(
+        repo,
+        &["-c", &name_cfg, "-c", &email_cfg, "rebase", &upstream],
+    )
+    .await?
+    .success()
+    {
         let _ = git(repo, &["rebase", "--abort"]).await;
         bail!("the page changed upstream while you were editing — reload and re-apply your change");
     }
@@ -3308,7 +3327,7 @@ async fn commit_path_as_user(
         &["-c", &name_cfg, "-c", &email_cfg, "commit", "-m", message],
     )
     .await?;
-    fetch_rebase_push(repo).await?;
+    fetch_rebase_push(repo, identity).await?;
     Ok(())
 }
 
@@ -3353,7 +3372,7 @@ async fn commit_as_user(
     )
     .await?;
 
-    fetch_rebase_push(repo).await?;
+    fetch_rebase_push(repo, identity).await?;
     let hash = git(repo, &["rev-parse", "HEAD"]).await?;
     Ok(hash)
 }
