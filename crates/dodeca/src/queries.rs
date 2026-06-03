@@ -2573,21 +2573,33 @@ pub async fn serve_html<DB: Db>(
         Err(errors) => return Ok(Err(BuildError { errors }.into())),
     };
 
-    // Check if route exists in site tree and collect head_injections
-    let head_injections = if let Some(section) = site_tree.sections.get(&route) {
-        section.head_injections.clone()
-    } else if let Some(page) = site_tree.pages.get(&route) {
-        page.head_injections.clone()
+    // Render THIS route's raw HTML directly — one route, not the whole site.
+    // The route set and link indexes are parse-derived (build_tree /
+    // source_to_route_map), so a single page resolves its own links without any
+    // other page being rendered. `base_route` is the page's section route (the
+    // route itself for a section); it's what relative links resolve against.
+    let (head_injections, raw_html, base_route) = if site_tree.sections.contains_key(&route) {
+        let head = site_tree
+            .sections
+            .get(&route)
+            .unwrap()
+            .head_injections
+            .clone();
+        let html = match render_section(db, route.clone()).await? {
+            Ok(RenderedHtml(html)) => html,
+            Err(e) => return Ok(Err(e)),
+        };
+        (head, html, route.as_str().to_string())
+    } else if site_tree.pages.contains_key(&route) {
+        let page = site_tree.pages.get(&route).unwrap();
+        let head = page.head_injections.clone();
+        let base = page.section_route.as_str().to_string();
+        let html = match render_page(db, route.clone()).await? {
+            Ok(RenderedHtml(html)) => html,
+            Err(e) => return Ok(Err(e)),
+        };
+        (head, html, base)
     } else {
-        return Ok(Ok(None));
-    };
-
-    // Get the raw HTML for this route
-    let all_html = match all_rendered_html(db).await? {
-        Ok(html) => html,
-        Err(e) => return Ok(Err(e)),
-    };
-    let Some(raw_html) = all_html.pages.get(&route).cloned() else {
         return Ok(Ok(None));
     };
 
@@ -2720,14 +2732,22 @@ pub async fn serve_html<DB: Db>(
         }
     }
 
-    // Process HTML in a single pass via the HTML cell:
+    // Process HTML in a single html-cell pass:
+    // - Resolve @/ internal links, [[wiki]] links, and relative links
     // - Inject CSS links for Vite entry points
     // - Rewrite URLs (transforms /src/monaco/main.ts -> /monaco.xxx.js)
     // - Transform <img> to <picture> for responsive images
+    // The link indexes are parse-derived: source_to_route_map (memoized) and a
+    // per-page wiki map from WikiLinkIndex over the already-built site_tree.
+    let source_to_route = source_to_route_map(db).await?;
+    let wiki_to_route = WikiLinkIndex::build(&site_tree).resolved_for(route.as_str());
     let process_options = crate::url_rewrite::HtmlProcessOptions {
         path_map: Some(path_map),
         vite_css_map: Some(vite_css_map),
         image_variants: Some(image_variants),
+        source_to_route: Some(source_to_route),
+        wiki_to_route: Some(wiki_to_route),
+        base_route: Some(base_route),
         ..Default::default()
     };
 
