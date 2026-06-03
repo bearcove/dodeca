@@ -50,6 +50,28 @@ impl ContentService for HostContentService {
             };
         }
 
+        // Well-known editor-token endpoint: a verified editor mints an
+        // identity-scoped session token here, as JSON (facet-json), instead of
+        // scraping the shell's `data-token`. Identity-scoped, so no page route is
+        // needed. Same gate as the shell — fail closed for non-editors.
+        if path == "/_dodeca/edit-token" {
+            return match self.server.mint_edit_token(identity.as_ref()) {
+                Some(token) => {
+                    let body = facet_json::to_string(&dodeca_protocol::EditTokenResponse { token })
+                        .unwrap_or_else(|_| "{}".to_string());
+                    ServeContent::StaticNoCache {
+                        content: body.into_bytes(),
+                        mime: "application/json; charset=utf-8".to_string(),
+                        generation,
+                    }
+                }
+                None => ServeContent::NotFound {
+                    html: "<!doctype html><title>not found</title>not found".to_string(),
+                    generation,
+                },
+            };
+        }
+
         // In-browser editor shell. Fail closed: mint a token only for a verified
         // editor; anyone else is treated as if the page doesn't exist (we don't
         // reveal that it's editable). Unauthenticated requests behind the proxy

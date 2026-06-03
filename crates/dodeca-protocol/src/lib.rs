@@ -245,6 +245,15 @@ pub enum EditUpload {
     Error { message: String },
 }
 
+/// Response of the well-known editor-token endpoint (`GET /_dodeca/edit-token`):
+/// an identity-scoped session token minted for a verified editor, as JSON. The
+/// editor frontend and the integration harness fetch it here instead of
+/// scraping the shell's `data-token` attribute.
+#[derive(Debug, Clone, PartialEq, Facet)]
+pub struct EditTokenResponse {
+    pub token: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Facet)]
 pub struct EditSaveReq {
     /// Mount-prefixed source key (from `edit_load`).
