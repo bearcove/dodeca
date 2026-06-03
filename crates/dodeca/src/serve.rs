@@ -1148,19 +1148,30 @@ impl SiteServer {
             .ok()
             .flatten()
             .unwrap_or_default();
-        let overlaid = SourceFile::new(
-            &snapshot,
-            crate::types::SourcePath::new(source_key.to_string()),
-            crate::types::SourceContent::new(buffer.to_string()),
-            0,
-        )
-        .map_err(|e| eyre::eyre!("overlay source file: {e:?}"))?;
         let pos = sources.iter().position(|s| {
             s.path(&snapshot)
                 .ok()
                 .map(|p| p.as_str() == source_key)
                 .unwrap_or(false)
         });
+        // Preserve the original file's mtime so the preview's "updated" date
+        // matches the live page — an unsaved edit doesn't change it. A brand-new
+        // file (not yet in the registry) gets "now". (Passing 0 here is what made
+        // the preview read "56 years ago" — the Unix epoch.)
+        let last_modified = match pos {
+            Some(p) => sources[p].last_modified(&snapshot).unwrap_or(0),
+            None => std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0),
+        };
+        let overlaid = SourceFile::new(
+            &snapshot,
+            crate::types::SourcePath::new(source_key.to_string()),
+            crate::types::SourceContent::new(buffer.to_string()),
+            last_modified,
+        )
+        .map_err(|e| eyre::eyre!("overlay source file: {e:?}"))?;
         match pos {
             Some(pos) => sources[pos] = overlaid,
             None => sources.push(overlaid),
