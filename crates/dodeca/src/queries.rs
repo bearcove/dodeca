@@ -2332,6 +2332,21 @@ pub async fn global_char_set<DB: Db>(db: &DB) -> PicanteResult<CharSet> {
         }
     }
 
+    // Always include the Latin blocks (Basic Latin, Latin-1 Supplement, Latin
+    // Extended-A) regardless of content. Subsetting exists to trim *enormous*
+    // fonts (CJK / full-Unicode coverage); Latin is a rounding error by
+    // comparison. Including it unconditionally keeps font subsetting purely on
+    // the anonymous content render (no per-viewer coupling) while still covering
+    // per-viewer UI chrome — e.g. the editor's "Edit"/"Save" text, which never
+    // appears in that anonymous render — plus any Western-European text added
+    // later. The subsetter simply ignores codepoints a given font lacks.
+    for c in ('\u{20}'..='\u{7e}')
+        .chain('\u{a0}'..='\u{ff}')
+        .chain('\u{100}'..='\u{17f}')
+    {
+        chars.insert(c);
+    }
+
     // Sort for deterministic output
     let mut sorted: Vec<char> = chars.into_iter().collect();
     sorted.sort();
