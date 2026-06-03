@@ -31,7 +31,7 @@ fn collect_hrefs(doc: &Document, node_id: NodeId, hrefs: &mut Vec<String>) {
 }
 
 /// Test that @/ links in list items are resolved correctly
-pub fn at_links_in_list_items_resolved() {
+pub async fn at_links_in_list_items_resolved() {
     let site = TestSite::new("sample-site");
 
     site.write_file(
@@ -47,9 +47,9 @@ title: Link Test
 "#,
     );
 
-    site.wait_debounce();
+    site.wait_debounce().await;
 
-    let html = site.get("/link-test/");
+    let html = site.get("/link-test/").await;
     html.assert_ok();
 
     let tendril = StrTendril::from(html.text());
@@ -74,7 +74,7 @@ title: Link Test
 }
 
 /// Test that @/ links in paragraphs are resolved correctly
-pub fn at_links_in_paragraphs_resolved() {
+pub async fn at_links_in_paragraphs_resolved() {
     let site = TestSite::new("sample-site");
 
     site.write_file(
@@ -89,9 +89,9 @@ See also [getting started](@/guide/_index.md#getting-started) for quick setup.
 "#,
     );
 
-    site.wait_debounce();
+    site.wait_debounce().await;
 
-    let html = site.get("/para-link-test/");
+    let html = site.get("/para-link-test/").await;
     html.assert_ok();
 
     let tendril = StrTendril::from(html.text());
@@ -122,7 +122,7 @@ See also [getting started](@/guide/_index.md#getting-started) for quick setup.
 }
 
 /// Test that relative .md links are resolved correctly
-pub fn relative_md_links_resolved() {
+pub async fn relative_md_links_resolved() {
     let site = TestSite::new("sample-site");
 
     // Create a page that links to a sibling
@@ -146,9 +146,9 @@ This is page B.
 "#,
     );
 
-    site.wait_debounce();
+    site.wait_debounce().await;
 
-    let html = site.get("/guide/page-a/");
+    let html = site.get("/guide/page-a/").await;
     html.assert_ok();
 
     let tendril = StrTendril::from(html.text());
@@ -170,7 +170,7 @@ This is page B.
 }
 
 /// Test that wiki-style links resolve through the site title/slug index
-pub fn wiki_links_resolved() {
+pub async fn wiki_links_resolved() {
     let site = TestSite::with_files(
         "sample-site",
         &[
@@ -204,7 +204,7 @@ See [[Company]] and [[Repository Map|repo map]].
         ],
     );
 
-    let html = site.get("/wiki-link-test/");
+    let html = site.get("/wiki-link-test/").await;
     html.assert_ok();
 
     let tendril = StrTendril::from(html.text());
@@ -230,7 +230,7 @@ See [[Company]] and [[Repository Map|repo map]].
 }
 
 /// Test that missing wiki links render as dead links instead of failing the build.
-pub fn missing_wiki_link_renders_dead_link() {
+pub async fn missing_wiki_link_renders_dead_link() {
     let site = TestSite::with_files(
         "sample-site",
         &[(
@@ -244,7 +244,7 @@ See [[Missing Page]].
         )],
     );
 
-    let html = site.get("/missing-wiki-link/");
+    let html = site.get("/missing-wiki-link/").await;
     html.assert_ok();
     html.assert_contains(r#"href="dodeca-wiki:missing-page""#);
     html.assert_contains(r#"data-wiki-target="Missing Page""#);
@@ -252,7 +252,7 @@ See [[Missing Page]].
 }
 
 /// Test that missing wiki links do not fail static builds.
-pub fn missing_wiki_link_builds_successfully() {
+pub async fn missing_wiki_link_builds_successfully() {
     let site = InlineSite::new(&[(
         "_index.md",
         r#"---
@@ -267,7 +267,7 @@ See [[Missing Page]].
 }
 
 /// Test that ambiguous wiki links render as dead links instead of failing the build.
-pub fn ambiguous_wiki_link_renders_dead_link() {
+pub async fn ambiguous_wiki_link_renders_dead_link() {
     let site = TestSite::with_files(
         "sample-site",
         &[
@@ -301,7 +301,7 @@ B.
         ],
     );
 
-    let html = site.get("/wiki-ambiguous/");
+    let html = site.get("/wiki-ambiguous/").await;
     html.assert_ok();
     html.assert_contains(r#"href="dodeca-wiki:shared""#);
     html.assert_contains(r#"data-wiki-target="Shared""#);
@@ -309,7 +309,7 @@ B.
 }
 
 /// Test that ambiguous wiki links do not fail static builds.
-pub fn ambiguous_wiki_link_builds_successfully() {
+pub async fn ambiguous_wiki_link_builds_successfully() {
     let site = InlineSite::new(&[
         (
             "_index.md",

@@ -1,6 +1,6 @@
 use super::*;
 
-pub fn rendered_markdown_route_returns_markdown() {
+pub async fn rendered_markdown_route_returns_markdown() {
     let site = TestSite::with_files(
         "sample-site",
         &[
@@ -27,7 +27,7 @@ title = "Target Page"
         ],
     );
 
-    let markdown = site.get("/source.md");
+    let markdown = site.get("/source.md").await;
     markdown.assert_ok();
     markdown.assert_content_type("text/markdown; charset=utf-8");
     markdown.assert_contains("title = \"Source\"");

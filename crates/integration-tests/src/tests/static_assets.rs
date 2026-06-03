@@ -1,20 +1,20 @@
 use super::*;
 
-pub fn svg_files_served() {
+pub async fn svg_files_served() {
     let site = TestSite::new("sample-site");
-    let html = site.get("/");
+    let html = site.get("/").await;
     let svg_url = html.img_src("/images/test.*.svg");
 
     if let Some(url) = svg_url {
-        let svg = site.get(&url);
+        let svg = site.get(&url).await;
         svg.assert_ok();
         svg.assert_contains("<svg");
     }
 }
 
-pub fn js_files_cache_busted() {
+pub async fn js_files_cache_busted() {
     let site = TestSite::new("sample-site");
-    let html = site.get("/");
+    let html = site.get("/").await;
 
     if html.text().contains("/js/main.") {
         let has_hash = html.text().contains("/js/main.") && html.text().contains(".js");
@@ -22,31 +22,31 @@ pub fn js_files_cache_busted() {
     }
 }
 
-pub fn static_files_served_directly() {
+pub async fn static_files_served_directly() {
     let site = TestSite::new("sample-site");
     site.write_file("static/test.txt", "Hello, World!");
-    site.wait_debounce();
-    std::thread::sleep(Duration::from_secs(1));
+    site.wait_debounce().await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
 
-    let resp = site.get("/test.txt");
+    let resp = site.get("/test.txt").await;
     assert!(
         resp.status == 200 || resp.status == 404,
         "Static file response should be valid"
     );
 }
 
-pub fn image_files_processed() {
+pub async fn image_files_processed() {
     let site = TestSite::new("sample-site");
-    let html = site.get("/");
+    let html = site.get("/").await;
 
     if let Some(svg_url) = html.img_src("/images/test.*.svg") {
-        let svg = site.get(&svg_url);
+        let svg = site.get(&svg_url).await;
         svg.assert_ok();
     }
 }
 
 #[cfg(unix)]
-pub fn symlinked_static_files_are_served() {
+pub async fn symlinked_static_files_are_served() {
     use std::os::unix::fs as unix_fs;
 
     let site = TestSite::with_setup("sample-site", |fixture_dir| {
@@ -69,16 +69,16 @@ pub fn symlinked_static_files_are_served() {
         std::fs::write(&css_path, css).expect("write stylesheet");
     });
 
-    let html = site.get("/");
+    let html = site.get("/").await;
     let css_url = html
         .css_link("/css/style.*.css")
         .expect("CSS link should exist");
-    let css = site.get(&css_url);
+    let css = site.get(&css_url).await;
     let font_url = css.extract(r#"url\(['"]?(/fonts/iosevka\.[^'")\s]+\.woff2)['"]?\)"#);
     assert!(
         font_url.is_some(),
         "Symlinked font URL should be cache-busted in CSS: {}",
         css.text()
     );
-    site.get(font_url.as_ref().unwrap()).assert_ok();
+    site.get(font_url.as_ref().unwrap()).await.assert_ok();
 }

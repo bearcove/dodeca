@@ -19,6 +19,7 @@ fs-err.workspace = true
 globset.workspace = true
 owo-colors.workspace = true
 regex.workspace = true
+reqwest = { version = "0.13", default-features = false }
 serde_json.workspace = true
 vox-fdpass.workspace = true
 vox-stream.workspace = true
@@ -27,7 +28,6 @@ tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 tower-lsp.workspace = true
-ureq.workspace = true
 ur-taking-me-with-you.workspace = true
 
 [dev-dependencies]

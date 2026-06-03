@@ -1,6 +1,6 @@
 use super::*;
 
-pub fn dead_links_marked_in_html() {
+pub async fn dead_links_marked_in_html() {
     let site = TestSite::new("sample-site");
 
     site.write_file(
@@ -13,17 +13,17 @@ Check out [this broken link](/nonexistent-page/).
 "#,
     );
 
-    site.wait_debounce();
+    site.wait_debounce().await;
 
-    let html = site.get("/dead-link-test/");
+    let html = site.get("/dead-link-test/").await;
     html.assert_ok();
     html.assert_contains("data-dead");
 }
 
-pub fn valid_links_not_marked_dead() {
+pub async fn valid_links_not_marked_dead() {
     let site = TestSite::new("sample-site");
 
-    let html = site.get("/");
+    let html = site.get("/").await;
     html.assert_ok();
 
     if html.text().contains("/guide/") {

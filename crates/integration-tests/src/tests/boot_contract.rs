@@ -8,12 +8,12 @@ use super::*;
 /// 1. The accept loop starts accepting immediately
 /// 2. Connection handlers wait for boot to complete
 /// 3. Requests succeed after boot completes
-pub fn immediate_request_after_fd_pass_succeeds() {
+pub async fn immediate_request_after_fd_pass_succeeds() {
     // Normal site with all cells - the server should boot successfully
     let site = TestSite::new("sample-site");
 
     // Make a request immediately - should succeed even if server is still booting
-    let resp = site.get("/");
+    let resp = site.get("/").await;
 
     // The request should succeed (200 OK)
     resp.assert_ok();

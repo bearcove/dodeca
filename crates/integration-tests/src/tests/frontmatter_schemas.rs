@@ -27,7 +27,7 @@ page-types {
 }
 "#;
 
-pub fn typed_frontmatter_link_to_same_type_passes() {
+pub async fn typed_frontmatter_link_to_same_type_passes() {
     let site = TestSite::with_files(
         "sample-site",
         &[
@@ -61,10 +61,10 @@ supersedes = ["decision-a"]
         ],
     );
 
-    site.get("/decision-b/").assert_ok();
+    site.get("/decision-b/").await.assert_ok();
 }
 
-pub fn typed_frontmatter_missing_link_reports_error() {
+pub async fn typed_frontmatter_missing_link_reports_error() {
     let site = TestSite::with_files(
         "sample-site",
         &[
@@ -85,12 +85,12 @@ supersedes = ["missing-decision"]
         ],
     );
 
-    let html = site.get("/decision-b/");
+    let html = site.get("/decision-b/").await;
     html.assert_ok();
     html.assert_contains("target 'missing-decision' not found for type Decision");
 }
 
-pub fn typed_frontmatter_wrong_target_type_reports_error() {
+pub async fn typed_frontmatter_wrong_target_type_reports_error() {
     let site = TestSite::with_files(
         "sample-site",
         &[
@@ -123,12 +123,12 @@ supersedes = ["note-a"]
         ],
     );
 
-    let html = site.get("/decision-b/");
+    let html = site.get("/decision-b/").await;
     html.assert_ok();
     html.assert_contains("target 'note-a' has wrong type; expected Decision");
 }
 
-pub fn toml_scalar_status_validates_against_unit_enum() {
+pub async fn toml_scalar_status_validates_against_unit_enum() {
     let site = TestSite::with_files(
         "sample-site",
         &[
@@ -149,10 +149,10 @@ Vision body.
         ],
     );
 
-    site.get("/vision/").assert_ok();
+    site.get("/vision/").await.assert_ok();
 }
 
-pub fn toml_scalar_status_rejects_unknown_enum_variant() {
+pub async fn toml_scalar_status_rejects_unknown_enum_variant() {
     let site = TestSite::with_files(
         "sample-site",
         &[
@@ -173,14 +173,14 @@ Vision body.
         ],
     );
 
-    let html = site.get("/vision/");
+    let html = site.get("/vision/").await;
     html.assert_ok();
     html.assert_contains("frontmatter schema 'Vision'");
     html.assert_contains("unknown enum variant");
     html.assert_contains("bogus");
 }
 
-pub fn yaml_tagged_status_validates_against_unit_enum() {
+pub async fn yaml_tagged_status_validates_against_unit_enum() {
     let site = TestSite::with_files(
         "sample-site",
         &[
@@ -200,5 +200,5 @@ Vision body.
         ],
     );
 
-    site.get("/vision/").assert_ok();
+    site.get("/vision/").await.assert_ok();
 }

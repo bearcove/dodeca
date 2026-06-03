@@ -36,7 +36,7 @@ build_steps {
 "#;
 
 /// Basic build step execution - command without parameters
-pub fn build_step_basic_command() {
+pub async fn build_step_basic_command() {
     let site = TestSite::with_files(
         "sample-site",
         &[
@@ -57,14 +57,14 @@ pub fn build_step_basic_command() {
         ],
     );
 
-    let html = site.get("/");
+    let html = site.get("/").await;
     html.assert_ok();
     html.assert_contains("Build output:");
     html.assert_contains("hello-from-build-step");
 }
 
 /// Build step that reads a file (no command, just @file param)
-pub fn build_step_read_file() {
+pub async fn build_step_read_file() {
     let site = TestSite::with_files(
         "sample-site",
         &[
@@ -86,13 +86,13 @@ pub fn build_step_read_file() {
         ],
     );
 
-    let html = site.get("/");
+    let html = site.get("/").await;
     html.assert_ok();
     html.assert_contains("Hello from data file!");
 }
 
 /// Build step with command that uses file parameter
-pub fn build_step_command_with_file_param() {
+pub async fn build_step_command_with_file_param() {
     let site = TestSite::with_files(
         "sample-site",
         &[
@@ -114,7 +114,7 @@ pub fn build_step_command_with_file_param() {
         ],
     );
 
-    let html = site.get("/");
+    let html = site.get("/").await;
     html.assert_ok();
     // wc -w outputs the count (5 words)
     html.assert_contains("Word count:");
@@ -128,7 +128,7 @@ pub fn build_step_command_with_file_param() {
 }
 
 /// Build step with string parameter
-pub fn build_step_string_param() {
+pub async fn build_step_string_param() {
     let site = TestSite::with_files(
         "sample-site",
         &[
@@ -149,13 +149,13 @@ pub fn build_step_string_param() {
         ],
     );
 
-    let html = site.get("/");
+    let html = site.get("/").await;
     html.assert_ok();
     html.assert_contains("test-output-123");
 }
 
 /// In-build caching - same step called multiple times should only execute once
-pub fn build_step_caching_same_call() {
+pub async fn build_step_caching_same_call() {
     let site = TestSite::with_files(
         "sample-site",
         &[
@@ -181,7 +181,7 @@ pub fn build_step_caching_same_call() {
     // Record log cursor before request
     let cursor = site.log_cursor();
 
-    let html = site.get("/");
+    let html = site.get("/").await;
     html.assert_ok();
 
     // All three should show the same output
@@ -209,7 +209,7 @@ pub fn build_step_caching_same_call() {
 }
 
 /// Caching with file params - different files should execute separately
-pub fn build_step_caching_different_files() {
+pub async fn build_step_caching_different_files() {
     let site = TestSite::with_files(
         "sample-site",
         &[
@@ -233,7 +233,7 @@ pub fn build_step_caching_different_files() {
         ],
     );
 
-    let html = site.get("/");
+    let html = site.get("/").await;
     html.assert_ok();
 
     // file1.txt has 3 words, file2.txt has 5 words
@@ -246,7 +246,7 @@ pub fn build_step_caching_different_files() {
 
 /// Cache key uses file hash - verified by build_step_caching_different_files test
 /// This test verifies that the same step with same params returns cached result
-pub fn build_step_cache_consistency() {
+pub async fn build_step_cache_consistency() {
     let site = TestSite::with_files(
         "sample-site",
         &[
@@ -270,7 +270,7 @@ pub fn build_step_cache_consistency() {
     );
 
     // Both reads should return the same content
-    let html = site.get("/");
+    let html = site.get("/").await;
     html.assert_ok();
 
     // Count occurrences - should have exactly 2
@@ -284,7 +284,7 @@ pub fn build_step_cache_consistency() {
 }
 
 /// Built-in read function works independently of build steps
-pub fn builtin_read_function() {
+pub async fn builtin_read_function() {
     let site = TestSite::with_files(
         "sample-site",
         &[
@@ -306,13 +306,13 @@ pub fn builtin_read_function() {
         ],
     );
 
-    let html = site.get("/");
+    let html = site.get("/").await;
     html.assert_ok();
     html.assert_contains("This is readme content.");
 }
 
 /// Error handling - unknown build step
-pub fn build_step_unknown_step_error() {
+pub async fn build_step_unknown_step_error() {
     let site = TestSite::with_files(
         "sample-site",
         &[
@@ -333,7 +333,7 @@ pub fn build_step_unknown_step_error() {
         ],
     );
 
-    let html = site.get("/");
+    let html = site.get("/").await;
     // The page should still render, but with an error message in place of the result
     html.assert_ok();
     let body = html.text();
@@ -345,7 +345,7 @@ pub fn build_step_unknown_step_error() {
 }
 
 /// Error handling - missing required parameter
-pub fn build_step_missing_param_error() {
+pub async fn build_step_missing_param_error() {
     let site = TestSite::with_files(
         "sample-site",
         &[
@@ -366,7 +366,7 @@ pub fn build_step_missing_param_error() {
         ],
     );
 
-    let html = site.get("/");
+    let html = site.get("/").await;
     html.assert_ok();
     let body = html.text();
     assert!(

@@ -369,7 +369,7 @@ fn page_routes(pages: &Value) -> Vec<String> {
         .collect()
 }
 
-pub fn lsp_lists_pages_over_stdio() {
+pub async fn lsp_lists_pages_over_stdio() {
     let site = LspSite::new();
     let mut client = site.client();
 
@@ -380,7 +380,7 @@ pub fn lsp_lists_pages_over_stdio() {
     assert!(routes.iter().any(|route| route == "/guide/intro"));
 }
 
-pub fn lsp_uses_open_document_overlays() {
+pub async fn lsp_uses_open_document_overlays() {
     let site = LspSite::new();
     let mut client = site.client();
     let uri = site.uri("content/draft.md");
@@ -403,7 +403,7 @@ pub fn lsp_uses_open_document_overlays() {
     assert!(routes.iter().any(|route| route == "/draft"));
 }
 
-pub fn lsp_reports_diagnostics_and_code_actions_over_stdio() {
+pub async fn lsp_reports_diagnostics_and_code_actions_over_stdio() {
     let site = LspSite::new();
     site.write(
         "content/broken.md",
@@ -467,7 +467,7 @@ pub fn lsp_reports_diagnostics_and_code_actions_over_stdio() {
     );
 }
 
-pub fn lsp_updates_workspace_from_watched_file_changes() {
+pub async fn lsp_updates_workspace_from_watched_file_changes() {
     let site = LspSite::new();
     let mut client = site.client();
     site.write(

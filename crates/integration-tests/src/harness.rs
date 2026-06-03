@@ -26,7 +26,7 @@ use hotmeal::{Document, NodeId, NodeKind, StrTendril};
 use owo_colors::OwoColorize;
 use regex::Regex;
 use std::cell::Cell;
-use std::io::{BufRead, BufReader, Read as _, Write as _};
+use std::io::{BufRead, BufReader};
 #[cfg(unix)]
 use std::os::unix::io::IntoRawFd;
 use std::path::{Path, PathBuf};
@@ -303,6 +303,7 @@ pub struct TestSite {
     child: Child,
     pub port: u16,
     fixture_dir: PathBuf,
+    client: reqwest::Client,
     _temp_dir: tempfile::TempDir,
     #[cfg(unix)]
     _unix_socket_dir: tempfile::TempDir,
@@ -402,8 +403,11 @@ impl TestSite {
         let _ = fs::remove_dir_all(&cache_dir);
         fs::create_dir_all(&cache_dir).expect("create cache dir");
 
-        // Create runtime for async socket operations
-        let rt = tokio::runtime::Runtime::new().expect("create tokio runtime");
+        // Drive async socket operations on the ambient multi-threaded runtime. The
+        // constructor stays synchronous: `block_in_place` lets us `block_on` the
+        // fd-pass handshake without spinning up a nested runtime (which would panic
+        // when called from within the runner's runtime).
+        let rt = tokio::runtime::Handle::current();
 
         // Bind TCP socket on port 0 (OS assigns port) using std (not tokio)
         let std_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind TCP");
@@ -496,12 +500,18 @@ impl TestSite {
         #[cfg(unix)]
         let unix_listener = {
             let unix_socket_path = std::path::Path::new(&control_channel_path);
-            rt.block_on(async { UnixListener::bind(unix_socket_path).expect("bind Unix socket") })
+            tokio::task::block_in_place(|| {
+                rt.block_on(async {
+                    UnixListener::bind(unix_socket_path).expect("bind Unix socket")
+                })
+            })
         };
 
         #[cfg(windows)]
-        let mut pipe_listener = rt.block_on(async {
-            vox_stream::LocalListener::bind(&control_channel_path).expect("bind named pipe")
+        let mut pipe_listener = tokio::task::block_in_place(|| {
+            rt.block_on(async {
+                vox_stream::LocalListener::bind(&control_channel_path).expect("bind named pipe")
+            })
         });
 
         let mut child = ur_taking_me_with_you::spawn_dying_with_parent(cmd)
@@ -549,7 +559,8 @@ impl TestSite {
         #[cfg(unix)]
         {
             let listener_fd = std_listener.into_raw_fd();
-            rt.block_on(async {
+            tokio::task::block_in_place(|| {
+                rt.block_on(async {
                 use tokio::io::AsyncReadExt;
 
                 debug!("waiting for unix socket accept");
@@ -603,12 +614,14 @@ impl TestSite {
 
                 // SAFETY: We created `listener_fd` from a freshly-bound listener and haven't closed it.
                 let _ = unsafe { std::os::fd::OwnedFd::from_raw_fd(listener_fd) };
+            })
             });
         }
 
         #[cfg(windows)]
         {
-            rt.block_on(async {
+            tokio::task::block_in_place(|| {
+                rt.block_on(async {
                 use tokio::io::AsyncReadExt;
 
                 debug!("waiting for named pipe accept");
@@ -649,6 +662,7 @@ impl TestSite {
                     );
                 }
                 info!("server acked listener socket");
+            })
             });
         }
 
@@ -662,6 +676,7 @@ impl TestSite {
             child,
             port,
             fixture_dir,
+            client: harness_http_client(),
             _temp_dir: temp_dir,
             #[cfg(unix)]
             _unix_socket_dir: unix_socket_dir,
@@ -696,11 +711,11 @@ impl TestSite {
     /// No retries - a failure fails the test immediately. The server contract
     /// guarantees connections are never refused/reset during boot; they may
     /// stall until ready, but connect+write must never fail.
-    pub fn get(&self, path: &str) -> Response {
-        self.get_with_timeout(path, http_timeout())
+    pub async fn get(&self, path: &str) -> Response {
+        self.get_with_timeout(path, http_timeout()).await
     }
 
-    fn get_with_timeout(&self, path: &str, timeout: Duration) -> Response {
+    async fn get_with_timeout(&self, path: &str, timeout: Duration) -> Response {
         let url = format!("http://127.0.0.1:{}{}", self.port, path);
         debug!("→ GET {}", path);
 
@@ -716,10 +731,9 @@ impl TestSite {
         }
 
         let request_start = Instant::now();
-        match harness_http_agent(timeout).get(&url).call() {
+        match self.client.get(&url).timeout(timeout).send().await {
             Ok(resp) => {
                 let status = resp.status().as_u16();
-                let elapsed_ms = request_start.elapsed().as_millis();
 
                 // Extract interesting headers (clone strings before consuming resp)
                 let headers = resp.headers();
@@ -734,8 +748,9 @@ impl TestSite {
                     .unwrap_or("?")
                     .to_string();
 
-                let body = resp.into_body().read_to_string().unwrap_or_default();
+                let body = resp.text().await.unwrap_or_default();
                 let body_len = body.len();
+                let elapsed_ms = request_start.elapsed().as_millis();
 
                 debug!(
                     "← {} {} ({} ms, {} bytes, gen={}, content-type: {})",
@@ -747,18 +762,6 @@ impl TestSite {
                     body,
                     url,
                     content_type,
-                }
-            }
-            Err(ureq::Error::StatusCode(status)) => {
-                // ureq treats 4xx/5xx as errors, but we want to return them as responses
-                let elapsed_ms = request_start.elapsed().as_millis();
-                let body = String::new();
-                info!("← {} {} ({} ms, error status)", status, path, elapsed_ms);
-                Response {
-                    status,
-                    body,
-                    url,
-                    content_type: "(none)".to_string(),
                 }
             }
             Err(e) => {
@@ -779,16 +782,17 @@ impl TestSite {
     /// GET a path and return the raw response body bytes. Panics on a non-200
     /// status or transport error. Use this for binary assets — the search
     /// index files are postcard, which a lossy `String` would corrupt.
-    pub fn get_bytes(&self, path: &str) -> Vec<u8> {
+    pub async fn get_bytes(&self, path: &str) -> Vec<u8> {
         let url = format!("http://127.0.0.1:{}{}", self.port, path);
         debug!("→ GET (bytes) {}", path);
-        match harness_http_agent(http_timeout()).get(&url).call() {
+        match self.client.get(&url).timeout(http_timeout()).send().await {
             Ok(resp) => {
                 let status = resp.status().as_u16();
                 assert_eq!(status, 200, "GET {path}: expected 200, got {status}");
-                resp.into_body()
-                    .read_to_vec()
+                resp.bytes()
+                    .await
                     .unwrap_or_else(|e| panic!("GET {path}: read body: {e}"))
+                    .to_vec()
             }
             Err(e) => panic!("GET {path} failed: {e:?}"),
         }
@@ -801,15 +805,16 @@ impl TestSite {
     ///
     /// Returns timing info as a log message; does not parse the response.
     #[allow(dead_code)]
-    pub fn probe_tcp(&self, path: &str) {
-        use std::net::TcpStream;
+    pub async fn probe_tcp(&self, path: &str) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpStream;
 
         let addr = format!("127.0.0.1:{}", self.port);
         info!(target: "probe", "Starting raw TCP probe to {}{}", addr, path);
 
         // Phase 1: Connect
         let connect_start = Instant::now();
-        let mut stream = match TcpStream::connect(&addr) {
+        let mut stream = match TcpStream::connect(&addr).await {
             Ok(s) => s,
             Err(e) => {
                 let elapsed = connect_start.elapsed();
@@ -832,7 +837,7 @@ impl TestSite {
             path, self.port
         );
         let write_start = Instant::now();
-        if let Err(e) = stream.write_all(request.as_bytes()) {
+        if let Err(e) = stream.write_all(request.as_bytes()).await {
             let elapsed = write_start.elapsed();
             let msg = format!(
                 "[probe] WRITE FAILED after {:?}: {} (kind={:?})",
@@ -847,11 +852,10 @@ impl TestSite {
         info!(target: "probe", "Wrote request in {:?} ({} bytes)", write_elapsed, request.len());
 
         // Phase 3: Read first byte (with timeout)
-        stream.set_read_timeout(Some(Duration::from_secs(30))).ok();
         let read_start = Instant::now();
         let mut buf = [0u8; 1];
-        match stream.read(&mut buf) {
-            Ok(0) => {
+        match tokio::time::timeout(Duration::from_secs(30), stream.read(&mut buf)).await {
+            Ok(Ok(0)) => {
                 let elapsed = read_start.elapsed();
                 let msg = format!(
                     "[probe] READ EOF after {:?} (server closed without response)",
@@ -859,7 +863,7 @@ impl TestSite {
                 );
                 debug!(target: "probe", "{}", msg);
             }
-            Ok(_) => {
+            Ok(Ok(_)) => {
                 let elapsed = read_start.elapsed();
                 let msg = format!(
                     "[probe] READ OK in {:?} (first byte: 0x{:02x} '{}')",
@@ -873,7 +877,7 @@ impl TestSite {
                 );
                 debug!(target: "probe", "{}", msg);
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 let elapsed = read_start.elapsed();
                 let msg = format!(
                     "[probe] READ FAILED after {:?}: {} (kind={:?})",
@@ -882,6 +886,12 @@ impl TestSite {
                     e.kind()
                 );
                 // Read failures during probe are logged but not fatal
+                debug!(target: "probe", "{}", msg);
+            }
+            Err(_elapsed) => {
+                let elapsed = read_start.elapsed();
+                let msg = format!("[probe] READ TIMED OUT after {:?}", elapsed);
+                // Read timeouts during probe are logged but not fatal
                 debug!(target: "probe", "{}", msg);
             }
         }
@@ -901,14 +911,14 @@ impl TestSite {
 
     /// Wait until a condition is true, retrying until timeout
     /// Returns the value produced by the condition, or panics on timeout
-    pub fn wait_until<T, F>(&self, desc: &str, timeout: Duration, mut condition: F) -> T
+    pub async fn wait_until<T, F>(&self, desc: &str, timeout: Duration, mut condition: F) -> T
     where
-        F: FnMut() -> Option<T>,
+        F: AsyncFnMut() -> Option<T>,
     {
         let deadline = Instant::now() + timeout;
 
         loop {
-            if let Some(value) = condition() {
+            if let Some(value) = condition().await {
                 return value;
             }
 
@@ -916,7 +926,7 @@ impl TestSite {
                 break;
             }
 
-            std::thread::sleep(Duration::from_millis(250));
+            tokio::time::sleep(Duration::from_millis(250)).await;
         }
 
         panic!("Condition '{}' not met within {:?}", desc, timeout);
@@ -967,8 +977,8 @@ impl TestSite {
     }
 
     /// Wait for the file watcher debounce window
-    pub fn wait_debounce(&self) {
-        std::thread::sleep(Duration::from_millis(300));
+    pub async fn wait_debounce(&self) {
+        tokio::time::sleep(Duration::from_millis(300)).await;
     }
 }
 
@@ -1015,11 +1025,10 @@ impl Drop for TestSite {
     }
 }
 
-fn harness_http_agent(timeout: Duration) -> ureq::Agent {
-    ureq::Agent::config_builder()
-        .timeout_global(Some(timeout))
+fn harness_http_client() -> reqwest::Client {
+    reqwest::Client::builder()
         .build()
-        .new_agent()
+        .expect("build reqwest client")
 }
 
 fn render_logs(mut lines: Vec<LogLine>) -> Vec<String> {

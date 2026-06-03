@@ -1,6 +1,6 @@
 use super::*;
 
-pub fn navigating_twice_should_not_recompute_queries() {
+pub async fn navigating_twice_should_not_recompute_queries() {
     // Note: This test relies on RUST_LOG=debug being set
     // In the standalone runner, we don't have fine-grained control over this
     // but the test should still work as long as caching is functioning
@@ -9,12 +9,12 @@ pub fn navigating_twice_should_not_recompute_queries() {
 
     site.clear_logs();
 
-    site.get("/guide/").assert_ok();
+    site.get("/guide/").await.assert_ok();
     let cursor = site.log_cursor();
 
     let first_compute_starts = site.count_logs_since(0, "compute: start");
 
-    site.get("/guide/").assert_ok();
+    site.get("/guide/").await.assert_ok();
     let second_compute_starts = site.count_logs_since(cursor, "compute: start");
 
     assert!(

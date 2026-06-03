@@ -18,17 +18,27 @@ use harness::{
     set_current_test_id,
 };
 use owo_colors::OwoColorize;
+use std::future::Future;
 use std::io::Write as _;
 use std::panic::{self, AssertUnwindSafe};
+use std::pin::Pin;
 use std::time::Instant;
 use tests::*;
 use tracing_subscriber::layer::SubscriberExt;
+
+/// A boxed, type-erased future produced by a test function.
+type TestFuture = Pin<Box<dyn Future<Output = ()>>>;
+
+/// Box and type-erase a test future so it can be stored in the registry.
+fn boxed<F: Future<Output = ()> + 'static>(f: F) -> TestFuture {
+    Box::pin(f)
+}
 
 /// A test case
 struct Test {
     name: &'static str,
     module: &'static str,
-    func: fn(),
+    func: fn() -> TestFuture,
     ignored: bool,
 }
 
@@ -152,7 +162,11 @@ impl tracing::field::Visit for LogVisitor {
 }
 
 /// Run all tests and return (passed, failed, skipped)
-fn run_tests(tests: Vec<Test>, filter: Option<&str>) -> (usize, usize, usize) {
+fn run_tests(
+    rt: &tokio::runtime::Runtime,
+    tests: Vec<Test>,
+    filter: Option<&str>,
+) -> (usize, usize, usize) {
     let mut passed = 0;
     let mut failed = 0;
     let mut skipped = 0;
@@ -210,7 +224,10 @@ fn run_tests(tests: Vec<Test>, filter: Option<&str>) -> (usize, usize, usize) {
 
         let result = {
             let f = test.func;
-            panic::catch_unwind(AssertUnwindSafe(f))
+            // `f()` builds the test future; `block_on` drives it to completion on the
+            // runner's runtime. Panics raised either while building or while polling the
+            // future propagate through `block_on` and are caught here.
+            panic::catch_unwind(AssertUnwindSafe(|| rt.block_on(f())))
         };
 
         panic::set_hook(prev_hook);
@@ -373,7 +390,15 @@ fn main() {
     println!("{}", "Running integration tests...".bold());
     println!();
 
-    let (passed, failed, skipped) = run_tests(tests, filter);
+    // A multi-threaded runtime is required: `TestSite` construction drives the
+    // fd-pass handshake via `block_in_place` + `block_on`, which only works on a
+    // multi-threaded runtime.
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("build tokio runtime");
+
+    let (passed, failed, skipped) = run_tests(&rt, tests, filter);
 
     println!();
     if failed > 0 {
@@ -407,579 +432,583 @@ fn collect_tests() -> Vec<Test> {
         Test {
             name: "nonexistent_page_returns_404",
             module: "basic",
-            func: basic::nonexistent_page_returns_404,
+            func: || boxed(basic::nonexistent_page_returns_404()),
             ignored: false,
         },
         Test {
             name: "nonexistent_static_returns_404",
             module: "basic",
-            func: basic::nonexistent_static_returns_404,
+            func: || boxed(basic::nonexistent_static_returns_404()),
             ignored: false,
         },
         Test {
             name: "all_pages_return_200",
             module: "basic",
-            func: basic::all_pages_return_200,
+            func: || boxed(basic::all_pages_return_200()),
             ignored: false,
         },
         // content tests
         Test {
             name: "markdown_content_rendered",
             module: "content",
-            func: content::markdown_content_rendered,
+            func: || boxed(content::markdown_content_rendered()),
             ignored: false,
         },
         Test {
             name: "frontmatter_title_in_html",
             module: "content",
-            func: content::frontmatter_title_in_html,
+            func: || boxed(content::frontmatter_title_in_html()),
             ignored: false,
         },
         Test {
             name: "nested_content_structure",
             module: "content",
-            func: content::nested_content_structure,
+            func: || boxed(content::nested_content_structure()),
             ignored: false,
         },
         Test {
             name: "missing_page_title_defaults_from_slug",
             module: "content",
-            func: content::missing_page_title_defaults_from_slug,
+            func: || boxed(content::missing_page_title_defaults_from_slug()),
             ignored: false,
         },
         Test {
             name: "missing_section_title_defaults_from_slug",
             module: "content",
-            func: content::missing_section_title_defaults_from_slug,
+            func: || boxed(content::missing_section_title_defaults_from_slug()),
             ignored: false,
         },
         // frontmatter schema tests
         Test {
             name: "typed_frontmatter_link_to_same_type_passes",
             module: "frontmatter_schemas",
-            func: frontmatter_schemas::typed_frontmatter_link_to_same_type_passes,
+            func: || boxed(frontmatter_schemas::typed_frontmatter_link_to_same_type_passes()),
             ignored: false,
         },
         Test {
             name: "typed_frontmatter_missing_link_reports_error",
             module: "frontmatter_schemas",
-            func: frontmatter_schemas::typed_frontmatter_missing_link_reports_error,
+            func: || boxed(frontmatter_schemas::typed_frontmatter_missing_link_reports_error()),
             ignored: false,
         },
         Test {
             name: "typed_frontmatter_wrong_target_type_reports_error",
             module: "frontmatter_schemas",
-            func: frontmatter_schemas::typed_frontmatter_wrong_target_type_reports_error,
+            func: || {
+                boxed(frontmatter_schemas::typed_frontmatter_wrong_target_type_reports_error())
+            },
             ignored: false,
         },
         Test {
             name: "toml_scalar_status_validates_against_unit_enum",
             module: "frontmatter_schemas",
-            func: frontmatter_schemas::toml_scalar_status_validates_against_unit_enum,
+            func: || boxed(frontmatter_schemas::toml_scalar_status_validates_against_unit_enum()),
             ignored: false,
         },
         Test {
             name: "toml_scalar_status_rejects_unknown_enum_variant",
             module: "frontmatter_schemas",
-            func: frontmatter_schemas::toml_scalar_status_rejects_unknown_enum_variant,
+            func: || boxed(frontmatter_schemas::toml_scalar_status_rejects_unknown_enum_variant()),
             ignored: false,
         },
         Test {
             name: "yaml_tagged_status_validates_against_unit_enum",
             module: "frontmatter_schemas",
-            func: frontmatter_schemas::yaml_tagged_status_validates_against_unit_enum,
+            func: || boxed(frontmatter_schemas::yaml_tagged_status_validates_against_unit_enum()),
             ignored: false,
         },
         // rendered markdown tests
         Test {
             name: "rendered_markdown_route_returns_markdown",
             module: "rendered_markdown",
-            func: rendered_markdown::rendered_markdown_route_returns_markdown,
+            func: || boxed(rendered_markdown::rendered_markdown_route_returns_markdown()),
             ignored: false,
         },
         // cache_busting tests
         Test {
             name: "css_urls_are_cache_busted",
             module: "cache_busting",
-            func: cache_busting::css_urls_are_cache_busted,
+            func: || boxed(cache_busting::css_urls_are_cache_busted()),
             ignored: false,
         },
         Test {
             name: "font_urls_rewritten_in_css",
             module: "cache_busting",
-            func: cache_busting::font_urls_rewritten_in_css,
+            func: || boxed(cache_busting::font_urls_rewritten_in_css()),
             ignored: false,
         },
         Test {
             name: "css_change_updates_hash",
             module: "cache_busting",
-            func: cache_busting::css_change_updates_hash,
+            func: || boxed(cache_busting::css_change_updates_hash()),
             ignored: false,
         },
         Test {
             name: "fonts_are_subsetted",
             module: "cache_busting",
-            func: cache_busting::fonts_are_subsetted,
+            func: || boxed(cache_busting::fonts_are_subsetted()),
             ignored: false,
         },
         // templates tests
         Test {
             name: "template_renders_content",
             module: "templates",
-            func: templates::template_renders_content,
+            func: || boxed(templates::template_renders_content()),
             ignored: false,
         },
         Test {
             name: "template_includes_css",
             module: "templates",
-            func: templates::template_includes_css,
+            func: || boxed(templates::template_includes_css()),
             ignored: false,
         },
         Test {
             name: "template_metadata_used",
             module: "templates",
-            func: templates::template_metadata_used,
+            func: || boxed(templates::template_metadata_used()),
             ignored: false,
         },
         Test {
             name: "different_templates_for_different_pages",
             module: "templates",
-            func: templates::different_templates_for_different_pages,
+            func: || boxed(templates::different_templates_for_different_pages()),
             ignored: false,
         },
         Test {
             name: "extra_frontmatter_accessible_in_templates",
             module: "templates",
-            func: templates::extra_frontmatter_accessible_in_templates,
+            func: || boxed(templates::extra_frontmatter_accessible_in_templates()),
             ignored: false,
         },
         Test {
             name: "page_extra_frontmatter_accessible_in_templates",
             module: "templates",
-            func: templates::page_extra_frontmatter_accessible_in_templates,
+            func: || boxed(templates::page_extra_frontmatter_accessible_in_templates()),
             ignored: false,
         },
         Test {
             name: "dodeca_html_templates_keep_html_logical_names",
             module: "templates",
-            func: templates::dodeca_html_templates_keep_html_logical_names,
+            func: || boxed(templates::dodeca_html_templates_keep_html_logical_names()),
             ignored: false,
         },
         Test {
             name: "code_blocks_have_copy_button_script",
             module: "templates",
-            func: templates::code_blocks_have_copy_button_script,
+            func: || boxed(templates::code_blocks_have_copy_button_script()),
             ignored: false,
         },
         Test {
             name: "code_blocks_preserve_newlines",
             module: "templates",
-            func: templates::code_blocks_preserve_newlines,
+            func: || boxed(templates::code_blocks_preserve_newlines()),
             ignored: false,
         },
         // static_assets tests
         Test {
             name: "svg_files_served",
             module: "static_assets",
-            func: static_assets::svg_files_served,
+            func: || boxed(static_assets::svg_files_served()),
             ignored: false,
         },
         Test {
             name: "js_files_cache_busted",
             module: "static_assets",
-            func: static_assets::js_files_cache_busted,
+            func: || boxed(static_assets::js_files_cache_busted()),
             ignored: false,
         },
         Test {
             name: "static_files_served_directly",
             module: "static_assets",
-            func: static_assets::static_files_served_directly,
+            func: || boxed(static_assets::static_files_served_directly()),
             ignored: false,
         },
         Test {
             name: "image_files_processed",
             module: "static_assets",
-            func: static_assets::image_files_processed,
+            func: || boxed(static_assets::image_files_processed()),
             ignored: false,
         },
         #[cfg(unix)]
         Test {
             name: "symlinked_static_files_are_served",
             module: "static_assets",
-            func: static_assets::symlinked_static_files_are_served,
+            func: || boxed(static_assets::symlinked_static_files_are_served()),
             ignored: false,
         },
         // livereload tests
         Test {
             name: "test_new_section_detected",
             module: "livereload",
-            func: livereload::test_new_section_detected,
+            func: || boxed(livereload::test_new_section_detected()),
             ignored: false,
         },
         Test {
             name: "test_deeply_nested_new_section",
             module: "livereload",
-            func: livereload::test_deeply_nested_new_section,
+            func: || boxed(livereload::test_deeply_nested_new_section()),
             ignored: false,
         },
         Test {
             name: "test_file_move_detected",
             module: "livereload",
-            func: livereload::test_file_move_detected,
+            func: || boxed(livereload::test_file_move_detected()),
             ignored: false,
         },
         Test {
             name: "test_css_livereload",
             module: "livereload",
-            func: livereload::test_css_livereload,
+            func: || boxed(livereload::test_css_livereload()),
             ignored: false,
         },
         Test {
             name: "dev_server_rename_prunes_old_content_route",
             module: "renames",
-            func: renames::dev_server_rename_prunes_old_content_route,
+            func: || boxed(renames::dev_server_rename_prunes_old_content_route()),
             ignored: false,
         },
         Test {
             name: "build_rename_removes_old_content_output",
             module: "renames",
-            func: renames::build_rename_removes_old_content_output,
+            func: || boxed(renames::build_rename_removes_old_content_output()),
             ignored: false,
         },
         // section_pages tests
         Test {
             name: "adding_page_updates_section_pages_list",
             module: "section_pages",
-            func: section_pages::adding_page_updates_section_pages_list,
+            func: || boxed(section_pages::adding_page_updates_section_pages_list()),
             ignored: false,
         },
         Test {
             name: "adding_page_updates_via_get_section_macro",
             module: "section_pages",
-            func: section_pages::adding_page_updates_via_get_section_macro,
+            func: || boxed(section_pages::adding_page_updates_via_get_section_macro()),
             ignored: false,
         },
         Test {
             name: "removing_page_updates_section_pages_list",
             module: "section_pages",
-            func: section_pages::removing_page_updates_section_pages_list,
+            func: || boxed(section_pages::removing_page_updates_section_pages_list()),
             ignored: false,
         },
         Test {
             name: "removing_page_updates_via_get_section_macro",
             module: "section_pages",
-            func: section_pages::removing_page_updates_via_get_section_macro,
+            func: || boxed(section_pages::removing_page_updates_via_get_section_macro()),
             ignored: false,
         },
         Test {
             name: "get_section_returns_weighted_subsection_objects",
             module: "section_pages",
-            func: section_pages::get_section_returns_weighted_subsection_objects,
+            func: || boxed(section_pages::get_section_returns_weighted_subsection_objects()),
             ignored: false,
         },
         Test {
             name: "removing_sibling_page_updates_page_section_pages_list",
             module: "section_pages",
-            func: section_pages::removing_sibling_page_updates_page_section_pages_list,
+            func: || boxed(section_pages::removing_sibling_page_updates_page_section_pages_list()),
             ignored: false,
         },
         // error_detection tests
         Test {
             name: "template_syntax_error_shows_error_page",
             module: "error_detection",
-            func: error_detection::template_syntax_error_shows_error_page,
+            func: || boxed(error_detection::template_syntax_error_shows_error_page()),
             ignored: false,
         },
         Test {
             name: "template_error_recovery_removes_error_page",
             module: "error_detection",
-            func: error_detection::template_error_recovery_removes_error_page,
+            func: || boxed(error_detection::template_error_recovery_removes_error_page()),
             ignored: false,
         },
         Test {
             name: "missing_template_shows_error_page",
             module: "error_detection",
-            func: error_detection::missing_template_shows_error_page,
+            func: || boxed(error_detection::missing_template_shows_error_page()),
             ignored: false,
         },
         Test {
             name: "type_error_shows_ariadne_formatted_source",
             module: "error_detection",
-            func: error_detection::type_error_shows_ariadne_formatted_source,
+            func: || boxed(error_detection::type_error_shows_ariadne_formatted_source()),
             ignored: false,
         },
         Test {
             name: "frontmatter_parse_error_shows_error_page_and_recovers",
             module: "error_detection",
-            func: error_detection::frontmatter_parse_error_shows_error_page_and_recovers,
+            func: || {
+                boxed(error_detection::frontmatter_parse_error_shows_error_page_and_recovers())
+            },
             ignored: false,
         },
         // dead_links tests
         Test {
             name: "dead_links_marked_in_html",
             module: "dead_links",
-            func: dead_links::dead_links_marked_in_html,
+            func: || boxed(dead_links::dead_links_marked_in_html()),
             ignored: false,
         },
         Test {
             name: "valid_links_not_marked_dead",
             module: "dead_links",
-            func: dead_links::valid_links_not_marked_dead,
+            func: || boxed(dead_links::valid_links_not_marked_dead()),
             ignored: false,
         },
         // internal_links tests
         Test {
             name: "at_links_in_list_items_resolved",
             module: "internal_links",
-            func: internal_links::at_links_in_list_items_resolved,
+            func: || boxed(internal_links::at_links_in_list_items_resolved()),
             ignored: false,
         },
         Test {
             name: "at_links_in_paragraphs_resolved",
             module: "internal_links",
-            func: internal_links::at_links_in_paragraphs_resolved,
+            func: || boxed(internal_links::at_links_in_paragraphs_resolved()),
             ignored: false,
         },
         Test {
             name: "relative_md_links_resolved",
             module: "internal_links",
-            func: internal_links::relative_md_links_resolved,
+            func: || boxed(internal_links::relative_md_links_resolved()),
             ignored: false,
         },
         Test {
             name: "wiki_links_resolved",
             module: "internal_links",
-            func: internal_links::wiki_links_resolved,
+            func: || boxed(internal_links::wiki_links_resolved()),
             ignored: false,
         },
         Test {
             name: "missing_wiki_link_renders_dead_link",
             module: "internal_links",
-            func: internal_links::missing_wiki_link_renders_dead_link,
+            func: || boxed(internal_links::missing_wiki_link_renders_dead_link()),
             ignored: false,
         },
         Test {
             name: "missing_wiki_link_builds_successfully",
             module: "internal_links",
-            func: internal_links::missing_wiki_link_builds_successfully,
+            func: || boxed(internal_links::missing_wiki_link_builds_successfully()),
             ignored: false,
         },
         Test {
             name: "ambiguous_wiki_link_renders_dead_link",
             module: "internal_links",
-            func: internal_links::ambiguous_wiki_link_renders_dead_link,
+            func: || boxed(internal_links::ambiguous_wiki_link_renders_dead_link()),
             ignored: false,
         },
         Test {
             name: "ambiguous_wiki_link_builds_successfully",
             module: "internal_links",
-            func: internal_links::ambiguous_wiki_link_builds_successfully,
+            func: || boxed(internal_links::ambiguous_wiki_link_builds_successfully()),
             ignored: false,
         },
         // sass tests
         Test {
             name: "no_scss_builds_successfully",
             module: "sass",
-            func: sass::no_scss_builds_successfully,
+            func: || boxed(sass::no_scss_builds_successfully()),
             ignored: false,
         },
         Test {
             name: "scss_compiled_to_css",
             module: "sass",
-            func: sass::scss_compiled_to_css,
+            func: || boxed(sass::scss_compiled_to_css()),
             ignored: false,
         },
         Test {
             name: "scss_can_import_from_node_modules",
             module: "sass",
-            func: sass::scss_can_import_from_node_modules,
+            func: || boxed(sass::scss_can_import_from_node_modules()),
             ignored: false,
         },
         Test {
             name: "scss_change_triggers_rebuild",
             module: "sass",
-            func: sass::scss_change_triggers_rebuild,
+            func: || boxed(sass::scss_change_triggers_rebuild()),
             ignored: false,
         },
         // mermaid tests
         Test {
             name: "mermaid_flowchart_rendered_to_svg",
             module: "mermaid",
-            func: mermaid::mermaid_flowchart_rendered_to_svg,
+            func: || boxed(mermaid::mermaid_flowchart_rendered_to_svg()),
             ignored: false,
         },
         Test {
             name: "mermaid_sequence_diagram_rendered",
             module: "mermaid",
-            func: mermaid::mermaid_sequence_diagram_rendered,
+            func: || boxed(mermaid::mermaid_sequence_diagram_rendered()),
             ignored: false,
         },
         Test {
             name: "mermaid_no_raw_code_blocks",
             module: "mermaid",
-            func: mermaid::mermaid_no_raw_code_blocks,
+            func: || boxed(mermaid::mermaid_no_raw_code_blocks()),
             ignored: false,
         },
         // picante_cache tests
         Test {
             name: "navigating_twice_should_not_recompute_queries",
             module: "picante_cache",
-            func: picante_cache::navigating_twice_should_not_recompute_queries,
+            func: || boxed(picante_cache::navigating_twice_should_not_recompute_queries()),
             ignored: false,
         },
         // code_execution tests
         Test {
             name: "test_successful_code_sample_shows_output",
             module: "code_execution",
-            func: code_execution::test_successful_code_sample_shows_output,
+            func: || boxed(code_execution::test_successful_code_sample_shows_output()),
             ignored: false,
         },
         Test {
             name: "test_successful_code_sample_with_ansi_colors",
             module: "code_execution",
-            func: code_execution::test_successful_code_sample_with_ansi_colors,
+            func: || boxed(code_execution::test_successful_code_sample_with_ansi_colors()),
             ignored: false,
         },
         Test {
             name: "test_failing_code_sample_shows_compiler_error",
             module: "code_execution",
-            func: code_execution::test_failing_code_sample_shows_compiler_error,
+            func: || boxed(code_execution::test_failing_code_sample_shows_compiler_error()),
             ignored: false,
         },
         Test {
             name: "test_compiler_error_with_ansi_colors",
             module: "code_execution",
-            func: code_execution::test_compiler_error_with_ansi_colors,
+            func: || boxed(code_execution::test_compiler_error_with_ansi_colors()),
             ignored: false,
         },
         Test {
             name: "test_incorrect_sample_expected_to_pass_fails_build",
             module: "code_execution",
-            func: code_execution::test_incorrect_sample_expected_to_pass_fails_build,
+            func: || boxed(code_execution::test_incorrect_sample_expected_to_pass_fails_build()),
             ignored: false,
         },
         Test {
             name: "test_multiple_code_samples_executed",
             module: "code_execution",
-            func: code_execution::test_multiple_code_samples_executed,
+            func: || boxed(code_execution::test_multiple_code_samples_executed()),
             ignored: false,
         },
         Test {
             name: "test_non_rust_code_blocks_not_executed",
             module: "code_execution",
-            func: code_execution::test_non_rust_code_blocks_not_executed,
+            func: || boxed(code_execution::test_non_rust_code_blocks_not_executed()),
             ignored: false,
         },
         Test {
             name: "test_runtime_panic_reported",
             module: "code_execution",
-            func: code_execution::test_runtime_panic_reported,
+            func: || boxed(code_execution::test_runtime_panic_reported()),
             ignored: false,
         },
         // boot_contract tests (Part 8: regression tests that pin the contract)
         Test {
             name: "immediate_request_after_fd_pass_succeeds",
             module: "boot_contract",
-            func: boot_contract::immediate_request_after_fd_pass_succeeds,
+            func: || boxed(boot_contract::immediate_request_after_fd_pass_succeeds()),
             ignored: false,
         },
         // authoring_lsp tests
         Test {
             name: "lsp_lists_pages_over_stdio",
             module: "authoring_lsp",
-            func: authoring_lsp::lsp_lists_pages_over_stdio,
+            func: || boxed(authoring_lsp::lsp_lists_pages_over_stdio()),
             ignored: false,
         },
         Test {
             name: "lsp_uses_open_document_overlays",
             module: "authoring_lsp",
-            func: authoring_lsp::lsp_uses_open_document_overlays,
+            func: || boxed(authoring_lsp::lsp_uses_open_document_overlays()),
             ignored: false,
         },
         Test {
             name: "lsp_reports_diagnostics_and_code_actions_over_stdio",
             module: "authoring_lsp",
-            func: authoring_lsp::lsp_reports_diagnostics_and_code_actions_over_stdio,
+            func: || boxed(authoring_lsp::lsp_reports_diagnostics_and_code_actions_over_stdio()),
             ignored: false,
         },
         Test {
             name: "lsp_updates_workspace_from_watched_file_changes",
             module: "authoring_lsp",
-            func: authoring_lsp::lsp_updates_workspace_from_watched_file_changes,
+            func: || boxed(authoring_lsp::lsp_updates_workspace_from_watched_file_changes()),
             ignored: false,
         },
         // build_steps tests
         Test {
             name: "build_step_basic_command",
             module: "build_steps",
-            func: build_steps::build_step_basic_command,
+            func: || boxed(build_steps::build_step_basic_command()),
             ignored: false,
         },
         Test {
             name: "build_step_read_file",
             module: "build_steps",
-            func: build_steps::build_step_read_file,
+            func: || boxed(build_steps::build_step_read_file()),
             ignored: false,
         },
         Test {
             name: "build_step_command_with_file_param",
             module: "build_steps",
-            func: build_steps::build_step_command_with_file_param,
+            func: || boxed(build_steps::build_step_command_with_file_param()),
             ignored: false,
         },
         Test {
             name: "build_step_string_param",
             module: "build_steps",
-            func: build_steps::build_step_string_param,
+            func: || boxed(build_steps::build_step_string_param()),
             ignored: false,
         },
         Test {
             name: "build_step_caching_same_call",
             module: "build_steps",
-            func: build_steps::build_step_caching_same_call,
+            func: || boxed(build_steps::build_step_caching_same_call()),
             ignored: false,
         },
         Test {
             name: "build_step_caching_different_files",
             module: "build_steps",
-            func: build_steps::build_step_caching_different_files,
+            func: || boxed(build_steps::build_step_caching_different_files()),
             ignored: false,
         },
         Test {
             name: "build_step_cache_consistency",
             module: "build_steps",
-            func: build_steps::build_step_cache_consistency,
+            func: || boxed(build_steps::build_step_cache_consistency()),
             ignored: false,
         },
         Test {
             name: "builtin_read_function",
             module: "build_steps",
-            func: build_steps::builtin_read_function,
+            func: || boxed(build_steps::builtin_read_function()),
             ignored: false,
         },
         Test {
             name: "build_step_unknown_step_error",
             module: "build_steps",
-            func: build_steps::build_step_unknown_step_error,
+            func: || boxed(build_steps::build_step_unknown_step_error()),
             ignored: false,
         },
         Test {
             name: "build_step_missing_param_error",
             module: "build_steps",
-            func: build_steps::build_step_missing_param_error,
+            func: || boxed(build_steps::build_step_missing_param_error()),
             ignored: false,
         },
         // search tests
         Test {
             name: "search_index_answers_queries",
             module: "search",
-            func: search::search_index_answers_queries,
+            func: || boxed(search::search_index_answers_queries()),
             ignored: false,
         },
         Test {
             name: "search_runtime_assets_served",
             module: "search",
-            func: search::search_runtime_assets_served,
+            func: || boxed(search::search_runtime_assets_served()),
             ignored: false,
         },
     ]

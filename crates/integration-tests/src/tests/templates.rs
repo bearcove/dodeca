@@ -1,39 +1,39 @@
 use super::*;
 
-pub fn template_renders_content() {
+pub async fn template_renders_content() {
     let site = TestSite::new("sample-site");
-    let html = site.get("/");
+    let html = site.get("/").await;
     html.assert_ok();
     html.assert_contains("<!DOCTYPE html>");
     html.assert_contains("<body>");
 }
 
-pub fn template_includes_css() {
+pub async fn template_includes_css() {
     let site = TestSite::new("sample-site");
-    let html = site.get("/");
+    let html = site.get("/").await;
     assert!(
         html.text().contains("stylesheet") || html.text().contains(".css"),
         "Template should include CSS references"
     );
 }
 
-pub fn template_metadata_used() {
+pub async fn template_metadata_used() {
     let site = TestSite::new("sample-site");
-    let html = site.get("/");
+    let html = site.get("/").await;
     html.assert_contains("<title>Home</title>");
 }
 
-pub fn different_templates_for_different_pages() {
+pub async fn different_templates_for_different_pages() {
     let site = TestSite::new("sample-site");
-    let index = site.get("/");
-    let guide = site.get("/guide/");
+    let index = site.get("/").await;
+    let guide = site.get("/guide/").await;
     index.assert_ok();
     guide.assert_ok();
     index.assert_contains("<!DOCTYPE html>");
     guide.assert_contains("<!DOCTYPE html>");
 }
 
-pub fn extra_frontmatter_accessible_in_templates() {
+pub async fn extra_frontmatter_accessible_in_templates() {
     let site = TestSite::with_files(
         "sample-site",
         &[
@@ -72,7 +72,7 @@ This is the guide section.
         ],
     );
 
-    let html = site.get("/guide/");
+    let html = site.get("/guide/").await;
     html.assert_ok();
     html.assert_contains("has-sidebar");
     html.assert_contains("data-icon");
@@ -82,7 +82,7 @@ This is the guide section.
     html.assert_contains("Sidebar enabled");
 }
 
-pub fn page_extra_frontmatter_accessible_in_templates() {
+pub async fn page_extra_frontmatter_accessible_in_templates() {
     let site = TestSite::with_files(
         "sample-site",
         &[
@@ -122,7 +122,7 @@ This is the getting started guide.
         ],
     );
 
-    let html = site.get("/guide/getting-started/");
+    let html = site.get("/guide/getting-started/").await;
     html.assert_ok();
     html.assert_contains("data-difficulty");
     html.assert_contains("beginner");
@@ -131,7 +131,7 @@ This is the getting started guide.
     html.assert_contains("Reading time: 5 min");
 }
 
-pub fn dodeca_html_templates_keep_html_logical_names() {
+pub async fn dodeca_html_templates_keep_html_logical_names() {
     let site = TestSite::with_setup("sample-site", |fixture_dir| {
         std::fs::remove_file(fixture_dir.join("templates/page.html"))
             .expect("remove page template");
@@ -148,13 +148,13 @@ pub fn dodeca_html_templates_keep_html_logical_names() {
         .expect("write dodeca html page template");
     });
 
-    let html = site.get("/guide/getting-started/");
+    let html = site.get("/guide/getting-started/").await;
     html.assert_ok();
     html.assert_contains("data-template");
     html.assert_contains("dodeca-html");
 }
 
-pub fn code_blocks_have_copy_button_script() {
+pub async fn code_blocks_have_copy_button_script() {
     let site = TestSite::with_files(
         "sample-site",
         &[(
@@ -176,7 +176,7 @@ fn main() {
         )],
     );
 
-    let html = site.get("/guide/code-example/");
+    let html = site.get("/guide/code-example/").await;
     html.assert_ok();
     html.assert_contains(".copy-btn");
     html.assert_contains("navigator.clipboard.writeText");
@@ -185,7 +185,7 @@ fn main() {
 }
 
 /// Test that syntax-highlighted code blocks preserve newlines
-pub fn code_blocks_preserve_newlines() {
+pub async fn code_blocks_preserve_newlines() {
     let site = TestSite::with_files(
         "sample-site",
         &[(
@@ -210,7 +210,7 @@ fn main() {
         )],
     );
 
-    let html = site.get("/guide/code-newlines/");
+    let html = site.get("/guide/code-newlines/").await;
     html.assert_ok();
 
     let full_body = html.text();

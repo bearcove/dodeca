@@ -1,9 +1,9 @@
 use super::*;
 
-pub fn mermaid_flowchart_rendered_to_svg() {
+pub async fn mermaid_flowchart_rendered_to_svg() {
     let site = TestSite::new("sample-site");
 
-    let html = site.get("/guide/mermaid-test/");
+    let html = site.get("/guide/mermaid-test/").await;
     html.assert_ok();
 
     // Mermaid is now client-side: server emits <pre class="mermaid"> inside an opaque wrapper
@@ -17,10 +17,10 @@ pub fn mermaid_flowchart_rendered_to_svg() {
     html.assert_contains("End");
 }
 
-pub fn mermaid_sequence_diagram_rendered() {
+pub async fn mermaid_sequence_diagram_rendered() {
     let site = TestSite::new("sample-site");
 
-    let html = site.get("/guide/mermaid-test/");
+    let html = site.get("/guide/mermaid-test/").await;
     html.assert_ok();
 
     // Sequence diagram participants should be present in the pre block
@@ -32,10 +32,10 @@ pub fn mermaid_sequence_diagram_rendered() {
     html.assert_contains("Hi Alice!");
 }
 
-pub fn mermaid_no_raw_code_blocks() {
+pub async fn mermaid_no_raw_code_blocks() {
     let site = TestSite::new("sample-site");
 
-    let html = site.get("/guide/mermaid-test/");
+    let html = site.get("/guide/mermaid-test/").await;
     html.assert_ok();
 
     // The markdown fenced block markers should NOT appear in output

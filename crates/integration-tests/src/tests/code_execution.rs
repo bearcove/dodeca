@@ -2,7 +2,7 @@ use super::*;
 use harness::InlineSite;
 
 /// Test that a correct code sample executes successfully and shows output
-pub fn test_successful_code_sample_shows_output() {
+pub async fn test_successful_code_sample_shows_output() {
     let site = InlineSite::new(&[(
         "_index.md",
         r#"+++
@@ -29,7 +29,7 @@ fn main() {
 }
 
 /// Test that a correct code sample with ANSI colors in output works
-pub fn test_successful_code_sample_with_ansi_colors() {
+pub async fn test_successful_code_sample_with_ansi_colors() {
     let site = InlineSite::new(&[(
         "_index.md",
         r#"+++
@@ -54,7 +54,7 @@ fn main() {
 }
 
 /// Test that a failing code sample causes the build to fail and shows compiler errors
-pub fn test_failing_code_sample_shows_compiler_error() {
+pub async fn test_failing_code_sample_shows_compiler_error() {
     let site = InlineSite::new(&[(
         "_index.md",
         r#"+++
@@ -86,7 +86,7 @@ fn main() {
 }
 
 /// Test that compiler errors preserve ANSI colors from rustc
-pub fn test_compiler_error_with_ansi_colors() {
+pub async fn test_compiler_error_with_ansi_colors() {
     let site = InlineSite::new(&[(
         "_index.md",
         r#"+++
@@ -114,7 +114,7 @@ fn main() {
 }
 
 /// Test that an incorrect code sample that's expected to pass causes build failure
-pub fn test_incorrect_sample_expected_to_pass_fails_build() {
+pub async fn test_incorrect_sample_expected_to_pass_fails_build() {
     let site = InlineSite::new(&[(
         "_index.md",
         r#"+++
@@ -146,7 +146,7 @@ fn main() {
 }
 
 /// Test that multiple code samples are all executed
-pub fn test_multiple_code_samples_executed() {
+pub async fn test_multiple_code_samples_executed() {
     let site = InlineSite::new(&[(
         "_index.md",
         r#"+++
@@ -182,7 +182,7 @@ fn main() {
 }
 
 /// Test that non-rust code blocks are not executed
-pub fn test_non_rust_code_blocks_not_executed() {
+pub async fn test_non_rust_code_blocks_not_executed() {
     let site = InlineSite::new(&[(
         "_index.md",
         r#"+++
@@ -218,7 +218,7 @@ Some random text
 }
 
 /// Test that runtime panics are caught and reported
-pub fn test_runtime_panic_reported() {
+pub async fn test_runtime_panic_reported() {
     let site = InlineSite::new(&[(
         "_index.md",
         r#"+++

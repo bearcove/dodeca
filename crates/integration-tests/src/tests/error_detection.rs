@@ -1,9 +1,9 @@
 use super::*;
 
-pub fn template_syntax_error_shows_error_page() {
+pub async fn template_syntax_error_shows_error_page() {
     let site = TestSite::new("sample-site");
 
-    let html = site.get("/");
+    let html = site.get("/").await;
     html.assert_ok();
     html.assert_not_contains(RENDER_ERROR_MARKER);
     html.assert_contains("<!DOCTYPE html>");
@@ -12,15 +12,15 @@ pub fn template_syntax_error_shows_error_page() {
         content.replace("{{ section.title }}", "{{ section.title")
     });
 
-    std::thread::sleep(Duration::from_millis(500));
+    tokio::time::sleep(Duration::from_millis(500)).await;
 
-    let html = site.get("/");
+    let html = site.get("/").await;
     html.assert_ok();
     html.assert_contains(RENDER_ERROR_MARKER);
     html.assert_contains("Template Error");
 }
 
-pub fn template_error_recovery_removes_error_page() {
+pub async fn template_error_recovery_removes_error_page() {
     let site = TestSite::new("sample-site");
 
     let original = site.read_file("templates/index.html");
@@ -29,37 +29,37 @@ pub fn template_error_recovery_removes_error_page() {
         content.replace("{{ section.title }}", "{{ section.title")
     });
 
-    std::thread::sleep(Duration::from_millis(500));
+    tokio::time::sleep(Duration::from_millis(500)).await;
 
-    let html = site.get("/");
+    let html = site.get("/").await;
     html.assert_contains(RENDER_ERROR_MARKER);
 
     site.write_file("templates/index.html", &original);
 
-    std::thread::sleep(Duration::from_millis(500));
+    tokio::time::sleep(Duration::from_millis(500)).await;
 
-    let html = site.get("/");
+    let html = site.get("/").await;
     html.assert_not_contains(RENDER_ERROR_MARKER);
     html.assert_contains("<!DOCTYPE html>");
 }
 
-pub fn missing_template_shows_error_page() {
+pub async fn missing_template_shows_error_page() {
     let site = TestSite::new("sample-site");
 
-    let html = site.get("/guide/");
+    let html = site.get("/guide/").await;
     html.assert_ok();
     html.assert_not_contains(RENDER_ERROR_MARKER);
 
     site.delete_file("templates/section.html");
 
-    std::thread::sleep(Duration::from_millis(500));
+    tokio::time::sleep(Duration::from_millis(500)).await;
 
-    let html = site.get("/guide/");
+    let html = site.get("/guide/").await;
     html.assert_ok();
     html.assert_contains(RENDER_ERROR_MARKER);
 }
 
-pub fn type_error_shows_ariadne_formatted_source() {
+pub async fn type_error_shows_ariadne_formatted_source() {
     let site = TestSite::new("sample-site");
 
     // Introduce a type error by accessing a field on a potentially-none value
@@ -71,9 +71,9 @@ pub fn type_error_shows_ariadne_formatted_source() {
         )
     });
 
-    std::thread::sleep(Duration::from_millis(500));
+    tokio::time::sleep(Duration::from_millis(500)).await;
 
-    let html = site.get("/guide/");
+    let html = site.get("/guide/").await;
     html.assert_ok();
     html.assert_contains(RENDER_ERROR_MARKER);
 
@@ -95,7 +95,7 @@ pub fn type_error_shows_ariadne_formatted_source() {
     );
 }
 
-pub fn frontmatter_parse_error_shows_error_page_and_recovers() {
+pub async fn frontmatter_parse_error_shows_error_page_and_recovers() {
     let site = TestSite::new("sample-site");
     let original = site.read_file("content/guide/getting-started.md");
 
@@ -103,18 +103,18 @@ pub fn frontmatter_parse_error_shows_error_page_and_recovers() {
         content.replace("title = \"Getting Started\"", "title: Getting Started")
     });
 
-    site.wait_debounce();
+    site.wait_debounce().await;
 
-    let html = site.get("/");
+    let html = site.get("/").await;
     html.assert_ok();
     html.assert_contains(RENDER_ERROR_MARKER);
     html.assert_contains("Failed to parse 1 file");
     html.assert_contains("guide/getting-started.md");
 
     site.write_file("content/guide/getting-started.md", &original);
-    site.wait_debounce();
+    site.wait_debounce().await;
 
-    let html = site.get("/");
+    let html = site.get("/").await;
     html.assert_ok();
     html.assert_not_contains(RENDER_ERROR_MARKER);
     html.assert_contains("<!DOCTYPE html>");
