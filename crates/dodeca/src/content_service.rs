@@ -155,8 +155,15 @@ impl ContentService for HostContentService {
             }
         }
 
+        // Per-viewer editor flag: true iff this identity would be granted an
+        // edit token (the SAME gate as `mint_edit_token`). Threaded into the
+        // render as a tracked `can_edit` argument so the template can show an
+        // Edit button to verified editors only — and so picante memoizes the
+        // editor render separately from the shared anonymous one.
+        let can_edit = self.server.can_edit(identity.as_ref());
+
         // Try finding content through the main find_content path
-        self.server.find_content_for_rpc(&path).await
+        self.server.find_content_for_rpc(&path, can_edit).await
     }
 
     async fn get_scope(&self, route: String, path: Vec<String>) -> Vec<ScopeEntry> {

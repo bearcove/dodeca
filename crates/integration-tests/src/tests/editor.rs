@@ -229,6 +229,46 @@ pub async fn moved_remote_save_succeeds() {
     );
 }
 
+/// The per-viewer Edit button is gated on `can_edit`, which dodeca threads into
+/// the gingembre render context as a tracked argument keyed per viewer. The
+/// `editor-site` page template emits a `data-n-edit` button only inside
+/// `{% if can_edit %}`. This is the oracle that `can_edit` actually reaches the
+/// template AND differs by viewer.
+///
+/// Editor view: spawned with `--dev-editor`, so the synthesized identity passes
+/// the same gate `mint_edit_token` uses → `can_edit = true` → the button renders.
+pub async fn edit_button_visible_to_editor() {
+    let site = TestSite::with_editor_repo("editor-site", "editor");
+    site.wait_until("page renders", Duration::from_secs(30), async || {
+        let resp = site.get("/page/").await;
+        (resp.status == 200).then_some(())
+    })
+    .await;
+
+    let resp = site.get("/page/").await;
+    resp.assert_ok();
+    // The HTML cell re-serializes the valueless attribute as `data-n-edit=""`,
+    // so assert on that canonical form.
+    resp.assert_contains(r#"<button data-n-edit="">Edit</button>"#);
+}
+
+/// Anonymous view: the SAME fixture spawned WITHOUT `--dev-editor` and with no
+/// `auth` config → `can_edit = false` → the Edit button is absent. Proves the
+/// gate is real (not always-on) and that the anonymous render omits it.
+pub async fn edit_button_hidden_from_anonymous() {
+    let site = TestSite::new("editor-site");
+    site.wait_until("page renders", Duration::from_secs(30), async || {
+        let resp = site.get("/page/").await;
+        (resp.status == 200).then_some(())
+    })
+    .await;
+
+    let resp = site.get("/page/").await;
+    resp.assert_ok();
+    resp.assert_not_contains("data-n-edit");
+    resp.assert_not_contains(">Edit<");
+}
+
 /// A genuine optimistic-concurrency conflict: the on-disk file changed since the
 /// editor loaded it, so the `base`-vs-disk check fails *before* committing and
 /// `edit_save` returns `EditSave::Conflict` (read `edit_save` in serve.rs). We

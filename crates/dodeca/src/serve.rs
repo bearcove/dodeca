@@ -951,9 +951,10 @@ impl SiteServer {
         );
 
         for route in cached_routes {
-            // Get new HTML + head_injections (re-render)
+            // Get new HTML + head_injections (re-render). Live-reload re-renders
+            // the shared, viewer-independent (anonymous) HTML for cached routes.
             tracing::debug!("trigger_reload: re-rendering {}", route);
-            let new_content = self.find_content(&route).await;
+            let new_content = self.find_content(&route, false).await;
             let (new_html, new_head_injections) = match new_content {
                 Some(ServeContent::Html {
                     html,
@@ -1110,9 +1111,14 @@ impl SiteServer {
         Ok(())
     }
 
-    /// Find content for a given path using lazy picante queries
-    async fn find_content(self: &Arc<Self>, path: &str) -> Option<ServeContent> {
-        tracing::debug!(path, "find_content: called");
+    /// Find content for a given path using lazy picante queries.
+    ///
+    /// `can_edit` is the per-viewer editor flag, threaded all the way down into
+    /// the gingembre render context (and thus into the `serve_html` /
+    /// `render_page` / `render_section` memo keys, so a viewer who can edit gets
+    /// a distinct memoized render from an anonymous viewer).
+    async fn find_content(self: &Arc<Self>, path: &str, can_edit: bool) -> Option<ServeContent> {
+        tracing::debug!(path, can_edit, "find_content: called");
         let db = self.db.clone();
         let snapshot = DatabaseSnapshot::from_database(&self.db).await;
         tracing::debug!(path, "find_content: got database snapshot");
@@ -1120,7 +1126,7 @@ impl SiteServer {
         // Wrap all content finding in TASK_DB scope - rendering can be triggered by
         // font subsetting (static_file_output -> font_char_analysis -> all_rendered_html)
         crate::db::TASK_DB
-            .scope(db, self.find_content_inner(path, snapshot))
+            .scope(db, self.find_content_inner(path, snapshot, can_edit))
             .await
     }
 
@@ -1172,7 +1178,9 @@ impl SiteServer {
                     return Ok(None);
                 };
                 let route = Route::new(route);
-                let html = match serve_html(&snapshot, route.clone()).await {
+                // The editor preview is the anonymous render (it only reflects
+                // the buffer overlay, not viewer-specific UI).
+                let html = match serve_html(&snapshot, route.clone(), false).await {
                     Ok(Ok(Some(served))) => served.html,
                     _ => return Ok(None),
                 };
@@ -1217,6 +1225,26 @@ impl SiteServer {
         }
         // is_editor is false for a None identity, so unwrap is safe here.
         Some(self.edit_sessions.mint(identity?.clone()))
+    }
+
+    /// Is this identity allowed to edit, under the exact same gate as
+    /// [`Self::mint_edit_token`]? Returns true iff a token *would* be minted —
+    /// the local `--dev-editor` bypass, or a verified editor per the site's
+    /// `auth` config — without actually minting one. Threaded into the render as
+    /// a tracked `can_edit` argument so per-viewer renders are memoized
+    /// separately from the shared anonymous render.
+    pub fn can_edit(&self, identity: Option<&cell_http_proto::Identity>) -> bool {
+        // Local dev bypass: the configured dev editor is always an editor.
+        if self.dev_editor.read().unwrap().is_some() {
+            return true;
+        }
+        let Some(cfg) = crate::config::global_config() else {
+            return false;
+        };
+        let Some(auth) = cfg.auth.as_ref() else {
+            return false;
+        };
+        crate::authz::is_editor(identity, auth)
     }
 
     /// Resolve an editor token to its identity, re-checking edit rights against
@@ -1673,6 +1701,7 @@ impl SiteServer {
         self: &Arc<Self>,
         path: &str,
         snapshot: DatabaseSnapshot,
+        can_edit: bool,
     ) -> Option<ServeContent> {
         // Get known routes for dead link detection (only in dev mode)
         let known_routes: Option<HashSet<String>> = if self.render_options.livereload {
@@ -1756,8 +1785,8 @@ impl SiteServer {
         };
 
         let route = Route::new(route_path.clone());
-        tracing::debug!(route = %route.as_str(), "find_content: calling serve_html");
-        let serve_html_result = serve_html(&snapshot, route).await;
+        tracing::debug!(route = %route.as_str(), can_edit, "find_content: calling serve_html");
+        let serve_html_result = serve_html(&snapshot, route, can_edit).await;
         tracing::debug!(route = %route_path, has_result = serve_html_result.is_ok(), "find_content: serve_html returned");
 
         // Process the result, tracking if we got an error for devtools notification
@@ -2370,13 +2399,14 @@ impl SiteServer {
     pub async fn find_content_for_rpc(
         self: &Arc<Self>,
         path: &str,
+        can_edit: bool,
     ) -> cell_http_proto::ServeContent {
         use cell_http_proto::ServeContent as RpcServeContent;
 
         // Get current generation
         let generation = self.current_generation();
 
-        match self.find_content(path).await {
+        match self.find_content(path, can_edit).await {
             Some(ServeContent::Html {
                 html,
                 head_injections,

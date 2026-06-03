@@ -174,7 +174,8 @@ pub async fn search_index_files<DB: Db>(db: &DB) -> PicanteResult<Vec<OutputFile
 
     let mut pages: Vec<SearchPage> = Vec::new();
     for route in tree.sections.keys().chain(tree.pages.keys()) {
-        if let Ok(Some(served)) = serve_html(db, route.clone()).await? {
+        // The search index is viewer-independent: render anonymously.
+        if let Ok(Some(served)) = serve_html(db, route.clone(), false).await? {
             pages.push(SearchPage {
                 url: route_to_url(route),
                 source: crate::queries::source_name_of(route.as_str()),

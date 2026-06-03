@@ -1,1 +1,1 @@
-<!DOCTYPE html><html><head><title>{{ page.title }}</title></head><body>{{ page.content | safe }}</body></html>
+<!DOCTYPE html><html><head><title>{{ page.title }}</title></head><body>{% if can_edit %}<button data-n-edit>Edit</button>{% endif %}{{ page.content | safe }}</body></html>

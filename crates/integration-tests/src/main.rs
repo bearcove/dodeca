@@ -1025,5 +1025,20 @@ fn collect_tests() -> Vec<Test> {
             func: || boxed(editor::stale_base_reports_conflict()),
             ignored: false,
         },
+        // per-viewer Edit-button gating: `can_edit` is threaded into the render
+        // context as a tracked arg and the page template gates the Edit button on
+        // it — visible to an editor (`--dev-editor`), absent for anonymous.
+        Test {
+            name: "edit_button_visible_to_editor",
+            module: "editor",
+            func: || boxed(editor::edit_button_visible_to_editor()),
+            ignored: false,
+        },
+        Test {
+            name: "edit_button_hidden_from_anonymous",
+            module: "editor",
+            func: || boxed(editor::edit_button_hidden_from_anonymous()),
+            ignored: false,
+        },
     ]
 }

@@ -576,8 +576,13 @@ impl<'a> Renderable<'a> {
         }
     }
 
-    /// Build the initial context value for template rendering
-    fn build_context(&self, site_tree: &SiteTree) -> Value {
+    /// Build the initial context value for template rendering.
+    ///
+    /// `can_edit` is the per-viewer editor flag, surfaced to templates as
+    /// `can_edit` so they can gate an Edit button on it. It is part of the
+    /// render memo key upstream (`serve_html`/`render_page`/`render_section`),
+    /// so editor and anonymous renders are cached separately.
+    fn build_context(&self, site_tree: &SiteTree, can_edit: bool) -> Value {
         let base_url = get_base_url();
         let mut obj = VObject::new();
 
@@ -636,6 +641,9 @@ impl<'a> Renderable<'a> {
             );
         }
 
+        // Per-viewer editor flag (gates the in-browser Edit button in templates).
+        obj.insert(VString::from("can_edit"), Value::from(can_edit));
+
         obj.into()
     }
 }
@@ -645,6 +653,7 @@ pub async fn try_render_via_cell(
     renderable: Renderable<'_>,
     site_tree: &SiteTree,
     templates: HashMap<String, String>,
+    can_edit: bool,
 ) -> std::result::Result<String, cell_gingembre_proto::TemplateRenderError> {
     let template_name = renderable.template_name();
     let route = renderable.route().clone();
@@ -664,7 +673,7 @@ pub async fn try_render_via_cell(
     let guard = RenderContextGuard::new(context);
 
     // Build initial context
-    let initial_context = renderable.build_context(site_tree);
+    let initial_context = renderable.build_context(site_tree, can_edit);
 
     // Render via cell
     let result = match render_template_cell(guard.id(), template_name, initial_context).await {
@@ -698,8 +707,9 @@ pub async fn render_page_via_cell(
     page: &Page,
     site_tree: &SiteTree,
     templates: HashMap<String, String>,
+    can_edit: bool,
 ) -> Result<String, cell_gingembre_proto::TemplateRenderError> {
-    try_render_via_cell(Renderable::Page(page), site_tree, templates).await
+    try_render_via_cell(Renderable::Page(page), site_tree, templates, can_edit).await
 }
 
 /// Render section via cell - returns Result with structured error
@@ -707,8 +717,9 @@ pub async fn render_section_via_cell(
     section: &Section,
     site_tree: &SiteTree,
     templates: HashMap<String, String>,
+    can_edit: bool,
 ) -> Result<String, cell_gingembre_proto::TemplateRenderError> {
-    try_render_via_cell(Renderable::Section(section), site_tree, templates).await
+    try_render_via_cell(Renderable::Section(section), site_tree, templates, can_edit).await
 }
 
 pub(crate) async fn render_authoring_html(
@@ -722,7 +733,8 @@ pub(crate) async fn render_authoring_html(
         loader.add(name, source);
     }
 
-    let mut context = context_from_template_value(renderable.build_context(site_tree));
+    // Authoring preview is viewer-independent (`can_edit = false`).
+    let mut context = context_from_template_value(renderable.build_context(site_tree, false));
     register_authoring_template_fallbacks(&mut context);
     let mut engine = gingembre::Engine::new(loader);
     engine.render(&template_name, &context).await.ok()

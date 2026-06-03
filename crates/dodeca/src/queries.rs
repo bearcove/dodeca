@@ -1294,10 +1294,11 @@ fn find_parent_section(route: &Route, sections: &BTreeMap<Route, Section>) -> Ro
 pub async fn render_page<DB: Db>(
     db: &DB,
     route: Route,
+    can_edit: bool,
 ) -> PicanteResult<Result<RenderedHtml, SiteError>> {
     use crate::render::render_page_via_cell;
 
-    tracing::debug!(route = %route, "Rendering page");
+    tracing::debug!(route = %route, can_edit, "Rendering page");
 
     // Build tree (cached)
     let site_tree = match build_tree(db).await? {
@@ -1315,7 +1316,7 @@ pub async fn render_page<DB: Db>(
         .expect("Page not found for route");
 
     // Render via gingembre cell
-    match render_page_via_cell(page, &site_tree, templates).await {
+    match render_page_via_cell(page, &site_tree, templates, can_edit).await {
         Ok(html) => Ok(Ok(RenderedHtml(html))),
         Err(error) => Ok(Err(RenderError {
             route: route.clone(),
@@ -1410,10 +1411,11 @@ pub async fn render_page_markdown<DB: Db>(
 pub async fn render_section<DB: Db>(
     db: &DB,
     route: Route,
+    can_edit: bool,
 ) -> PicanteResult<Result<RenderedHtml, SiteError>> {
     use crate::render::render_section_via_cell;
 
-    tracing::debug!(route = %route, "Rendering section");
+    tracing::debug!(route = %route, can_edit, "Rendering section");
 
     // Build tree (cached)
     let site_tree = match build_tree(db).await? {
@@ -1431,7 +1433,7 @@ pub async fn render_section<DB: Db>(
         .expect("Section not found for route");
 
     // Render via gingembre cell
-    match render_section_via_cell(section, &site_tree, templates).await {
+    match render_section_via_cell(section, &site_tree, templates, can_edit).await {
         Ok(html) => Ok(Ok(RenderedHtml(html))),
         Err(error) => Ok(Err(RenderError {
             route: route.clone(),
@@ -1953,9 +1955,10 @@ pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<Result<SiteOutput, Sit
     };
 
     // --- Phase 1: Render all HTML pages using serve_html ---
-    // This reuses the exact same pipeline as `ddc serve`, ensuring consistency
+    // This reuses the exact same pipeline as `ddc serve`, ensuring consistency.
+    // The static build is viewer-independent, so render anonymously (`can_edit = false`).
     for route in site_tree.sections.keys() {
-        match serve_html(db, route.clone()).await? {
+        match serve_html(db, route.clone(), false).await? {
             Ok(Some(served)) => {
                 // Extract links using HTML cell (proper parser, not regex)
                 let extracted = crate::cells::extract_links_from_html(served.html.clone())
@@ -1975,7 +1978,7 @@ pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<Result<SiteOutput, Sit
     }
 
     for route in site_tree.pages.keys() {
-        match serve_html(db, route.clone()).await? {
+        match serve_html(db, route.clone(), false).await? {
             Ok(Some(served)) => {
                 // Extract links using HTML cell (proper parser, not regex)
                 let extracted = crate::cells::extract_links_from_html(served.html.clone())
@@ -2127,16 +2130,19 @@ pub async fn all_rendered_html<DB: Db>(
     let mut pages = HashMap::new();
 
     for (route, section) in &site_tree.sections {
-        let html = match render_section_via_cell(section, &site_tree, template_map.clone()).await {
-            Ok(html) => html,
-            Err(error) => {
-                return Ok(Err(RenderError {
-                    route: route.clone(),
-                    error,
+        // Anonymous (`can_edit = false`): this aggregate feeds global font
+        // subsetting and must stay viewer-independent and shared.
+        let html =
+            match render_section_via_cell(section, &site_tree, template_map.clone(), false).await {
+                Ok(html) => html,
+                Err(error) => {
+                    return Ok(Err(RenderError {
+                        route: route.clone(),
+                        error,
+                    }
+                    .into()));
                 }
-                .into()));
-            }
-        };
+            };
         // Resolve relative links based on section route, then @/ links
         let html = resolve_relative_links(&html, route.as_str()).await;
         let html = resolve_internal_links(&html, &source_route_map).await;
@@ -2153,7 +2159,8 @@ pub async fn all_rendered_html<DB: Db>(
     }
 
     for (route, page) in &site_tree.pages {
-        let html = match render_page_via_cell(page, &site_tree, template_map.clone()).await {
+        // Anonymous (`can_edit = false`): viewer-independent aggregate (font subsetting).
+        let html = match render_page_via_cell(page, &site_tree, template_map.clone(), false).await {
             Ok(html) => html,
             Err(error) => {
                 return Ok(Err(RenderError {
@@ -2579,8 +2586,9 @@ fn page_mount_segment(route: &str) -> Option<String> {
 pub async fn serve_html<DB: Db>(
     db: &DB,
     route: Route,
+    can_edit: bool,
 ) -> PicanteResult<Result<Option<crate::db::ServedHtml>, SiteError>> {
-    tracing::debug!(route = %route.as_str(), "serve_html: rendering");
+    tracing::debug!(route = %route.as_str(), can_edit, "serve_html: rendering");
     use crate::url_rewrite::ResponsiveImageInfo;
 
     let site_tree = match build_tree(db).await? {
@@ -2600,7 +2608,7 @@ pub async fn serve_html<DB: Db>(
             .unwrap()
             .head_injections
             .clone();
-        let html = match render_section(db, route.clone()).await? {
+        let html = match render_section(db, route.clone(), can_edit).await? {
             Ok(RenderedHtml(html)) => html,
             Err(e) => return Ok(Err(e)),
         };
@@ -2609,7 +2617,7 @@ pub async fn serve_html<DB: Db>(
         let page = site_tree.pages.get(&route).unwrap();
         let head = page.head_injections.clone();
         let base = page.section_route.as_str().to_string();
-        let html = match render_page(db, route.clone()).await? {
+        let html = match render_page(db, route.clone(), can_edit).await? {
             Ok(RenderedHtml(html)) => html,
             Err(e) => return Ok(Err(e)),
         };
