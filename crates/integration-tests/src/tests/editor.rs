@@ -118,10 +118,16 @@ fn expect_load_ok(load: EditLoad) -> (String, String, String) {
 fn clone_origin(fixture_dir: &Path, name: &str) -> std::path::PathBuf {
     let origin = fixture_dir.join(".origin.git");
     let dest = fixture_dir.join(format!(".clone-{name}"));
+    // Clone `main` explicitly: the bare origin's HEAD follows git's
+    // `init.defaultBranch`, which is `main` on some machines and `master` on
+    // others (CI). A bare `git clone` would then check out a nonexistent default
+    // branch and leave an empty working tree (no `content/`), so name the branch.
     run_git(
         fixture_dir,
         &[
             "clone",
+            "-b",
+            "main",
             origin.to_str().expect("utf8 origin path"),
             dest.to_str().expect("utf8 clone path"),
         ],
