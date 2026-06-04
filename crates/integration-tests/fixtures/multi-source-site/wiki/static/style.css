@@ -1,0 +1,3 @@
+/* wiki-only stylesheet, referenced root-absolute as /style.css by the wiki
+   templates; under the /wiki mount it must serve as /wiki/style.<hash>.css */
+body { font-family: serif; }

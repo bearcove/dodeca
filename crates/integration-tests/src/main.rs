@@ -635,6 +635,12 @@ fn collect_tests() -> Vec<Test> {
             func: || boxed(multi_source::unclonable_mounted_source_does_not_break_the_site()),
             ignored: false,
         },
+        Test {
+            name: "mounted_source_static_is_served_and_localized",
+            module: "multi_source",
+            func: || boxed(multi_source::mounted_source_static_is_served_and_localized()),
+            ignored: false,
+        },
         // static_assets tests
         Test {
             name: "svg_files_served",

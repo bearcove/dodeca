@@ -2533,6 +2533,13 @@ async fn serve_plain(
             }
         }
 
+        // Mounted sources' static assets (mount-prefixed keys) via the shared
+        // loader — so e.g. /wiki/style.css is served and a mounted page's
+        // /style.css alias resolves. Build path does the same in load_static.
+        for (path, file) in dodeca::build_context::load_source_static_files(db, sources)? {
+            static_files_map.insert(path.as_str().to_string(), file);
+        }
+
         let count = static_files_map.len();
         server.set_static_files(static_files_map.into_values().collect());
         if count > 0 {
@@ -2907,6 +2914,12 @@ async fn serve_with_tui(
                     static_files_map.insert(key, static_file);
                 }
             }
+        }
+
+        // Mounted sources' static assets (mount-prefixed keys) via the shared
+        // loader — keeps reload consistent with the initial load and the build.
+        for (path, file) in dodeca::build_context::load_source_static_files(db, sources)? {
+            static_files_map.insert(path.as_str().to_string(), file);
         }
 
         let count = static_files_map.len();

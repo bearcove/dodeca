@@ -218,6 +218,52 @@ pub fn load_template_files(
     Ok(out)
 }
 
+/// Load static files from every NON-primary source's `static/` dir (sibling of
+/// its content dir), with mount-prefixed keys (`wiki/style.css`). The primary
+/// (mount `/`) `static/` + `dist/` are loaded by the caller; this only adds the
+/// mounted sources' assets, so they're served + cache-busted under their mount
+/// and a mounted page's source-root-absolute asset refs (`/style.css`) alias to
+/// them. Shared by `BuildContext` (build) and the `ddc serve` path so both load
+/// the same set — mirroring `load_template_files` / `load_source_files`.
+pub fn load_source_static_files(
+    db: &Database,
+    roots: &[ResolvedSource],
+) -> Result<Vec<(StaticPath, StaticFile)>> {
+    let mut out = Vec::new();
+    for root in roots.iter().skip(1) {
+        let source_static = root
+            .content_dir
+            .parent()
+            .unwrap_or(&root.content_dir)
+            .join("static");
+        if !source_static.exists() {
+            continue;
+        }
+        let files: Vec<Utf8PathBuf> = WalkBuilder::new(&source_static)
+            .build()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.file_type()
+                    .map(|ft| ft.is_file() || (ft.is_symlink() && e.path().is_file()))
+                    .unwrap_or(false)
+            })
+            .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
+            .collect();
+        for path in files {
+            let content = fs::read(&path)?;
+            let relative = path
+                .strip_prefix(&source_static)
+                .map(|p| p.to_string())
+                .unwrap_or_else(|_| path.to_string());
+            let key = mounted_key(&root.mount, &relative);
+            let static_path = StaticPath::new(key);
+            let static_file = StaticFile::new(db, static_path.clone(), content)?;
+            out.push((static_path, static_file));
+        }
+    }
+    Ok(out)
+}
+
 /// The build context with picante database.
 pub struct BuildContext {
     pub db: Arc<Database>,
@@ -489,36 +535,8 @@ impl BuildContext {
         // same-named asset. The primary (mount `/`) is already handled above via
         // `self.static_dir()`.
         let roots = self.source_roots.clone();
-        for root in roots.iter().skip(1) {
-            let source_static = root
-                .content_dir
-                .parent()
-                .unwrap_or(&root.content_dir)
-                .join("static");
-            if !source_static.exists() {
-                continue;
-            }
-            let files: Vec<Utf8PathBuf> = WalkBuilder::new(&source_static)
-                .build()
-                .filter_map(|e| e.ok())
-                .filter(|e| {
-                    e.file_type()
-                        .map(|ft| ft.is_file() || (ft.is_symlink() && e.path().is_file()))
-                        .unwrap_or(false)
-                })
-                .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
-                .collect();
-            for path in files {
-                let content = fs::read(&path)?;
-                let relative = path
-                    .strip_prefix(&source_static)
-                    .map(|p| p.to_string())
-                    .unwrap_or_else(|_| path.to_string());
-                let key = mounted_key(&root.mount, &relative);
-                let static_path = StaticPath::new(key);
-                let static_file = StaticFile::new(&*self.db, static_path.clone(), content)?;
-                self.static_files.insert(static_path, static_file);
-            }
+        for (path, file) in load_source_static_files(&self.db, &roots)? {
+            self.static_files.insert(path, file);
         }
 
         Ok(())

@@ -59,6 +59,23 @@ pub async fn mounted_source_links_are_localized() {
     html.assert_contains(r##"href="/wiki/other/#details""##);
 }
 
+/// A mounted source's own static assets are served and cache-busted under its
+/// mount, and a page's source-root-absolute asset ref (`/style.css`, as the
+/// wiki authored it standalone) is aliased to the mounted, cache-busted URL.
+pub async fn mounted_source_static_is_served_and_localized() {
+    let site = TestSite::new("multi-source-site");
+    let html = site.get("/wiki/note/").await;
+    html.assert_ok();
+    // The bare root-absolute ref must not survive — it's aliased to the mount.
+    html.assert_not_contains(r#"href="/style.css""#);
+    let css = html
+        .extract(r#"href="(/wiki/style\.[^"]+\.css)""#)
+        .expect("wiki stylesheet localized to a /wiki/style.<hash>.css URL");
+    let resp = site.get(&css).await;
+    resp.assert_ok();
+    resp.assert_content_type("text/css");
+}
+
 /// A mounted source whose repo can't be cloned at startup (here: a bogus git
 /// path) must be skipped without taking the site down — the primary keeps
 /// serving and the broken mount 404s. This guards mounting a private repo
