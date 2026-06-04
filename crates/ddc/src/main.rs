@@ -2071,7 +2071,7 @@ fn spawn_git_poll(sources: &[dodeca::config::ResolvedSource], interval_secs: u64
 /// stable location, so the loader/watcher can read `<checkout>/<content>`. A
 /// webhook/poll later `git pull`s the same checkout; FS-notify re-renders.
 fn ensure_git_sources(sources: &[dodeca::config::ResolvedSource]) -> Result<()> {
-    for source in sources {
+    for (idx, source) in sources.iter().enumerate() {
         let (Some(checkout), Some(git)) = (&source.checkout_dir, &source.git) else {
             continue;
         };
@@ -2079,21 +2079,47 @@ fn ensure_git_sources(sources: &[dodeca::config::ResolvedSource]) -> Result<()> 
             continue;
         }
         println!("  {} cloning {git} → {checkout}", "git".cyan());
-        let status = std::process::Command::new("git")
+        let outcome = std::process::Command::new("git")
             .args(["clone", git, checkout.as_str()])
-            .status()
-            .map_err(|e| {
-                eyre!(
-                    "failed to run `git clone` for source `{}`: {e}",
-                    source.name
-                )
-            })?;
-        if !status.success() {
+            .status();
+        let failure = match outcome {
+            Ok(status) if status.success() => None,
+            Ok(status) => Some(format!("git clone exited with {status}")),
+            Err(e) => Some(format!("failed to run `git clone`: {e}")),
+        };
+        let Some(reason) = failure else {
+            continue;
+        };
+
+        // The primary source (index 0) *is* the site — if it can't be cloned the
+        // service has nothing to serve, so fail fast. An additional mounted
+        // source that can't be cloned (e.g. the deploy bot doesn't have read on
+        // its repo yet) must NOT take the whole site down: skip it, log loudly,
+        // and let the rest serve. Its routes 404 until the access is fixed and a
+        // `/_dodeca/pull/<name>` (or restart) fetches it.
+        if idx == 0 {
             return Err(eyre!(
-                "git clone failed for source `{}` ({git} → {checkout})",
+                "git clone failed for primary source `{}` ({git} → {checkout}): {reason}",
                 source.name
             ));
         }
+        tracing::error!(
+            source = %source.name,
+            mount = %source.mount,
+            %git,
+            checkout = %checkout,
+            %reason,
+            "git clone failed for mounted source — skipping it; the rest of the \
+             site will serve. Fix repo access, then POST /_dodeca/pull/{} (or \
+             restart) to fetch it.",
+            source.name
+        );
+        eprintln!(
+            "  {} clone failed for mounted source `{}` ({git}): {reason} — skipping; \
+             its routes will 404 until fetched",
+            "warn".yellow(),
+            source.name
+        );
     }
     Ok(())
 }

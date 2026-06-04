@@ -59,6 +59,25 @@ pub async fn mounted_source_links_are_localized() {
     html.assert_contains(r##"href="/wiki/other/#details""##);
 }
 
+/// A mounted source whose repo can't be cloned at startup (here: a bogus git
+/// path) must be skipped without taking the site down — the primary keeps
+/// serving and the broken mount 404s. This guards mounting a private repo
+/// before the deploy bot has read access: it degrades, it does not crash.
+pub async fn unclonable_mounted_source_does_not_break_the_site() {
+    let site = TestSite::new("mount-clone-fail-site");
+    // The primary source serves normally.
+    let home = site.get("/").await;
+    home.assert_ok();
+    home.assert_contains("MAIN-OK");
+    // The mount whose clone failed simply has no routes → 404, site stays up.
+    let broken = site.get("/broken/").await;
+    assert_eq!(
+        broken.status, 404,
+        "a skipped mount should 404, got {}",
+        broken.status
+    );
+}
+
 /// The section templates are per-source too: the root section (`/`) uses the
 /// kb's `index.html`; the wiki's root section (`/wiki/`) uses the wiki's
 /// `section.html` (its route isn't `/`, so it's a section, not an index).
