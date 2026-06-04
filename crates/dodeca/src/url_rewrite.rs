@@ -119,6 +119,7 @@ pub async fn process_html(
         base_route: options.base_route,
         image_variants: options.image_variants,
         vite_css_map: options.vite_css_map,
+        mount: options.mount,
     };
 
     tracing::debug!(
@@ -199,6 +200,9 @@ pub struct HtmlProcessOptions {
     pub image_variants: Option<HashMap<String, cell_html_proto::ResponsiveImageInfo>>,
     /// Vite CSS map: entry path -> list of CSS URLs to inject
     pub vite_css_map: Option<HashMap<String, Vec<String>>>,
+    /// Mount localization for a page served from a mounted source — rewrites the
+    /// source's root-absolute internal links to mount-prefixed routes.
+    pub mount: Option<cell_html_proto::MountLocalization>,
 }
 
 /// Output from HTML processing

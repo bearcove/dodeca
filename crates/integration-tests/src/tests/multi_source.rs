@@ -40,6 +40,25 @@ pub async fn mounted_source_uses_its_own_chrome() {
     html.assert_not_contains("KB-SHELL");
 }
 
+/// A mounted source authored its internal links root-absolute (`/other/`, `/`)
+/// as if it lived at the site root. Mounting relocates it under `/wiki`, so
+/// those links must be rewritten to the mount-prefixed routes — otherwise they
+/// would point at the primary site. This rides the same path_map rewrite the
+/// rest of dodeca uses (cache-busting, asset aliasing), scoped to the source's
+/// own routes.
+pub async fn mounted_source_links_are_localized() {
+    let site = TestSite::new("multi-source-site");
+    let html = site.get("/wiki/note/").await;
+    html.assert_ok();
+    // /other/ is a real wiki route → localized to /wiki/other/.
+    html.assert_contains(r#"href="/wiki/other/""#);
+    html.assert_not_contains(r#"href="/other/""#);
+    // The root-absolute home link resolves to the wiki home, not the kb root.
+    html.assert_contains(r#"href="/wiki/""#);
+    // An anchored link keeps its #fragment while the path is localized.
+    html.assert_contains(r##"href="/wiki/other/#details""##);
+}
+
 /// The section templates are per-source too: the root section (`/`) uses the
 /// kb's `index.html`; the wiki's root section (`/wiki/`) uses the wiki's
 /// `section.html` (its route isn't `/`, so it's a section, not an index).

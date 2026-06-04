@@ -122,6 +122,27 @@ pub struct HtmlProcessInput {
     /// Used to inject CSS links for Vite entry points found in the HTML
     #[facet(default)]
     pub vite_css_map: Option<HashMap<String, Vec<String>>>,
+
+    /// Mount localization for a page served from a mounted source. When set,
+    /// root-absolute `<a>` links authored as if the source lived at the site
+    /// root (`/exec/`, `/exec/#anchor`, `/`) are rewritten to the mount-prefixed
+    /// route, preserving any `#fragment`/`?query`.
+    #[facet(default)]
+    pub mount: Option<MountLocalization>,
+}
+
+/// Rewrites a mounted source's root-absolute internal links to their
+/// mount-prefixed routes. A source authored standalone links to `/exec/`; when
+/// mounted at `/wiki`, that must resolve to `/wiki/exec/`. Only links whose
+/// target is one of the source's own routes are rewritten (so a genuine
+/// cross-source link is left alone); matching is trailing-slash tolerant.
+#[derive(Debug, Clone, Facet)]
+pub struct MountLocalization {
+    /// Mount segment without slashes, e.g. `wiki` (for mount `/wiki/`).
+    pub segment: String,
+    /// Every route in the assembled site (leading slash, as stored — may lack a
+    /// trailing slash). Used to gate rewriting to real mounted routes.
+    pub routes: HashSet<String>,
 }
 
 /// Result of the unified process() method

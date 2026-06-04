@@ -623,6 +623,12 @@ fn collect_tests() -> Vec<Test> {
             func: || boxed(multi_source::section_templates_are_per_source()),
             ignored: false,
         },
+        Test {
+            name: "mounted_source_links_are_localized",
+            module: "multi_source",
+            func: || boxed(multi_source::mounted_source_links_are_localized()),
+            ignored: false,
+        },
         // static_assets tests
         Test {
             name: "svg_files_served",

@@ -18,7 +18,8 @@ use hotmeal::{Document, LocalName, NodeId, NodeKind, QualName, Stem, StrTendril,
 use cell_host_proto::HostServiceClient;
 use cell_html_proto::{
     CodeExecutionMetadata, HtmlProcessInput, HtmlProcessResult, HtmlProcessor,
-    HtmlProcessorDispatcher, HtmlResult, Injection, ResponsiveImageInfo, WikiLinkRef,
+    HtmlProcessorDispatcher, HtmlResult, Injection, MountLocalization, ResponsiveImageInfo,
+    WikiLinkRef,
 };
 use dodeca_cell_runtime::HostHandle;
 
@@ -66,6 +67,14 @@ impl HtmlProcessor for HtmlProcessorImpl {
             // 1. URL rewriting
             if let Some(path_map) = &input.path_map {
                 rewrite_urls_in_doc(&mut doc, path_map);
+            }
+
+            // 1b. Mount localization: rewrite a mounted source's root-absolute
+            // internal links (`/exec/`) to their mount-prefixed routes
+            // (`/wiki/exec/`). Runs before dead-link marking so localized links
+            // are not flagged dead.
+            if let Some(mount) = &input.mount {
+                localize_mounted_links_in_doc(&mut doc, mount);
             }
 
             // 2. Dead link marking
@@ -933,6 +942,75 @@ fn rewrite_srcset(srcset: &str, path_map: &HashMap<String, String>) -> String {
         })
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+// ============================================================================
+// Mount Localization
+// ============================================================================
+
+/// Rewrite a mounted source's root-absolute internal `<a>` links to their
+/// mount-prefixed routes. A source authored standalone links to `/exec/`; when
+/// mounted at `/wiki`, that resolves to `/wiki/exec/`. Anchors/queries are
+/// preserved and only links to the source's own routes are rewritten.
+fn localize_mounted_links_in_doc(doc: &mut Document, mount: &MountLocalization) {
+    for root in [doc.head(), doc.body()].into_iter().flatten() {
+        localize_links_in_subtree(doc, root, mount);
+    }
+}
+
+fn localize_links_in_subtree(doc: &mut Document, node_id: NodeId, mount: &MountLocalization) {
+    let children: Vec<NodeId> = doc.children(node_id).collect();
+
+    if tag_name(doc, node_id) == Some("a")
+        && let Some(href) = get_attr(doc, node_id, "href")
+        && let Some(new_href) = localize_mounted_href(&href, mount)
+    {
+        set_attr(doc, node_id, "href", &new_href);
+    }
+
+    for child_id in children {
+        localize_links_in_subtree(doc, child_id, mount);
+    }
+}
+
+/// Rewrite one root-absolute href to the mount-prefixed route, or `None` to
+/// leave it unchanged (external/dodeca-internal/already-mounted, or it doesn't
+/// resolve to one of the source's own routes).
+fn localize_mounted_href(href: &str, mount: &MountLocalization) -> Option<String> {
+    // Only root-absolute links; skip protocol-relative (`//`) and dodeca's own
+    // (`/_/`, `/__`, `/_dodeca`) which are genuinely site-absolute.
+    if !href.starts_with('/') || href.starts_with("//") || href.starts_with("/_") {
+        return None;
+    }
+
+    // Split off `#fragment` / `?query` so only the path is localized.
+    let suffix_at = href.find(['#', '?']);
+    let (path, suffix) = match suffix_at {
+        Some(idx) => (&href[..idx], &href[idx..]),
+        None => (href, ""),
+    };
+
+    // Already under the mount → nothing to do.
+    let seg_root = format!("/{}", mount.segment);
+    let seg_prefix = format!("/{}/", mount.segment);
+    if path == seg_root || path.starts_with(&seg_prefix) {
+        return None;
+    }
+
+    let candidate = if path == "/" {
+        seg_prefix.clone()
+    } else {
+        format!("/{}{}", mount.segment, path)
+    };
+
+    route_known(&mount.routes, &candidate).then(|| format!("{candidate}{suffix}"))
+}
+
+/// Trailing-slash-tolerant route membership (mirrors the dead-link check).
+fn route_known(routes: &HashSet<String>, target: &str) -> bool {
+    routes.contains(target)
+        || routes.contains(&format!("{}/", target.trim_end_matches('/')))
+        || routes.contains(target.trim_end_matches('/'))
 }
 
 // ============================================================================

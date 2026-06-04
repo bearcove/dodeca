@@ -2776,6 +2776,23 @@ pub async fn serve_html<DB: Db>(
         }
     }
 
+    // Mount-aware internal links: a mounted source authored its page links as
+    // source-root-absolute (`/exec/`, `/exec/#anchor`, `/` for home) — the form
+    // it would use standalone. The html cell rewrites the *path* portion of
+    // such links to the mount-prefixed route (`/wiki/exec/`), preserving any
+    // `#fragment`/`?query`, and only when the target resolves to one of the
+    // source's own routes (so a genuine cross-source link falls through). This
+    // is trailing-slash tolerant, which an exact path_map alias is not.
+    let mount = page_mount_segment(route.as_str()).map(|segment| {
+        let routes: std::collections::HashSet<String> = site_tree
+            .sections
+            .keys()
+            .chain(site_tree.pages.keys())
+            .map(|r| r.as_str().to_string())
+            .collect();
+        cell_html_proto::MountLocalization { segment, routes }
+    });
+
     // Process HTML in a single html-cell pass:
     // - Resolve @/ internal links, [[wiki]] links, and relative links
     // - Inject CSS links for Vite entry points
@@ -2792,6 +2809,7 @@ pub async fn serve_html<DB: Db>(
         source_to_route: Some(source_to_route),
         wiki_to_route: Some(wiki_to_route),
         base_route: Some(base_route),
+        mount,
         ..Default::default()
     };
 
