@@ -39,6 +39,20 @@ pub async fn load_all_templates<DB: Db>(db: &DB) -> PicanteResult<HashMap<String
     Ok(result)
 }
 
+/// Narrow the full (mount-prefixed) template registry down to just the source
+/// serving `route`, re-keyed by bare names — so a mounted source renders with
+/// its own chrome. Reads the global config for the source mounts; with no
+/// config (some unit paths) or a single source, the map is returned unchanged.
+pub(crate) fn templates_for_route(
+    all: HashMap<String, String>,
+    route: &str,
+) -> HashMap<String, String> {
+    match crate::config::global_config() {
+        Some(cfg) => crate::build_context::templates_for_route(all, route, &cfg.sources),
+        None => all,
+    }
+}
+
 /// Build a lookup table from template path to TemplateFile
 #[picante::tracked]
 pub async fn build_template_lookup<DB: Db>(
@@ -1306,8 +1320,10 @@ pub async fn render_page<DB: Db>(
         Err(errors) => return Ok(Err(BuildError { errors }.into())),
     };
 
-    // Pre-load all templates for sync access during rendering
-    let templates = load_all_templates(db).await?;
+    // Pre-load all templates, then narrow to the source serving this route so a
+    // mounted source renders with its own chrome (`{% extends %}` resolves
+    // within the source's own template set). Single-source sites are unchanged.
+    let templates = templates_for_route(load_all_templates(db).await?, route.as_str());
 
     // Find the page
     let page = site_tree
@@ -1423,8 +1439,9 @@ pub async fn render_section<DB: Db>(
         Err(errors) => return Ok(Err(BuildError { errors }.into())),
     };
 
-    // Pre-load all templates for sync access during rendering
-    let templates = load_all_templates(db).await?;
+    // Pre-load all templates, then narrow to the source serving this route so a
+    // mounted source renders with its own chrome (see `render_page`).
+    let templates = templates_for_route(load_all_templates(db).await?, route.as_str());
 
     // Find the section
     let section = site_tree
@@ -2131,18 +2148,20 @@ pub async fn all_rendered_html<DB: Db>(
 
     for (route, section) in &site_tree.sections {
         // Anonymous (`can_edit = false`): this aggregate feeds global font
-        // subsetting and must stay viewer-independent and shared.
-        let html =
-            match render_section_via_cell(section, &site_tree, template_map.clone(), false).await {
-                Ok(html) => html,
-                Err(error) => {
-                    return Ok(Err(RenderError {
-                        route: route.clone(),
-                        error,
-                    }
-                    .into()));
+        // subsetting and must stay viewer-independent and shared. Narrow to the
+        // source serving this route so a mounted source renders with its own
+        // chrome here too (this path bypasses `render_section`).
+        let templates = templates_for_route(template_map.clone(), route.as_str());
+        let html = match render_section_via_cell(section, &site_tree, templates, false).await {
+            Ok(html) => html,
+            Err(error) => {
+                return Ok(Err(RenderError {
+                    route: route.clone(),
+                    error,
                 }
-            };
+                .into()));
+            }
+        };
         // Resolve relative links based on section route, then @/ links
         let html = resolve_relative_links(&html, route.as_str()).await;
         let html = resolve_internal_links(&html, &source_route_map).await;
@@ -2159,8 +2178,10 @@ pub async fn all_rendered_html<DB: Db>(
     }
 
     for (route, page) in &site_tree.pages {
-        // Anonymous (`can_edit = false`): viewer-independent aggregate (font subsetting).
-        let html = match render_page_via_cell(page, &site_tree, template_map.clone(), false).await {
+        // Anonymous (`can_edit = false`): viewer-independent aggregate (font
+        // subsetting). Narrow to the source serving this route for own-chrome.
+        let templates = templates_for_route(template_map.clone(), route.as_str());
+        let html = match render_page_via_cell(page, &site_tree, templates, false).await {
             Ok(html) => html,
             Err(error) => {
                 return Ok(Err(RenderError {

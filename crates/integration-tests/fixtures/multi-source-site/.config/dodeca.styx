@@ -1,0 +1,18 @@
+// Aggregator config: two local sources, each with its own templates/ (chrome).
+// The primary (kb) mounts at /, the wiki mounts at /wiki. Each source's pages
+// must render with its OWN page.html, and a shared bare template name like
+// "shell.html" must resolve within the rendering source — never the other's.
+output public
+
+sources (
+    {
+        name kb
+        mount /
+        local kb/content
+    }
+    {
+        name wiki
+        mount /wiki
+        local wiki/content
+    }
+)

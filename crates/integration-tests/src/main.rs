@@ -604,6 +604,25 @@ fn collect_tests() -> Vec<Test> {
             func: || boxed(templates::code_blocks_preserve_newlines()),
             ignored: false,
         },
+        // multi_source tests (per-source templates / chrome)
+        Test {
+            name: "primary_source_uses_its_own_chrome",
+            module: "multi_source",
+            func: || boxed(multi_source::primary_source_uses_its_own_chrome()),
+            ignored: false,
+        },
+        Test {
+            name: "mounted_source_uses_its_own_chrome",
+            module: "multi_source",
+            func: || boxed(multi_source::mounted_source_uses_its_own_chrome()),
+            ignored: false,
+        },
+        Test {
+            name: "section_templates_are_per_source",
+            module: "multi_source",
+            func: || boxed(multi_source::section_templates_are_per_source()),
+            ignored: false,
+        },
         // static_assets tests
         Test {
             name: "svg_files_served",

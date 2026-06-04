@@ -1,0 +1,8 @@
+{% extends "shell.html" %}
+{% block title %}{{ section.title }} — KB{% endblock %}
+{% block content %}
+<section data-section="kb">
+  <h1>KB-SECTION {{ section.title }}</h1>
+  {{ section.content | safe }}
+</section>
+{% endblock %}

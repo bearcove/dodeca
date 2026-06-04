@@ -1,0 +1,60 @@
+//! Per-source templates: each mounted content source renders with its OWN
+//! chrome, and a shared bare template name (`shell.html`) resolves within the
+//! rendering source — never the other's.
+//!
+//! The `multi-source-site` fixture is an aggregator with two `local` sources:
+//! `kb` mounted at `/` and `wiki` mounted at `/wiki`. Both keep a `page.html`
+//! that `{% extends "shell.html" %}`, but each source's `shell.html` is
+//! distinct (`KB-SHELL` vs `WIKI-SHELL`). If template resolution were global,
+//! the wiki page would inherit the kb's `shell.html` (the bare-key collision);
+//! per-source filtering is what keeps them apart.
+
+use super::*;
+
+/// A page served from the primary (`/`) source renders with the kb's own
+/// `page.html` and its `{% extends "shell.html" %}` resolves to the kb's shell.
+pub async fn primary_source_uses_its_own_chrome() {
+    let site = TestSite::new("multi-source-site");
+    let html = site.get("/hello/").await;
+    html.assert_ok();
+    html.assert_contains("KB-SHELL");
+    html.assert_contains(r#"data-chrome="kb""#);
+    html.assert_contains(r#"data-page="kb""#);
+    html.assert_contains("This is a KB page body.");
+    // The wiki's chrome must never leak into a primary-source render.
+    html.assert_not_contains("WIKI-SHELL");
+}
+
+/// A page served from the `/wiki` mount renders with the wiki's own `page.html`
+/// and — critically — its `{% extends "shell.html" %}` resolves to the wiki's
+/// `shell.html`, not the kb's same-named template.
+pub async fn mounted_source_uses_its_own_chrome() {
+    let site = TestSite::new("multi-source-site");
+    let html = site.get("/wiki/note/").await;
+    html.assert_ok();
+    html.assert_contains("WIKI-SHELL");
+    html.assert_contains(r#"data-chrome="wiki""#);
+    html.assert_contains(r#"data-page="wiki""#);
+    html.assert_contains("This is a wiki page body.");
+    // The kb's chrome must never leak into a mounted-source render.
+    html.assert_not_contains("KB-SHELL");
+}
+
+/// The section templates are per-source too: the root section (`/`) uses the
+/// kb's `index.html`; the wiki's root section (`/wiki/`) uses the wiki's
+/// `section.html` (its route isn't `/`, so it's a section, not an index).
+pub async fn section_templates_are_per_source() {
+    let site = TestSite::new("multi-source-site");
+
+    let root = site.get("/").await;
+    root.assert_ok();
+    root.assert_contains("KB-SHELL");
+    root.assert_contains("KB-HOME");
+    root.assert_not_contains("WIKI-SHELL");
+
+    let wiki_home = site.get("/wiki/").await;
+    wiki_home.assert_ok();
+    wiki_home.assert_contains("WIKI-SHELL");
+    wiki_home.assert_contains("WIKI-SECTION");
+    wiki_home.assert_not_contains("KB-SHELL");
+}

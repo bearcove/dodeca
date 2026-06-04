@@ -2431,37 +2431,15 @@ async fn serve_plain(
         "Status".cyan()
     );
 
-    // Load templates
-    if templates_dir.exists() {
-        let template_files: Vec<Utf8PathBuf> = WalkBuilder::new(&templates_dir)
-            .build()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
-            .filter(|e| {
-                Utf8Path::from_path(e.path())
-                    .and_then(|path| path.strip_prefix(&templates_dir).ok())
-                    .and_then(template_paths::logical_template_path)
-                    .is_some()
-            })
-            .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
-            .collect();
-
-        let db = &*server.db;
-        let mut templates = Vec::new();
-
-        for path in &template_files {
-            let content = fs::read_to_string(path)?;
-            let relative = path
-                .strip_prefix(&templates_dir)
-                .ok()
-                .and_then(template_paths::logical_template_path)
-                .unwrap_or_else(|| path.to_string());
-
-            let template_path = TemplatePath::new(relative);
-            let template_content = TemplateContent::new(content);
-            let template = TemplateFile::new(db, template_path, template_content)?;
-            templates.push(template);
-        }
+    // Load templates from every mounted source (mount-prefixed keys), via the
+    // same loader the build path uses — so a mounted source renders with its
+    // own chrome.
+    {
+        let templates: Vec<TemplateFile> =
+            dodeca::build_context::load_template_files(&server.db, sources)?
+                .into_iter()
+                .map(|(_, file)| file)
+                .collect();
         let count = templates.len();
         server.set_templates(templates);
         println!("  Loaded {} templates", count);
@@ -2830,45 +2808,24 @@ async fn serve_with_tui(
         "Loaded {source_count} source files"
     )));
 
-    // Load template files into the server
+    // Reload template files from every mounted source (mount-prefixed keys),
+    // via the shared loader. Consumers dedup by path (last-wins), so re-reading
+    // the full set is correct.
     let parent_dir = content_dir.parent().unwrap_or(content_dir);
+    // Primary templates dir — still used below for the file watcher (per-source
+    // dirs aren't file-watched; prod reloads via pull, which re-runs this fn).
     let templates_dir = parent_dir.join("templates");
-
-    if templates_dir.exists() {
-        let template_files: Vec<Utf8PathBuf> = WalkBuilder::new(&templates_dir)
-            .build()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
-            .filter(|e| {
-                Utf8Path::from_path(e.path())
-                    .and_then(|path| path.strip_prefix(&templates_dir).ok())
-                    .and_then(template_paths::logical_template_path)
-                    .is_some()
-            })
-            .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
-            .collect();
-
-        // Get current templates BEFORE locking db to avoid deadlock
+    {
+        // Get current templates BEFORE locking db to avoid deadlock, then
+        // overlay the freshly-loaded full set.
         let mut templates = server.get_templates();
-        let db = &*server.db;
-
-        for path in &template_files {
-            let content = fs::read_to_string(path)?;
-            let relative = path
-                .strip_prefix(&templates_dir)
-                .ok()
-                .and_then(template_paths::logical_template_path)
-                .unwrap_or_else(|| path.to_string());
-
-            let template_path = TemplatePath::new(relative);
-            let template_content = TemplateContent::new(content);
-            let template = TemplateFile::new(db, template_path, template_content)?;
-            templates.push(template);
-        }
-
+        templates.extend(
+            dodeca::build_context::load_template_files(&server.db, sources)?
+                .into_iter()
+                .map(|(_, file)| file),
+        );
         let count = templates.len();
         server.set_templates(templates);
-
         let _ = event_tx.send(LogEvent::build(format!("Loaded {} templates", count)));
     }
 

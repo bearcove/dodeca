@@ -700,27 +700,21 @@ pub async fn build_authoring_project_on_db<DB: crate::db::Db>(
     let render_templates = load_all_templates(inputs.db).await?;
     for page in &pages {
         let route = Route::new(page.route.clone());
+        // Narrow to the source serving this route so a mounted source previews
+        // with its own chrome in the authoring UI too.
+        let templates =
+            crate::queries::templates_for_route(render_templates.clone(), route.as_str());
         let rendered = match page.kind {
             AuthoringPageKind::Section => {
                 if let Some(section) = site_tree.sections.get(&route) {
-                    render_authoring_html(
-                        Renderable::Section(section),
-                        &site_tree,
-                        render_templates.clone(),
-                    )
-                    .await
+                    render_authoring_html(Renderable::Section(section), &site_tree, templates).await
                 } else {
                     None
                 }
             }
             AuthoringPageKind::Page => {
                 if let Some(page) = site_tree.pages.get(&route) {
-                    render_authoring_html(
-                        Renderable::Page(page),
-                        &site_tree,
-                        render_templates.clone(),
-                    )
-                    .await
+                    render_authoring_html(Renderable::Page(page), &site_tree, templates).await
                 } else {
                     None
                 }

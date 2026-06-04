@@ -16,6 +16,7 @@ pub mod frontmatter_schemas;
 pub mod internal_links;
 pub mod livereload;
 pub mod mermaid;
+pub mod multi_source;
 pub mod picante_cache;
 pub mod renames;
 pub mod rendered_markdown;

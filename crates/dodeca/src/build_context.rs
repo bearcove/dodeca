@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::sync::Arc;
 
@@ -64,6 +64,71 @@ pub fn source_for_key(sources: &[ResolvedSource], key: &str) -> Option<(Resolved
     best.map(|(source, rel)| (source.clone(), rel))
 }
 
+/// A source's `templates/` directory — its sibling of `content_dir`, mirroring
+/// the primary's `BuildContext::templates_dir()`. This is where a mounted
+/// source keeps its own chrome.
+fn source_templates_dir(source: &ResolvedSource) -> Utf8PathBuf {
+    source
+        .content_dir
+        .parent()
+        .unwrap_or(&source.content_dir)
+        .join("templates")
+}
+
+/// The normalized mount of the source that serves `route`: the source whose
+/// `mount` is the longest prefix of the route. The root `/` always matches, so
+/// this never fails. Routes are mount-prefixed (derived from mounted source
+/// keys via `SourcePath::to_route`), so the prefix recovers the owning source.
+///
+/// Mounts are normalized with a trailing slash (`/wiki/`), but a route may not
+/// have one — notably a mounted source's own root section serves at `/wiki`
+/// (no trailing slash). We add a trailing slash to the route before matching so
+/// `/wiki` still resolves to the `/wiki/` mount, while `/wikilike` does not.
+pub fn source_for_route<'a>(route: &str, sources: &'a [ResolvedSource]) -> &'a str {
+    let route_slashed = if route.ends_with('/') {
+        route.to_string()
+    } else {
+        format!("{route}/")
+    };
+    sources
+        .iter()
+        .filter(|s| route_slashed.starts_with(s.mount.as_str()))
+        .max_by_key(|s| s.mount.len())
+        .map(|s| s.mount.as_str())
+        .unwrap_or("/")
+}
+
+/// Narrow the full (mount-prefixed) template registry down to the templates
+/// owned by the source serving `route`, re-keyed by their *bare* names.
+///
+/// This is what makes per-source chrome work: a page mounted at `/wiki/`
+/// renders with `/wiki/`'s own `page.html`, and its `{% extends "base.html" %}`
+/// resolves to `/wiki/`'s `base.html` — never the primary site's same-named
+/// template. There is deliberately no fallback to the primary's templates: a
+/// mounted source is self-contained chrome.
+///
+/// A single-source site (one source at `/`) returns the map unchanged, so the
+/// common case stays byte-identical to before.
+pub fn templates_for_route(
+    all: HashMap<String, String>,
+    route: &str,
+    sources: &[ResolvedSource],
+) -> HashMap<String, String> {
+    if sources.len() <= 1 {
+        return all;
+    }
+    let owner_mount = source_for_route(route, sources);
+    let mut out = HashMap::new();
+    for (key, content) in all {
+        if let Some((src, rel)) = source_for_key(sources, &key) {
+            if src.mount == owner_mount {
+                out.insert(rel, content);
+            }
+        }
+    }
+    out
+}
+
 /// Load markdown source files from every source's content dir, with
 /// mount-prefixed keys. Shared by `BuildContext` (build) and the serve path so
 /// both produce byte-identical registry keys.
@@ -100,6 +165,54 @@ pub fn load_source_files(
                 last_modified,
             )?;
             out.push((source_path, source));
+        }
+    }
+    Ok(out)
+}
+
+/// Load template files from every source's `templates/` dir (sibling of its
+/// content dir), with mount-prefixed keys. The primary (mount `/`) keeps bare
+/// keys (`page.html`); a mounted source gets prefixed keys (`wiki/page.html`).
+/// Render-time filtering (`templates_for_route`) strips the prefix back to bare
+/// names so a mounted source renders with its own chrome and its
+/// `{% extends "base.html" %}` resolves within its own set.
+///
+/// Shared by `BuildContext` (build) and the `ddc serve` path so both produce
+/// byte-identical registry keys — mirroring `load_source_files`.
+pub fn load_template_files(
+    db: &Database,
+    roots: &[ResolvedSource],
+) -> Result<Vec<(TemplatePath, TemplateFile)>> {
+    let mut out = Vec::new();
+    for root in roots {
+        let templates_dir = source_templates_dir(root);
+        if !templates_dir.exists() {
+            continue;
+        }
+        let files: Vec<Utf8PathBuf> = WalkBuilder::new(&templates_dir)
+            .build()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
+            .filter(|e| {
+                Utf8Path::from_path(e.path())
+                    .and_then(|path| path.strip_prefix(&templates_dir).ok())
+                    .and_then(logical_template_path)
+                    .is_some()
+            })
+            .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
+            .collect();
+        for path in files {
+            let content = fs::read_to_string(&path)?;
+            let relative = path
+                .strip_prefix(&templates_dir)
+                .ok()
+                .and_then(logical_template_path)
+                .unwrap_or_else(|| path.to_string());
+            let key = mounted_key(&root.mount, &relative);
+            let template_path = TemplatePath::new(key);
+            let template =
+                TemplateFile::new(db, template_path.clone(), TemplateContent::new(content))?;
+            out.push((template_path, template));
         }
     }
     Ok(out)
@@ -231,40 +344,16 @@ impl BuildContext {
         Ok(())
     }
 
-    /// Load all template files into the database.
+    /// Load all template files into the database, from every content source.
+    ///
+    /// Each source's templates are keyed by its mount (`wiki/page.html`); the
+    /// primary (mount `/`) keeps bare keys, so a single-source build is
+    /// byte-identical to before. See `load_template_files`.
     pub fn load_templates(&mut self) -> Result<()> {
-        let templates_dir = self.templates_dir();
-        if !templates_dir.exists() {
-            return Ok(());
+        let roots = self.source_roots.clone();
+        for (path, template) in load_template_files(&self.db, &roots)? {
+            self.templates.insert(path, template);
         }
-
-        let template_files: Vec<Utf8PathBuf> = WalkBuilder::new(&templates_dir)
-            .build()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
-            .filter(|e| {
-                Utf8Path::from_path(e.path())
-                    .and_then(|path| path.strip_prefix(&templates_dir).ok())
-                    .and_then(logical_template_path)
-                    .is_some()
-            })
-            .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
-            .collect();
-
-        for path in template_files {
-            let content = fs::read_to_string(&path)?;
-            let relative = path
-                .strip_prefix(&templates_dir)
-                .ok()
-                .and_then(logical_template_path)
-                .unwrap_or_else(|| path.to_string());
-
-            let template_path = TemplatePath::new(relative);
-            let template_content = TemplateContent::new(content);
-            let template = TemplateFile::new(&*self.db, template_path.clone(), template_content)?;
-            self.templates.insert(template_path, template);
-        }
-
         Ok(())
     }
 
@@ -507,9 +596,17 @@ impl BuildContext {
     }
 
     /// Update a single template file for incremental rebuilds.
+    ///
+    /// `relative_path` is the registry key, which is mount-prefixed for
+    /// non-primary sources (`wiki/page.html`); resolve it back to the owning
+    /// source's `templates/` dir and source-relative name before reading.
     pub fn update_template(&mut self, relative_path: &TemplatePathRef) -> Result<bool> {
-        let templates_dir = self.templates_dir();
-        let full_path = physical_template_path(&templates_dir, relative_path.as_str());
+        let key = relative_path.as_str();
+        let (templates_dir, rel) = match source_for_key(&self.source_roots, key) {
+            Some((src, rel)) => (source_templates_dir(&src), rel),
+            None => (self.templates_dir(), key.to_string()),
+        };
+        let full_path = physical_template_path(&templates_dir, &rel);
         if !full_path.exists() {
             self.templates.remove(relative_path);
             return Ok(true);
@@ -600,5 +697,63 @@ mod tests {
         let (s, rel) = source_for_key(&sources, "identity.md").unwrap();
         assert_eq!(s.content_dir, Utf8PathBuf::from("/proj/content"));
         assert_eq!(rel, "identity.md");
+    }
+
+    #[test]
+    fn source_for_route_picks_longest_mount() {
+        let sources = vec![
+            src("/", "/proj/kb/content"),
+            src("/wiki/", "/proj/wiki/content"),
+        ];
+        // Root route → primary.
+        assert_eq!(source_for_route("/hello/", &sources), "/");
+        // The wiki home and its pages → the wiki mount (longest prefix wins).
+        assert_eq!(source_for_route("/wiki/", &sources), "/wiki/");
+        assert_eq!(source_for_route("/wiki/note/", &sources), "/wiki/");
+        // The mounted source's own root section serves WITHOUT a trailing slash
+        // (`/wiki`), and its pages may too (`/wiki/note`) — both must resolve to
+        // the `/wiki/` mount, not fall back to the primary.
+        assert_eq!(source_for_route("/wiki", &sources), "/wiki/");
+        assert_eq!(source_for_route("/wiki/note", &sources), "/wiki/");
+        // A lookalike that isn't actually under the mount stays on the primary
+        // (the trailing slash on `/wiki/` is the boundary).
+        assert_eq!(source_for_route("/wikilike/", &sources), "/");
+        assert_eq!(source_for_route("/wikilike", &sources), "/");
+    }
+
+    #[test]
+    fn templates_for_route_isolates_per_source() {
+        let sources = vec![
+            src("/", "/proj/kb/content"),
+            src("/wiki/", "/proj/wiki/content"),
+        ];
+        let mut all = HashMap::new();
+        all.insert("page.html".to_string(), "KB-PAGE".to_string());
+        all.insert("base.html".to_string(), "KB-BASE".to_string());
+        all.insert("wiki/page.html".to_string(), "WIKI-PAGE".to_string());
+        all.insert("wiki/base.html".to_string(), "WIKI-BASE".to_string());
+
+        // A primary-mounted route sees only the primary's templates, bare-keyed.
+        let kb = templates_for_route(all.clone(), "/hello/", &sources);
+        assert_eq!(kb.get("page.html").map(String::as_str), Some("KB-PAGE"));
+        assert_eq!(kb.get("base.html").map(String::as_str), Some("KB-BASE"));
+        assert_eq!(kb.len(), 2);
+
+        // A wiki-mounted route sees only the wiki's templates, with the mount
+        // prefix stripped so `page.html` / `base.html` resolve to the wiki's.
+        let wiki = templates_for_route(all.clone(), "/wiki/note/", &sources);
+        assert_eq!(wiki.get("page.html").map(String::as_str), Some("WIKI-PAGE"));
+        assert_eq!(wiki.get("base.html").map(String::as_str), Some("WIKI-BASE"));
+        assert_eq!(wiki.len(), 2);
+    }
+
+    #[test]
+    fn templates_for_route_single_source_passthrough() {
+        let sources = vec![src("/", "/proj/content")];
+        let mut all = HashMap::new();
+        all.insert("page.html".to_string(), "PAGE".to_string());
+        all.insert("base.html".to_string(), "BASE".to_string());
+        // One source at `/` ⇒ identical to the flat behaviour.
+        assert_eq!(templates_for_route(all.clone(), "/hello/", &sources), all);
     }
 }

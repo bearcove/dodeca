@@ -1,0 +1,8 @@
+{% extends "shell.html" %}
+{% block title %}{{ section.title }} — WIKI{% endblock %}
+{% block content %}
+<section data-section="wiki">
+  <h1>WIKI-SECTION {{ section.title }}</h1>
+  {{ section.content | safe }}
+</section>
+{% endblock %}
