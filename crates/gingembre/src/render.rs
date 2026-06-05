@@ -2237,6 +2237,19 @@ mod tests {
         assert_eq!(t.render(&Context::new()).await.unwrap(), "ab");
     }
 
+    // r[verify delim.comment]
+    // A comment containing multibyte UTF-8 (€, em-dash, curly quotes) must be
+    // skipped whole — the lexer's 2-byte delimiter window returns None on a
+    // multibyte boundary, which must not be mistaken for an unclosed comment.
+    #[tokio::test]
+    async fn test_comment_multibyte() {
+        let t = Template::parse("test", "a{# €49 — “quoted” #}b").unwrap();
+        assert_eq!(t.render(&Context::new()).await.unwrap(), "ab");
+        // Nested + multibyte, and content after the close still renders.
+        let t = Template::parse("test", "x{# outer {# inner — 🐝 #} still #}y").unwrap();
+        assert_eq!(t.render(&Context::new()).await.unwrap(), "xy");
+    }
+
     // r[verify expr.index.bracket]
     #[tokio::test]
     async fn test_index_bracket() {

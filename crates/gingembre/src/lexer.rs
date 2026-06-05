@@ -303,8 +303,16 @@ impl Lexer {
                     self.advance();
                 }
                 None => {
-                    // Unclosed comment - just stop
-                    return;
+                    // `peek_n(2)` returns `None` both at EOF *and* when the next
+                    // char is multibyte (a 2-byte window can't straddle it). A
+                    // multibyte char can never be part of an ASCII `#}`/`{#`
+                    // delimiter, so consume it and keep scanning; only a true
+                    // EOF (nothing left to advance over) ends an unclosed
+                    // comment. Bailing on the multibyte case would leak the rest
+                    // of the comment — including `#}` — as text.
+                    if self.advance().is_none() {
+                        return;
+                    }
                 }
             }
         }
