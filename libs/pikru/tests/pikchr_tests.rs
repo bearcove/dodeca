@@ -1,5 +1,5 @@
 use camino::Utf8Path;
-use pikru_compare::{compare_outputs, run_c_pikchr, write_debug_svgs, CompareResult};
+use pikru_compare::{CompareResult, compare_outputs, run_c_pikchr, write_debug_svgs};
 use std::sync::Once;
 
 static INIT_TRACING: Once = Once::new();

@@ -1,4 +1,4 @@
-use pikru::render::{render_with_options, RenderOptions};
+use pikru::render::{RenderOptions, render_with_options};
 
 fn main() {
     let source = r#"

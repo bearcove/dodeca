@@ -1,6 +1,6 @@
 [package]
 name = "pikru-compare"
-version = "1.2.0"
+version = "2.0.0-rc.0"
 edition = "2024"
 publish = false
 
@@ -10,8 +10,8 @@ publish = false
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [dependencies]
-facet-svg = { version = "0.46" }
-rediff = { version = "0.46" }
+facet-svg = { version = "0.50.0-rc.0" }
+rediff = { version = "0.50.0-rc.0" }
 camino = "1.2.1"
 
 # Visual comparison

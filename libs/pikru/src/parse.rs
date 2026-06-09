@@ -3,8 +3,8 @@
 use crate::ast::*;
 use crate::errors::PikruError;
 use crate::{PikchrParser, Rule};
-use pest::iterators::Pair;
 use pest::Parser;
+use pest::iterators::Pair;
 
 /// Parse pikchr source into AST
 pub fn parse(source: &str) -> Result<Program, PikruError> {
@@ -522,7 +522,7 @@ fn parse_attribute(pair: Pair<Rule>) -> Result<Attribute, PikruError> {
             match s {
                 "go" => {
                     inner.next(); // skip "go"
-                                  // After "go", check what follows
+                    // After "go", check what follows
                     if let Some(next) = inner.peek() {
                         if next.as_rule() == Rule::direction {
                             parse_direction_attribute(&mut inner, &pair_str)
@@ -593,7 +593,7 @@ fn parse_attribute(pair: Pair<Rule>) -> Result<Attribute, PikruError> {
                 }
                 "same" => {
                     inner.next(); // skip "same"
-                                  // Skip "as" if present
+                    // Skip "as" if present
                     if inner.peek().map(|p| p.as_str() == "as").unwrap_or(false) {
                         inner.next();
                     }
@@ -1089,7 +1089,7 @@ fn parse_primary(pair: Pair<Rule>) -> Result<Expr, PikruError> {
                                 return Err(PikruError::Generic(format!(
                                     "Invalid numproperty: {}",
                                     prop_pair.as_str()
-                                )))
+                                )));
                             }
                         };
                         Ok(Expr::ObjectProp(obj, prop_ref))

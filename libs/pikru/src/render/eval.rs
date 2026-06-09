@@ -336,12 +336,8 @@ pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, PikruError> 
                 }
                 PropertyRef::Dash(prop) => {
                     let val = match prop {
-                        DashProperty::Dashed => {
-                            r.style().dashed.unwrap_or(Inches::ZERO)
-                        }
-                        DashProperty::Dotted => {
-                            r.style().dotted.unwrap_or(Inches::ZERO)
-                        }
+                        DashProperty::Dashed => r.style().dashed.unwrap_or(Inches::ZERO),
+                        DashProperty::Dotted => r.style().dotted.unwrap_or(Inches::ZERO),
                     };
                     Ok(Value::Len(val))
                 }
@@ -732,7 +728,10 @@ fn resolve_nth<'a>(ctx: &'a RenderContext, nth: &Nth) -> Option<&'a RenderedObje
 }
 
 /// Resolve an nth reference within a container's children
-fn resolve_nth_in_children<'a>(children: &'a [RenderedObject], nth: &Nth) -> Option<&'a RenderedObject> {
+fn resolve_nth_in_children<'a>(
+    children: &'a [RenderedObject],
+    nth: &Nth,
+) -> Option<&'a RenderedObject> {
     match nth {
         Nth::First(class) | Nth::Last(class) | Nth::Previous(class) => {
             let oc = class.as_ref().and_then(nth_class_to_class_name);
