@@ -9,7 +9,7 @@ on:
 jobs:
   tests:
     name: Tests (Linux)
-    runs-on: depot-ubuntu-24.04-16
+    runs-on: bearcove-ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
