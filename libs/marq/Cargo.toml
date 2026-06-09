@@ -1,6 +1,6 @@
 [package]
 name = "marq"
-version = "4.0.1"
+version = "5.0.0-rc.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Markdown rendering with pluggable code block handlers"
@@ -171,11 +171,11 @@ facet-postcard.workspace = true
 
 [workspace.dependencies]
 # Serialization - Facet ecosystem (git)
-facet = { version = "0.46" }
-facet-postcard = { version = "0.46" }
-facet-toml = { version = "0.46" }
-facet-value = { version = "0.46" }
-facet-yaml = { version = "0.46" }
+facet = { version = "0.50.0-rc.0" }
+facet-postcard = { version = "0.50.0-rc.0" }
+facet-toml = { version = "0.50.0-rc.0" }
+facet-value = { version = "0.50.0-rc.0" }
+facet-yaml = { version = "0.50.0-rc.0" }
 
 # Markdown
 pulldown-cmark = "0.13"
@@ -201,7 +201,7 @@ tokio = { version = "1.48", features = [
 aasvg = "1.0"
 
 # Pikchr diagrams
-pikru = { version = "1.2.0" }
+pikru = { version = "2.0.0-rc.0" }
 
 # Syntax highlighting - features controlled by marq's lang-* features
 arborium = { version = "2", default-features = false }
