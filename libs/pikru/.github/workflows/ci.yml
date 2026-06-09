@@ -11,7 +11,7 @@ jobs:
     name: Tests (Linux)
     runs-on: bearcove-ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@stable
