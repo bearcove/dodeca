@@ -25,7 +25,9 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -94,4 +96,3 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --workspace --all-features --no-deps
-

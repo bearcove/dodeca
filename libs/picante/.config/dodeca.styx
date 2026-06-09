@@ -14,8 +14,8 @@ code_execution {
     cache_dir .cache/code-execution
     dependencies (
         {name tokio, version "1.0"}
-        {name picante, version "0.1.0", path crates/picante}
-        {name facet, version "0.32.2"}
+        {name picante, version "3.0.0-rc.0", path crates/picante}
+        {name facet, version "0.50.0-rc.0"}
     )
     rust {
         command cargo

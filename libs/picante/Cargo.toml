@@ -3,7 +3,7 @@ members = ["crates/*"]
 resolver = "3"
 
 [workspace.package]
-version = "2.0.1"
+version = "3.0.0-rc.0"
 edition = "2024"
 rust-version = "1.91"
 license = "Apache-2.0 OR MIT"
@@ -16,10 +16,10 @@ readme = "README.md"
 dashmap = "6"
 im = "15.1.0"
 divan = "0.1"
-facet = { version = "0.46" }
-facet-core = { version = "0.46" }
-facet-postcard = { version = "0.46" }
-facet-reflect = { version = "0.46" }
+facet = { version = "0.50.0-rc.0" }
+facet-core = { version = "0.50.0-rc.0" }
+facet-postcard = { version = "0.50.0-rc.0" }
+facet-reflect = { version = "0.50.0-rc.0" }
 heck = "0.5.0"
 parking_lot = "0.12.4"
 proc-macro2 = "1.0.101"
@@ -30,7 +30,7 @@ tracing = { version = "0.1.41", default-features = false, features = ["std"] }
 tracing-subscriber = "0.3.20"
 trybuild = "1.0"
 unsynn = "0.3.0"
-picante-macros = { version = "2.0.1", path = "crates/picante-macros" }
+picante-macros = { version = "3.0.0-rc.0", path = "crates/picante-macros" }
 
 # [patch."https://github.com/facet-rs/facet"]
 # facet = { path = "../facet/facet" }
