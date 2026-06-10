@@ -1879,8 +1879,8 @@ mod tests {
         // Note: DOCTYPE is required for zero-copy since parse() prepends it otherwise
         let html = t("<!DOCTYPE html><html><body><p>Hello World</p></body></html>");
         let html_start = html.as_ref().as_ptr() as usize;
-        let html_end = html_start + html.len();
-        trace!("Input range: {:#x}..{:#x}", html_start, html_end);
+        let _html_end = html_start + html.len();
+        trace!("Input range: {:#x}..{:#x}", html_start, _html_end);
 
         let doc = parse(&html);
 
@@ -1895,8 +1895,8 @@ mod tests {
         if let NodeKind::Text(stem) = &doc.get(text_node).kind {
             let stem_str = stem.as_str();
             let stem_start = stem_str.as_ptr() as usize;
-            let stem_end = stem_start + stem_str.len();
-            trace!("Stem range: {:#x}..{:#x}", stem_start, stem_end);
+            let _stem_end = stem_start + stem_str.len();
+            trace!("Stem range: {:#x}..{:#x}", stem_start, _stem_end);
             trace!("Stem variant: {:?}", matches!(stem, Stem::Borrowed(_)));
 
             // The text content should be the Borrowed variant
@@ -2179,9 +2179,9 @@ mod tests {
         let children: Vec<_> = body.children(&doc.arena).collect();
 
         trace!("Body has {} children", children.len());
-        for (i, child_id) in children.iter().enumerate() {
-            let node = doc.get(*child_id);
-            trace!("  Child {}: {:?}", i, node.kind);
+        for (_i, child_id) in children.iter().enumerate() {
+            let _node = doc.get(*child_id);
+            trace!("  Child {}: {:?}", _i, _node.kind);
         }
 
         // Should have 2 children: merged text node + table
@@ -2469,17 +2469,17 @@ mod tests {
 
         if let Some(noscript_id) = noscript {
             let noscript_data = doc.get(noscript_id);
-            if let NodeKind::Element(elem) = &noscript_data.kind {
-                trace!(attrs = ?elem.attrs, "noscript attrs");
+            if let NodeKind::Element(_elem) = &noscript_data.kind {
+                trace!(attrs = ?_elem.attrs, "noscript attrs");
             }
 
             // Check children of noscript
             let noscript_children: Vec<_> = noscript_id.children(&doc.arena).collect();
             trace!(num_children = noscript_children.len(), "noscript children");
 
-            for (i, child_id) in noscript_children.iter().enumerate() {
-                let child = doc.get(*child_id);
-                trace!(i, kind = ?child.kind, "noscript child");
+            for (_i, child_id) in noscript_children.iter().enumerate() {
+                let _child = doc.get(*child_id);
+                trace!(i = _i, kind = ?_child.kind, "noscript child");
             }
 
             // Document the actual behavior

@@ -47,8 +47,8 @@ fn test_move_within_same_parent() {
         detach_to_slot: None,
     }];
 
-    let result = doc.apply_patches(patches);
-    trace!(?result, "Result");
+    let _result = doc.apply_patches(patches);
+    trace!(result = ?_result, "Result");
     trace!(html = %doc.to_html(), "HTML");
 }
 

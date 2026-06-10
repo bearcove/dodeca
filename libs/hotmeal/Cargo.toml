@@ -4,32 +4,32 @@ exclude = ["hotmeal/fuzz"]
 resolver = "3"
 
 [workspace.package]
-version = "2.0.3"
+version = "3.0.0-rc.0"
 edition = "2024"
-rust-version = "1.90"
+rust-version = "1.91"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/bearcove/hotmeal"
 homepage = "https://github.com/bearcove/hotmeal"
 
 [workspace.dependencies]
 # Facet dependencies
-facet = "0.46"
-facet-error = "0.46"
-facet-json = "0.46"
-facet-testhelpers = "0.46"
+facet = "0.50.0-rc.0"
+facet-error = "0.50.0-rc.0"
+facet-json = "0.50.0-rc.0"
+facet-testhelpers = "0.50.0-rc.0"
 
 # Local crates
-cinereus = { path = "cinereus", version = "2.0.3" }
-hotmeal = { path = "hotmeal", version = "2.0.3" }
-hotmeal-server = { path = "hotmeal-server", version = "2.0.3" }
+cinereus = { path = "cinereus", version = "3.0.0-rc.0" }
+hotmeal = { path = "hotmeal", version = "3.0.0-rc.0" }
+hotmeal-server = { path = "hotmeal-server", version = "3.0.0-rc.0" }
 
 # Serialization
-facet-postcard = "0.46"
+facet-postcard = "0.50.0-rc.0"
 
 # RPC
-vox = { version = "0.7", default-features = false, features = ["runtime"] }
-vox-core = "0.7"
-vox-websocket = "0.7"
+vox = { version = "0.9.0-rc.0", default-features = false, features = ["runtime"] }
+vox-core = "0.9.0-rc.0"
+vox-websocket = "0.9.0-rc.0"
 
 # Data structures
 indextree = "4.7"

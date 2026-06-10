@@ -303,7 +303,7 @@ async fn run_browser_worker(mut rx: mpsc::UnboundedReceiver<BrowserRequest>) {
             if log_net {
                 eprintln!(
                     "[net:response] {} {} ({})",
-                    event.response.status, event.response.url, &event.response.mime_type
+                    event.response.status, event.response.url, event.response.mime_type
                 );
             }
         }

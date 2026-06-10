@@ -202,7 +202,7 @@ fn has_mismatched_heading_close(html: &str) -> bool {
         if bytes[i] == b'<' && i + 2 < bytes.len() {
             if bytes[i + 1] == b'h' && bytes[i + 2].is_ascii_digit() {
                 let digit = bytes[i + 2];
-                if digit >= b'1' && digit <= b'6' {
+                if (b'1'..=b'6').contains(&digit) {
                     // Check it's a start tag (not </h...)
                     if i == 0 || bytes[i - 1] != b'/' {
                         open_headings.push(digit as char);
@@ -210,7 +210,7 @@ fn has_mismatched_heading_close(html: &str) -> bool {
                 }
             } else if bytes[i + 1] == b'/' && i + 3 < bytes.len() && bytes[i + 2] == b'h' {
                 let digit = bytes[i + 3];
-                if digit >= b'1' && digit <= b'6' {
+                if (b'1'..=b'6').contains(&digit) {
                     // This is a close tag </h[1-6]
                     // Check if it matches the most recent open heading
                     if let Some(&last_open) = open_headings.last() {
@@ -265,10 +265,10 @@ fn has_custom_element(html: &str) -> bool {
             if has_hyphen && tag_end > tag_start + 1 {
                 let tag_name = &html[tag_start..tag_end];
                 // Must have letter before hyphen (not just "-foo")
-                if let Some(hyphen_pos) = tag_name.find('-') {
-                    if hyphen_pos > 0 {
-                        return true;
-                    }
+                if let Some(hyphen_pos) = tag_name.find('-')
+                    && hyphen_pos > 0
+                {
+                    return true;
                 }
             }
             i = tag_end;
@@ -370,12 +370,12 @@ fn is_valid_for_browser_parity(html: &str) -> bool {
     // TODO: Report to html5ever - SVG <title> should not be raw text mode
     {
         let lower = html.to_ascii_lowercase();
-        if let Some(svg_pos) = lower.find("<svg") {
-            if let Some(title_pos) = lower.find("<title") {
-                // <title> after <svg> suggests it's inside the SVG
-                if title_pos > svg_pos {
-                    return false;
-                }
+        if let Some(svg_pos) = lower.find("<svg")
+            && let Some(title_pos) = lower.find("<title")
+        {
+            // <title> after <svg> suggests it's inside the SVG
+            if title_pos > svg_pos {
+                return false;
             }
         }
     }
@@ -386,12 +386,11 @@ fn is_valid_for_browser_parity(html: &str) -> bool {
     {
         let lower = html.to_ascii_lowercase();
         let foreign_start = lower.find("<math").or_else(|| lower.find("<svg"));
-        if let Some(foreign_pos) = foreign_start {
-            if let Some(html_pos) = lower[foreign_pos..].find("<html") {
-                if html_pos > 0 {
-                    return false;
-                }
-            }
+        if let Some(foreign_pos) = foreign_start
+            && let Some(html_pos) = lower[foreign_pos..].find("<html")
+            && html_pos > 0
+        {
+            return false;
         }
     }
 
@@ -613,10 +612,10 @@ fn patches_have_invalid_attrs(patches: &[Patch]) -> bool {
             }
             Patch::UpdateProps { changes, .. } => {
                 for change in changes {
-                    if let hotmeal::PropKey::Attr(ref qn) = change.name {
-                        if !is_valid_attr_name(&qn.local) {
-                            return true;
-                        }
+                    if let hotmeal::PropKey::Attr(ref qn) = change.name
+                        && !is_valid_attr_name(&qn.local)
+                    {
+                        return true;
                     }
                 }
             }

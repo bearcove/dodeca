@@ -24,7 +24,7 @@ browser-proto = { path = "browser-proto" }
 thrall = { path = "thrall" }
 libc = "0.2"
 similar = "2.7"
-facet-testhelpers = "0.46"
+facet-testhelpers = "0.50.0-rc.0"
 color-backtrace = { version = "0.7.2", default-features = false, features = ["use-btparse-crate"] }
 termcolor = "1.4.1"
 tracing-subscriber = "0.3.22"

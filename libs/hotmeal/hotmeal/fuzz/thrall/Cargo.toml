@@ -13,8 +13,8 @@ chromiumoxide = { version = "0.7", features = [
 ], default-features = false }
 tokio-tungstenite = "0.29"
 futures-util = "0.3"
-vox = "0.7"
-vox-websocket = "0.7"
+vox = "0.9.0-rc.0"
+vox-websocket = "0.9.0-rc.0"
 browser-proto = { path = "../browser-proto" }
 libc = "0.2"
 dirs-next = "2"

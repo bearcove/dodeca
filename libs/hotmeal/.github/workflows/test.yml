@@ -89,7 +89,7 @@ jobs:
 
       - uses: pnpm/action-setup@v6
         with:
-          version: 9
+          version: 10.28.1
 
       - uses: actions/setup-node@v6
         with:
