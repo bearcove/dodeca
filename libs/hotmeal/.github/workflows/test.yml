@@ -135,7 +135,7 @@ jobs:
 
       - name: Build browser-wasm bundle
         working-directory: hotmeal/fuzz/browser-wasm
-        run: wasm-pack build --target web --out-dir ../browser-bundle/dist
+        run: wasm-pack build --target web --dev --out-dir ../browser-bundle/dist
 
       - name: Copy browser-bundle index.html into dist
         run: cp hotmeal/fuzz/browser-bundle/index.html hotmeal/fuzz/browser-bundle/dist/index.html
