@@ -123,12 +123,15 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          package-manager-cache: false
+
       - uses: Swatinem/rust-cache@v2
 
       - name: Install Chromium runtime dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libnspr4 libnss3
+        run: npx --yes playwright@1.57.0 install-deps chromium
 
       - name: Install wasm-pack
         run: cargo install wasm-pack
