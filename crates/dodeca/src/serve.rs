@@ -87,6 +87,8 @@ fn value_to_scope_value(value: &facet_value::Value) -> ScopeValue {
         DestructuredRef::DateTime(dt) => ScopeValue::String(format!("{:?}", dt)),
         DestructuredRef::QName(qn) => ScopeValue::String(format!("{:?}", qn)),
         DestructuredRef::Uuid(uuid) => ScopeValue::String(format!("{:?}", uuid)),
+        DestructuredRef::Char(c) => ScopeValue::String(c.to_string()),
+        other => ScopeValue::String(format!("{other:?}")),
     }
 }
 
@@ -110,6 +112,8 @@ fn value_preview(value: &facet_value::Value) -> String {
         DestructuredRef::DateTime(_) => "<datetime>".to_string(),
         DestructuredRef::QName(_) => "<qname>".to_string(),
         DestructuredRef::Uuid(_) => "<uuid>".to_string(),
+        DestructuredRef::Char(c) => format!("'{c}'"),
+        _ => "<unknown>".to_string(),
     }
 }
 

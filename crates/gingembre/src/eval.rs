@@ -354,6 +354,8 @@ impl ValueExt for Value {
             DestructuredRef::DateTime(_) => true,
             DestructuredRef::QName(_) => true,
             DestructuredRef::Uuid(_) => true,
+            DestructuredRef::Char(c) => c != '\0',
+            _ => true,
         }
     }
 
@@ -369,6 +371,8 @@ impl ValueExt for Value {
             DestructuredRef::DateTime(_) => "datetime",
             DestructuredRef::QName(_) => "qname",
             DestructuredRef::Uuid(_) => "uuid",
+            DestructuredRef::Char(_) => "char",
+            _ => "unknown",
         }
     }
 
@@ -399,6 +403,8 @@ impl ValueExt for Value {
             DestructuredRef::DateTime(dt) => format!("{:?}", dt),
             DestructuredRef::QName(qn) => format!("{:?}", qn),
             DestructuredRef::Uuid(uuid) => format!("{:?}", uuid),
+            DestructuredRef::Char(c) => c.to_string(),
+            other => format!("{other:?}"),
         }
     }
 
@@ -715,7 +721,7 @@ impl<'a> Evaluator<'a> {
                         s.as_str()
                             .chars()
                             .nth(i)
-                            .map(|c| LazyValue::concrete(Value::from(c.to_string().as_str())))
+                            .map(|c| LazyValue::concrete(Value::from(c)))
                             .ok_or_else(|| {
                                 TypeError {
                                     expected: format!("index < {}", len),

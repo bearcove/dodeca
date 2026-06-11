@@ -51,7 +51,7 @@ impl vox::ConnectionAcceptor for DevtoolsProxyAcceptor {
         &self,
         request: &vox::ConnectionRequest,
         connection: vox::PendingConnection,
-    ) -> Result<(), vox::Metadata<'static>> {
+    ) -> Result<(), vox::Metadata> {
         match request.service() {
             s if s == vox::NoopClient::SERVICE_NAME => {
                 tracing::debug!("devtools browser root connection accepted");
@@ -64,10 +64,14 @@ impl vox::ConnectionAcceptor for DevtoolsProxyAcceptor {
                 let incoming = connection.into_handle();
                 tokio::spawn(async move {
                     let upstream = host
-                        .open_connection(vec![vox::MetadataEntry::str(
-                            "vox-service",
-                            dodeca_protocol::DevtoolsServiceClient::SERVICE_NAME,
-                        )])
+                        .open_connection(
+                            vox::metadata()
+                                .str(
+                                    "vox-service",
+                                    dodeca_protocol::DevtoolsServiceClient::SERVICE_NAME,
+                                )
+                                .build(),
+                        )
                         .await;
                     tracing::debug!("devtools host service connection opened; starting proxy");
                     if let Err(error) = vox::proxy_connections(incoming, upstream).await {
@@ -76,10 +80,12 @@ impl vox::ConnectionAcceptor for DevtoolsProxyAcceptor {
                 });
                 Ok(())
             }
-            other => Err(vec![vox::MetadataEntry::str(
-                "error",
-                format!("unsupported browser devtools service {other}"),
-            )]),
+            other => Err(vox::metadata()
+                .str(
+                    "error",
+                    format!("unsupported browser devtools service {other}"),
+                )
+                .build()),
         }
     }
 }

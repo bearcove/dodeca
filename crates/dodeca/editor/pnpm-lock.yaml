@@ -57,15 +57,15 @@ importers:
       '@arborium/arborium':
         specifier: ^2.18.0
         version: 2.18.0
+      '@bearcove/phon-schema':
+        specifier: 0.2.0-rc.0
+        version: 0.2.0-rc.0
       '@bearcove/vox-core':
-        specifier: ^0.8.2
-        version: 0.8.2
-      '@bearcove/vox-postcard':
-        specifier: ^0.8.2
-        version: 0.8.2
+        specifier: 0.9.0-rc.0
+        version: 0.9.0-rc.0
       '@bearcove/vox-ws':
-        specifier: ^0.8.2
-        version: 0.8.2
+        specifier: 0.9.0-rc.0
+        version: 0.9.0-rc.0
       '@codingame/monaco-vscode-api':
         specifier: 31.0.1
         version: 31.0.1
@@ -142,20 +142,23 @@ packages:
   '@arborium/arborium@2.18.0':
     resolution: {integrity: sha512-Qtwxr9wkrPbU8BfeXKQxCkSLbWsNdDvZRzncJ/ZJS6BaU5MxdyGuI2STBUrKxsaibRkmB+ilsmGBwQbSZUegNw==}
 
-  '@bearcove/vox-core@0.8.2':
-    resolution: {integrity: sha512-mpzO2jRskCQbMM/3wRGA21DbOFvO53u/fjx/4z2V7rWEieF1DvKuhJIOToTd+6EisqGyHqvP4AJWAKsfMNekfQ==}
+  '@bearcove/phon-engine@0.2.0-rc.0':
+    resolution: {integrity: sha512-Os+VaRe7QdmDaYlVeS+OLiaouOAF/Y2bZGiSo+EcXzqC1se09w/aKCFc5LnJYn+104jQ3rLqZKQdyKc+6kzIkg==}
 
-  '@bearcove/vox-postcard@0.8.2':
-    resolution: {integrity: sha512-orsBQY2CLntBaQkSJRVm1SVce0cJ5tnFRkYdoNrMoF6zQt5swzfVSjidzJzciRnMwKH+ASoU3o5CJXG83z+ORQ==}
+  '@bearcove/phon-schema@0.2.0-rc.0':
+    resolution: {integrity: sha512-YivXOWBa5X2Lo3EjYR0WFbvnjfMHSDmirGocjc00WTWw/QTKnpbgQAnYtXU5uV3SySl6O+SsXmmfMxqc2Apl9Q==}
 
-  '@bearcove/vox-tcp@0.8.2':
-    resolution: {integrity: sha512-Ez/I/oG8B5QTzATSN412xUKqYyqHwQm4JmS8CVA/B87wLwTTNw9jwdsjWdCHAFKVaHq7LA1cjindywDjohYnFw==}
+  '@bearcove/vox-core@0.9.0-rc.0':
+    resolution: {integrity: sha512-9G+tImXJF1hx0Du7FlBprdpI2cnFLy5LMin5dfG7wRCFkawC1BUTsCL3GxVYFtAf3UBk1tHv2rQL2fCsUG/vmQ==}
 
-  '@bearcove/vox-wire@0.8.2':
-    resolution: {integrity: sha512-wjiZJnoMHFy1cp2XyuLG23Ikbn/Bi+vXhJC1IXME06esrry1eka6EeLsV8Z677Vycx3rHggOCOAjD7E+XnNX+g==}
+  '@bearcove/vox-tcp@0.9.0-rc.0':
+    resolution: {integrity: sha512-8p3wzvePOLB7rI9KaPF+/a5Q+U+adCzkoUA+nen6H0x/TiJuPpLviIyGULTOEnizZfurn10HwXlnTIWapVA7JA==}
 
-  '@bearcove/vox-ws@0.8.2':
-    resolution: {integrity: sha512-6Pz3d1UAzyixqhQeI4gDTYlZ++LuKu02xPAN+wTxsgWnffNrT026WX+3zsTMLkSjoGrCWdOVNVptsCPr1mHqEw==}
+  '@bearcove/vox-wire@0.9.0-rc.0':
+    resolution: {integrity: sha512-OxT0S1flH0yk3kQExqEtXAq6J7WeSfOmXRBU1qjVb05z8LF2s1kewOCnUIxDCzS4XOdD09Tikxev9nneX5klKw==}
+
+  '@bearcove/vox-ws@0.9.0-rc.0':
+    resolution: {integrity: sha512-WcQTp0VUlUXgpbii95hMJE7CNE+COzCDraOrXKvKl+zbgZcawuO7EUY39/Cv7wpWhhFmU3VV+f+BbGnZ31W7/w==}
 
   '@codingame/monaco-vscode-api@31.0.1':
     resolution: {integrity: sha512-ZvNruAV3e594knX+Q9ugoP5SnrwrFLKnvLSzZGuoRxrBWpnMn5AhWHWVFWlgfsVoATf87fFUZGLyS32xIsbhHw==}
@@ -438,6 +441,10 @@ packages:
     engines: {node: '>=18'}
     cpu: [x64]
     os: [win32]
+
+  '@noble/hashes@2.2.0':
+    resolution: {integrity: sha512-IYqDGiTXab6FniAgnSdZwgWbomxpy9FtYvLKs7wCUs2a8RkITG+DFGO1DM9cr+E3/RgADRpFjrKVaJ1z6sjtEg==}
+    engines: {node: '>= 20.19.0'}
 
   '@rollup/rollup-android-arm-eabi@4.60.4':
     resolution: {integrity: sha512-F5QXMSiFebS9hKZj02XhWLLnRpJ3B3AROP0tWbFBSj+6kCbg5m9j5JoHKd4mmSVy5mS/IMQloYgYxCuJC0fxEQ==}
@@ -750,25 +757,33 @@ snapshots:
 
   '@arborium/arborium@2.18.0': {}
 
-  '@bearcove/vox-core@0.8.2':
+  '@bearcove/phon-engine@0.2.0-rc.0':
     dependencies:
-      '@bearcove/vox-postcard': 0.8.2
-      '@bearcove/vox-wire': 0.8.2
+      '@bearcove/phon-schema': 0.2.0-rc.0
 
-  '@bearcove/vox-postcard@0.8.2': {}
-
-  '@bearcove/vox-tcp@0.8.2':
+  '@bearcove/phon-schema@0.2.0-rc.0':
     dependencies:
-      '@bearcove/vox-core': 0.8.2
+      '@noble/hashes': 2.2.0
 
-  '@bearcove/vox-wire@0.8.2':
+  '@bearcove/vox-core@0.9.0-rc.0':
     dependencies:
-      '@bearcove/vox-postcard': 0.8.2
+      '@bearcove/phon-engine': 0.2.0-rc.0
+      '@bearcove/phon-schema': 0.2.0-rc.0
+      '@bearcove/vox-wire': 0.9.0-rc.0
 
-  '@bearcove/vox-ws@0.8.2':
+  '@bearcove/vox-tcp@0.9.0-rc.0':
     dependencies:
-      '@bearcove/vox-core': 0.8.2
-      '@bearcove/vox-tcp': 0.8.2
+      '@bearcove/vox-core': 0.9.0-rc.0
+
+  '@bearcove/vox-wire@0.9.0-rc.0':
+    dependencies:
+      '@bearcove/phon-engine': 0.2.0-rc.0
+      '@bearcove/phon-schema': 0.2.0-rc.0
+
+  '@bearcove/vox-ws@0.9.0-rc.0':
+    dependencies:
+      '@bearcove/vox-core': 0.9.0-rc.0
+      '@bearcove/vox-tcp': 0.9.0-rc.0
 
   '@codingame/monaco-vscode-api@31.0.1':
     dependencies:
@@ -1044,6 +1059,8 @@ snapshots:
 
   '@esbuild/win32-x64@0.25.12':
     optional: true
+
+  '@noble/hashes@2.2.0': {}
 
   '@rollup/rollup-android-arm-eabi@4.60.4':
     optional: true
