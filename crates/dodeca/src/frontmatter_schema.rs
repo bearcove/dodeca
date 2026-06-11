@@ -608,5 +608,7 @@ fn facet_value_to_styx(value: &Value) -> StyxValue {
         DestructuredRef::DateTime(value) => StyxValue::scalar(format!("{value:?}")),
         DestructuredRef::QName(value) => StyxValue::scalar(format!("{value:?}")),
         DestructuredRef::Uuid(value) => StyxValue::scalar(format!("{value:?}")),
+        DestructuredRef::Char(value) => StyxValue::scalar(value.to_string()),
+        other => StyxValue::scalar(format!("{other:?}")),
     }
 }

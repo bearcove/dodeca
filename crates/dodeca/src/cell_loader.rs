@@ -97,7 +97,7 @@ impl vox::ConnectionAcceptor for HostAcceptor {
         &self,
         request: &ConnectionRequest,
         connection: PendingConnection,
-    ) -> Result<(), Metadata<'static>> {
+    ) -> Result<(), Metadata> {
         use vox::FromVoxSession;
         match request.service() {
             s if s == cell_host_proto::HostServiceClient::SERVICE_NAME => {
@@ -130,20 +130,18 @@ impl vox::ConnectionAcceptor for HostAcceptor {
                         });
                         Ok(())
                     }
-                    None => Err(vec![vox::MetadataEntry::str(
-                        "error",
-                        "devtools unavailable: not serving",
-                    )]),
+                    None => Err(vox::metadata()
+                        .str("error", "devtools unavailable: not serving")
+                        .build()),
                 }
             }
             s if s == vox::NoopClient::SERVICE_NAME => {
                 connection.handle_with(());
                 Ok(())
             }
-            other => Err(vec![vox::MetadataEntry::str(
-                "error",
-                format!("unknown service {other}"),
-            )]),
+            other => Err(vox::metadata()
+                .str("error", format!("unknown service {other}"))
+                .build()),
         }
     }
 }
@@ -247,7 +245,7 @@ pub async fn cell_session(cell_name: &str) -> Option<SessionHandle> {
     let host_service = crate::cells::make_host_service();
     let establish_start = Instant::now();
     debug!(cell = cell_name, "cell root session establish starting");
-    let root = match vox::initiator_on(link, vox::TransportMode::Bare)
+    let root = match vox::initiator_on(link)
         .observer(vox::TracingObserver::new())
         .on_connection(HostAcceptor { host_service })
         .establish::<vox::NoopClient>()

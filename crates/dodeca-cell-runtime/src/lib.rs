@@ -126,7 +126,7 @@ impl HostHandle {
     }
 
     /// Open a raw virtual connection back to the host.
-    pub async fn open_connection(&self, metadata: Metadata<'static>) -> ConnectionHandle {
+    pub async fn open_connection(&self, metadata: Metadata) -> ConnectionHandle {
         let session = self.session().await;
         session
             .open_connection(connection_settings(), metadata)

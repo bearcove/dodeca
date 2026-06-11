@@ -23,6 +23,7 @@ browser-tests/test-results/
 
 # Wasm build
 crates/dodeca-devtools/pkg/
+crates/dodeca-devtools/target-wasm/
 crates/dodeca-search-wasm/pkg/
 examples/vite-starter/node_modules
 

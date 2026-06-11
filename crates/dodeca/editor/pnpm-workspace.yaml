@@ -2,6 +2,10 @@ allowBuilds:
   esbuild: false
 minimumReleaseAgeExclude:
   - '@arborium/arborium@2.18.0'
+  - '@bearcove/vox-core@0.9.0-rc.0'
+  - '@bearcove/vox-tcp@0.9.0-rc.0'
+  - '@bearcove/vox-wire@0.9.0-rc.0'
+  - '@bearcove/vox-ws@0.9.0-rc.0'
 overrides:
   "monaco-editor": "npm:@codingame/monaco-vscode-editor-api@31.0.1"
   "@codingame/monaco-vscode-api": "31.0.1"

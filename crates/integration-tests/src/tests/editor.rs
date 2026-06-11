@@ -52,7 +52,7 @@ async fn connect_editor(port: u16) -> EditorClient {
         .unwrap_or_else(|e| panic!("websocket connect {url}: {e}"));
 
     let dispatcher = BrowserServiceDispatcher::new(NoopBrowserService);
-    let root = vox::initiator_on(link, vox::TransportMode::Bare)
+    let root = vox::initiator_on(link)
         .on_connection(dispatcher)
         .establish::<vox::NoopClient>()
         .await
@@ -70,10 +70,12 @@ async fn connect_editor(port: u16) -> EditorClient {
     let handle = session
         .open_connection(
             settings,
-            vec![vox::MetadataEntry::str(
-                vox::VOX_SERVICE_METADATA_KEY,
-                DevtoolsServiceClient::SERVICE_NAME,
-            )],
+            vox::metadata()
+                .str(
+                    vox::VOX_SERVICE_METADATA_KEY,
+                    DevtoolsServiceClient::SERVICE_NAME,
+                )
+                .build(),
         )
         .await
         .unwrap_or_else(|e| panic!("open DevtoolsService connection: {e:?}"));

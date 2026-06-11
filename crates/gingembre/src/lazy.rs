@@ -420,7 +420,7 @@ impl LazyValue {
                 DestructuredRef::String(s) => s
                     .as_str()
                     .chars()
-                    .map(|c| Self::Concrete(facet_value::Value::from(c.to_string().as_str())))
+                    .map(|c| Self::Concrete(facet_value::Value::from(c)))
                     .collect(),
                 _ => Vec::new(),
             },
@@ -458,6 +458,8 @@ impl LazyValue {
                 DestructuredRef::DateTime(_) => "datetime",
                 DestructuredRef::QName(_) => "qname",
                 DestructuredRef::Uuid(_) => "uuid",
+                DestructuredRef::Char(_) => "char",
+                _ => "unknown",
             },
         }
     }

@@ -26,7 +26,7 @@ serde_json.workspace = true
 # crates/dodeca-devtools, the browser editor). `runtime` carries the client
 # Driver/Caller/Session; vox-websocket gives the native (tokio-tungstenite) link.
 vox.workspace = true
-vox-websocket = "0.8"
+vox-websocket = "0.9.0-rc.0"
 vox-fdpass.workspace = true
 vox-stream.workspace = true
 tempfile.workspace = true
