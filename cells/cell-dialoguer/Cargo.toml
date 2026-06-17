@@ -13,11 +13,15 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [lib]
 name = "ddc_cell_dialoguer"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 path = "src/main.rs"
+
+[features]
+default = ["dynamic-cell"]
+dynamic-cell = ["dep:dodeca-cell-runtime"]
 
 [dependencies]
 cell-dialoguer-proto = { path = "../cell-dialoguer-proto" }
 dialoguer = "0.12"
-dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }
+dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime", optional = true }
 tokio.workspace = true

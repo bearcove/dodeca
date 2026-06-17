@@ -19,10 +19,13 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [dependencies]
 cell-code-execution-proto = { path = "../../cells/cell-code-execution-proto" }
+cell-code-execution = { path = "../../cells/cell-code-execution", default-features = false }
 cell-vite-proto = { path = "../../cells/cell-vite-proto" }
+cell-vite = { path = "../../cells/cell-vite", default-features = false }
 dodeca-config = { path = "../dodeca-config" }
 cell-lifecycle-proto = { path = "../../cells/cell-lifecycle-proto" }
 cell-dialoguer-proto = { path = "../../cells/cell-dialoguer-proto" }
+cell-dialoguer = { path = "../../cells/cell-dialoguer", default-features = false }
 cell-css-proto = { path = "../../cells/cell-css-proto" }
 cell-css = { path = "../../cells/cell-css", default-features = false }
 cell-data-proto = { path = "../../cells/cell-data-proto" }
@@ -32,6 +35,7 @@ cell-host-proto = { path = "../../cells/cell-host-proto" }
 cell-fonts-proto = { path = "../../cells/cell-fonts-proto" }
 cell-fonts = { path = "../../cells/cell-fonts", default-features = false }
 cell-html-diff-proto = { path = "../../cells/cell-html-diff-proto" }
+cell-html-diff = { path = "../../cells/cell-html-diff", default-features = false }
 cell-html-proto = { path = "../../cells/cell-html-proto" }
 cell-http-proto = { path = "../../cells/cell-http-proto" }
 cell-image-proto = { path = "../../cells/cell-image-proto" }
@@ -41,14 +45,18 @@ cell-js = { path = "../../cells/cell-js", default-features = false }
 cell-jxl-proto = { path = "../../cells/cell-jxl-proto" }
 cell-jxl = { path = "../../cells/cell-jxl", default-features = false }
 cell-linkcheck-proto = { path = "../../cells/cell-linkcheck-proto" }
+cell-linkcheck = { path = "../../cells/cell-linkcheck", default-features = false }
 cell-markdown-proto = { path = "../../cells/cell-markdown-proto" }
 cell-minify-proto = { path = "../../cells/cell-minify-proto" }
+cell-minify = { path = "../../cells/cell-minify", default-features = false }
 cell-sass-proto = { path = "../../cells/cell-sass-proto" }
 cell-sass = { path = "../../cells/cell-sass", default-features = false }
 cell-search-proto = { path = "../../cells/cell-search-proto" }
+cell-search = { path = "../../cells/cell-search", default-features = false }
 cell-svgo-proto = { path = "../../cells/cell-svgo-proto" }
 cell-svgo = { path = "../../cells/cell-svgo", default-features = false }
 cell-term-proto = { path = "../../cells/cell-term-proto" }
+cell-term = { path = "../../cells/cell-term", default-features = false }
 cell-tui-proto = { path = "../../cells/cell-tui-proto" }
 cell-webp-proto = { path = "../../cells/cell-webp-proto" }
 cell-webp = { path = "../../cells/cell-webp", default-features = false }

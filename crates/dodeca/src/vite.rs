@@ -35,16 +35,12 @@ impl ViteServer {
             project_dir.display()
         );
 
-        let client = crate::cells::vite_cell()
-            .await
-            .ok_or_else(|| eyre::eyre!("Vite cell not available"))?;
-
-        let result = client
-            .start_dev_server(project_dir.to_string_lossy().to_string())
-            .await;
+        let result =
+            crate::cells::start_vite_dev_server_cell(project_dir.to_string_lossy().to_string())
+                .await;
 
         match result {
-            Ok(StartDevServerResult::Success { port }) => {
+            StartDevServerResult::Success { port } => {
                 status!(
                     "   {} Vite dev server running on port {}",
                     "OK".green().bold(),
@@ -52,10 +48,9 @@ impl ViteServer {
                 );
                 Ok(ViteServer { port })
             }
-            Ok(StartDevServerResult::Error { message }) => {
+            StartDevServerResult::Error { message } => {
                 Err(eyre::eyre!("Failed to start Vite: {}", message))
             }
-            Err(e) => Err(eyre::eyre!("RPC error starting Vite: {:?}", e)),
         }
     }
 }
@@ -132,22 +127,15 @@ pub async fn maybe_run_vite_build(project_dir: &Path) -> Result<bool> {
         project_dir.display()
     );
 
-    let client = crate::cells::vite_cell()
-        .await
-        .ok_or_else(|| eyre::eyre!("Vite cell not available"))?;
-
-    let result = client
-        .run_build(project_dir.to_string_lossy().to_string())
-        .await;
+    let result = crate::cells::run_vite_build_cell(project_dir.to_string_lossy().to_string()).await;
 
     match result {
-        Ok(RunBuildResult::Success) => {
+        RunBuildResult::Success => {
             status!("   {} Vite production build complete", "OK".green().bold());
             ensure_dist_gitignored(project_dir);
             Ok(true)
         }
-        Ok(RunBuildResult::Error { message }) => Err(eyre::eyre!("Vite build failed: {}", message)),
-        Err(e) => Err(eyre::eyre!("RPC error running Vite build: {:?}", e)),
+        RunBuildResult::Error { message } => Err(eyre::eyre!("Vite build failed: {}", message)),
     }
 }
 

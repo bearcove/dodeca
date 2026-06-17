@@ -124,6 +124,10 @@ a time:
    Continued with the main asset processors: `css`, `js`, `sass`, `image`,
    `webp`, `jxl`, and `fonts` now follow the same pattern and are called
    directly from the `cells.rs` facade.
+   Extended the same callback-free shape to `search`, `linkcheck`,
+   `dialoguer`, `term`, `vite`, `html-diff`, `minify`, and
+   `code-execution`; their crates still keep dynamic-cell exports for now, but
+   the `dodeca` facade calls their Rust impls directly.
 
 2. Replace `crates/dodeca/src/cells.rs` helpers to call direct APIs for the
    pilot modules while preserving the current helper function names. That keeps

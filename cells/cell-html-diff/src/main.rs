@@ -5,7 +5,9 @@
 
 use hotmeal::StrTendril;
 
-use cell_html_diff_proto::{DiffError, DiffInput, DiffOutcome, HtmlDiffer, HtmlDifferDispatcher};
+#[cfg(feature = "dynamic-cell")]
+use cell_html_diff_proto::HtmlDifferDispatcher;
+use cell_html_diff_proto::{DiffError, DiffInput, DiffOutcome, HtmlDiffer};
 
 use dodeca_protocol::facet_postcard;
 
@@ -46,6 +48,7 @@ impl HtmlDiffer for HtmlDifferImpl {
     }
 }
 
+#[cfg(feature = "dynamic-cell")]
 dodeca_cell_runtime::declare_cell!("html_diff", |_host| HtmlDifferDispatcher::new(
     HtmlDifferImpl
 ));

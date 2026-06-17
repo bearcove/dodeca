@@ -2,7 +2,9 @@
 //!
 //! This cell handles terminal session recording with ANSI color support.
 
-use cell_term_proto::{RecordConfig, TermRecorder, TermRecorderDispatcher, TermResult};
+#[cfg(feature = "dynamic-cell")]
+use cell_term_proto::TermRecorderDispatcher;
+use cell_term_proto::{RecordConfig, TermRecorder, TermResult};
 
 mod parser;
 mod recorder;
@@ -32,6 +34,7 @@ impl TermRecorder for TermRecorderImpl {
     }
 }
 
+#[cfg(feature = "dynamic-cell")]
 dodeca_cell_runtime::declare_cell!("term", |_host| TermRecorderDispatcher::new(
     TermRecorderImpl
 ));

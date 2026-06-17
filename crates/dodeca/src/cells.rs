@@ -1,29 +1,23 @@
-//! Cell loading and management for dodeca.
+//! Transitional facade for former dodeca cells.
 //!
-//! Cells are separate processes that handle specialized tasks (image processing,
-//! markdown rendering, etc.). They communicate with the host via roam RPC over
-//! shared memory.
-//!
-//! # Hub Architecture
-//!
-//! All cells share a single SHM segment. Each cell gets its own ring pair
-//! within the segment and communicates via socketpair doorbells.
-//!
-//! The host uses `MultiPeerHostDriver` to manage all cell connections.
+//! The monolith migration is replacing internal Vox/dynamic-cell calls with
+//! direct Rust calls while preserving this module's helper names for the rest
+//! of the codebase. Callback-heavy modules still use the old client path until
+//! their host interactions are made local.
 
 use cell_code_execution_proto::{
-    CodeExecutionResult, CodeExecutorClient, ExecuteSamplesInput, ExtractSamplesInput,
+    CodeExecutionResult, CodeExecutor, CodeExecutorClient, ExecuteSamplesInput, ExtractSamplesInput,
 };
 use cell_css_proto::{CssProcessor, CssProcessorClient, CssResult};
 use cell_data_proto::{DataFormat, DataLoader, DataLoaderClient, LoadDataResult};
-use cell_dialoguer_proto::DialoguerClient;
+use cell_dialoguer_proto::{Dialoguer, DialoguerClient, SelectResult};
 use cell_fonts_proto::{FontProcessor, FontProcessorClient, FontResult, SubsetFontInput};
 use cell_gingembre_proto::{ContextId, RenderResult, TemplateRendererClient};
 use cell_host_proto::{
     CallFunctionResult, CommandResult, HostService, KeysAtResult, LoadTemplateResult, ReadyAck,
     ReadyMsg, ResolveDataResult, ServeContent, ServerCommand, Value,
 };
-use cell_html_diff_proto::HtmlDifferClient;
+use cell_html_diff_proto::{DiffError, DiffInput, DiffOutcome, HtmlDiffer, HtmlDifferClient};
 use cell_html_proto::HtmlProcessorClient;
 use cell_http_proto::{ScopeEntry, TcpTunnelClient};
 use cell_image_proto::{
@@ -32,14 +26,19 @@ use cell_image_proto::{
 use cell_js_proto::{JsProcessor, JsProcessorClient, JsRewriteInput};
 use cell_jxl_proto::{JXLEncodeInput, JXLProcessor, JXLProcessorClient, JXLResult};
 use cell_lifecycle_proto::CellLifecycle;
-use cell_linkcheck_proto::{LinkCheckInput, LinkCheckResult, LinkCheckerClient, LinkStatus};
+use cell_linkcheck_proto::{
+    LinkCheckInput, LinkCheckResult, LinkChecker, LinkCheckerClient, LinkStatus,
+};
 use cell_markdown_proto::MarkdownProcessorClient;
+use cell_minify_proto::{Minifier, MinifyResult};
 use cell_sass_proto::{SassCompiler, SassCompilerClient, SassResult};
-use cell_search_proto::{SearchFile, SearchIndexResult, SearchIndexerClient, SearchPage};
+use cell_search_proto::{
+    SearchFile, SearchIndexResult, SearchIndexer, SearchIndexerClient, SearchPage,
+};
 use cell_svgo_proto::{SvgoOptimizer, SvgoOptimizerClient, SvgoResult};
-use cell_term_proto::{RecordConfig, TermRecorderClient, TermResult};
+use cell_term_proto::{RecordConfig, TermRecorder, TermRecorderClient, TermResult};
 use cell_tui_proto::TuiDisplayClient;
-use cell_vite_proto::ViteManagerClient;
+use cell_vite_proto::{RunBuildResult, StartDevServerResult, ViteManager, ViteManagerClient};
 use cell_webp_proto::{WebPEncodeInput, WebPProcessor, WebPProcessorClient, WebPResult};
 use dashmap::DashMap;
 use facet::Facet;
@@ -294,42 +293,19 @@ impl HostService for HostServiceImpl {
 
     // HTML Host callbacks
     async fn minify_css(&self, css: String) -> cell_host_proto::MinifyCssResult {
-        // Delegate to CSS cell for minification (empty path_map = minify only)
-        match css_cell().await {
-            Some(client) => match client.rewrite_and_minify(css, HashMap::new()).await {
-                Ok(cell_css_proto::CssResult::Success { css }) => {
-                    cell_host_proto::MinifyCssResult::Success { css }
-                }
-                Ok(cell_css_proto::CssResult::Error { message }) => {
-                    cell_host_proto::MinifyCssResult::Error { message }
-                }
-                Err(e) => cell_host_proto::MinifyCssResult::Error {
-                    message: format!("RPC error: {:?}", e),
-                },
-            },
-            None => cell_host_proto::MinifyCssResult::Error {
-                message: "CSS cell not available".to_string(),
+        match rewrite_urls_in_css_cell(css, HashMap::new()).await {
+            Ok(css) => cell_host_proto::MinifyCssResult::Success { css },
+            Err(e) => cell_host_proto::MinifyCssResult::Error {
+                message: e.to_string(),
             },
         }
     }
 
     async fn minify_js(&self, js: String) -> cell_host_proto::MinifyJsResult {
-        // Delegate to JS cell for minification (using empty path_map for minify-only)
-        match js_cell().await {
-            Some(client) => {
-                let input = cell_js_proto::JsRewriteInput {
-                    js,
-                    path_map: HashMap::new(),
-                };
-                match client.rewrite_string_literals(input).await {
-                    Ok(js) => cell_host_proto::MinifyJsResult::Success { js },
-                    Err(e) => cell_host_proto::MinifyJsResult::Error {
-                        message: format!("RPC error: {:?}", e),
-                    },
-                }
-            }
-            None => cell_host_proto::MinifyJsResult::Error {
-                message: "JS cell not available".to_string(),
+        match rewrite_string_literals_in_js_cell(js, HashMap::new()).await {
+            Ok(js) => cell_host_proto::MinifyJsResult::Success { js },
+            Err(e) => cell_host_proto::MinifyJsResult::Error {
+                message: e.to_string(),
             },
         }
     }
@@ -339,21 +315,10 @@ impl HostService for HostServiceImpl {
         css: String,
         path_map: HashMap<String, String>,
     ) -> cell_host_proto::ProcessCssResult {
-        // Delegate to CSS cell for URL rewriting
-        match css_cell().await {
-            Some(client) => match client.rewrite_and_minify(css, path_map).await {
-                Ok(cell_css_proto::CssResult::Success { css }) => {
-                    cell_host_proto::ProcessCssResult::Success { css }
-                }
-                Ok(cell_css_proto::CssResult::Error { message }) => {
-                    cell_host_proto::ProcessCssResult::Error { message }
-                }
-                Err(e) => cell_host_proto::ProcessCssResult::Error {
-                    message: format!("RPC error: {:?}", e),
-                },
-            },
-            None => cell_host_proto::ProcessCssResult::Error {
-                message: "CSS cell not available".to_string(),
+        match rewrite_urls_in_css_cell(css, path_map).await {
+            Ok(css) => cell_host_proto::ProcessCssResult::Success { css },
+            Err(e) => cell_host_proto::ProcessCssResult::Error {
+                message: e.to_string(),
             },
         }
     }
@@ -363,19 +328,10 @@ impl HostService for HostServiceImpl {
         js: String,
         path_map: HashMap<String, String>,
     ) -> cell_host_proto::ProcessJsResult {
-        // Delegate to JS cell for string literal rewriting
-        match js_cell().await {
-            Some(client) => {
-                let input = cell_js_proto::JsRewriteInput { js, path_map };
-                match client.rewrite_string_literals(input).await {
-                    Ok(js) => cell_host_proto::ProcessJsResult::Success { js },
-                    Err(e) => cell_host_proto::ProcessJsResult::Error {
-                        message: format!("RPC error: {:?}", e),
-                    },
-                }
-            }
-            None => cell_host_proto::ProcessJsResult::Error {
-                message: "JS cell not available".to_string(),
+        match rewrite_string_literals_in_js_cell(js, path_map).await {
+            Ok(js) => cell_host_proto::ProcessJsResult::Success { js },
+            Err(e) => cell_host_proto::ProcessJsResult::Error {
+                message: e.to_string(),
             },
         }
     }
@@ -503,13 +459,9 @@ cell_client_accessor!(term_cell, "term", TermRecorderClient);
 
 /// Record a terminal session interactively
 pub async fn record_term_interactive(config: RecordConfig) -> Result<TermResult, eyre::Error> {
-    let client = term_cell()
-        .await
-        .ok_or_else(|| eyre::eyre!("Term cell not available"))?;
-    client
+    Ok(ddc_cell_term::TermRecorderImpl
         .record_interactive(config)
-        .await
-        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
+        .await)
 }
 
 /// Record a terminal session with an auto-executed command
@@ -517,13 +469,9 @@ pub async fn record_term_command(
     command: String,
     config: RecordConfig,
 ) -> Result<TermResult, eyre::Error> {
-    let client = term_cell()
-        .await
-        .ok_or_else(|| eyre::eyre!("Term cell not available"))?;
-    client
+    Ok(ddc_cell_term::TermRecorderImpl
         .record_command(command, config)
-        .await
-        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
+        .await)
 }
 
 pub async fn optimize_svg(svg: String) -> Result<SvgoResult, eyre::Error> {
@@ -538,50 +486,60 @@ pub async fn subset_font(input: SubsetFontInput) -> Result<FontResult, eyre::Err
 pub async fn build_search_index_cell(
     pages: Vec<SearchPage>,
 ) -> Result<Vec<SearchFile>, eyre::Error> {
-    let client = search_cell()
-        .await
-        .ok_or_else(|| eyre::eyre!("Search cell not available"))?;
-    match client.build_index(pages).await {
-        Ok(SearchIndexResult::Success { files }) => Ok(files),
-        Ok(SearchIndexResult::Error { message }) => {
+    match ddc_cell_search::SearchIndexerImpl.build_index(pages).await {
+        SearchIndexResult::Success { files } => Ok(files),
+        SearchIndexResult::Error { message } => {
             Err(eyre::eyre!("search indexing failed: {message}"))
         }
-        Err(e) => Err(eyre::eyre!("search RPC error: {e:?}")),
     }
 }
 
 pub async fn execute_code_samples(
     input: ExecuteSamplesInput,
 ) -> Result<CodeExecutionResult, eyre::Error> {
-    let client = code_execution_cell()
-        .await
-        .ok_or_else(|| eyre::eyre!("Code execution cell not available"))?;
-    client
+    Ok(ddc_cell_code_execution::CodeExecutorImpl
         .execute_code_samples(input)
-        .await
-        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
+        .await)
 }
 
 pub async fn extract_code_samples(
     input: ExtractSamplesInput,
 ) -> Result<CodeExecutionResult, eyre::Error> {
-    let client = code_execution_cell()
-        .await
-        .ok_or_else(|| eyre::eyre!("Code execution cell not available"))?;
-    client
+    Ok(ddc_cell_code_execution::CodeExecutorImpl
         .extract_code_samples(input)
-        .await
-        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
+        .await)
 }
 
 // ============================================================================
 // Additional Function Aliases (for compatibility with other modules)
 // ============================================================================
 
-// These are aliases for the cell accessor and wrapper functions
-// that other modules expect.
+// These are wrapper functions that other modules expect while the facade is
+// still being collapsed into direct calls.
 
-pub use dialoguer_cell as dialoguer_client;
+pub async fn select_dialog(prompt: String, items: Vec<String>) -> SelectResult {
+    ddc_cell_dialoguer::DialoguerImpl
+        .select(prompt, items)
+        .await
+}
+
+pub async fn start_vite_dev_server_cell(project_dir: String) -> StartDevServerResult {
+    ddc_cell_vite::ViteManagerImpl
+        .start_dev_server(project_dir)
+        .await
+}
+
+pub async fn run_vite_build_cell(project_dir: String) -> RunBuildResult {
+    ddc_cell_vite::ViteManagerImpl.run_build(project_dir).await
+}
+
+pub async fn diff_html_cell(input: DiffInput) -> Result<DiffOutcome, DiffError> {
+    ddc_cell_html_diff::HtmlDifferImpl.diff_html(input).await
+}
+
+pub async fn minify_html_cell(html: String) -> MinifyResult {
+    ddc_cell_minify::MinifierImpl.minify_html(html).await
+}
 
 /// Result of link checking - wrapper for internal use
 #[derive(Debug, Clone)]
@@ -590,22 +548,20 @@ pub struct UrlCheckResult {
 }
 
 pub async fn check_urls_cell(urls: Vec<String>, options: CheckOptions) -> Option<UrlCheckResult> {
-    let client = linkcheck_cell().await?;
     let input = LinkCheckInput {
         urls,
         delay_ms: options.rate_limit_ms,
         timeout_secs: options.timeout_secs,
     };
-    match client.check_links(input).await {
-        Ok(LinkCheckResult::Success { output }) => Some(UrlCheckResult {
+    match ddc_cell_linkcheck::LinkCheckerImpl::new()
+        .check_links(input)
+        .await
+    {
+        LinkCheckResult::Success { output } => Some(UrlCheckResult {
             statuses: output.results,
         }),
-        Ok(LinkCheckResult::Error { message }) => {
+        LinkCheckResult::Error { message } => {
             tracing::warn!("Link check error: {}", message);
-            None
-        }
-        Err(e) => {
-            tracing::warn!("Link check RPC error: {:?}", e);
             None
         }
     }

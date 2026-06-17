@@ -11,11 +11,15 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [lib]
 name = "ddc_cell_vite"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 path = "src/main.rs"
+
+[features]
+default = ["dynamic-cell"]
+dynamic-cell = ["dep:dodeca-cell-runtime"]
 
 [dependencies]
 cell-vite-proto = { path = "../cell-vite-proto" }
-dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }
+dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime", optional = true }
 eyre.workspace = true
 tokio.workspace = true

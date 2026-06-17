@@ -9,9 +9,9 @@ use std::collections::BTreeMap;
 
 use hotmeal::{Document, NodeId, NodeKind, StrTendril};
 
-use cell_search_proto::{
-    SearchFile, SearchIndexResult, SearchIndexer, SearchIndexerDispatcher, SearchPage,
-};
+#[cfg(feature = "dynamic-cell")]
+use cell_search_proto::SearchIndexerDispatcher;
+use cell_search_proto::{SearchFile, SearchIndexResult, SearchIndexer, SearchPage};
 use dodeca_search_format as fmt;
 
 /// Tags whose subtrees carry no page content worth indexing (site chrome,
@@ -24,7 +24,7 @@ const SKIP_TAGS: &[&str] = &[
 /// Search indexer implementation. Stateless — every `build_index` call is
 /// self-contained.
 #[derive(Clone)]
-struct SearchIndexerImpl;
+pub struct SearchIndexerImpl;
 
 impl SearchIndexer for SearchIndexerImpl {
     async fn build_index(&self, pages: Vec<SearchPage>) -> SearchIndexResult {
@@ -308,6 +308,7 @@ fn build(pages: Vec<SearchPage>) -> Result<Vec<SearchFile>, String> {
     Ok(files)
 }
 
+#[cfg(feature = "dynamic-cell")]
 dodeca_cell_runtime::declare_cell!("search", |_host| {
     SearchIndexerDispatcher::new(SearchIndexerImpl)
 });

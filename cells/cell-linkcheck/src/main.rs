@@ -7,9 +7,10 @@ use std::time::Duration;
 
 use url::Url;
 
+#[cfg(feature = "dynamic-cell")]
+use cell_linkcheck_proto::LinkCheckerDispatcher;
 use cell_linkcheck_proto::{
-    LinkCheckInput, LinkCheckOutput, LinkCheckResult, LinkChecker, LinkCheckerDispatcher,
-    LinkDiagnostics, LinkStatus,
+    LinkCheckInput, LinkCheckOutput, LinkCheckResult, LinkChecker, LinkDiagnostics, LinkStatus,
 };
 
 /// Generate a realistic browser User-Agent string.
@@ -30,7 +31,7 @@ pub struct LinkCheckerImpl {
 }
 
 impl LinkCheckerImpl {
-    fn new() -> Self {
+    pub fn new() -> Self {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
             .user_agent(generate_user_agent())
@@ -194,6 +195,7 @@ impl LinkChecker for LinkCheckerImpl {
     }
 }
 
+#[cfg(feature = "dynamic-cell")]
 dodeca_cell_runtime::declare_cell!("linkcheck", |_host| {
     LinkCheckerDispatcher::new(LinkCheckerImpl::new())
 });

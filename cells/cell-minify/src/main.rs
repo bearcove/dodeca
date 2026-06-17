@@ -2,7 +2,9 @@
 //!
 //! This cell handles HTML minification.
 
-use cell_minify_proto::{Minifier, MinifierDispatcher, MinifyResult};
+#[cfg(feature = "dynamic-cell")]
+use cell_minify_proto::MinifierDispatcher;
+use cell_minify_proto::{Minifier, MinifyResult};
 
 /// Minifier implementation
 #[derive(Clone)]
@@ -16,4 +18,5 @@ impl Minifier for MinifierImpl {
     }
 }
 
+#[cfg(feature = "dynamic-cell")]
 dodeca_cell_runtime::declare_cell!("minify", |_host| MinifierDispatcher::new(MinifierImpl));
