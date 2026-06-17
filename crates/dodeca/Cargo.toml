@@ -40,6 +40,7 @@ cell-html-diff = { path = "../../cells/cell-html-diff", default-features = false
 cell-html-proto = { path = "../../cells/cell-html-proto" }
 cell-html = { path = "../../cells/cell-html", default-features = false }
 cell-http-proto = { path = "../../cells/cell-http-proto" }
+cell-http = { path = "../../cells/cell-http", default-features = false }
 cell-image-proto = { path = "../../cells/cell-image-proto" }
 cell-image = { path = "../../cells/cell-image", default-features = false }
 cell-js-proto = { path = "../../cells/cell-js-proto" }
@@ -67,6 +68,7 @@ dodeca-debug = { path = "../dodeca-debug" }
 dodeca-protocol = { path = "../dodeca-protocol" }
 
 # Workspace dependencies
+axum.workspace = true
 arborium-theme.workspace = true
 camino.workspace = true
 chrono.workspace = true
@@ -107,6 +109,8 @@ ur-taking-me-with-you.workspace = true
 hotmeal.workspace = true
 hotmeal-server.workspace = true
 html-escape.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
 ariadne.workspace = true
 
 [build-dependencies]

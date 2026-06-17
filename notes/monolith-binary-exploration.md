@@ -136,6 +136,9 @@ a time:
    `gingembre` now follows the same pattern with `TemplateHost`: the dynamic
    build adapts host RPC to the trait, and `dodeca` instantiates the renderer
    with `TemplateHostImpl` directly.
+   `http` now exposes the axum router as a direct library API. `dodeca` serves
+   browser TCP streams through hyper directly, and the browser DevTools Vox
+   service is handled in-process rather than proxied through an internal cell.
 
 2. Replace `crates/dodeca/src/cells.rs` helpers to call direct APIs for the
    pilot modules while preserving the current helper function names. That keeps

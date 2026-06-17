@@ -29,16 +29,9 @@ static VITE_PORT: OnceCell<Option<u16>> = OnceCell::const_new();
 async fn get_vite_port(ctx: &Arc<dyn RouterContext>) -> Option<u16> {
     *VITE_PORT
         .get_or_init(|| async {
-            match crate::host_client(ctx).await.get_vite_port().await {
-                Ok(port) => {
-                    tracing::trace!(port = ?port, "fetched vite port from host");
-                    port
-                }
-                Err(e) => {
-                    tracing::warn!(error = ?e, "failed to get vite port from host");
-                    None
-                }
-            }
+            let port = ctx.get_vite_port().await;
+            tracing::trace!(port = ?port, "fetched vite port from host context");
+            port
         })
         .await
 }
