@@ -447,7 +447,6 @@ pub enum CodeExecutionResult {
 ///
 /// The host calls these methods to process code samples.
 #[allow(async_fn_in_trait)]
-#[vox::service]
 pub trait CodeExecutor {
     /// Extract code samples from markdown content
     async fn extract_code_samples(&self, input: ExtractSamplesInput) -> CodeExecutionResult;

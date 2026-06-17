@@ -1,15 +1,15 @@
-//! TemplateHost service implementation for the gingembre cell.
+//! TemplateHost implementation for gingembre rendering.
 //!
-//! This module provides the host-side implementation of the TemplateHost service
-//! that the gingembre cell calls back to during template rendering.
+//! This module provides the host-side implementation that gingembre calls back
+//! to during template rendering.
 //!
 //! # Architecture
 //!
 //! When a render request is initiated:
 //! 1. The host creates a `RenderContext` with pre-loaded templates
 //! 2. The context is registered with a unique `ContextId`
-//! 3. The host calls `cell.render(context_id, template_name, initial_context)`
-//! 4. The cell calls back to `TemplateHost` methods as needed
+//! 3. The renderer runs with `context_id`, template name, and initial context
+//! 4. Gingembre calls back to `TemplateHost` methods as needed
 //! 5. The host services callbacks using the registered context
 //! 6. After rendering, the context is unregistered
 
@@ -18,6 +18,7 @@ use cell_gingembre_proto::{
     TemplateHost,
 };
 use facet_value::{DestructuredRef, Value};
+use futures_util::future::BoxFuture;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -102,7 +103,7 @@ impl RenderContext {
 
 /// Host-side implementation of the TemplateHost service.
 ///
-/// This is called by the gingembre cell during template rendering to:
+/// This is called by gingembre during template rendering to:
 /// - Load templates by name
 /// - Resolve data values at paths (with picante dependency tracking)
 /// - Get keys at data paths (for iteration)
@@ -125,351 +126,351 @@ impl Default for TemplateHostImpl {
 }
 
 impl TemplateHost for TemplateHostImpl {
-    async fn load_template(&self, context_id: ContextId, name: String) -> LoadTemplateResult {
-        let host = crate::host::Host::get();
-        let Some(context) = host.get_render_context(context_id) else {
-            tracing::warn!(
-                context_id = context_id.0,
-                name = %name,
-                "load_template: context not found"
-            );
-            return LoadTemplateResult::NotFound;
-        };
-
-        match context.templates.get(&name) {
-            Some(source) => {
-                // Build absolute path for error reporting
-                // Templates directory is a sibling of content_dir
-                let absolute_path = crate::config::global_config()
-                    .map(|c| {
-                        c.content_dir
-                            .parent()
-                            .unwrap_or(&c.content_dir)
-                            .join("templates")
-                            .join(&name)
-                            .to_string()
-                    })
-                    .unwrap_or_else(|| name.clone());
-
-                tracing::debug!(
+    fn load_template(
+        &self,
+        context_id: ContextId,
+        name: String,
+    ) -> BoxFuture<'_, LoadTemplateResult> {
+        Box::pin(async move {
+            let host = crate::host::Host::get();
+            let Some(context) = host.get_render_context(context_id) else {
+                tracing::warn!(
                     context_id = context_id.0,
                     name = %name,
-                    absolute_path = %absolute_path,
-                    source_len = source.len(),
-                    "load_template: found"
+                    "load_template: context not found"
                 );
-                LoadTemplateResult::Found {
-                    source: source.clone(),
-                    absolute_path,
+                return LoadTemplateResult::NotFound;
+            };
+
+            match context.templates.get(&name) {
+                Some(source) => {
+                    let absolute_path = crate::config::global_config()
+                        .map(|c| {
+                            c.content_dir
+                                .parent()
+                                .unwrap_or(&c.content_dir)
+                                .join("templates")
+                                .join(&name)
+                                .to_string()
+                        })
+                        .unwrap_or_else(|| name.clone());
+
+                    tracing::debug!(
+                        context_id = context_id.0,
+                        name = %name,
+                        absolute_path = %absolute_path,
+                        source_len = source.len(),
+                        "load_template: found"
+                    );
+                    LoadTemplateResult::Found {
+                        source: source.clone(),
+                        absolute_path,
+                    }
+                }
+                None => {
+                    tracing::debug!(
+                        context_id = context_id.0,
+                        name = %name,
+                        "load_template: not found"
+                    );
+                    LoadTemplateResult::NotFound
                 }
             }
-            None => {
-                tracing::debug!(
-                    context_id = context_id.0,
-                    name = %name,
-                    "load_template: not found"
-                );
-                LoadTemplateResult::NotFound
-            }
-        }
+        })
     }
 
-    async fn resolve_data(&self, context_id: ContextId, path: Vec<String>) -> ResolveDataResult {
-        let Some(context) = crate::host::Host::get().get_render_context(context_id) else {
-            tracing::warn!(
-                context_id = context_id.0,
-                path = ?path,
-                "resolve_data: context not found"
-            );
-            return ResolveDataResult::NotFound;
-        };
-
-        // Create the interned path for picante tracking
-        let data_path = match DataValuePath::new(&*context.db, path.clone()) {
-            Ok(p) => p,
-            Err(e) => {
+    fn resolve_data(
+        &self,
+        context_id: ContextId,
+        path: Vec<String>,
+    ) -> BoxFuture<'_, ResolveDataResult> {
+        Box::pin(async move {
+            let Some(context) = crate::host::Host::get().get_render_context(context_id) else {
                 tracing::warn!(
                     context_id = context_id.0,
                     path = ?path,
-                    error = ?e,
-                    "resolve_data: failed to create path"
+                    "resolve_data: context not found"
                 );
                 return ResolveDataResult::NotFound;
-            }
-        };
+            };
 
-        // Execute the tracked query
-        match resolve_data_value(&*context.db, data_path).await {
-            Ok(Some(value)) => {
-                tracing::debug!(
-                    context_id = context_id.0,
-                    path = ?path,
-                    "resolve_data: found"
-                );
-                ResolveDataResult::Found { value }
+            let data_path = match DataValuePath::new(&*context.db, path.clone()) {
+                Ok(p) => p,
+                Err(e) => {
+                    tracing::warn!(
+                        context_id = context_id.0,
+                        path = ?path,
+                        error = ?e,
+                        "resolve_data: failed to create path"
+                    );
+                    return ResolveDataResult::NotFound;
+                }
+            };
+
+            match resolve_data_value(&*context.db, data_path).await {
+                Ok(Some(value)) => {
+                    tracing::debug!(
+                        context_id = context_id.0,
+                        path = ?path,
+                        "resolve_data: found"
+                    );
+                    ResolveDataResult::Found { value }
+                }
+                Ok(None) => {
+                    tracing::debug!(
+                        context_id = context_id.0,
+                        path = ?path,
+                        "resolve_data: not found"
+                    );
+                    ResolveDataResult::NotFound
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        context_id = context_id.0,
+                        path = ?path,
+                        error = ?e,
+                        "resolve_data: query error"
+                    );
+                    ResolveDataResult::NotFound
+                }
             }
-            Ok(None) => {
-                tracing::debug!(
-                    context_id = context_id.0,
-                    path = ?path,
-                    "resolve_data: not found"
-                );
-                ResolveDataResult::NotFound
-            }
-            Err(e) => {
-                tracing::warn!(
-                    context_id = context_id.0,
-                    path = ?path,
-                    error = ?e,
-                    "resolve_data: query error"
-                );
-                ResolveDataResult::NotFound
-            }
-        }
+        })
     }
 
-    async fn keys_at(&self, context_id: ContextId, path: Vec<String>) -> KeysAtResult {
-        let Some(context) = crate::host::Host::get().get_render_context(context_id) else {
-            tracing::warn!(
-                context_id = context_id.0,
-                path = ?path,
-                "keys_at: context not found"
-            );
-            return KeysAtResult::NotFound;
-        };
-
-        // Create the interned path for picante tracking
-        let data_path = match DataValuePath::new(&*context.db, path.clone()) {
-            Ok(p) => p,
-            Err(e) => {
+    fn keys_at(&self, context_id: ContextId, path: Vec<String>) -> BoxFuture<'_, KeysAtResult> {
+        Box::pin(async move {
+            let Some(context) = crate::host::Host::get().get_render_context(context_id) else {
                 tracing::warn!(
                     context_id = context_id.0,
                     path = ?path,
-                    error = ?e,
-                    "keys_at: failed to create path"
+                    "keys_at: context not found"
                 );
                 return KeysAtResult::NotFound;
-            }
-        };
+            };
 
-        // Execute the tracked query
-        match data_keys_at_path(&*context.db, data_path).await {
-            Ok(keys) => {
-                tracing::debug!(
-                    context_id = context_id.0,
-                    path = ?path,
-                    num_keys = keys.len(),
-                    "keys_at: found"
-                );
-                KeysAtResult::Found { keys }
+            let data_path = match DataValuePath::new(&*context.db, path.clone()) {
+                Ok(p) => p,
+                Err(e) => {
+                    tracing::warn!(
+                        context_id = context_id.0,
+                        path = ?path,
+                        error = ?e,
+                        "keys_at: failed to create path"
+                    );
+                    return KeysAtResult::NotFound;
+                }
+            };
+
+            match data_keys_at_path(&*context.db, data_path).await {
+                Ok(keys) => {
+                    tracing::debug!(
+                        context_id = context_id.0,
+                        path = ?path,
+                        num_keys = keys.len(),
+                        "keys_at: found"
+                    );
+                    KeysAtResult::Found { keys }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        context_id = context_id.0,
+                        path = ?path,
+                        error = ?e,
+                        "keys_at: query error"
+                    );
+                    KeysAtResult::NotFound
+                }
             }
-            Err(e) => {
-                tracing::warn!(
-                    context_id = context_id.0,
-                    path = ?path,
-                    error = ?e,
-                    "keys_at: query error"
-                );
-                KeysAtResult::NotFound
-            }
-        }
+        })
     }
 
-    async fn call_function(
+    fn call_function(
         &self,
         context_id: ContextId,
         name: String,
         args: Vec<Value>,
         kwargs: Vec<(String, Value)>,
-    ) -> CallFunctionResult {
-        let Some(context) = crate::host::Host::get().get_render_context(context_id) else {
-            tracing::warn!(
-                context_id = context_id.0,
-                name = %name,
-                "call_function: context not found"
-            );
-            return CallFunctionResult::Error {
-                message: "Context not found".to_string(),
-            };
-        };
-
-        tracing::debug!(
-            context_id = context_id.0,
-            name = %name,
-            num_args = args.len(),
-            num_kwargs = kwargs.len(),
-            "call_function"
-        );
-
-        // Helper to get kwarg by name
-        let get_kwarg = |key: &str| -> Option<String> {
-            kwargs
-                .iter()
-                .find(|(k, _)| k == key)
-                .map(|(_, v)| value_to_string(v))
-        };
-
-        match name.as_str() {
-            "get_url" => {
-                let path = get_kwarg("path").unwrap_or_default();
-                let url = if path.starts_with('/') {
-                    path
-                } else if path.is_empty() {
-                    "/".to_string()
-                } else {
-                    format!("/{path}")
-                };
-                CallFunctionResult::Success {
-                    value: Value::from(url.as_str()),
-                }
-            }
-
-            "get_section" => {
-                let path = get_kwarg("path").unwrap_or_default();
-                let route = path_to_route(&path);
-
-                let result = if let Some(section) = context.site_tree.sections.get(&route) {
-                    let base_url = get_base_url();
-                    section_to_value(section, &context.site_tree, &base_url)
-                } else {
-                    Value::NULL
-                };
-
-                CallFunctionResult::Success { value: result }
-            }
-
-            "now" => {
-                // Return current timestamp (could add formatting support via kwargs)
-                let format = get_kwarg("format").unwrap_or_else(|| "%Y-%m-%d".to_string());
-                let now = chrono::Local::now();
-                let formatted = now.format(&format).to_string();
-                CallFunctionResult::Success {
-                    value: Value::from(formatted.as_str()),
-                }
-            }
-
-            "throw" => {
-                let message = args
-                    .first()
-                    .map(value_to_string)
-                    .or_else(|| get_kwarg("message"))
-                    .unwrap_or_else(|| "Template error".to_string());
-                CallFunctionResult::Error { message }
-            }
-
-            "build" => {
-                // Build step invocation: build(step_name, param1=val1, param2=val2, ...)
-                tracing::debug!(
-                    num_args = args.len(),
-                    num_kwargs = kwargs.len(),
-                    "build() function called"
-                );
-                let step_name = match args.first() {
-                    Some(v) => value_to_string(v),
-                    None => {
-                        return CallFunctionResult::Error {
-                            message: "build() requires step name as first argument".to_string(),
-                        };
-                    }
-                };
-
-                // Collect kwargs as params
-                let params: std::collections::HashMap<String, String> = kwargs
-                    .iter()
-                    .map(|(k, v)| (k.clone(), value_to_string(v)))
-                    .collect();
-
-                // Get the executor
-                let executor = match crate::host::Host::get().build_step_executor() {
-                    Some(e) => e.clone(),
-                    None => {
-                        return CallFunctionResult::Error {
-                            message: "Build step executor not initialized".to_string(),
-                        };
-                    }
-                };
-
-                // Execute the build step
-                let result = executor.execute(&step_name, &params).await;
-                match result {
-                    crate::build_steps::BuildStepResult::Success(bytes) => {
-                        // Return as string (UTF-8)
-                        match String::from_utf8(bytes) {
-                            Ok(s) => CallFunctionResult::Success {
-                                value: Value::from(s.as_str()),
-                            },
-                            Err(e) => CallFunctionResult::Error {
-                                message: format!("Build step output is not valid UTF-8: {}", e),
-                            },
-                        }
-                    }
-                    crate::build_steps::BuildStepResult::Error(msg) => {
-                        CallFunctionResult::Error { message: msg }
-                    }
-                }
-            }
-
-            "read" => {
-                // Built-in read function: read(file="path/to/file")
-                let file_path = match get_kwarg("file") {
-                    Some(p) => p,
-                    None => {
-                        return CallFunctionResult::Error {
-                            message: "read() requires 'file' parameter".to_string(),
-                        };
-                    }
-                };
-
-                // Get project root from config
-                let project_root = crate::config::global_config()
-                    .map(|c| c._root.clone())
-                    .unwrap_or_else(|| camino::Utf8PathBuf::from("."));
-
-                let result = crate::build_steps::builtin_read(&project_root, &file_path).await;
-                match result {
-                    crate::build_steps::BuildStepResult::Success(bytes) => {
-                        match String::from_utf8(bytes) {
-                            Ok(s) => CallFunctionResult::Success {
-                                value: Value::from(s.as_str()),
-                            },
-                            Err(e) => CallFunctionResult::Error {
-                                message: format!("File content is not valid UTF-8: {}", e),
-                            },
-                        }
-                    }
-                    crate::build_steps::BuildStepResult::Error(msg) => {
-                        CallFunctionResult::Error { message: msg }
-                    }
-                }
-            }
-
-            "highlight" => {
-                let lang = get_kwarg("lang").unwrap_or_default();
-                let body = get_kwarg("body").unwrap_or_default();
-                // Trim leading/trailing whitespace from the captured block content
-                let body = body.trim();
-
-                match crate::cells::highlight_code_cell(&lang, body).await {
-                    Ok(html) => CallFunctionResult::Success {
-                        value: Value::from(html.as_str()),
-                    },
-                    Err(e) => CallFunctionResult::Error {
-                        message: format!("highlight error: {}", e),
-                    },
-                }
-            }
-
-            _ => {
+    ) -> BoxFuture<'_, CallFunctionResult> {
+        Box::pin(async move {
+            let Some(context) = crate::host::Host::get().get_render_context(context_id) else {
                 tracing::warn!(
                     context_id = context_id.0,
                     name = %name,
-                    "call_function: unknown function"
+                    "call_function: context not found"
                 );
-                CallFunctionResult::Error {
-                    message: format!("Unknown function: {}", name),
+                return CallFunctionResult::Error {
+                    message: "Context not found".to_string(),
+                };
+            };
+
+            tracing::debug!(
+                context_id = context_id.0,
+                name = %name,
+                num_args = args.len(),
+                num_kwargs = kwargs.len(),
+                "call_function"
+            );
+
+            let get_kwarg = |key: &str| -> Option<String> {
+                kwargs
+                    .iter()
+                    .find(|(k, _)| k == key)
+                    .map(|(_, v)| value_to_string(v))
+            };
+
+            match name.as_str() {
+                "get_url" => {
+                    let path = get_kwarg("path").unwrap_or_default();
+                    let url = if path.starts_with('/') {
+                        path
+                    } else if path.is_empty() {
+                        "/".to_string()
+                    } else {
+                        format!("/{path}")
+                    };
+                    CallFunctionResult::Success {
+                        value: Value::from(url.as_str()),
+                    }
+                }
+
+                "get_section" => {
+                    let path = get_kwarg("path").unwrap_or_default();
+                    let route = path_to_route(&path);
+
+                    let result = if let Some(section) = context.site_tree.sections.get(&route) {
+                        let base_url = get_base_url();
+                        section_to_value(section, &context.site_tree, &base_url)
+                    } else {
+                        Value::NULL
+                    };
+
+                    CallFunctionResult::Success { value: result }
+                }
+
+                "now" => {
+                    let format = get_kwarg("format").unwrap_or_else(|| "%Y-%m-%d".to_string());
+                    let now = chrono::Local::now();
+                    let formatted = now.format(&format).to_string();
+                    CallFunctionResult::Success {
+                        value: Value::from(formatted.as_str()),
+                    }
+                }
+
+                "throw" => {
+                    let message = args
+                        .first()
+                        .map(value_to_string)
+                        .or_else(|| get_kwarg("message"))
+                        .unwrap_or_else(|| "Template error".to_string());
+                    CallFunctionResult::Error { message }
+                }
+
+                "build" => {
+                    tracing::debug!(
+                        num_args = args.len(),
+                        num_kwargs = kwargs.len(),
+                        "build() function called"
+                    );
+                    let step_name = match args.first() {
+                        Some(v) => value_to_string(v),
+                        None => {
+                            return CallFunctionResult::Error {
+                                message: "build() requires step name as first argument".to_string(),
+                            };
+                        }
+                    };
+
+                    let params: std::collections::HashMap<String, String> = kwargs
+                        .iter()
+                        .map(|(k, v)| (k.clone(), value_to_string(v)))
+                        .collect();
+
+                    let executor = match crate::host::Host::get().build_step_executor() {
+                        Some(e) => e.clone(),
+                        None => {
+                            return CallFunctionResult::Error {
+                                message: "Build step executor not initialized".to_string(),
+                            };
+                        }
+                    };
+
+                    let result = executor.execute(&step_name, &params).await;
+                    match result {
+                        crate::build_steps::BuildStepResult::Success(bytes) => {
+                            match String::from_utf8(bytes) {
+                                Ok(s) => CallFunctionResult::Success {
+                                    value: Value::from(s.as_str()),
+                                },
+                                Err(e) => CallFunctionResult::Error {
+                                    message: format!("Build step output is not valid UTF-8: {}", e),
+                                },
+                            }
+                        }
+                        crate::build_steps::BuildStepResult::Error(msg) => {
+                            CallFunctionResult::Error { message: msg }
+                        }
+                    }
+                }
+
+                "read" => {
+                    let file_path = match get_kwarg("file") {
+                        Some(p) => p,
+                        None => {
+                            return CallFunctionResult::Error {
+                                message: "read() requires 'file' parameter".to_string(),
+                            };
+                        }
+                    };
+
+                    let project_root = crate::config::global_config()
+                        .map(|c| c._root.clone())
+                        .unwrap_or_else(|| camino::Utf8PathBuf::from("."));
+
+                    let result = crate::build_steps::builtin_read(&project_root, &file_path).await;
+                    match result {
+                        crate::build_steps::BuildStepResult::Success(bytes) => {
+                            match String::from_utf8(bytes) {
+                                Ok(s) => CallFunctionResult::Success {
+                                    value: Value::from(s.as_str()),
+                                },
+                                Err(e) => CallFunctionResult::Error {
+                                    message: format!("File content is not valid UTF-8: {}", e),
+                                },
+                            }
+                        }
+                        crate::build_steps::BuildStepResult::Error(msg) => {
+                            CallFunctionResult::Error { message: msg }
+                        }
+                    }
+                }
+
+                "highlight" => {
+                    let lang = get_kwarg("lang").unwrap_or_default();
+                    let body = get_kwarg("body").unwrap_or_default();
+                    let body = body.trim();
+
+                    match crate::cells::highlight_code_cell(&lang, body).await {
+                        Ok(html) => CallFunctionResult::Success {
+                            value: Value::from(html.as_str()),
+                        },
+                        Err(e) => CallFunctionResult::Error {
+                            message: format!("highlight error: {}", e),
+                        },
+                    }
+                }
+
+                _ => {
+                    tracing::warn!(
+                        context_id = context_id.0,
+                        name = %name,
+                        "call_function: unknown function"
+                    );
+                    CallFunctionResult::Error {
+                        message: format!("Unknown function: {}", name),
+                    }
                 }
             }
-        }
+        })
     }
 }
 

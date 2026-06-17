@@ -43,7 +43,6 @@ pub enum SearchIndexResult {
 ///
 /// The host calls this once per build with every rendered HTML page.
 #[allow(async_fn_in_trait)]
-#[vox::service]
 pub trait SearchIndexer {
     /// Build a full-text search index from the given pages.
     async fn build_index(&self, pages: Vec<SearchPage>) -> SearchIndexResult;

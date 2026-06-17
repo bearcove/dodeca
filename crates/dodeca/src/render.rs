@@ -544,7 +544,7 @@ pub async fn inject_livereload_with_build_info(
 }
 
 // ============================================================================
-// Cell-based rendering (uses gingembre cell for template processing)
+// Template rendering through the statically linked gingembre renderer.
 // ============================================================================
 
 /// Something that can be rendered (page or section)
@@ -648,8 +648,8 @@ impl<'a> Renderable<'a> {
     }
 }
 
-/// Render a page or section via the gingembre cell.
-pub async fn try_render_via_cell(
+/// Render a page or section through the gingembre renderer.
+pub async fn try_render_template(
     renderable: Renderable<'_>,
     site_tree: &SiteTree,
     templates: HashMap<String, String>,
@@ -703,23 +703,23 @@ pub async fn try_render_via_cell(
 }
 
 /// Render page via cell - returns Result with structured error
-pub async fn render_page_via_cell(
+pub async fn render_page_template(
     page: &Page,
     site_tree: &SiteTree,
     templates: HashMap<String, String>,
     can_edit: bool,
 ) -> Result<String, cell_gingembre_proto::TemplateRenderError> {
-    try_render_via_cell(Renderable::Page(page), site_tree, templates, can_edit).await
+    try_render_template(Renderable::Page(page), site_tree, templates, can_edit).await
 }
 
 /// Render section via cell - returns Result with structured error
-pub async fn render_section_via_cell(
+pub async fn render_section_template(
     section: &Section,
     site_tree: &SiteTree,
     templates: HashMap<String, String>,
     can_edit: bool,
 ) -> Result<String, cell_gingembre_proto::TemplateRenderError> {
-    try_render_via_cell(Renderable::Section(section), site_tree, templates, can_edit).await
+    try_render_template(Renderable::Section(section), site_tree, templates, can_edit).await
 }
 
 pub(crate) async fn render_authoring_html(

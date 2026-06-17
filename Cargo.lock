@@ -1508,7 +1508,6 @@ dependencies = [
  "facet",
  "facet-default",
  "facet-yaml",
- "vox 0.8.1",
 ]
 
 [[package]]
@@ -1524,7 +1523,6 @@ name = "cell-css-proto"
 version = "0.6.1"
 dependencies = [
  "facet",
- "vox 0.8.1",
 ]
 
 [[package]]
@@ -1544,7 +1542,6 @@ version = "0.6.1"
 dependencies = [
  "facet",
  "facet-value",
- "vox 0.8.1",
 ]
 
 [[package]]
@@ -1561,7 +1558,6 @@ name = "cell-dialoguer-proto"
 version = "0.6.1"
 dependencies = [
  "facet",
- "vox 0.8.1",
 ]
 
 [[package]]
@@ -1578,7 +1574,6 @@ name = "cell-fonts-proto"
 version = "0.6.1"
 dependencies = [
  "facet",
- "vox 0.8.1",
 ]
 
 [[package]]
@@ -1599,20 +1594,7 @@ version = "0.6.1"
 dependencies = [
  "facet",
  "facet-value",
- "vox 0.8.1",
-]
-
-[[package]]
-name = "cell-host-proto"
-version = "0.1.0"
-dependencies = [
- "cell-gingembre-proto",
- "cell-http-proto",
- "cell-lifecycle-proto",
- "cell-tui-proto",
- "facet",
- "facet-value",
- "vox 0.8.1",
+ "futures",
 ]
 
 [[package]]
@@ -1641,7 +1623,6 @@ name = "cell-html-diff-proto"
 version = "0.6.1"
 dependencies = [
  "facet",
- "vox 0.8.1",
 ]
 
 [[package]]
@@ -1649,7 +1630,6 @@ name = "cell-html-proto"
 version = "0.6.1"
 dependencies = [
  "facet",
- "vox 0.8.1",
 ]
 
 [[package]]
@@ -1675,7 +1655,6 @@ version = "0.6.1"
 dependencies = [
  "dodeca-protocol",
  "facet",
- "vox 0.8.1",
 ]
 
 [[package]]
@@ -1693,7 +1672,6 @@ name = "cell-image-proto"
 version = "0.6.1"
 dependencies = [
  "facet",
- "vox 0.8.1",
 ]
 
 [[package]]
@@ -1709,7 +1687,6 @@ name = "cell-js-proto"
 version = "0.6.1"
 dependencies = [
  "facet",
- "vox 0.8.1",
 ]
 
 [[package]]
@@ -1725,15 +1702,6 @@ name = "cell-jxl-proto"
 version = "0.6.1"
 dependencies = [
  "facet",
- "vox 0.8.1",
-]
-
-[[package]]
-name = "cell-lifecycle-proto"
-version = "0.6.1"
-dependencies = [
- "facet",
- "vox 0.8.1",
 ]
 
 [[package]]
@@ -1752,7 +1720,6 @@ name = "cell-linkcheck-proto"
 version = "0.6.1"
 dependencies = [
  "facet",
- "vox 0.8.1",
 ]
 
 [[package]]
@@ -1771,7 +1738,6 @@ dependencies = [
  "facet",
  "facet-postcard",
  "facet-value",
- "vox 0.8.1",
 ]
 
 [[package]]
@@ -1786,7 +1752,6 @@ name = "cell-minify-proto"
 version = "0.6.1"
 dependencies = [
  "facet",
- "vox 0.8.1",
 ]
 
 [[package]]
@@ -1802,7 +1767,6 @@ name = "cell-sass-proto"
 version = "0.6.1"
 dependencies = [
  "facet",
- "vox 0.8.1",
 ]
 
 [[package]]
@@ -1820,7 +1784,6 @@ name = "cell-search-proto"
 version = "0.6.1"
 dependencies = [
  "facet",
- "vox 0.8.1",
 ]
 
 [[package]]
@@ -1836,7 +1799,6 @@ name = "cell-svgo-proto"
 version = "0.6.1"
 dependencies = [
  "facet",
- "vox 0.8.1",
 ]
 
 [[package]]
@@ -1857,7 +1819,6 @@ name = "cell-term-proto"
 version = "0.6.1"
 dependencies = [
  "facet",
- "vox 0.8.1",
 ]
 
 [[package]]
@@ -1865,7 +1826,6 @@ name = "cell-tui-proto"
 version = "0.6.1"
 dependencies = [
  "facet",
- "vox 0.8.1",
 ]
 
 [[package]]
@@ -1882,7 +1842,6 @@ name = "cell-vite-proto"
 version = "0.6.1"
 dependencies = [
  "facet",
- "vox 0.8.1",
 ]
 
 [[package]]
@@ -1898,7 +1857,6 @@ name = "cell-webp-proto"
 version = "0.6.1"
 dependencies = [
  "facet",
- "vox 0.8.1",
 ]
 
 [[package]]
@@ -2814,7 +2772,6 @@ dependencies = [
  "cell-fonts-proto",
  "cell-gingembre",
  "cell-gingembre-proto",
- "cell-host-proto",
  "cell-html",
  "cell-html-diff",
  "cell-html-diff-proto",

@@ -27,7 +27,6 @@ pub enum TermResult {
 
 /// Terminal recording service implemented by the cell.
 #[allow(async_fn_in_trait)]
-#[vox::service]
 pub trait TermRecorder {
     /// Record a terminal session interactively.
     /// User controls the session, exits when done.

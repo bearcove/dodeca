@@ -1310,7 +1310,7 @@ pub async fn render_page<DB: Db>(
     route: Route,
     can_edit: bool,
 ) -> PicanteResult<Result<RenderedHtml, SiteError>> {
-    use crate::render::render_page_via_cell;
+    use crate::render::render_page_template;
 
     tracing::debug!(route = %route, can_edit, "Rendering page");
 
@@ -1331,8 +1331,8 @@ pub async fn render_page<DB: Db>(
         .get(&route)
         .expect("Page not found for route");
 
-    // Render via gingembre cell
-    match render_page_via_cell(page, &site_tree, templates, can_edit).await {
+    // Render via the statically linked gingembre renderer.
+    match render_page_template(page, &site_tree, templates, can_edit).await {
         Ok(html) => Ok(Ok(RenderedHtml(html))),
         Err(error) => Ok(Err(RenderError {
             route: route.clone(),
@@ -1429,7 +1429,7 @@ pub async fn render_section<DB: Db>(
     route: Route,
     can_edit: bool,
 ) -> PicanteResult<Result<RenderedHtml, SiteError>> {
-    use crate::render::render_section_via_cell;
+    use crate::render::render_section_template;
 
     tracing::debug!(route = %route, can_edit, "Rendering section");
 
@@ -1449,8 +1449,8 @@ pub async fn render_section<DB: Db>(
         .get(&route)
         .expect("Section not found for route");
 
-    // Render via gingembre cell
-    match render_section_via_cell(section, &site_tree, templates, can_edit).await {
+    // Render via the statically linked gingembre renderer.
+    match render_section_template(section, &site_tree, templates, can_edit).await {
         Ok(html) => Ok(Ok(RenderedHtml(html))),
         Err(error) => Ok(Err(RenderError {
             route: route.clone(),
@@ -2129,7 +2129,7 @@ pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<Result<SiteOutput, Sit
 pub async fn all_rendered_html<DB: Db>(
     db: &DB,
 ) -> PicanteResult<Result<AllRenderedHtml, SiteError>> {
-    use crate::render::{render_page_via_cell, render_section_via_cell};
+    use crate::render::{render_page_template, render_section_template};
     use crate::url_rewrite::{resolve_internal_links, resolve_relative_links, resolve_wiki_links};
 
     let site_tree = match build_tree(db).await? {
@@ -2152,7 +2152,7 @@ pub async fn all_rendered_html<DB: Db>(
         // source serving this route so a mounted source renders with its own
         // chrome here too (this path bypasses `render_section`).
         let templates = templates_for_route(template_map.clone(), route.as_str());
-        let html = match render_section_via_cell(section, &site_tree, templates, false).await {
+        let html = match render_section_template(section, &site_tree, templates, false).await {
             Ok(html) => html,
             Err(error) => {
                 return Ok(Err(RenderError {
@@ -2181,7 +2181,7 @@ pub async fn all_rendered_html<DB: Db>(
         // Anonymous (`can_edit = false`): viewer-independent aggregate (font
         // subsetting). Narrow to the source serving this route for own-chrome.
         let templates = templates_for_route(template_map.clone(), route.as_str());
-        let html = match render_page_via_cell(page, &site_tree, templates, false).await {
+        let html = match render_page_template(page, &site_tree, templates, false).await {
             Ok(html) => html,
             Err(error) => {
                 return Ok(Err(RenderError {

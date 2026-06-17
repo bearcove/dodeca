@@ -302,9 +302,7 @@ pub enum CommandResult {
 /// Service hosted by the local TUI display for the host to push updates.
 ///
 /// The host calls these methods to update the TUI display.
-/// For commands from TUI → host, use HostService::send_command().
 #[allow(async_fn_in_trait)]
-#[vox::service]
 pub trait TuiDisplay {
     /// Host pushes a progress update.
     async fn update_progress(&self, progress: BuildProgress);

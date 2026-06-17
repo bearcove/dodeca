@@ -30,7 +30,6 @@ pub enum DiffError {
 ///
 /// The host calls these methods to diff HTML documents.
 #[allow(async_fn_in_trait)]
-#[vox::service]
 pub trait HtmlDiffer {
     /// Diff two HTML documents and produce patches to transform old into new
     async fn diff_html(&self, input: DiffInput) -> Result<DiffOutcome, DiffError>;

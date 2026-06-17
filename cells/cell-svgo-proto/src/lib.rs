@@ -18,7 +18,6 @@ pub enum SvgoResult {
 ///
 /// The host calls these methods to optimize SVG content.
 #[allow(async_fn_in_trait)]
-#[vox::service]
 pub trait SvgoOptimizer {
     /// Optimize SVG content
     ///

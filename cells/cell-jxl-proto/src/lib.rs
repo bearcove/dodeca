@@ -34,7 +34,6 @@ pub enum JXLResult {
 ///
 /// The host calls these methods to process JPEG XL images.
 #[allow(async_fn_in_trait)]
-#[vox::service]
 pub trait JXLProcessor {
     /// Decode JPEG XL to RGBA pixels
     async fn decode_jxl(&self, data: Vec<u8>) -> JXLResult;

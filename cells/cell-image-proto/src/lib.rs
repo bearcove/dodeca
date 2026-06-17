@@ -47,7 +47,6 @@ pub struct ThumbhashInput {
 ///
 /// The host calls these methods to process image content.
 #[allow(async_fn_in_trait)]
-#[vox::service]
 pub trait ImageProcessor {
     /// Decode a PNG image to RGBA pixels
     async fn decode_png(&self, data: Vec<u8>) -> ImageResult;

@@ -273,75 +273,71 @@ impl<H> TemplateRenderer for TemplateRendererImpl<H>
 where
     H: TemplateHost + Clone + Send + Sync + 'static,
 {
-    async fn render(
+    fn render(
         &self,
         context_id: ContextId,
         template_name: String,
         initial_context: Value,
-    ) -> RenderResult {
-        let started_at = Instant::now();
-        tracing::debug!(
-            context_id = context_id.0,
-            template_name = %template_name,
-            "gingembre cell render started"
-        );
-        // Create shared path map for tracking template name -> absolute path
-        let path_map: PathMap = Arc::new(DashMap::new());
+    ) -> BoxFuture<'_, RenderResult> {
+        Box::pin(async move {
+            let started_at = Instant::now();
+            tracing::debug!(
+                context_id = context_id.0,
+                template_name = %template_name,
+                "gingembre render started"
+            );
+            let path_map: PathMap = Arc::new(DashMap::new());
 
-        // Create host-backed loader and resolver
-        let loader = HostTemplateLoader::new(self.host.clone(), context_id, path_map.clone());
-        let resolver = Arc::new(HostDataResolver::new(self.host.clone(), context_id));
+            let loader = HostTemplateLoader::new(self.host.clone(), context_id, path_map.clone());
+            let resolver = Arc::new(HostDataResolver::new(self.host.clone(), context_id));
 
-        // Build the render context
-        let ctx = self.build_context(self.host.clone(), &initial_context, resolver, context_id);
+            let ctx = self.build_context(self.host.clone(), &initial_context, resolver, context_id);
 
-        // Create engine and render
-        let mut engine = Engine::new(loader);
-        match engine.render(&template_name, &ctx).await {
-            Ok(html) => {
-                tracing::debug!(
-                    context_id = context_id.0,
-                    template_name = %template_name,
-                    elapsed_ms = started_at.elapsed().as_millis(),
-                    html_len = html.len(),
-                    "gingembre cell render finished"
-                );
-                RenderResult::Success { html }
-            }
-            Err(e) => {
-                tracing::error!(
-                    context_id = context_id.0,
-                    template_name = %template_name,
-                    elapsed_ms = started_at.elapsed().as_millis(),
-                    error = ?e,
-                    "gingembre cell render failed"
-                );
-                RenderResult::Error {
-                    error: to_protocol_error(&e, &path_map),
+            let mut engine = Engine::new(loader);
+            match engine.render(&template_name, &ctx).await {
+                Ok(html) => {
+                    tracing::debug!(
+                        context_id = context_id.0,
+                        template_name = %template_name,
+                        elapsed_ms = started_at.elapsed().as_millis(),
+                        html_len = html.len(),
+                        "gingembre render finished"
+                    );
+                    RenderResult::Success { html }
+                }
+                Err(e) => {
+                    tracing::error!(
+                        context_id = context_id.0,
+                        template_name = %template_name,
+                        elapsed_ms = started_at.elapsed().as_millis(),
+                        error = ?e,
+                        "gingembre render failed"
+                    );
+                    RenderResult::Error {
+                        error: to_protocol_error(&e, &path_map),
+                    }
                 }
             }
-        }
+        })
     }
 
-    async fn eval_expression(
+    fn eval_expression(
         &self,
         context_id: ContextId,
         expression: String,
         context: Value,
-    ) -> EvalResult {
-        // Create host-backed resolver (no loader needed for expression eval)
-        let resolver = Arc::new(HostDataResolver::new(self.host.clone(), context_id));
+    ) -> BoxFuture<'_, EvalResult> {
+        Box::pin(async move {
+            let resolver = Arc::new(HostDataResolver::new(self.host.clone(), context_id));
+            let ctx = self.build_context(self.host.clone(), &context, resolver, context_id);
 
-        // Build the context
-        let ctx = self.build_context(self.host.clone(), &context, resolver, context_id);
-
-        // Evaluate the expression
-        match gingembre::eval_expression(&expression, &ctx).await {
-            Ok(value) => EvalResult::Success { value },
-            Err(e) => {
-                let message = format!("{:?}", e);
-                EvalResult::Error { message }
+            match gingembre::eval_expression(&expression, &ctx).await {
+                Ok(value) => EvalResult::Success { value },
+                Err(e) => {
+                    let message = format!("{:?}", e);
+                    EvalResult::Error { message }
+                }
             }
-        }
+        })
     }
 }

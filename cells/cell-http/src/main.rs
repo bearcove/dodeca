@@ -1,22 +1,15 @@
-//! Dodeca HTTP cell (cell-http)
+//! Dodeca HTTP serving module.
 //!
-//! This binary handles HTTP serving for dodeca via L4 tunneling:
+//! This library builds the Axum router used by dodeca's local HTTP server.
 //!
 //! Architecture:
 //! ```text
-//! Browser → Host (TCP) → roam tunnel → Cell → internal axum
-//!                                              ↓
-//!                              ContentService RPC → Host (picante DB)
-//!                                    ↑
-//!                          (zero-copy via SHM)
+//! Browser -> dodeca TCP listener -> Axum router -> ContentService -> picante DB
+//!                                \-> DevTools WebSocket -> Vox DevTools service
 //! ```
 //!
-//! The cell:
-//! - Runs axum internally on localhost (not exposed to network)
-//! - Implements TcpTunnel service (host opens tunnels for each browser connection)
-//! - Calls ContentService on host for all content (HTML, CSS, static files)
-//! - Runs roam RPC session for devtools (forwarded to host via virtual connection)
-//! - Uses SHM transport for zero-copy content transfer
+//! Build content uses direct Rust calls. Vox remains only for the browser
+//! DevTools websocket service.
 
 use std::sync::Arc;
 
@@ -207,10 +200,10 @@ pub fn build_router(ctx: Arc<dyn RouterContext>) -> axum::Router {
 
         let mut response = next.run(request).await;
 
-        // Add header to identify this is served by the cell
+        // Add header to identify the local dodeca HTTP server.
         response
             .headers_mut()
-            .insert("x-served-by", "cell-http".parse().unwrap());
+            .insert("x-served-by", "dodeca".parse().unwrap());
 
         let status = response.status().as_u16();
         let latency_ms = start.elapsed().as_secs_f64() * 1000.0;
@@ -225,12 +218,12 @@ pub fn build_router(ctx: Arc<dyn RouterContext>) -> axum::Router {
     }
 
     Router::new()
-        // Devtools WebSocket - roam RPC session forwarded to host
+        // DevTools WebSocket - Vox session accepted by the host context.
         .route("/_/ws", get(devtools::ws_handler))
         // Legacy endpoints
         .route("/__dodeca", get(devtools::ws_handler))
         .route("/__livereload", get(devtools::ws_handler))
-        // All other content (HTML, CSS, static, devtools assets) - ask host
+        // All other content (HTML, CSS, static, devtools assets) - ask dodeca.
         .fallback(content_handler)
         .with_state(ctx)
         .layer(middleware::from_fn(log_requests))

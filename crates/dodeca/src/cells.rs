@@ -12,7 +12,6 @@ use cell_data_proto::{DataFormat, DataLoader, LoadDataResult};
 use cell_dialoguer_proto::{Dialoguer, SelectResult};
 use cell_fonts_proto::{FontProcessor, FontResult, SubsetFontInput};
 use cell_gingembre_proto::{ContextId, RenderResult, TemplateRenderer};
-use cell_host_proto::Value;
 use cell_html_diff_proto::{DiffError, DiffInput, DiffOutcome, HtmlDiffer};
 use cell_html_proto::{HtmlProcessInput, HtmlProcessResult, HtmlProcessor, HtmlResult};
 use cell_image_proto::{ImageProcessor, ImageResult, ResizeInput, ThumbhashInput};
@@ -28,6 +27,7 @@ use cell_term_proto::{RecordConfig, TermRecorder, TermResult};
 use cell_vite_proto::{RunBuildResult, StartDevServerResult, ViteManager};
 use cell_webp_proto::{WebPEncodeInput, WebPProcessor, WebPResult};
 use facet::Facet;
+use facet_value::Value;
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -94,14 +94,14 @@ pub(crate) fn template_renderer()
     ddc_cell_gingembre::TemplateRendererImpl::new(crate::template_host::TemplateHostImpl::new())
 }
 
-static CELL_RPC_ID: AtomicU64 = AtomicU64::new(1);
+static DIRECT_CALL_ID: AtomicU64 = AtomicU64::new(1);
 
-fn next_cell_rpc_id() -> u64 {
-    CELL_RPC_ID.fetch_add(1, Ordering::Relaxed)
+fn next_direct_call_id() -> u64 {
+    DIRECT_CALL_ID.fetch_add(1, Ordering::Relaxed)
 }
 
-/// Provide the SiteServer for HTTP cell initialization.
-/// This must be called before cells are initialized when the HTTP cell needs to serve content.
+/// Provide the SiteServer for local HTTP serving.
+/// This must be called before the HTTP router needs to serve content.
 /// For build-only commands, this can be skipped.
 pub fn provide_site_server(server: Arc<SiteServer>) {
     crate::host::Host::get().provide_site_server(server);
@@ -122,10 +122,10 @@ pub async fn render_template(
     template_name: &str,
     initial_context: Value,
 ) -> eyre::Result<RenderResult> {
-    let rpc_id = next_cell_rpc_id();
+    let call_id = next_direct_call_id();
     let started_at = Instant::now();
     tracing::debug!(
-        rpc_id,
+        call_id,
         cell = "gingembre",
         method = "render",
         context_id = context_id.0,
@@ -136,7 +136,7 @@ pub async fn render_template(
         .render(context_id, template_name.to_string(), initial_context)
         .await;
     tracing::debug!(
-        rpc_id,
+        call_id,
         cell = "gingembre",
         method = "render",
         elapsed_ms = started_at.elapsed().as_millis(),
@@ -158,10 +158,10 @@ pub async fn eval_expression_cell(
     expression: &str,
     context: Value,
 ) -> eyre::Result<cell_gingembre_proto::EvalResult> {
-    let rpc_id = next_cell_rpc_id();
+    let call_id = next_direct_call_id();
     let started_at = Instant::now();
     tracing::debug!(
-        rpc_id,
+        call_id,
         cell = "gingembre",
         method = "eval_expression",
         context_id = context_id.0,
@@ -172,7 +172,7 @@ pub async fn eval_expression_cell(
         .eval_expression(context_id, expression.to_string(), context)
         .await;
     tracing::debug!(
-        rpc_id,
+        call_id,
         cell = "gingembre",
         method = "eval_expression",
         elapsed_ms = started_at.elapsed().as_millis(),
@@ -318,10 +318,10 @@ pub async fn parse_and_render_markdown_cell(
     content: &str,
     source_map: bool,
 ) -> Result<cell_markdown_proto::ParseResult, MarkdownParseError> {
-    let rpc_id = next_cell_rpc_id();
+    let call_id = next_direct_call_id();
     let started_at = Instant::now();
     tracing::debug!(
-        rpc_id,
+        call_id,
         cell = "markdown",
         method = "parse_and_render",
         source_path,
@@ -335,7 +335,7 @@ pub async fn parse_and_render_markdown_cell(
     match result {
         result @ cell_markdown_proto::ParseResult::Success { .. } => {
             tracing::debug!(
-                rpc_id,
+                call_id,
                 cell = "markdown",
                 method = "parse_and_render",
                 elapsed_ms = started_at.elapsed().as_millis(),
@@ -345,7 +345,7 @@ pub async fn parse_and_render_markdown_cell(
         }
         cell_markdown_proto::ParseResult::Error { message } => {
             tracing::error!(
-                rpc_id,
+                call_id,
                 cell = "markdown",
                 method = "parse_and_render",
                 elapsed_ms = started_at.elapsed().as_millis(),
@@ -373,10 +373,10 @@ pub async fn inject_code_buttons_cell(
     html: String,
     code_metadata: HashMap<String, cell_html_proto::CodeExecutionMetadata>,
 ) -> Result<(String, bool), eyre::Error> {
-    let rpc_id = next_cell_rpc_id();
+    let call_id = next_direct_call_id();
     let started_at = Instant::now();
     tracing::debug!(
-        rpc_id,
+        call_id,
         cell = "html",
         method = "inject_code_buttons",
         html_len = html.len(),
@@ -389,7 +389,7 @@ pub async fn inject_code_buttons_cell(
     {
         HtmlResult::SuccessWithFlag { html, flag } => {
             tracing::debug!(
-                rpc_id,
+                call_id,
                 cell = "html",
                 method = "inject_code_buttons",
                 elapsed_ms = started_at.elapsed().as_millis(),
@@ -401,7 +401,7 @@ pub async fn inject_code_buttons_cell(
         }
         HtmlResult::Success { html } => {
             tracing::debug!(
-                rpc_id,
+                call_id,
                 cell = "html",
                 method = "inject_code_buttons",
                 elapsed_ms = started_at.elapsed().as_millis(),
@@ -413,7 +413,7 @@ pub async fn inject_code_buttons_cell(
         }
         HtmlResult::Error { message } => {
             tracing::error!(
-                rpc_id,
+                call_id,
                 cell = "html",
                 method = "inject_code_buttons",
                 elapsed_ms = started_at.elapsed().as_millis(),

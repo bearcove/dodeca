@@ -31,7 +31,6 @@ cell-data-proto = { path = "../../cells/cell-data-proto" }
 cell-data = { path = "../../cells/cell-data" }
 cell-gingembre-proto = { path = "../../cells/cell-gingembre-proto" }
 cell-gingembre = { path = "../../cells/cell-gingembre" }
-cell-host-proto = { path = "../../cells/cell-host-proto" }
 cell-fonts-proto = { path = "../../cells/cell-fonts-proto" }
 cell-fonts = { path = "../../cells/cell-fonts" }
 cell-html-diff-proto = { path = "../../cells/cell-html-diff-proto" }

@@ -9,6 +9,7 @@
 
 use facet::Facet;
 use facet_value::Value;
+use futures::future::BoxFuture;
 
 // ============================================================================
 // Error types
@@ -131,7 +132,6 @@ pub struct ContextId(pub u64);
 ///
 /// The template renderer receives render requests and produces HTML output,
 /// calling back to the host as needed for templates, data, and functions.
-#[vox::service]
 pub trait TemplateRenderer {
     /// Render a template by name.
     ///
@@ -144,12 +144,12 @@ pub trait TemplateRenderer {
     /// - `context_id`: Identifies the render context on the host
     /// - `template_name`: Name of the template to render
     /// - `initial_context`: Initial context variables (VObject)
-    async fn render(
+    fn render(
         &self,
         context_id: ContextId,
         template_name: String,
         initial_context: Value,
-    ) -> RenderResult;
+    ) -> BoxFuture<'_, RenderResult>;
 
     /// Evaluate a standalone expression (for devtools REPL).
     ///
@@ -157,19 +157,18 @@ pub trait TemplateRenderer {
     /// - `context_id`: Identifies the render context on the host
     /// - `expression`: The expression to evaluate
     /// - `context`: Context variables
-    async fn eval_expression(
+    fn eval_expression(
         &self,
         context_id: ContextId,
         expression: String,
         context_vars: Value,
-    ) -> EvalResult;
+    ) -> BoxFuture<'_, EvalResult>;
 }
 
 /// Service implemented by the HOST (cell calls these methods)
 ///
 /// Provides template loading, data resolution, and function calls with picante tracking.
 /// Each call creates dependencies that allow incremental rebuilds.
-#[vox::service]
 pub trait TemplateHost {
     /// Load a template by name.
     ///
@@ -177,7 +176,11 @@ pub trait TemplateHost {
     /// templates for inheritance, included templates, imported macros).
     ///
     /// The host should track this as a dependency for incremental builds.
-    async fn load_template(&self, context_id: ContextId, name: String) -> LoadTemplateResult;
+    fn load_template(
+        &self,
+        context_id: ContextId,
+        name: String,
+    ) -> BoxFuture<'_, LoadTemplateResult>;
 
     /// Resolve a data value by path.
     ///
@@ -188,13 +191,17 @@ pub trait TemplateHost {
     /// # Arguments
     /// - `context_id`: The render context
     /// - `path`: Path segments (e.g., ["versions", "dodeca", "version"])
-    async fn resolve_data(&self, context_id: ContextId, path: Vec<String>) -> ResolveDataResult;
+    fn resolve_data(
+        &self,
+        context_id: ContextId,
+        path: Vec<String>,
+    ) -> BoxFuture<'_, ResolveDataResult>;
 
     /// Get child keys at a data path.
     ///
     /// Called when iterating over a lazy container (for loops).
     /// Returns the keys/indices available at the path.
-    async fn keys_at(&self, context_id: ContextId, path: Vec<String>) -> KeysAtResult;
+    fn keys_at(&self, context_id: ContextId, path: Vec<String>) -> BoxFuture<'_, KeysAtResult>;
 
     /// Call a template function on the host.
     ///
@@ -207,11 +214,11 @@ pub trait TemplateHost {
     /// - `name`: Function name (e.g., "get_url", "get_section")
     /// - `args`: Positional arguments
     /// - `kwargs`: Keyword arguments as (name, value) pairs
-    async fn call_function(
+    fn call_function(
         &self,
         context_id: ContextId,
         name: String,
         args: Vec<Value>,
         kwargs: Vec<(String, Value)>,
-    ) -> CallFunctionResult;
+    ) -> BoxFuture<'_, CallFunctionResult>;
 }

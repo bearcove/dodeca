@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use cell_gingembre_proto::ContextId;
-use cell_host_proto::{CommandResult, ServerCommand};
+use cell_tui_proto::{CommandResult, ServerCommand};
 use dashmap::DashMap;
 use tokio::sync::{Mutex, Notify, mpsc};
 
@@ -47,10 +47,10 @@ pub struct Host {
     command_rx: Mutex<Option<mpsc::UnboundedReceiver<ServerCommand>>>,
 
     // -------------------------------------------------------------------------
-    // Site Server (for HTTP cell)
+    // Site Server (for local HTTP serving)
     // -------------------------------------------------------------------------
-    /// SiteServer for HTTP cell content serving.
-    /// Set via `provide_site_server()` before cell initialization.
+    /// SiteServer for local HTTP content serving.
+    /// Set via `provide_site_server()` before HTTP serving starts.
     site_server: std::sync::OnceLock<Arc<crate::serve::SiteServer>>,
 
     // -------------------------------------------------------------------------
@@ -154,8 +154,8 @@ impl Host {
     // Site Server
     // =========================================================================
 
-    /// Provide the SiteServer for HTTP cell content serving.
-    /// This must be called before cell initialization when the HTTP cell needs to serve content.
+    /// Provide the SiteServer for local HTTP content serving.
+    /// This must be called before the HTTP router needs to serve content.
     /// For build-only commands, this can be skipped.
     pub fn provide_site_server(&self, server: Arc<crate::serve::SiteServer>) {
         let _ = self.site_server.set(server);

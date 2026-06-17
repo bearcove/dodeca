@@ -405,8 +405,8 @@ fn main() -> Result<()> {
     // (no-op on non-Unix platforms)
     dodeca_debug::install_sigusr1_handler("ddc");
 
-    // (vox cells run in-process; there is no shared-memory channel/connection
-    // registry to dump on SIGUSR1 — `dodeca_debug` still dumps host stacks.)
+    // There is no internal shared-memory channel/connection registry to dump on
+    // SIGUSR1; `dodeca_debug` still dumps host stacks.
 
     // When spawned by test harness with DODECA_DIE_WITH_PARENT=1, install death-watch
     // so we exit when the test process dies. This prevents orphan accumulation.
@@ -2397,9 +2397,6 @@ async fn serve_plain(
 
     // Use the requested port (or default to 4000)
     let requested_port: u16 = port.unwrap_or(4000);
-    // Find the cell path
-    let cell_path = cell_server::find_cell_path()?;
-
     // Determine bind IPs based on --public flag or explicit 0.0.0.0 address
     let bind_ips: Vec<std::net::Ipv4Addr> = if public_access || address == "0.0.0.0" {
         // LAN mode: bind to localhost + all LAN interfaces
@@ -2419,12 +2416,11 @@ async fn serve_plain(
     // Create channel to receive actual bound port
     let (port_tx, port_rx) = tokio::sync::oneshot::channel();
 
-    // Start the cell server in background ASAP so we can accept connections early.
+    // Start the HTTP server in background ASAP so we can accept connections early.
     let server_clone = server.clone();
     dodeca::spawn::spawn(async move {
-        if let Err(e) = cell_server::start_cell_server_with_shutdown(
+        if let Err(e) = cell_server::start_http_server_with_shutdown(
             server_clone,
-            cell_path,
             bind_ips,
             requested_port,
             None,
@@ -2653,7 +2649,7 @@ async fn serve_plain(
     server.end_revision(startup_revision);
     tracing::info!("startup revision ready (serve_plain)");
 
-    // Print server URLs (LISTENING_PORT already printed by start_cell_server)
+    // Print server URLs (LISTENING_PORT already printed by the HTTP server)
     // Use "0.0.0.0" to trigger multi-interface display when --public is used
     let display_address = if public_access { "0.0.0.0" } else { address };
     print_server_urls(display_address, actual_port);
@@ -3042,14 +3038,6 @@ async fn serve_with_tui(
     let picante_cache_path_clone = picante_cache_path.clone();
     let cas_cache_dir_clone = cas_cache_dir.clone();
 
-    // Find the cell path once upfront
-    let cell_path = match cell_server::find_cell_path() {
-        Ok(p) => p,
-        Err(e) => {
-            return Err(eyre!("Failed to find cell: {e}"));
-        }
-    };
-
     let start_server = |server: Arc<serve::SiteServer>,
                         mode: tui::BindMode,
                         preferred_port: Option<u16>,
@@ -3058,8 +3046,7 @@ async fn serve_with_tui(
                         event_tx: tui::EventTx,
                         picante_path: Utf8PathBuf,
                         cas_dir: Utf8PathBuf,
-                        code_exec_dir: Utf8PathBuf,
-                        cell_path: std::path::PathBuf| {
+                        code_exec_dir: Utf8PathBuf| {
         dodeca::spawn::spawn(async move {
             let ips = get_bind_ips(mode);
             let requested_port = preferred_port.unwrap_or(4000);
@@ -3071,13 +3058,11 @@ async fn serve_with_tui(
             let server_clone = server.clone();
             let ips_clone = ips.clone();
             let shutdown_rx_clone = shutdown_rx.clone();
-            let cell_path_clone = cell_path.clone();
             let event_tx_clone = event_tx.clone();
 
             let server_task = dodeca::spawn::spawn(async move {
-                if let Err(e) = cell_server::start_cell_server_with_shutdown(
+                if let Err(e) = cell_server::start_http_server_with_shutdown(
                     server_clone,
-                    cell_path_clone,
                     ips_clone,
                     requested_port,
                     Some(shutdown_rx_clone),
@@ -3150,7 +3135,6 @@ async fn serve_with_tui(
         })
     };
 
-    let cell_path_clone = cell_path.clone();
     let code_exec_cache_dir_clone = code_exec_cache_dir.clone();
     let mut server_handle = start_server(
         server_for_http.clone(),
@@ -3162,7 +3146,6 @@ async fn serve_with_tui(
         picante_cache_path_clone.clone(),
         cas_cache_dir_clone.clone(),
         code_exec_cache_dir_clone.clone(),
-        cell_path_clone,
     );
 
     // Open browser if requested (use preferred port or default 4000)
@@ -3222,7 +3205,6 @@ async fn serve_with_tui(
     let picante_path_for_cmd = picante_cache_path_clone.clone();
     let cas_dir_for_cmd = cas_cache_dir_clone.clone();
     let code_exec_dir_for_cmd = code_exec_cache_dir_clone.clone();
-    let cell_path_for_cmd = cell_path.clone();
     // Use Arc<Mutex> for the shutdown sender so we can update it for each rebind
     let current_shutdown = Arc::new(std::sync::Mutex::new(shutdown_tx.clone()));
     let current_shutdown_for_handler = current_shutdown.clone();
@@ -3267,7 +3249,6 @@ async fn serve_with_tui(
                 picante_path_for_cmd.clone(),
                 cas_dir_for_cmd.clone(),
                 code_exec_dir_for_cmd.clone(),
-                cell_path_for_cmd.clone(),
             );
         }
     });
@@ -3521,18 +3502,14 @@ async fn serve_static(
 
     let requested_port = port.unwrap_or(8080);
 
-    // Find cell path
-    let cell_path = cell_server::find_cell_path()?;
-
     // Create channel to receive actual bound port
     let (port_tx, port_rx) = tokio::sync::oneshot::channel();
 
-    // Start the cell server with our static content service
+    // Start the HTTP server with our static content service
     let content_service_clone = content_service.clone();
     dodeca::spawn::spawn(async move {
-        if let Err(e) = cell_server::start_static_cell_server(
+        if let Err(e) = cell_server::start_static_http_server(
             content_service_clone,
-            cell_path,
             bind_ips,
             requested_port,
             Some(port_tx),

@@ -170,6 +170,10 @@ a time:
    Former cell crates no longer expose `dynamic-cell` features or `cdylib`
    crate types. The old `cell-tui` dynamic shell is gone; `cell-tui-proto`
    remains because the monolith still uses those command/update types directly.
+   The former `cell-host-proto` and `cell-lifecycle-proto` crates are gone.
+   Former cell proto crates no longer generate Vox clients/dispatchers; their
+   traits are direct Rust API contracts. The remaining Vox protocol is the
+   DevTools/browser protocol in `dodeca-protocol`.
 
 5. Rename or remove the old `cells/` tree. The surviving code should become
    ordinary crates/modules named for product domains rather than deployment

@@ -225,7 +225,6 @@ pub enum DependencySource {
 /// For operations that need CSS/JS minification, the cell calls back
 /// to the HtmlHost service.
 #[allow(async_fn_in_trait)]
-#[vox::service]
 pub trait HtmlProcessor {
     /// Unified HTML processing: parse, transform, serialize.
     ///
@@ -308,7 +307,6 @@ pub enum ProcessJsResult {
 /// This enables the cell to delegate CSS/JS processing to specialized cells
 /// without needing direct cell-to-cell communication.
 #[allow(async_fn_in_trait)]
-#[vox::service]
 pub trait HtmlHost {
     /// Minify CSS content.
     ///

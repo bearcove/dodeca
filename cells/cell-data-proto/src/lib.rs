@@ -41,7 +41,6 @@ pub enum LoadDataResult {
 ///
 /// The host calls these methods to load and parse data files.
 #[allow(async_fn_in_trait)]
-#[vox::service]
 pub trait DataLoader {
     /// Load and parse a data file
     ///

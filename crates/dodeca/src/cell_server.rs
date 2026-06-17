@@ -1,7 +1,7 @@
 //! HTTP server for dodeca browser traffic.
 //!
 //! This module handles:
-//! - Serving browser TCP connections through the former `cell-http` axum router
+//! - Serving browser TCP connections through the local HTTP router
 //! - Handling browser DevTools Vox sessions over WebSocket
 //! - Binding listeners and coordinating graceful shutdown
 
@@ -89,18 +89,6 @@ impl ddc_cell_http::RouterContext for DodecaHttpContext {
     }
 }
 
-/// Find the cell binary path (for backwards compatibility).
-///
-/// Note: The http cell is now loaded via the hub, so this just returns a dummy path.
-/// The actual cell location is determined by cells.rs.
-pub fn find_cell_path() -> Result<std::path::PathBuf> {
-    // Return a dummy path - cells are loaded via hub now
-    Ok(std::path::PathBuf::from("ddc-cell-http"))
-}
-
-// Note: Cell tracing is handled by roam_tracing's TracingHost which subscribes
-// to each cell's CellTracing service. See cells.rs for the host-side setup.
-
 // ============================================================================
 // HostDevtoolsService - vox RPC implementation of DevtoolsService
 // ============================================================================
@@ -112,8 +100,8 @@ use dodeca_protocol::{
 /// Host-side implementation of DevtoolsService for direct vox RPC.
 ///
 /// This implements the `DevtoolsService` trait from `dodeca-protocol`,
-/// allowing browser devtools to call methods over the WebSocket-backed
-/// vox connection proxied through cell-http.
+/// allowing browser devtools to call methods over the WebSocket-backed Vox
+/// connection accepted by the local HTTP router.
 #[derive(Clone)]
 pub struct HostDevtoolsService {
     server: Arc<SiteServer>,
@@ -383,21 +371,19 @@ impl DevtoolsService for HostDevtoolsService {
 /// The `bind_ips` parameter specifies which IP addresses to bind to.
 ///
 /// # Boot State Contract
-/// - The accept loop is NEVER aborted due to cell loading failures
+/// - The accept loop is never aborted due to startup rendering failures
 /// - Connections are accepted immediately and held open
 /// - If boot fails fatally, connections receive HTTP 500 responses
-/// - If boot succeeds, connections are tunneled to the HTTP cell
+/// - If boot succeeds, connections are served by the local HTTP router
 #[allow(clippy::too_many_arguments)]
-pub async fn start_cell_server_with_shutdown(
+pub async fn start_http_server_with_shutdown(
     server: Arc<SiteServer>,
-    _cell_path: std::path::PathBuf,
     bind_ips: Vec<std::net::Ipv4Addr>,
     port: u16,
     shutdown_rx: Option<watch::Receiver<bool>>,
     port_tx: Option<tokio::sync::oneshot::Sender<u16>>,
     pre_bound_listener: Option<std::net::TcpListener>,
 ) -> Result<()> {
-    // Preserve the old host service path while HTTP/TUI compatibility remains.
     crate::cells::provide_site_server(server.clone());
     let http_app = ddc_cell_http::build_router(Arc::new(DodecaHttpContext::new(server.clone())));
 
@@ -592,23 +578,21 @@ async fn run_async_accept_loop(
     Ok(())
 }
 
-/// Start the cell server (convenience wrapper without shutdown signal)
+/// Start the HTTP server (convenience wrapper without shutdown signal).
 #[allow(dead_code)]
-pub async fn start_cell_server(
+pub async fn start_http_server(
     server: Arc<SiteServer>,
-    cell_path: std::path::PathBuf,
     bind_ips: Vec<std::net::Ipv4Addr>,
     port: u16,
 ) -> Result<()> {
-    start_cell_server_with_shutdown(server, cell_path, bind_ips, port, None, None, None).await
+    start_http_server_with_shutdown(server, bind_ips, port, None, None, None).await
 }
 
-/// Start a cell server with a static content service (for `ddc serve --static` mode)
+/// Start an HTTP server with a static content service (for `ddc serve --static` mode).
 ///
 /// This is used when serving pre-built static files without the full dodeca system.
-pub async fn start_static_cell_server<C>(
+pub async fn start_static_http_server<C>(
     _content_service: Arc<C>,
-    _cell_path: std::path::PathBuf,
     _bind_ips: Vec<std::net::Ipv4Addr>,
     _port: u16,
     _port_tx: Option<tokio::sync::oneshot::Sender<u16>>,
@@ -616,10 +600,9 @@ pub async fn start_static_cell_server<C>(
 where
     C: cell_http_proto::ContentService + Send + Sync + 'static,
 {
-    // TODO: Implement static content serving with roam
-    // For now, return an error indicating this is not yet implemented
+    // TODO: Implement static content serving through the direct HTTP router.
     Err(eyre::eyre!(
-        "Static content serving not yet implemented for roam migration"
+        "Static content serving not yet implemented for direct HTTP server"
     ))
 }
 
