@@ -130,6 +130,9 @@ a time:
    the `dodeca` facade calls their Rust impls directly.
    `markdown` also now follows the direct-call path; its host handle was stale,
    so the dynamic constructor remains only as compatibility glue.
+   `html` now uses a local callback trait for inline CSS/JS work. The dynamic
+   build still adapts that trait to the old host RPC, while `dodeca` supplies a
+   direct adapter backed by the already-static CSS/JS processors.
 
 2. Replace `crates/dodeca/src/cells.rs` helpers to call direct APIs for the
    pilot modules while preserving the current helper function names. That keeps

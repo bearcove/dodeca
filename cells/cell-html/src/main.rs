@@ -10,37 +10,174 @@
 //! - HTML structural minification
 
 use std::collections::{HashMap, HashSet};
+use std::future::Future;
+use std::pin::Pin;
 use std::time::Instant;
 
-use color_eyre::Result;
 use hotmeal::{Document, LocalName, NodeId, NodeKind, QualName, Stem, StrTendril, ns};
 
+#[cfg(feature = "dynamic-cell")]
 use cell_host_proto::HostServiceClient;
+#[cfg(feature = "dynamic-cell")]
+use cell_html_proto::HtmlProcessorDispatcher;
 use cell_html_proto::{
-    CodeExecutionMetadata, HtmlProcessInput, HtmlProcessResult, HtmlProcessor,
-    HtmlProcessorDispatcher, HtmlResult, Injection, MountLocalization, ResponsiveImageInfo,
-    WikiLinkRef,
+    CodeExecutionMetadata, HtmlProcessInput, HtmlProcessResult, HtmlProcessor, HtmlResult,
+    Injection, MountLocalization, ResponsiveImageInfo, WikiLinkRef,
 };
+#[cfg(feature = "dynamic-cell")]
 use dodeca_cell_runtime::HostHandle;
 
-/// HTML processor implementation
+type CallbackFuture<'a> = Pin<Box<dyn Future<Output = Result<String, String>> + Send + 'a>>;
+
+pub trait HtmlCallbacks: Clone + Send + Sync + 'static {
+    fn process_inline_css<'a>(
+        &'a self,
+        css: String,
+        path_map: HashMap<String, String>,
+    ) -> CallbackFuture<'a>;
+
+    fn process_inline_js<'a>(
+        &'a self,
+        js: String,
+        path_map: HashMap<String, String>,
+    ) -> CallbackFuture<'a>;
+
+    fn minify_css<'a>(&'a self, css: String) -> CallbackFuture<'a>;
+
+    fn minify_js<'a>(&'a self, js: String) -> CallbackFuture<'a>;
+}
+
 #[derive(Clone)]
-pub struct HtmlProcessorImpl {
+pub struct NoopHtmlCallbacks;
+
+impl HtmlCallbacks for NoopHtmlCallbacks {
+    fn process_inline_css<'a>(
+        &'a self,
+        css: String,
+        _path_map: HashMap<String, String>,
+    ) -> CallbackFuture<'a> {
+        Box::pin(async move { Ok(css) })
+    }
+
+    fn process_inline_js<'a>(
+        &'a self,
+        js: String,
+        _path_map: HashMap<String, String>,
+    ) -> CallbackFuture<'a> {
+        Box::pin(async move { Ok(js) })
+    }
+
+    fn minify_css<'a>(&'a self, css: String) -> CallbackFuture<'a> {
+        Box::pin(async move { Ok(css) })
+    }
+
+    fn minify_js<'a>(&'a self, js: String) -> CallbackFuture<'a> {
+        Box::pin(async move { Ok(js) })
+    }
+}
+
+#[cfg(feature = "dynamic-cell")]
+#[derive(Clone)]
+struct RpcHtmlCallbacks {
     host: HostHandle,
 }
 
-impl HtmlProcessorImpl {
+#[cfg(feature = "dynamic-cell")]
+impl RpcHtmlCallbacks {
     fn new(host: HostHandle) -> Self {
         Self { host }
     }
 
-    /// Get a client for calling back to the host
     async fn host_client(&self) -> HostServiceClient {
         self.host.client().await
     }
 }
 
-impl HtmlProcessor for HtmlProcessorImpl {
+#[cfg(feature = "dynamic-cell")]
+impl HtmlCallbacks for RpcHtmlCallbacks {
+    fn process_inline_css<'a>(
+        &'a self,
+        css: String,
+        path_map: HashMap<String, String>,
+    ) -> CallbackFuture<'a> {
+        Box::pin(async move {
+            match self
+                .host_client()
+                .await
+                .process_inline_css(css, path_map)
+                .await
+            {
+                Ok(cell_host_proto::ProcessCssResult::Success { css }) => Ok(css),
+                Ok(cell_host_proto::ProcessCssResult::Error { message }) => Err(message),
+                Err(e) => Err(format!("CSS URL rewriting RPC error: {e}")),
+            }
+        })
+    }
+
+    fn process_inline_js<'a>(
+        &'a self,
+        js: String,
+        path_map: HashMap<String, String>,
+    ) -> CallbackFuture<'a> {
+        Box::pin(async move {
+            match self
+                .host_client()
+                .await
+                .process_inline_js(js, path_map)
+                .await
+            {
+                Ok(cell_host_proto::ProcessJsResult::Success { js }) => Ok(js),
+                Ok(cell_host_proto::ProcessJsResult::Error { message }) => Err(message),
+                Err(e) => Err(format!("JS URL rewriting RPC error: {e}")),
+            }
+        })
+    }
+
+    fn minify_css<'a>(&'a self, css: String) -> CallbackFuture<'a> {
+        Box::pin(async move {
+            match self.host_client().await.minify_css(css).await {
+                Ok(cell_host_proto::MinifyCssResult::Success { css }) => Ok(css),
+                Ok(cell_host_proto::MinifyCssResult::Error { message }) => Err(message),
+                Err(e) => Err(format!("CSS minification RPC error: {e}")),
+            }
+        })
+    }
+
+    fn minify_js<'a>(&'a self, js: String) -> CallbackFuture<'a> {
+        Box::pin(async move {
+            match self.host_client().await.minify_js(js).await {
+                Ok(cell_host_proto::MinifyJsResult::Success { js }) => Ok(js),
+                Ok(cell_host_proto::MinifyJsResult::Error { message }) => Err(message),
+                Err(e) => Err(format!("JS minification RPC error: {e}")),
+            }
+        })
+    }
+}
+
+/// HTML processor implementation
+#[derive(Clone)]
+pub struct HtmlProcessorImpl<C = NoopHtmlCallbacks> {
+    callbacks: C,
+}
+
+impl HtmlProcessorImpl<NoopHtmlCallbacks> {
+    pub fn new() -> Self {
+        Self {
+            callbacks: NoopHtmlCallbacks,
+        }
+    }
+}
+
+impl<C> HtmlProcessorImpl<C> {
+    pub fn with_callbacks(callbacks: C) -> Self {
+        Self { callbacks }
+    }
+}
+
+impl<C> HtmlProcessor for HtmlProcessorImpl<C>
+where
+    C: HtmlCallbacks,
+{
     async fn process(&self, input: HtmlProcessInput) -> HtmlProcessResult {
         let started_at = Instant::now();
         tracing::debug!(
@@ -156,19 +293,17 @@ impl HtmlProcessor for HtmlProcessorImpl {
                 };
             }
 
-            let host = self.host_client().await;
-
             // Process inline CSS for URL rewriting (if path_map provided)
             if let Some(ref path_map) = input.path_map {
                 if has_inline_css {
-                    match process_inline_css_urls(&host, &current_html, path_map).await {
+                    match process_inline_css_urls(&self.callbacks, &current_html, path_map).await {
                         Ok(processed) => current_html = processed,
                         Err(e) => tracing::warn!("Inline CSS URL rewriting failed: {}", e),
                     }
                 }
 
                 if has_inline_js {
-                    match process_inline_js_urls(&host, &current_html, path_map).await {
+                    match process_inline_js_urls(&self.callbacks, &current_html, path_map).await {
                         Ok(processed) => current_html = processed,
                         Err(e) => tracing::warn!("Inline JS URL rewriting failed: {}", e),
                     }
@@ -178,14 +313,14 @@ impl HtmlProcessor for HtmlProcessorImpl {
             // Minification (if requested)
             if let Some(ref minify_opts) = input.minify {
                 if minify_opts.minify_inline_css && has_inline_css {
-                    match minify_inline_css_string(&host, &current_html).await {
+                    match minify_inline_css_string(&self.callbacks, &current_html).await {
                         Ok(minified) => current_html = minified,
                         Err(e) => tracing::warn!("CSS minification failed: {}", e),
                     }
                 }
 
                 if minify_opts.minify_inline_js && has_inline_js {
-                    match minify_inline_js_string(&host, &current_html).await {
+                    match minify_inline_js_string(&self.callbacks, &current_html).await {
                         Ok(minified) => current_html = minified,
                         Err(e) => tracing::warn!("JS minification failed: {}", e),
                     }
@@ -456,11 +591,11 @@ fn collect_ids_recursive(doc: &Document, node_id: NodeId, ids: &mut Vec<String>)
 // ============================================================================
 
 /// Process inline `<style>` content for URL rewriting via host callback
-async fn process_inline_css_urls(
-    host: &HostServiceClient,
+async fn process_inline_css_urls<C: HtmlCallbacks>(
+    callbacks: &C,
     html: &str,
     path_map: &HashMap<String, String>,
-) -> Result<String> {
+) -> Result<String, String> {
     // Phase 1: Extract CSS content (sync)
     let css_to_process: Vec<(usize, String)> = {
         let tendril = StrTendril::from(html);
@@ -494,17 +629,17 @@ async fn process_inline_css_urls(
     // Phase 2: Process CSS (async)
     let mut processed: HashMap<usize, String> = HashMap::new();
     for (idx, css) in css_to_process {
-        match host.process_inline_css(css.clone(), path_map.clone()).await {
-            Ok(cell_host_proto::ProcessCssResult::Success { css: proc_css }) => {
+        match callbacks
+            .process_inline_css(css.clone(), path_map.clone())
+            .await
+        {
+            Ok(proc_css) => {
                 if proc_css != css {
                     processed.insert(idx, proc_css);
                 }
             }
-            Ok(cell_host_proto::ProcessCssResult::Error { message }) => {
+            Err(message) => {
                 tracing::warn!("CSS URL rewriting error: {}", message);
-            }
-            Err(e) => {
-                tracing::warn!("CSS URL rewriting RPC error: {}", e);
             }
         }
     }
@@ -576,11 +711,11 @@ fn apply_processed_styles(
 }
 
 /// Process inline `<script>` content for URL rewriting via host callback
-async fn process_inline_js_urls(
-    host: &HostServiceClient,
+async fn process_inline_js_urls<C: HtmlCallbacks>(
+    callbacks: &C,
     html: &str,
     path_map: &HashMap<String, String>,
-) -> Result<String> {
+) -> Result<String, String> {
     // Phase 1: Extract JS content (sync)
     let js_to_process: Vec<(usize, String)> = {
         let tendril = StrTendril::from(html);
@@ -615,17 +750,17 @@ async fn process_inline_js_urls(
     // Phase 2: Process JS (async)
     let mut processed: HashMap<usize, String> = HashMap::new();
     for (idx, js) in js_to_process {
-        match host.process_inline_js(js.clone(), path_map.clone()).await {
-            Ok(cell_host_proto::ProcessJsResult::Success { js: proc_js }) => {
+        match callbacks
+            .process_inline_js(js.clone(), path_map.clone())
+            .await
+        {
+            Ok(proc_js) => {
                 if proc_js != js {
                     processed.insert(idx, proc_js);
                 }
             }
-            Ok(cell_host_proto::ProcessJsResult::Error { message }) => {
+            Err(message) => {
                 tracing::warn!("JS URL rewriting error: {}", message);
-            }
-            Err(e) => {
-                tracing::warn!("JS URL rewriting RPC error: {}", e);
             }
         }
     }
@@ -697,7 +832,10 @@ fn apply_processed_scripts(
 }
 
 /// Minify inline `<style>` content via host callback (string-based)
-async fn minify_inline_css_string(host: &HostServiceClient, html: &str) -> Result<String> {
+async fn minify_inline_css_string<C: HtmlCallbacks>(
+    callbacks: &C,
+    html: &str,
+) -> Result<String, String> {
     // Phase 1: Extract CSS content (sync, no await)
     let css_to_minify: Vec<(usize, String)> = {
         let tendril = StrTendril::from(html);
@@ -727,15 +865,12 @@ async fn minify_inline_css_string(host: &HostServiceClient, html: &str) -> Resul
     // Phase 2: Minify CSS (async)
     let mut minified: HashMap<usize, String> = HashMap::new();
     for (idx, css) in css_to_minify {
-        match host.minify_css(css.clone()).await {
-            Ok(cell_host_proto::MinifyCssResult::Success { css: min_css }) => {
+        match callbacks.minify_css(css.clone()).await {
+            Ok(min_css) => {
                 minified.insert(idx, min_css);
             }
-            Ok(cell_host_proto::MinifyCssResult::Error { message }) => {
+            Err(message) => {
                 tracing::warn!("CSS minification error: {}", message);
-            }
-            Err(e) => {
-                tracing::warn!("CSS minification RPC error: {}", e);
             }
         }
     }
@@ -765,7 +900,10 @@ async fn minify_inline_css_string(host: &HostServiceClient, html: &str) -> Resul
 }
 
 /// Minify inline `<script>` content via host callback (string-based)
-async fn minify_inline_js_string(host: &HostServiceClient, html: &str) -> Result<String> {
+async fn minify_inline_js_string<C: HtmlCallbacks>(
+    callbacks: &C,
+    html: &str,
+) -> Result<String, String> {
     // Phase 1: Extract JS content (sync, no await)
     let js_to_minify: Vec<(usize, String)> = {
         let tendril = StrTendril::from(html);
@@ -795,15 +933,12 @@ async fn minify_inline_js_string(host: &HostServiceClient, html: &str) -> Result
     // Phase 2: Minify JS (async)
     let mut minified: HashMap<usize, String> = HashMap::new();
     for (idx, js) in js_to_minify {
-        match host.minify_js(js.clone()).await {
-            Ok(cell_host_proto::MinifyJsResult::Success { js: min_js }) => {
+        match callbacks.minify_js(js.clone()).await {
+            Ok(min_js) => {
                 minified.insert(idx, min_js);
             }
-            Ok(cell_host_proto::MinifyJsResult::Error { message }) => {
+            Err(message) => {
                 tracing::warn!("JS minification error: {}", message);
-            }
-            Err(e) => {
-                tracing::warn!("JS minification RPC error: {}", e);
             }
         }
     }
@@ -1727,8 +1862,9 @@ fn apply_injection(doc: &mut Document, injection: &Injection) {
 // Cell Setup
 // ============================================================================
 
+#[cfg(feature = "dynamic-cell")]
 dodeca_cell_runtime::declare_cell!("html", |host| {
-    let processor = HtmlProcessorImpl::new(host);
+    let processor = HtmlProcessorImpl::with_callbacks(RpcHtmlCallbacks::new(host));
     HtmlProcessorDispatcher::new(processor)
 });
 

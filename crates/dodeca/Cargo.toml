@@ -37,6 +37,7 @@ cell-fonts = { path = "../../cells/cell-fonts", default-features = false }
 cell-html-diff-proto = { path = "../../cells/cell-html-diff-proto" }
 cell-html-diff = { path = "../../cells/cell-html-diff", default-features = false }
 cell-html-proto = { path = "../../cells/cell-html-proto" }
+cell-html = { path = "../../cells/cell-html", default-features = false }
 cell-http-proto = { path = "../../cells/cell-http-proto" }
 cell-image-proto = { path = "../../cells/cell-image-proto" }
 cell-image = { path = "../../cells/cell-image", default-features = false }

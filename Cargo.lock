@@ -2839,6 +2839,7 @@ dependencies = [
  "cell-fonts-proto",
  "cell-gingembre-proto",
  "cell-host-proto",
+ "cell-html",
  "cell-html-diff",
  "cell-html-diff-proto",
  "cell-html-proto",

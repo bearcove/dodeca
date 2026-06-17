@@ -18,7 +18,9 @@ use cell_host_proto::{
     ReadyMsg, ResolveDataResult, ServeContent, ServerCommand, Value,
 };
 use cell_html_diff_proto::{DiffError, DiffInput, DiffOutcome, HtmlDiffer, HtmlDifferClient};
-use cell_html_proto::HtmlProcessorClient;
+use cell_html_proto::{
+    HtmlProcessInput, HtmlProcessResult, HtmlProcessor, HtmlProcessorClient, HtmlResult,
+};
 use cell_http_proto::{ScopeEntry, TcpTunnelClient};
 use cell_image_proto::{
     ImageProcessor, ImageProcessorClient, ImageResult, ResizeInput, ThumbhashInput,
@@ -44,6 +46,8 @@ use dashmap::DashMap;
 use facet::Facet;
 
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
@@ -51,6 +55,57 @@ use std::time::SystemTime;
 use tracing::debug;
 
 use crate::serve::SiteServer;
+
+#[derive(Clone)]
+pub(crate) struct DodecaHtmlCallbacks;
+
+type HtmlCallbackFuture<'a> = Pin<Box<dyn Future<Output = Result<String, String>> + Send + 'a>>;
+
+impl ddc_cell_html::HtmlCallbacks for DodecaHtmlCallbacks {
+    fn process_inline_css<'a>(
+        &'a self,
+        css: String,
+        path_map: HashMap<String, String>,
+    ) -> HtmlCallbackFuture<'a> {
+        Box::pin(async move {
+            rewrite_urls_in_css_cell(css, path_map)
+                .await
+                .map_err(|e| e.to_string())
+        })
+    }
+
+    fn process_inline_js<'a>(
+        &'a self,
+        js: String,
+        path_map: HashMap<String, String>,
+    ) -> HtmlCallbackFuture<'a> {
+        Box::pin(async move {
+            rewrite_string_literals_in_js_cell(js, path_map)
+                .await
+                .map_err(|e| e.to_string())
+        })
+    }
+
+    fn minify_css<'a>(&'a self, css: String) -> HtmlCallbackFuture<'a> {
+        Box::pin(async move {
+            rewrite_urls_in_css_cell(css, HashMap::new())
+                .await
+                .map_err(|e| e.to_string())
+        })
+    }
+
+    fn minify_js<'a>(&'a self, js: String) -> HtmlCallbackFuture<'a> {
+        Box::pin(async move {
+            rewrite_string_literals_in_js_cell(js, HashMap::new())
+                .await
+                .map_err(|e| e.to_string())
+        })
+    }
+}
+
+pub(crate) fn html_processor() -> ddc_cell_html::HtmlProcessorImpl<DodecaHtmlCallbacks> {
+    ddc_cell_html::HtmlProcessorImpl::with_callbacks(DodecaHtmlCallbacks)
+}
 
 // ============================================================================
 // Global State
@@ -541,6 +596,10 @@ pub async fn minify_html_cell(html: String) -> MinifyResult {
     ddc_cell_minify::MinifierImpl.minify_html(html).await
 }
 
+pub async fn process_html_cell(input: HtmlProcessInput) -> HtmlProcessResult {
+    html_processor().process(input).await
+}
+
 /// Result of link checking - wrapper for internal use
 #[derive(Debug, Clone)]
 pub struct UrlCheckResult {
@@ -653,20 +712,13 @@ pub async fn inject_code_buttons_cell(
         method = "inject_code_buttons",
         html_len = html.len(),
         metadata_count = code_metadata.len(),
-        "cell rpc client lookup starting"
+        "html injection starting"
     );
-    let client = html_cell()
+    match html_processor()
+        .inject_code_buttons(html, code_metadata)
         .await
-        .ok_or_else(|| eyre::eyre!("HTML cell not available"))?;
-    tracing::debug!(
-        rpc_id,
-        cell = "html",
-        method = "inject_code_buttons",
-        elapsed_ms = started_at.elapsed().as_millis(),
-        "cell rpc dispatch starting"
-    );
-    match client.inject_code_buttons(html, code_metadata).await {
-        Ok(cell_html_proto::HtmlResult::SuccessWithFlag { html, flag }) => {
+    {
+        HtmlResult::SuccessWithFlag { html, flag } => {
             tracing::debug!(
                 rpc_id,
                 cell = "html",
@@ -674,11 +726,11 @@ pub async fn inject_code_buttons_cell(
                 elapsed_ms = started_at.elapsed().as_millis(),
                 output_len = html.len(),
                 had_buttons = flag,
-                "cell rpc complete"
+                "html injection complete"
             );
             Ok((html, flag))
         }
-        Ok(cell_html_proto::HtmlResult::Success { html }) => {
+        HtmlResult::Success { html } => {
             tracing::debug!(
                 rpc_id,
                 cell = "html",
@@ -686,31 +738,20 @@ pub async fn inject_code_buttons_cell(
                 elapsed_ms = started_at.elapsed().as_millis(),
                 output_len = html.len(),
                 had_buttons = false,
-                "cell rpc complete"
+                "html injection complete"
             );
             Ok((html, false))
         }
-        Ok(cell_html_proto::HtmlResult::Error { message }) => {
+        HtmlResult::Error { message } => {
             tracing::error!(
                 rpc_id,
                 cell = "html",
                 method = "inject_code_buttons",
                 elapsed_ms = started_at.elapsed().as_millis(),
                 %message,
-                "cell rpc returned error"
+                "html injection returned error"
             );
             Err(eyre::eyre!(message))
-        }
-        Err(e) => {
-            tracing::error!(
-                rpc_id,
-                cell = "html",
-                method = "inject_code_buttons",
-                elapsed_ms = started_at.elapsed().as_millis(),
-                error = ?e,
-                "cell rpc failed"
-            );
-            Err(eyre::eyre!("RPC error: {:?}", e))
         }
     }
 }
@@ -754,13 +795,7 @@ pub async fn load_data_cell(content: String, format: DataFormat) -> LoadDataResu
 pub async fn extract_links_from_html(
     html: String,
 ) -> Result<cell_html_proto::ExtractedLinks, eyre::Error> {
-    let client = html_cell()
-        .await
-        .ok_or_else(|| eyre::eyre!("HTML cell not available"))?;
-    client
-        .extract_links(html)
-        .await
-        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
+    Ok(html_processor().extract_links(html).await)
 }
 
 pub async fn rewrite_string_literals_in_js_cell(
