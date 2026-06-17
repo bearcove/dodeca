@@ -12,6 +12,10 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 [package.metadata."docs.rs"]
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
+[features]
+default = []
+runtime = ["vox/runtime"]
+
 [dependencies]
 facet.workspace = true
 facet-postcard = { workspace = true, features = ["alloc"] }

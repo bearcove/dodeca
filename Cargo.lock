@@ -149,7 +149,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -160,7 +160,7 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -1007,29 +1007,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-channel"
-version = "2.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "924ed96dd52d1b75e9c1a3e6275715fd320f5f9439fb5a4a11fa51f4221158d2"
-dependencies = [
- "concurrent-queue",
- "event-listener-strategy",
- "futures-core",
- "pin-project-lite",
-]
-
-[[package]]
-name = "async-lock"
-version = "3.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "290f7f2596bd5b78a9fec8088ccd89180d7f9f55b94b0576823bbbdc72ee8311"
-dependencies = [
- "event-listener",
- "event-listener-strategy",
- "pin-project-lite",
-]
-
-[[package]]
 name = "async-trait"
 version = "0.1.89"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1153,7 +1130,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "31b698c5f9a010f6573133b09e0de5408834d0c82f8d7475a89fc1867a71cd90"
 dependencies = [
  "axum-core",
- "base64",
+ "base64 0.22.1",
  "bytes",
  "form_urlencoded",
  "futures-util",
@@ -1215,6 +1192,12 @@ dependencies = [
  "rustc-demangle",
  "windows-link",
 ]
+
+[[package]]
+name = "base64"
+version = "0.21.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d297deb1925b89f2ccc13d7635fa0714f12c87adce1c75356b39ca9b7178567"
 
 [[package]]
 name = "base64"
@@ -1649,7 +1632,7 @@ dependencies = [
 name = "cell-image"
 version = "0.6.1"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "cell-image-proto",
  "image",
  "thumbhash",
@@ -1873,8 +1856,7 @@ dependencies = [
 [[package]]
 name = "cinereus"
 version = "3.0.0-rc.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4ade5427eceea66bc5b418be44275168a15c31d4421f5acd13527b51235d92a"
+source = "git+https://github.com/bearcove/hotmeal.git?rev=bfea3312e768fff9b4cc1afd6d5d1dc4bf881ce8#bfea3312e768fff9b4cc1afd6d5d1dc4bf881ce8"
 dependencies = [
  "indextree",
  "rapidhash 1.4.0",
@@ -2035,15 +2017,6 @@ dependencies = [
  "rustversion",
  "ryu",
  "static_assertions",
-]
-
-[[package]]
-name = "concurrent-queue"
-version = "2.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ca0197aee26d1ae37445ee532fefce43251d24cc7c166799f4d46817f1d3973"
-dependencies = [
- "crossbeam-utils",
 ]
 
 [[package]]
@@ -2306,16 +2279,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ctor"
-version = "0.2.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32a2785755761f3ddc1492979ce1e48d2c00d09311c39e4466429188f3dd6501"
-dependencies = [
- "quote",
- "syn 2.0.118",
-]
-
-[[package]]
 name = "darling"
 version = "0.20.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2570,7 +2533,7 @@ checksum = "ad5208a115eaba24916f7456929832e310a81518c641f93fee4f89aa93aa3675"
 dependencies = [
  "cfg-if",
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2876,7 +2839,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2892,27 +2855,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1a05365e3b1c6d1650318537c7460c6923f1abdd272ad6842baa2b509957a06"
 dependencies = [
  "num-traits",
-]
-
-[[package]]
-name = "event-listener"
-version = "5.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e13b66accf52311f30a0db42147dadea9850cb48cd070028831ae5f5d4b856ab"
-dependencies = [
- "concurrent-queue",
- "parking",
- "pin-project-lite",
-]
-
-[[package]]
-name = "event-listener-strategy"
-version = "0.5.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8be9f3dfaaffdae2972880079a491a1a8bb7cbed0b8dd7a347f668b4150a3b93"
-dependencies = [
- "event-listener",
- "pin-project-lite",
 ]
 
 [[package]]
@@ -2950,20 +2892,6 @@ dependencies = [
  "facet-core",
  "facet-macros",
  "facet-reflect",
-]
-
-[[package]]
-name = "facet-cargo-toml"
-version = "0.50.0-rc.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d4c9695cdf00592365d215d80ad16b48d999d9a5abe35bcc3f3f1e43007cf52c"
-dependencies = [
- "camino",
- "facet",
- "facet-error",
- "facet-reflect",
- "facet-toml",
- "facet-value",
 ]
 
 [[package]]
@@ -3713,18 +3641,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gloo-timers"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbb143cf96099802033e0d4f4963b19fd2e0b728bcf076cd9cf7f6634f092994"
-dependencies = [
- "futures-channel",
- "futures-core",
- "js-sys",
- "wasm-bindgen",
-]
-
-[[package]]
 name = "goblin"
 version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3915,8 +3831,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 [[package]]
 name = "hotmeal"
 version = "3.0.0-rc.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7150a69a3bb214acb39c341be6433990e729c2a9af787b4b3aa219cbacc0b45"
+source = "git+https://github.com/bearcove/hotmeal.git?rev=bfea3312e768fff9b4cc1afd6d5d1dc4bf881ce8#bfea3312e768fff9b4cc1afd6d5d1dc4bf881ce8"
 dependencies = [
  "cinereus",
  "compact_str",
@@ -3932,8 +3847,7 @@ dependencies = [
 [[package]]
 name = "hotmeal-server"
 version = "3.0.0-rc.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4832f2de98d857e320c95b148e65f791deca258b985e9864720981ec9291caad"
+source = "git+https://github.com/bearcove/hotmeal.git?rev=bfea3312e768fff9b4cc1afd6d5d1dc4bf881ce8#bfea3312e768fff9b4cc1afd6d5d1dc4bf881ce8"
 dependencies = [
  "facet",
  "facet-postcard",
@@ -3945,8 +3859,7 @@ dependencies = [
 [[package]]
 name = "hotmeal-wasm"
 version = "3.0.0-rc.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15901b1f267010ee4b06a6fd6d1ae1b0105f06f27f7ec0040ae92ed8a0b54dfa"
+source = "git+https://github.com/bearcove/hotmeal.git?rev=bfea3312e768fff9b4cc1afd6d5d1dc4bf881ce8#bfea3312e768fff9b4cc1afd6d5d1dc4bf881ce8"
 dependencies = [
  "facet-json",
  "facet-postcard",
@@ -3956,7 +3869,7 @@ dependencies = [
  "js-sys",
  "smallvec 1.15.2",
  "tracing",
- "vox-core",
+ "vox",
  "vox-websocket",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -4071,7 +3984,7 @@ version = "0.1.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "96547c2556ec9d12fb1578c4eaf448b04993e7fb79cbaad930a656880a6bdfa0"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "bytes",
  "futures-channel",
  "futures-util",
@@ -4511,7 +4424,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5057,110 +4970,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "moire"
-version = "2.0.0-rc.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe357ecd78fc5dbb38df1b975ed5542908a40629f9cbdccf1c8130bd03ee509c"
-dependencies = [
- "moire-macros-noop",
- "moire-tokio",
- "moire-wasm",
-]
-
-[[package]]
-name = "moire-macros-noop"
-version = "2.0.0-rc.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96fbfad00504253bac67fe1b8074f7bbd6a9fcacf63472a63a2e8d7ccdec19d7"
-
-[[package]]
-name = "moire-runtime"
-version = "2.0.0-rc.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "beed9184c655e7f5c11e657aff9a36ab2870e30417a0e29a3ac861d04006315c"
-dependencies = [
- "ctor",
- "facet",
- "facet-json",
- "facet-value",
- "moire-trace-capture",
- "moire-trace-types",
- "moire-types",
- "moire-wire",
- "tokio",
-]
-
-[[package]]
-name = "moire-tokio"
-version = "2.0.0-rc.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7578183f76b792a6c9c165b11ae7b9e5c69220c19ef1373655596754e9ece6f4"
-dependencies = [
- "moire-runtime",
- "moire-types",
- "parking_lot",
- "tokio",
-]
-
-[[package]]
-name = "moire-trace-capture"
-version = "2.0.0-rc.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86d8a9ed465e7c9b52cd90445974c568684e31784793a0654eb9a4a22739be87"
-dependencies = [
- "libc",
- "moire-trace-types",
-]
-
-[[package]]
-name = "moire-trace-types"
-version = "2.0.0-rc.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ae2abde8ed990d31da5b4ecd8920240e2dd0832cafce5f41cafcad9e5d8e57a"
-dependencies = [
- "facet",
-]
-
-[[package]]
-name = "moire-types"
-version = "2.0.0-rc.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c4d5dc2b09ad7aed54b8022db1a7a76f2264e8328f62ca24661a0d26a6bfadf"
-dependencies = [
- "facet",
- "facet-value",
- "moire-trace-types",
-]
-
-[[package]]
-name = "moire-wasm"
-version = "2.0.0-rc.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56243032be8586da90784087877917bc337e6b0cea72c0a0b4ca496045920564"
-dependencies = [
- "async-channel",
- "async-lock",
- "event-listener",
- "futures-channel",
- "futures-util",
- "gloo-timers",
- "moire-types",
- "wasm-bindgen-futures",
-]
-
-[[package]]
-name = "moire-wire"
-version = "2.0.0-rc.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d10e39253dfb2b27ded818613570cdc6e598d80c3f9078bcc8d142c5ebe99a2"
-dependencies = [
- "facet",
- "facet-json",
- "moire-trace-types",
- "moire-types",
-]
-
-[[package]]
 name = "moxcms"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5282,7 +5091,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5876,7 +5685,7 @@ version = "0.109.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "116a026f6bd7b85df5cb72f8fa3ffa21521da98c4bff92148560971137ee44a2"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "compact_str",
  "indexmap",
  "itoa",
@@ -5992,12 +5801,6 @@ dependencies = [
  "serde_json",
  "vlq",
 ]
-
-[[package]]
-name = "parking"
-version = "2.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f38d5652c16fde515bb1ecef450ab0f6a219d619a7274976324d5e377f7dceba"
 
 [[package]]
 name = "parking_lot"
@@ -6961,7 +6764,7 @@ version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "219c5811de6525e5416c7d5d53bb656d3afdbc6c5af816e0802bcfa42dbdc1c3"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "bytes",
  "encoding_rs",
  "futures-channel",
@@ -7113,7 +6916,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7170,7 +6973,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7624,7 +7427,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52d1cfed4120b4d927bf7c0f86d2087a4a7d6027c906d9f9d525a80573b9be51"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -8050,7 +7853,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8131,7 +7934,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4676b37242ccbd1aabf56edb093a4827dc49086c0ffd764a5705899e0f35f8f7"
 dependencies = [
  "anyhow",
- "base64",
+ "base64 0.22.1",
  "bitflags 2.13.0",
  "fancy-regex",
  "filedescriptor",
@@ -8800,28 +8603,27 @@ checksum = "65dd7eed29412da847b0f78bcec0ac98588165988a8cfe41d4ea1d429f8ccfff"
 
 [[package]]
 name = "vox"
-version = "0.9.0-rc.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe3048d13ad2c8b04f320fc0becc92d730bdcb2492f9ccd9166cd340d42f7e56"
+version = "0.9.0-rc.0"
+source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
 dependencies = [
  "facet",
  "facet-pretty",
  "facet-reflect",
- "moire",
  "tokio",
  "tracing",
  "vox-core",
  "vox-phon",
+ "vox-rt",
  "vox-service-macros",
  "vox-types",
 ]
 
 [[package]]
 name = "vox-codegen"
-version = "0.9.0-rc.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e270569d0dacb6f7af3e0e686a16e5ae9ce24b7abaf07cb7a3c91e8dc2889e3a"
+version = "0.9.0-rc.0"
+source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
 dependencies = [
+ "base64 0.21.7",
  "facet",
  "facet-core",
  "heck",
@@ -8836,21 +8638,19 @@ dependencies = [
 
 [[package]]
 name = "vox-core"
-version = "0.9.0-rc.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2637753cabc83ace4f255060ab3d92d56b262226d377e65428a6fb03c5e9c80"
+version = "0.9.0-rc.0"
+source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
 dependencies = [
  "facet",
  "facet-core",
- "facet-error",
  "facet-reflect",
  "futures-util",
  "getrandom 0.4.2",
- "moire",
  "smallvec 1.15.2",
  "tokio",
  "tracing",
  "vox-phon",
+ "vox-rt",
  "vox-types",
  "wasm-bindgen-futures",
  "zerocopy",
@@ -8858,9 +8658,8 @@ dependencies = [
 
 [[package]]
 name = "vox-fdpass"
-version = "0.9.0-rc.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d9eb846c66da89e445b20c39bd74659ad3182a8ff04eed0ba824cc6ff9f6fc71"
+version = "0.9.0-rc.0"
+source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
 dependencies = [
  "libc",
  "passfd",
@@ -8870,11 +8669,9 @@ dependencies = [
 
 [[package]]
 name = "vox-macros-core"
-version = "0.9.0-rc.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e3de39256fe2595fff736b8d045c9bc0ca4e050e898e2d0166d0c4886947fb4"
+version = "0.9.0-rc.0"
+source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
 dependencies = [
- "facet-cargo-toml",
  "heck",
  "proc-macro2",
  "quote",
@@ -8883,9 +8680,8 @@ dependencies = [
 
 [[package]]
 name = "vox-macros-parse"
-version = "0.9.0-rc.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c10d1a34d041a186c6afee01f1dc6f71849aebfdf9f05041e50fd9b9422b09b0"
+version = "0.9.0-rc.0"
+source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
 dependencies = [
  "proc-macro2",
  "unsynn",
@@ -8893,24 +8689,43 @@ dependencies = [
 
 [[package]]
 name = "vox-phon"
-version = "0.9.0-rc.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "98c5c6638d197302849f14fd52ce4b7afbd8429c4222ce8e21ca02044b6834f0"
+version = "0.9.0-rc.0"
+source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
 dependencies = [
  "facet",
- "moire",
  "phon",
  "phon-engine",
  "phon-ir",
  "phon-jit",
  "phon-schema",
+ "vox-rt",
 ]
 
 [[package]]
+name = "vox-rt"
+version = "0.9.0-rc.0"
+source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
+dependencies = [
+ "futures-channel",
+ "futures-util",
+ "parking_lot",
+ "tokio",
+ "vox-rt-macros",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasmtimer",
+ "web-sys",
+]
+
+[[package]]
+name = "vox-rt-macros"
+version = "0.9.0-rc.0"
+source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
+
+[[package]]
 name = "vox-schema"
-version = "0.9.0-rc.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0d1c5a1d75ce98c9d1b11a6d3818e0717db88e534266f8456bd5baa5ea73e7a"
+version = "0.9.0-rc.0"
+source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
 dependencies = [
  "blake3",
  "facet",
@@ -8920,9 +8735,8 @@ dependencies = [
 
 [[package]]
 name = "vox-service-macros"
-version = "0.9.0-rc.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a15fa78adc5e3a77c3be087777ed24f2ab83edb1aff19fe6e05a4cd28227a827"
+version = "0.9.0-rc.0"
+source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
 dependencies = [
  "proc-macro2",
  "vox-macros-core",
@@ -8930,24 +8744,22 @@ dependencies = [
 
 [[package]]
 name = "vox-stream"
-version = "0.9.0-rc.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69e3332709d722c9b326b11a2001324e43e5672bb2a28cbe2d82b9ffceb4ca0e"
+version = "0.9.0-rc.0"
+source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
 dependencies = [
  "libc",
- "moire",
  "tokio",
  "tracing",
  "vox-core",
  "vox-fdpass",
+ "vox-rt",
  "vox-types",
 ]
 
 [[package]]
 name = "vox-types"
-version = "0.9.0-rc.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e30be63c23754374c88e3b2445d9ee184901b15dd65c2522850be7ab25b25c4"
+version = "0.9.0-rc.0"
+source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
 dependencies = [
  "bitflags 2.13.0",
  "blake3",
@@ -8957,23 +8769,20 @@ dependencies = [
  "facet-path",
  "facet-reflect",
  "facet-value",
- "futures-channel",
  "heck",
  "indexmap",
- "moire",
  "smallvec 1.15.2",
  "structstruck",
  "tokio",
  "vox-phon",
+ "vox-rt",
  "vox-schema",
- "wasmtimer",
 ]
 
 [[package]]
 name = "vox-websocket"
-version = "0.9.0-rc.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c3854b66139b18aec2a4a7ee3ad2f9af4911614c7585af07d7a1ffc6a64aa2b"
+version = "0.9.0-rc.0"
+source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
 dependencies = [
  "futures-channel",
  "futures-util",
@@ -9164,10 +8973,7 @@ version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c598d6b99ea013e35844697fc4670d08339d5cda15588f193c6beedd12f644b"
 dependencies = [
- "futures",
  "js-sys",
- "parking_lot",
- "pin-utils",
  "wasm-bindgen",
 ]
 
@@ -9322,7 +9128,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

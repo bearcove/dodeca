@@ -63,7 +63,7 @@ cell-tui-proto = { path = "../../cells/cell-tui-proto" }
 cell-webp-proto = { path = "../../cells/cell-webp-proto" }
 cell-webp = { path = "../../cells/cell-webp" }
 dodeca-debug = { path = "../dodeca-debug" }
-dodeca-protocol = { path = "../dodeca-protocol" }
+dodeca-protocol = { path = "../dodeca-protocol", features = ["runtime"] }
 
 # Workspace dependencies
 axum.workspace = true
@@ -94,7 +94,7 @@ open.workspace = true
 owo-colors.workspace = true
 picante.workspace = true
 ratatui.workspace = true
-vox.workspace = true
+vox = { workspace = true, features = ["runtime"] }
 rapidhash.workspace = true
 arboard = { version = "3", default-features = false }
 strid.workspace = true
@@ -114,7 +114,7 @@ dodeca-config = { path = "../dodeca-config" }
 dodeca-protocol = { path = "../dodeca-protocol" }
 facet-styx.workspace = true
 # Generates the browser editor's TypeScript vox client from DevtoolsService.
-vox-codegen = "0.9.0-rc.0"
+vox-codegen = "=0.9.0-rc.0"
 
 [dev-dependencies]
 tokio.workspace = true

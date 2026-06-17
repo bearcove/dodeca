@@ -34,7 +34,12 @@ fn generate_editor_client() {
     println!("cargo::rerun-if-changed=../dodeca-protocol/src/lib.rs");
 
     let descriptor = dodeca_protocol::devtools_service_service_descriptor();
-    let ts = vox_codegen::targets::typescript::generate_service(descriptor);
+    let ts = vox_codegen::targets::typescript::generate_service_with_options(
+        descriptor,
+        vox_codegen::targets::typescript::ServiceGenerationOptions {
+            connect_helper: false,
+        },
+    );
 
     let path = std::path::Path::new("editor/src/devtools.generated.ts");
     if let Some(parent) = path.parent() {

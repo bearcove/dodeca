@@ -64,6 +64,14 @@ jobs:
         uses: jetli/wasm-pack-action@v0.4.0
         with:
           version: latest
+      - name: Verify DevTools WASM is Tokio-free
+        run: |-
+          tokio_tree="$(cargo tree -q --target wasm32-unknown-unknown -p dodeca-devtools -i tokio -e normal -e features --format '{p} {f}')"
+          if [[ -n "$tokio_tree" ]]; then
+            echo "dodeca-devtools wasm dependency graph must not contain tokio" >&2
+            printf '%s\n' "$tokio_tree" >&2
+            exit 1
+          fi
       - name: Build embedded WASM
         run: |-
           wasm-pack build crates/dodeca-devtools --target web --target-dir target/wasm-pack

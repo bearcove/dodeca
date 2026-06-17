@@ -27,7 +27,7 @@ pub use facet_postcard;
 ///
 /// This is the reverse of the traditional client-server model - the server
 /// calls methods on the browser when events occur (patches, errors, etc.)
-#[vox::service]
+#[vox::service(runtime_feature = "runtime")]
 pub trait BrowserService {
     /// Called by the server when a devtools event occurs.
     ///
@@ -43,7 +43,7 @@ pub trait BrowserService {
 ///
 /// This service is implemented by the dodeca host and called by the
 /// browser-based devtools overlay via vox RPC over WebSocket.
-#[vox::service]
+#[vox::service(runtime_feature = "runtime")]
 pub trait DevtoolsService {
     /// Register this browser connection for a route.
     ///

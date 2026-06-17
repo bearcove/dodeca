@@ -60,6 +60,13 @@ jobs:
           cargo xtask ci-forgejo --check
 
           rustup target add wasm32-unknown-unknown
+          tokio_tree="$(cargo tree -q --target wasm32-unknown-unknown -p dodeca-devtools -i tokio -e normal -e features --format '{p} {f}')"
+          if [[ -n "$tokio_tree" ]]; then
+            echo "dodeca-devtools wasm dependency graph must not contain tokio" >&2
+            printf '%s\n' "$tokio_tree" >&2
+            exit 1
+          fi
+
           npm install -g pnpm
           HOTMEAL_DIR="$(dirname "$STABLE_SRC")/hotmeal"
           if [ -d "$HOTMEAL_DIR/.git" ]; then
@@ -181,6 +188,13 @@ jobs:
           cd "$STABLE_SRC"
 
           rustup target add wasm32-unknown-unknown
+          tokio_tree="$(cargo tree -q --target wasm32-unknown-unknown -p dodeca-devtools -i tokio -e normal -e features --format '{p} {f}')"
+          if [[ -n "$tokio_tree" ]]; then
+            echo "dodeca-devtools wasm dependency graph must not contain tokio" >&2
+            printf '%s\n' "$tokio_tree" >&2
+            exit 1
+          fi
+
           if ! command -v wasm-pack >/dev/null 2>&1; then
             cargo install wasm-pack --locked
           fi

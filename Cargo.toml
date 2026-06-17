@@ -81,12 +81,12 @@ styx-tree = "5.0.0-rc.0"
 figue = "5.0.0-rc.0"
 
 # RPC framework
-# Minimal by default: protocol crates and the DevTools bridge need the service
-# macro + runtime. Transports stay opt-in per crate so they do not leak back
-# into the in-process processors or wasm builds.
-vox = { version = "0.9.0-rc.0", default-features = false, features = ["runtime"] }
-vox-fdpass = "0.9.0-rc.0"
-vox-stream = "0.9.0-rc.0"
+# Minimal by default: protocol crates only need the service macro and channel
+# types. Crates that actually drive links opt into `runtime` locally, and
+# transports stay opt-in per crate so native transports do not leak into wasm.
+vox = { version = "=0.9.0-rc.0", default-features = false }
+vox-fdpass = "=0.9.0-rc.0"
+vox-stream = "=0.9.0-rc.0"
 
 # Process lifecycle
 ur-taking-me-with-you = { version = "8", features = ["tokio"] }
@@ -175,6 +175,28 @@ rust-version = "1.92"
 
 # Force all transitive facet dependencies to use local version for development
 # No [patch.crates-io] for facet: everything is on crates.io facet 0.46.x now.
+
+# Temporary until the next Vox rc contains the Tokio-free wasm runtime split.
+[patch.crates-io]
+cinereus = { git = "https://github.com/bearcove/hotmeal.git", rev = "bfea3312e768fff9b4cc1afd6d5d1dc4bf881ce8" }
+hotmeal = { git = "https://github.com/bearcove/hotmeal.git", rev = "bfea3312e768fff9b4cc1afd6d5d1dc4bf881ce8" }
+hotmeal-server = { git = "https://github.com/bearcove/hotmeal.git", rev = "bfea3312e768fff9b4cc1afd6d5d1dc4bf881ce8" }
+hotmeal-wasm = { git = "https://github.com/bearcove/hotmeal.git", rev = "bfea3312e768fff9b4cc1afd6d5d1dc4bf881ce8" }
+
+vox = { git = "https://github.com/bearcove/vox.git", rev = "2df266877a1b04b3fb8324862e0ad9ffb981c09b" }
+vox-codegen = { git = "https://github.com/bearcove/vox.git", rev = "2df266877a1b04b3fb8324862e0ad9ffb981c09b" }
+vox-core = { git = "https://github.com/bearcove/vox.git", rev = "2df266877a1b04b3fb8324862e0ad9ffb981c09b" }
+vox-fdpass = { git = "https://github.com/bearcove/vox.git", rev = "2df266877a1b04b3fb8324862e0ad9ffb981c09b" }
+vox-macros-core = { git = "https://github.com/bearcove/vox.git", rev = "2df266877a1b04b3fb8324862e0ad9ffb981c09b" }
+vox-macros-parse = { git = "https://github.com/bearcove/vox.git", rev = "2df266877a1b04b3fb8324862e0ad9ffb981c09b" }
+vox-phon = { git = "https://github.com/bearcove/vox.git", rev = "2df266877a1b04b3fb8324862e0ad9ffb981c09b" }
+vox-rt = { git = "https://github.com/bearcove/vox.git", rev = "2df266877a1b04b3fb8324862e0ad9ffb981c09b" }
+vox-rt-macros = { git = "https://github.com/bearcove/vox.git", rev = "2df266877a1b04b3fb8324862e0ad9ffb981c09b" }
+vox-schema = { git = "https://github.com/bearcove/vox.git", rev = "2df266877a1b04b3fb8324862e0ad9ffb981c09b" }
+vox-service-macros = { git = "https://github.com/bearcove/vox.git", rev = "2df266877a1b04b3fb8324862e0ad9ffb981c09b" }
+vox-stream = { git = "https://github.com/bearcove/vox.git", rev = "2df266877a1b04b3fb8324862e0ad9ffb981c09b" }
+vox-types = { git = "https://github.com/bearcove/vox.git", rev = "2df266877a1b04b3fb8324862e0ad9ffb981c09b" }
+vox-websocket = { git = "https://github.com/bearcove/vox.git", rev = "2df266877a1b04b3fb8324862e0ad9ffb981c09b" }
 
 # Uncomment to use local facet for development
 # cinereus = { path = "../hotmeal/cinereus" }

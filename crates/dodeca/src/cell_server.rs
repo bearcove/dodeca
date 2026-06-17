@@ -13,7 +13,6 @@ use std::time::Instant;
 use eyre::Result;
 use tokio::net::TcpStream;
 use tokio::sync::watch;
-use vox::FromVoxSession;
 
 use cell_http_proto::{ContentService, ServeContent};
 use futures_util::future::BoxFuture;
@@ -51,26 +50,23 @@ impl ddc_cell_http::RouterContext for DodecaHttpContext {
         Box::pin(async move { crate::host::Host::get().get_vite_port() })
     }
 
-    fn accept_devtools_connection(
+    fn accept_devtools_lane(
         &self,
         service: &str,
-        connection: vox::PendingConnection,
-    ) -> std::result::Result<(), vox::Metadata> {
+        lane: vox::PendingLane,
+    ) -> std::result::Result<(), vox::LaneRejection> {
         match service {
-            s if s == vox::NoopClient::SERVICE_NAME => {
-                tracing::debug!("devtools browser root connection accepted");
-                connection.handle_with(());
-                Ok(())
-            }
-            s if s == dodeca_protocol::DevtoolsServiceClient::SERVICE_NAME => {
+            s if s
+                == <dodeca_protocol::DevtoolsServiceClient as vox::FromVoxLane>::SERVICE_NAME =>
+            {
                 let browser_id = next_devtools_browser_id();
                 let svc = HostDevtoolsService::new(self.server.clone(), browser_id);
                 tracing::debug!(
                     browser_id,
-                    "devtools browser service connection accepted directly"
+                    "devtools browser service lane accepted directly"
                 );
-                let browser: dodeca_protocol::BrowserServiceClient = connection
-                    .handle_with_client(dodeca_protocol::DevtoolsServiceDispatcher::new(svc));
+                let browser: dodeca_protocol::BrowserServiceClient =
+                    lane.handle_with_client(dodeca_protocol::DevtoolsServiceDispatcher::new(svc));
                 self.server.register_browser(browser_id, browser.clone());
                 crate::spawn::spawn({
                     let server = self.server.clone();
@@ -81,12 +77,10 @@ impl ddc_cell_http::RouterContext for DodecaHttpContext {
                 });
                 Ok(())
             }
-            other => Err(vox::metadata()
-                .str(
-                    "error",
-                    format!("unsupported browser devtools service {other}"),
-                )
-                .build()),
+            other => Err(vox::LaneRejection::with_message(
+                vox::LaneRejectReason::UnknownService,
+                format!("unsupported browser devtools service {other}"),
+            )),
         }
     }
 }
@@ -149,9 +143,9 @@ impl DevtoolsService for HostDevtoolsService {
     /// Subscribe to devtools events for a route.
     ///
     /// This registers the browser's interest in a route. Events will be pushed
-    /// via BrowserService::on_event() on the browser's virtual connection.
+    /// via BrowserService::on_event() on the browser's DevTools lane.
     ///
-    /// The browser was already registered when its virtual connection was accepted.
+    /// The browser was already registered when its DevTools lane was accepted.
     /// This method associates the subscription with the host-allocated browser id.
     async fn subscribe(&self, route: String) {
         tracing::info!(browser_id = self.browser_id, route = %route, "devtools: client subscribing to route");
@@ -652,5 +646,5 @@ async fn handle_browser_connection(
     Ok(())
 }
 
-// Browser virtual connections are accepted by the HTTP router's WebSocket
-// handler and served directly by `HostDevtoolsService`.
+// Browser DevTools lanes are accepted by the HTTP router's WebSocket handler
+// and served directly by `HostDevtoolsService`.

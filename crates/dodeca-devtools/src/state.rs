@@ -9,7 +9,6 @@ use crate::protocol::{
     BrowserService, BrowserServiceDispatcher, DeadLinkTarget, DevtoolsEvent, DevtoolsServiceClient,
     ErrorInfo, OpenSourceResult, ScopeEntry, ScopeValue,
 };
-use vox::FromVoxSession;
 use vox_websocket::WsLink;
 
 /// A single REPL entry with expression and result
@@ -103,7 +102,7 @@ impl DevtoolsState {
 
 // Thread-local storage for RPC client (WASM is single-threaded)
 thread_local! {
-    static RPC_ROOT: RefCell<Option<vox::NoopClient>> = const { RefCell::new(None) };
+    static RPC_CONNECTION: RefCell<Option<vox::ConnectionHandle>> = const { RefCell::new(None) };
     static RPC_CLIENT: RefCell<Option<DevtoolsServiceClient>> = const { RefCell::new(None) };
     static STATE_SIGNAL: RefCell<Option<Signal<DevtoolsState>>> = const { RefCell::new(None) };
     static ROUTE_WATCHER_INSTALLED: RefCell<bool> = const { RefCell::new(false) };
@@ -249,39 +248,38 @@ pub async fn connect_websocket(state: Signal<DevtoolsState>) -> Result<(), Strin
         .await
         .map_err(|e| format!("WebSocket connect failed: {:?}", e))?;
 
-    // Establish a root vox session with BrowserService as our local handler.
-    // The actual DevtoolsService RPC runs on a virtual connection over this
-    // root; that lets the cell proxy only the service vconn to the host.
+    // Establish the Vox connection, then open a DevtoolsService lane. That lane
+    // is driven with BrowserService as the local handler so the host can push
+    // browser events back on the same lane.
     let dispatcher = BrowserServiceDispatcher::new(BrowserServiceImpl);
-    let root = vox::initiator_on(link)
-        .on_connection(dispatcher)
-        .establish::<vox::NoopClient>()
+    let connection = vox::initiator_on(link)
+        .on_lane(dispatcher.clone())
+        .establish_connection()
         .await
         .map_err(|e| format!("RPC handshake failed: {:?}", e))?;
 
-    let session = root
-        .session
-        .clone()
-        .ok_or("vox root session did not expose a session handle")?;
     let settings = vox::ConnectionSettings {
         parity: vox::Parity::Odd,
         max_concurrent_requests: 64,
         initial_channel_credit: 16,
     };
-    let handle = session
-        .open_connection(
+    let handle = connection
+        .open_lane_handle(
             settings,
             vox::metadata()
                 .str(
                     vox::VOX_SERVICE_METADATA_KEY,
-                    DevtoolsServiceClient::SERVICE_NAME,
+                    <DevtoolsServiceClient as vox::FromVoxLane>::SERVICE_NAME,
                 )
                 .build(),
         )
         .await
-        .map_err(|e| format!("DevtoolsService open failed: {:?}", e))?;
+        .map_err(|e| format!("DevtoolsService lane open failed: {:?}", e))?;
     let mut driver = vox::Driver::new(handle, BrowserServiceDispatcher::new(BrowserServiceImpl));
-    let client = DevtoolsServiceClient::from_vox_session(vox::Caller::new(driver.caller()), None);
+    let client = <DevtoolsServiceClient as vox::FromVoxLane>::from_vox_lane(
+        vox::Caller::new(driver.caller()),
+        Some(connection.clone()),
+    );
 
     wasm_bindgen_futures::spawn_local(async move {
         driver.run().await;
@@ -292,10 +290,10 @@ pub async fn connect_websocket(state: Signal<DevtoolsState>) -> Result<(), Strin
         });
     });
 
-    // Store root + client for later use. Keeping the root alive keeps the
-    // WebSocket session alive.
-    RPC_ROOT.with(|cell| {
-        *cell.borrow_mut() = Some(root);
+    // Store connection + client for later use. The connection handle opens any
+    // future lanes and lets the background connection task stay observable.
+    RPC_CONNECTION.with(|cell| {
+        *cell.borrow_mut() = Some(connection);
     });
     RPC_CLIENT.with(|cell| {
         *cell.borrow_mut() = Some(client.clone());
@@ -314,183 +312,6 @@ pub async fn connect_websocket(state: Signal<DevtoolsState>) -> Result<(), Strin
     install_route_watcher();
 
     Ok(())
-}
-
-/// Request scope from the server for the current route
-pub fn request_scope() {
-    let Some(client) = get_client() else {
-        return;
-    };
-
-    wasm_bindgen_futures::spawn_local(async move {
-        STATE_SIGNAL.with(|cell| {
-            if let Some(state) = cell.borrow().as_ref() {
-                state.update(|s| s.scope_loading = true);
-            }
-        });
-
-        match client.get_scope(None).await {
-            Ok(scope) => {
-                STATE_SIGNAL.with(|cell| {
-                    if let Some(state) = cell.borrow().as_ref() {
-                        state.update(|s| {
-                            s.scope_loading = false;
-                            s.scope_entries = scope;
-                            s.scope_children.clear();
-                            tracing::info!(
-                                "[devtools] scope response: {} entries",
-                                s.scope_entries.len()
-                            );
-                        });
-                    }
-                });
-            }
-            Err(e) => {
-                tracing::error!("[devtools] get_scope failed: {:?}", e);
-                STATE_SIGNAL.with(|cell| {
-                    if let Some(state) = cell.borrow().as_ref() {
-                        state.update(|s| s.scope_loading = false);
-                    }
-                });
-            }
-        }
-    });
-}
-
-/// Request scope children at a specific path
-pub fn request_scope_children(path: Vec<String>) {
-    let Some(client) = get_client() else {
-        return;
-    };
-
-    let path_key = path.join(".");
-    wasm_bindgen_futures::spawn_local(async move {
-        match client.get_scope(Some(path.clone())).await {
-            Ok(scope) => {
-                STATE_SIGNAL.with(|cell| {
-                    if let Some(state) = cell.borrow().as_ref() {
-                        state.update(|s| {
-                            tracing::info!(
-                                "[devtools] scope children response for {}: {} entries",
-                                path_key,
-                                scope.len()
-                            );
-                            s.scope_children.insert(path_key.clone(), scope);
-                        });
-                    }
-                });
-            }
-            Err(e) => {
-                tracing::error!("[devtools] get_scope children failed: {:?}", e);
-            }
-        }
-    });
-}
-
-/// Evaluate an expression in a snapshot's context
-pub fn eval_expression(snapshot_id: String, expression: String) {
-    let Some(client) = get_client() else {
-        return;
-    };
-
-    let expr_clone = expression.clone();
-    wasm_bindgen_futures::spawn_local(async move {
-        // Add pending entry
-        STATE_SIGNAL.with(|cell| {
-            if let Some(state) = cell.borrow().as_ref() {
-                state.update(|s| {
-                    s.pending_evals.insert(expr_clone.clone(), ());
-                    s.repl_history.push(ReplEntry {
-                        expression: expr_clone.clone(),
-                        result: None,
-                    });
-                });
-            }
-        });
-
-        match client.eval(snapshot_id, expression.clone()).await {
-            Ok(eval_result) => {
-                STATE_SIGNAL.with(|cell| {
-                    if let Some(state) = cell.borrow().as_ref() {
-                        state.update(|s| {
-                            s.pending_evals.remove(&expression);
-                            // Find the entry in history and update it
-                            if let Some(entry) = s
-                                .repl_history
-                                .iter_mut()
-                                .find(|e| e.expression == expression && e.result.is_none())
-                            {
-                                entry.result = Some(eval_result.clone().into());
-                            }
-                            tracing::info!("[devtools] eval response: {:?}", eval_result);
-                        });
-                    }
-                });
-            }
-            Err(e) => {
-                STATE_SIGNAL.with(|cell| {
-                    if let Some(state) = cell.borrow().as_ref() {
-                        state.update(|s| {
-                            s.pending_evals.remove(&expression);
-                            // Update entry with error
-                            if let Some(entry) = s
-                                .repl_history
-                                .iter_mut()
-                                .find(|e| e.expression == expression && e.result.is_none())
-                            {
-                                entry.result = Some(Err(format!("RPC error: {:?}", e)));
-                            }
-                        });
-                    }
-                });
-            }
-        }
-    });
-}
-
-/// Dismiss an error
-pub fn dismiss_error(route: String) {
-    let Some(client) = get_client() else {
-        return;
-    };
-
-    wasm_bindgen_futures::spawn_local(async move {
-        if let Err(e) = client.dismiss_error(route).await {
-            tracing::error!("[devtools] dismiss_error failed: {:?}", e);
-        }
-    });
-}
-
-/// Open a source location in the host editor.
-pub fn open_source(source_file: String, line: u32) {
-    tracing::debug!(
-        source_file = %source_file,
-        line,
-        "[devtools] requesting open_source RPC"
-    );
-
-    let Some(client) = get_client() else {
-        tracing::warn!(
-            source_file,
-            line,
-            "[devtools] open_source requested before RPC client was ready"
-        );
-        return;
-    };
-
-    wasm_bindgen_futures::spawn_local(async move {
-        match client.open_source(source_file.clone(), line).await {
-            Ok(OpenSourceResult::Ok) => {
-                tracing::info!(source_file, line, "[devtools] open_source succeeded");
-            }
-            Ok(OpenSourceResult::Err(err)) => {
-                tracing::warn!(source_file, line, err, "[devtools] open_source failed");
-            }
-            Err(err) => {
-                tracing::error!(source_file, line, ?err, "[devtools] open_source RPC failed");
-            }
-        }
-    });
 }
 
 /// Open a rendered markdown element in the host editor.

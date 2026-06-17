@@ -1130,6 +1130,15 @@ pub fn build_ci_workflow(platform: CiPlatform, _repo_root: &Utf8Path) -> Workflo
                 Step::uses("Install wasm-pack", platform.wasm_pack_action())
                     .with_inputs([("version", "latest")]),
                 Step::run(
+                    "Verify DevTools WASM is Tokio-free",
+                    r#"tokio_tree="$(cargo tree -q --target wasm32-unknown-unknown -p dodeca-devtools -i tokio -e normal -e features --format '{p} {f}')"
+if [[ -n "$tokio_tree" ]]; then
+  echo "dodeca-devtools wasm dependency graph must not contain tokio" >&2
+  printf '%s\n' "$tokio_tree" >&2
+  exit 1
+fi"#,
+                ),
+                Step::run(
                     "Build embedded WASM",
                     r#"wasm-pack build crates/dodeca-devtools --target web --target-dir target/wasm-pack
 wasm-pack build crates/dodeca-search-wasm --target web --target-dir target/wasm-pack"#,
@@ -1472,6 +1481,13 @@ fi
         } else {
             "command -v pnpm >/dev/null 2>&1 || npm install -g pnpm || corepack enable || true\n"
         };
+        let check_devtools_wasm_tokio = r#"tokio_tree="$(cargo tree -q --target wasm32-unknown-unknown -p dodeca-devtools -i tokio -e normal -e features --format '{p} {f}')"
+if [[ -n "$tokio_tree" ]]; then
+  echo "dodeca-devtools wasm dependency graph must not contain tokio" >&2
+  printf '%s\n' "$tokio_tree" >&2
+  exit 1
+fi
+"#;
         // The browser editor's package.json file:-links `hotmeal-wasm` from the
         // sibling bearcove/hotmeal repo (../../../../hotmeal/hotmeal-wasm/pkg),
         // which CI doesn't check out — so the editor's `pnpm install` ENOENTs and
@@ -1547,6 +1563,7 @@ echo "CARGO_TARGET_DIR=$CARGO_TARGET_DIR""#
 cd "$STABLE_SRC"
 {maybe_check_ci}
 rustup target add wasm32-unknown-unknown
+{check_devtools_wasm_tokio}
 {maybe_install_wasm_pack}{maybe_install_pnpm}{maybe_build_hotmeal}# Force a clean wasm rebuild before compiling ddc (which embeds the search +
 # devtools wasm via include_bytes!). build.rs skips when pkg/ exists, and the
 # stable-src cache preserves a stale pkg/ across runs — that combination

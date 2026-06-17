@@ -623,8 +623,8 @@ impl SiteServer {
 
     /// Register a browser connection for receiving devtools events.
     ///
-    /// The `conn_id` is the roam connection ID, which uniquely identifies this
-    /// browser's virtual connection. It's used as the key for routing events.
+    /// The `conn_id` is the host-allocated browser ID, used as the key for
+    /// routing events to the browser's DevTools lane.
     pub fn register_browser(&self, conn_id: u64, client: dodeca_protocol::BrowserServiceClient) {
         let mut registry = self.browsers.lock().unwrap();
         registry.browsers.insert(

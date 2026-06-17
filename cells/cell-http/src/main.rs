@@ -29,11 +29,11 @@ pub trait RouterContext: Send + Sync + 'static {
 
     fn get_vite_port(&self) -> BoxFuture<'_, Option<u16>>;
 
-    fn accept_devtools_connection(
+    fn accept_devtools_lane(
         &self,
         service: &str,
-        connection: vox::PendingConnection,
-    ) -> Result<(), vox::Metadata>;
+        lane: vox::PendingLane,
+    ) -> Result<(), vox::LaneRejection>;
 }
 
 /// Build the forwarded auth identity from a request's oauth2-proxy identity
@@ -218,7 +218,7 @@ pub fn build_router(ctx: Arc<dyn RouterContext>) -> axum::Router {
     }
 
     Router::new()
-        // DevTools WebSocket - Vox session accepted by the host context.
+        // DevTools WebSocket - Vox connection accepted by the host context.
         .route("/_/ws", get(devtools::ws_handler))
         // Legacy endpoints
         .route("/__dodeca", get(devtools::ws_handler))

@@ -17,12 +17,12 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 # Internal crates
-dodeca-protocol = { path = "../dodeca-protocol" }
+dodeca-protocol = { path = "../dodeca-protocol", features = ["runtime"] }
 livereload-client = { path = "../livereload-client" }
 
 # RPC transport (wasm: websocket only, no ffi)
-vox.workspace = true
-vox-websocket = "0.9.0-rc.0"
+vox = { workspace = true, features = ["runtime"] }
+vox-websocket = "=0.9.0-rc.0"
 
 # UI framework
 sycamore = "0.9"

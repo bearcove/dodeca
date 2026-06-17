@@ -24,7 +24,7 @@ eyre.workspace = true
 futures-util.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
-vox.workspace = true
+vox = { workspace = true, features = ["runtime"] }
 tokio.workspace = true
 tokio-tungstenite.workspace = true
 tracing.workspace = true
