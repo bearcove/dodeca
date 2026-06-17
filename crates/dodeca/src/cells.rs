@@ -12,7 +12,7 @@ use cell_css_proto::{CssProcessor, CssProcessorClient, CssResult};
 use cell_data_proto::{DataFormat, DataLoader, DataLoaderClient, LoadDataResult};
 use cell_dialoguer_proto::{Dialoguer, DialoguerClient, SelectResult};
 use cell_fonts_proto::{FontProcessor, FontProcessorClient, FontResult, SubsetFontInput};
-use cell_gingembre_proto::{ContextId, RenderResult, TemplateRendererClient};
+use cell_gingembre_proto::{ContextId, RenderResult, TemplateRenderer, TemplateRendererClient};
 use cell_host_proto::{
     CallFunctionResult, CommandResult, HostService, KeysAtResult, LoadTemplateResult, ReadyAck,
     ReadyMsg, ResolveDataResult, ServeContent, ServerCommand, Value,
@@ -105,6 +105,11 @@ impl ddc_cell_html::HtmlCallbacks for DodecaHtmlCallbacks {
 
 pub(crate) fn html_processor() -> ddc_cell_html::HtmlProcessorImpl<DodecaHtmlCallbacks> {
     ddc_cell_html::HtmlProcessorImpl::with_callbacks(DodecaHtmlCallbacks)
+}
+
+pub(crate) fn template_renderer()
+-> ddc_cell_gingembre::TemplateRendererImpl<crate::template_host::TemplateHostImpl> {
+    ddc_cell_gingembre::TemplateRendererImpl::new(crate::template_host::TemplateHostImpl::new())
 }
 
 // ============================================================================
@@ -423,39 +428,53 @@ pub async fn render_template(
         method = "render",
         context_id = context_id.0,
         template_name,
-        "cell rpc client lookup starting"
+        "template render starting"
     );
-    let cell = crate::host::Host::get()
-        .client_async::<TemplateRendererClient>()
-        .await
-        .ok_or_else(|| eyre::eyre!("Gingembre cell not available"))?;
-    tracing::debug!(
-        rpc_id,
-        cell = "gingembre",
-        method = "render",
-        elapsed_ms = started_at.elapsed().as_millis(),
-        "cell rpc dispatch starting"
-    );
-    let result = cell
+    let result = template_renderer()
         .render(context_id, template_name.to_string(), initial_context)
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                rpc_id,
-                cell = "gingembre",
-                method = "render",
-                elapsed_ms = started_at.elapsed().as_millis(),
-                error = ?e,
-                "cell rpc failed"
-            );
-            eyre::eyre!("RPC call error: {:?}", e)
-        })?;
+        .await;
     tracing::debug!(
         rpc_id,
         cell = "gingembre",
         method = "render",
         elapsed_ms = started_at.elapsed().as_millis(),
-        "cell rpc complete"
+        "template render complete"
+    );
+    Ok(result)
+}
+
+pub async fn render_template_cell(
+    context_id: ContextId,
+    template_name: &str,
+    initial_context: Value,
+) -> eyre::Result<RenderResult> {
+    render_template(context_id, template_name, initial_context).await
+}
+
+pub async fn eval_expression_cell(
+    context_id: ContextId,
+    expression: &str,
+    context: Value,
+) -> eyre::Result<cell_gingembre_proto::EvalResult> {
+    let rpc_id = next_cell_rpc_id();
+    let started_at = Instant::now();
+    tracing::debug!(
+        rpc_id,
+        cell = "gingembre",
+        method = "eval_expression",
+        context_id = context_id.0,
+        expression,
+        "template expression eval starting"
+    );
+    let result = template_renderer()
+        .eval_expression(context_id, expression.to_string(), context)
+        .await;
+    tracing::debug!(
+        rpc_id,
+        cell = "gingembre",
+        method = "eval_expression",
+        elapsed_ms = started_at.elapsed().as_millis(),
+        "template expression eval complete"
     );
     Ok(result)
 }
@@ -754,30 +773,6 @@ pub async fn inject_code_buttons_cell(
             Err(eyre::eyre!(message))
         }
     }
-}
-
-pub async fn render_template_cell(
-    context_id: ContextId,
-    template_name: &str,
-    initial_context: Value,
-) -> eyre::Result<RenderResult> {
-    render_template(context_id, template_name, initial_context).await
-}
-
-pub async fn eval_expression_cell(
-    context_id: ContextId,
-    expression: &str,
-    context: Value,
-) -> eyre::Result<cell_gingembre_proto::EvalResult> {
-    let cell = crate::host::Host::get()
-        .client_async::<TemplateRendererClient>()
-        .await
-        .ok_or_else(|| eyre::eyre!("Gingembre cell not available"))?;
-    let result = cell
-        .eval_expression(context_id, expression.to_string(), context)
-        .await
-        .map_err(|e| eyre::eyre!("RPC call error: {:?}", e))?;
-    Ok(result)
 }
 
 pub async fn optimize_svg_cell(input: String) -> Result<SvgoResult, eyre::Error> {

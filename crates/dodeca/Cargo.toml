@@ -31,6 +31,7 @@ cell-css = { path = "../../cells/cell-css", default-features = false }
 cell-data-proto = { path = "../../cells/cell-data-proto" }
 cell-data = { path = "../../cells/cell-data", default-features = false }
 cell-gingembre-proto = { path = "../../cells/cell-gingembre-proto" }
+cell-gingembre = { path = "../../cells/cell-gingembre", default-features = false }
 cell-host-proto = { path = "../../cells/cell-host-proto" }
 cell-fonts-proto = { path = "../../cells/cell-fonts-proto" }
 cell-fonts = { path = "../../cells/cell-fonts", default-features = false }

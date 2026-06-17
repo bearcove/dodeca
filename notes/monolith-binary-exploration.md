@@ -133,6 +133,9 @@ a time:
    `html` now uses a local callback trait for inline CSS/JS work. The dynamic
    build still adapts that trait to the old host RPC, while `dodeca` supplies a
    direct adapter backed by the already-static CSS/JS processors.
+   `gingembre` now follows the same pattern with `TemplateHost`: the dynamic
+   build adapts host RPC to the trait, and `dodeca` instantiates the renderer
+   with `TemplateHostImpl` directly.
 
 2. Replace `crates/dodeca/src/cells.rs` helpers to call direct APIs for the
    pilot modules while preserving the current helper function names. That keeps
