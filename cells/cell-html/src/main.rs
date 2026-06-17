@@ -1,6 +1,6 @@
-//! Dodeca HTML processing cell (cell-html)
+//! Dodeca HTML processor.
 //!
-//! This cell handles all HTML transformations using hotmeal:
+//! This processor handles all HTML transformations using hotmeal:
 //! - Parsing and serialization
 //! - URL rewriting (href, src, srcset attributes)
 //! - Dead link marking

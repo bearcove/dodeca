@@ -184,7 +184,7 @@ impl DevtoolsService for HostDevtoolsService {
 
     /// Dismiss an error notification.
     async fn dismiss_error(&self, route: String) {
-        tracing::debug!(route = %route, "Client dismissed error via RPC");
+        tracing::debug!(route = %route, "DevTools client dismissed error via RPC");
         // The existing implementation just logs this - errors are resolved
         // when the template successfully re-renders
     }

@@ -1,6 +1,6 @@
-//! Dodeca term cell (cell-term)
+//! Dodeca terminal recorder.
 //!
-//! This cell handles terminal session recording with ANSI color support.
+//! This processor handles terminal session recording with ANSI color support.
 
 use cell_term_proto::{RecordConfig, TermRecorder, TermResult};
 

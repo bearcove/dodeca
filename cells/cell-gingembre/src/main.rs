@@ -1,4 +1,4 @@
-//! Template rendering cell using gingembre.
+//! Template rendering processor using gingembre.
 //!
 //! This processor handles template rendering with typed host callbacks:
 //! - Receives render requests from Dodeca

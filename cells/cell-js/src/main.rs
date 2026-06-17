@@ -1,6 +1,6 @@
-//! Dodeca JS cell (cell-js)
+//! Dodeca JS processor.
 //!
-//! This cell handles JavaScript string literal rewriting using OXC.
+//! This processor handles JavaScript string literal rewriting using OXC.
 
 use std::collections::HashMap;
 

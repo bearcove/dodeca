@@ -16,6 +16,6 @@ path = "src/main.rs"
 
 [dependencies]
 cell-html-diff-proto = { path = "../cell-html-diff-proto" }
-dodeca-protocol = { path = "../../crates/dodeca-protocol" }
+facet-postcard.workspace = true
 tracing.workspace = true
 hotmeal.workspace = true

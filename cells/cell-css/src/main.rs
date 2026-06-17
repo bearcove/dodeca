@@ -1,6 +1,6 @@
-//! Dodeca CSS cell (cell-css)
+//! Dodeca CSS processor.
 //!
-//! This cell handles CSS URL rewriting and minification via lightningcss.
+//! This processor handles CSS URL rewriting and minification via lightningcss.
 
 use cell_css_proto::CssProcessor;
 

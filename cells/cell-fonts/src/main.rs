@@ -1,6 +1,6 @@
-//! Dodeca fonts cell (cell-fonts)
+//! Dodeca fonts processor.
 //!
-//! This cell handles font subsetting and compression.
+//! This processor handles font subsetting and compression.
 //! All CPU-intensive operations use spawn_blocking to enable parallelism.
 
 use std::collections::HashSet;

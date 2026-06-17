@@ -1,6 +1,6 @@
-//! Dodeca SASS cell (cell-sass)
+//! Dodeca SASS processor.
 //!
-//! This cell handles SASS/SCSS compilation using grass.
+//! This processor handles SASS/SCSS compilation using grass.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

@@ -1,4 +1,4 @@
-//! Dodeca vite cell (cell-vite)
+//! Dodeca Vite manager.
 //!
 //! Manages Vite dev server and production builds.
 

@@ -1,7 +1,7 @@
-//! Dodeca markdown processing cell (cell-markdown)
+//! Dodeca markdown processor.
 //!
-//! This cell uses marq for markdown rendering with direct code block rendering.
-//! Mermaid diagrams are rendered via callback to the host, which delegates to the mermaid cell.
+//! This processor uses marq for markdown rendering with direct code block rendering.
+//! Mermaid diagrams are rendered via callback to Dodeca.
 
 use cell_markdown_proto::*;
 use marq::{

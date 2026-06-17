@@ -1,4 +1,4 @@
-//! Dodeca dialoguer cell
+//! Dodeca dialoguer processor.
 //!
 //! Provides interactive terminal prompts using the dialoguer crate.
 

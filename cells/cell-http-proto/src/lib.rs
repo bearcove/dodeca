@@ -38,8 +38,8 @@ pub enum ServeContent {
 }
 
 /// The authenticated requester, as forwarded by an auth proxy (oauth2-proxy in
-/// front of dodeca, backed by Forgejo OIDC). The cell fills this from the
-/// `X-Forwarded-*` headers; `None` means an unauthenticated request. The host
+/// front of dodeca, backed by Forgejo OIDC). The HTTP router fills this from
+/// the `X-Forwarded-*` headers; `None` means an unauthenticated request. Dodeca
 /// uses it to gate `/_dodeca/*` (status, editing) and to attribute edits.
 #[derive(Debug, Clone, Facet)]
 pub struct Identity {

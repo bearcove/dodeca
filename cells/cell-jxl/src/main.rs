@@ -1,6 +1,6 @@
-//! Dodeca JXL cell (cell-jxl)
+//! Dodeca JXL processor.
 //!
-//! This cell handles JPEG XL encoding and decoding.
+//! This processor handles JPEG XL encoding and decoding.
 
 use jpegxl_rs::encode::EncoderFrame;
 

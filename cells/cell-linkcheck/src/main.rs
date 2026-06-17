@@ -1,6 +1,6 @@
-//! Dodeca linkcheck cell (cell-linkcheck)
+//! Dodeca linkcheck processor.
 //!
-//! This cell handles external link checking with per-domain rate limiting.
+//! This processor handles external link checking with per-domain rate limiting.
 
 use std::collections::HashMap;
 use std::time::Duration;

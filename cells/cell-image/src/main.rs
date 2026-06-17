@@ -1,6 +1,6 @@
-//! Dodeca image cell (cell-image)
+//! Dodeca image processor.
 //!
-//! This cell handles image decoding, resizing, and thumbhash generation.
+//! This processor handles image decoding, resizing, and thumbhash generation.
 
 use base64::Engine;
 use image::{DynamicImage, ImageEncoder, Rgb, Rgba};

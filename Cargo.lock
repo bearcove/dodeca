@@ -1613,7 +1613,7 @@ name = "cell-html-diff"
 version = "0.6.1"
 dependencies = [
  "cell-html-diff-proto",
- "dodeca-protocol",
+ "facet-postcard",
  "hotmeal",
  "tracing",
 ]

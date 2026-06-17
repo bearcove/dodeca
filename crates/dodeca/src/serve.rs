@@ -930,7 +930,7 @@ impl SiteServer {
                 let _ = self
                     .livereload_tx
                     .send(LiveReloadMsg::CssUpdate { path: path.clone() });
-                // Also notify via RPC
+                // Also notify DevTools browsers via RPC.
                 self.notify_browsers(dodeca_protocol::DevtoolsEvent::CssChanged {
                     path: path.clone(),
                 });
@@ -1959,7 +1959,7 @@ impl SiteServer {
                     send_result.is_ok(),
                     self.livereload_tx.receiver_count()
                 );
-                // Also notify via RPC
+                // Also notify DevTools browsers via RPC.
                 self.notify_browsers(dodeca_protocol::DevtoolsEvent::Error(error_info));
             } else if !is_error_page {
                 // Page rendered successfully - clear any previous error
@@ -1970,7 +1970,7 @@ impl SiteServer {
                 let _ = self.livereload_tx.send(LiveReloadMsg::ErrorResolved {
                     route: path.to_string(),
                 });
-                // Also notify via RPC
+                // Also notify DevTools browsers via RPC.
                 self.notify_browsers(dodeca_protocol::DevtoolsEvent::ErrorResolved {
                     route: path.to_string(),
                 });

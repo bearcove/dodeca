@@ -1,6 +1,6 @@
-//! Dodeca minify cell (cell-minify)
+//! Dodeca minify processor.
 //!
-//! This cell handles HTML minification.
+//! This processor handles HTML minification.
 
 use cell_minify_proto::{Minifier, MinifyResult};
 

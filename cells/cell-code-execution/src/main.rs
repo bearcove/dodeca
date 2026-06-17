@@ -1,6 +1,6 @@
-//! Dodeca code execution cell (cell-code-execution)
+//! Dodeca code execution processor.
 //!
-//! This cell handles extracting and executing code samples from markdown.
+//! This processor handles extracting and executing code samples from markdown.
 
 // Include implementation code directly
 include!("impl.rs");

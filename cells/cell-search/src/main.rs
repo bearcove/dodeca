@@ -1,8 +1,8 @@
-//! Dodeca full-text search indexing cell (cell-search).
+//! Dodeca full-text search indexing processor.
 //!
 //! Receives the rendered HTML of every page, extracts searchable text and the
 //! heading structure with hotmeal, and builds a sharded inverted index in the
-//! `dodeca-search-format` postcard layout. The host writes the returned files
+//! `dodeca-search-format` postcard layout. Dodeca writes the returned files
 //! under `/search/` as static site assets.
 
 use std::collections::BTreeMap;
@@ -316,7 +316,7 @@ mod tests {
             SearchPage {
                 url: "/cells/".into(),
                 source: "kb".into(),
-                html: "<main><h1 id=\"intro\">Cells</h1><p>Cells communicate over RPC.</p>\
+                html: "<main><h1 id=\"intro\">Cells</h1><p>Processors run in process.</p>\
                        <nav>skip me</nav></main>"
                     .into(),
             },
