@@ -60,6 +60,8 @@ fn value_to_string(value: &Value) -> String {
         DestructuredRef::DateTime(dt) => format!("{:?}", dt),
         DestructuredRef::QName(qn) => format!("{:?}", qn),
         DestructuredRef::Uuid(uuid) => format!("{:?}", uuid),
+        DestructuredRef::Char(c) => c.to_string(),
+        other => format!("{other:?}"),
     }
 }
 

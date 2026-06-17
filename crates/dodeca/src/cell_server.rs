@@ -55,7 +55,7 @@ impl ddc_cell_http::RouterContext for DodecaHttpContext {
         &self,
         service: &str,
         connection: vox::PendingConnection,
-    ) -> std::result::Result<(), vox::Metadata<'static>> {
+    ) -> std::result::Result<(), vox::Metadata> {
         match service {
             s if s == vox::NoopClient::SERVICE_NAME => {
                 tracing::debug!("devtools browser root connection accepted");
@@ -81,10 +81,12 @@ impl ddc_cell_http::RouterContext for DodecaHttpContext {
                 });
                 Ok(())
             }
-            other => Err(vec![vox::MetadataEntry::str(
-                "error",
-                format!("unsupported browser devtools service {other}"),
-            )]),
+            other => Err(vox::metadata()
+                .str(
+                    "error",
+                    format!("unsupported browser devtools service {other}"),
+                )
+                .build()),
         }
     }
 }

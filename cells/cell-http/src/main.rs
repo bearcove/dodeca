@@ -33,7 +33,7 @@ pub trait RouterContext: Send + Sync + 'static {
         &self,
         service: &str,
         connection: vox::PendingConnection,
-    ) -> Result<(), vox::Metadata<'static>>;
+    ) -> Result<(), vox::Metadata>;
 }
 
 /// Build the forwarded auth identity from a request's oauth2-proxy identity

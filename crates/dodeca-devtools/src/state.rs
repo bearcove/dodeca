@@ -253,7 +253,7 @@ pub async fn connect_websocket(state: Signal<DevtoolsState>) -> Result<(), Strin
     // The actual DevtoolsService RPC runs on a virtual connection over this
     // root; that lets the cell proxy only the service vconn to the host.
     let dispatcher = BrowserServiceDispatcher::new(BrowserServiceImpl);
-    let root = vox::initiator_on(link, vox::TransportMode::Bare)
+    let root = vox::initiator_on(link)
         .on_connection(dispatcher)
         .establish::<vox::NoopClient>()
         .await
@@ -271,10 +271,12 @@ pub async fn connect_websocket(state: Signal<DevtoolsState>) -> Result<(), Strin
     let handle = session
         .open_connection(
             settings,
-            vec![vox::MetadataEntry::str(
-                vox::VOX_SERVICE_METADATA_KEY,
-                DevtoolsServiceClient::SERVICE_NAME,
-            )],
+            vox::metadata()
+                .str(
+                    vox::VOX_SERVICE_METADATA_KEY,
+                    DevtoolsServiceClient::SERVICE_NAME,
+                )
+                .build(),
         )
         .await
         .map_err(|e| format!("DevtoolsService open failed: {:?}", e))?;

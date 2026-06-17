@@ -8,9 +8,9 @@
   },
   "dependencies": {
     "@arborium/arborium": "^2.18.0",
-    "@bearcove/vox-core": "^0.8.2",
-    "@bearcove/vox-postcard": "^0.8.2",
-    "@bearcove/vox-ws": "^0.8.2",
+    "@bearcove/phon-schema": "0.2.0-rc.0",
+    "@bearcove/vox-core": "0.9.0-rc.0",
+    "@bearcove/vox-ws": "0.9.0-rc.0",
     "@codingame/monaco-vscode-api": "^31.0.1",
     "@codingame/monaco-vscode-configuration-service-override": "^31.0.1",
     "@codingame/monaco-vscode-editor-api": "^31.0.1",

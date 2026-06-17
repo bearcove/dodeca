@@ -49,7 +49,7 @@ impl vox::ConnectionAcceptor for DevtoolsAcceptor {
         &self,
         request: &vox::ConnectionRequest,
         connection: vox::PendingConnection,
-    ) -> Result<(), vox::Metadata<'static>> {
+    ) -> Result<(), vox::Metadata> {
         self.ctx
             .accept_devtools_connection(request.service(), connection)
     }

@@ -61,39 +61,39 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
 
 # Serialization - Facet ecosystem (git)
 # Do NOT change those to path dependencies, use the patch blocks below.
-hotmeal = "2"
-hotmeal-server = { version = "2", features = ["tracing"] }
-hotmeal-wasm = "2"
+hotmeal = "3.0.0-rc.0"
+hotmeal-server = { version = "3.0.0-rc.0", features = ["tracing"] }
+hotmeal-wasm = "3.0.0-rc.0"
 
-facet = "0.46"
-facet-default = "0.46"
-facet-format = "0.47"
-facet-json = "0.46"
-facet-postcard = "0.46"
-facet-toml = "0.46"
-facet-value = "0.46"
-facet-yaml = "0.46"
+facet = "0.50.0-rc.0"
+facet-default = "0.50.0-rc.0"
+facet-format = "0.50.0-rc.0"
+facet-json = "0.50.0-rc.0"
+facet-postcard = "0.50.0-rc.0"
+facet-toml = "0.50.0-rc.0"
+facet-value = "0.50.0-rc.0"
+facet-yaml = "0.50.0-rc.0"
 
-facet-styx = "3.0.2"
-styx-embed = "3.0.2"
-styx-tree = "3.0.2"
+facet-styx = "5.0.0-rc.0"
+styx-embed = "5.0.0-rc.0"
+styx-tree = "5.0.0-rc.0"
 
-figue = "4.0.3"
+figue = "5.0.0-rc.0"
 
 # RPC framework
-# Minimal by default: dodeca-protocol and the DevTools bridge need the service
+# Minimal by default: protocol crates and the DevTools bridge need the service
 # macro + runtime. Transports stay opt-in per crate so they do not leak back
 # into the in-process processors or wasm builds.
-vox = { version = "0.8.1", default-features = false, features = ["runtime"] }
-vox-fdpass = "0.8.1"
-vox-stream = "0.8.1"
+vox = { version = "0.9.0-rc.0", default-features = false, features = ["runtime"] }
+vox-fdpass = "0.9.0-rc.0"
+vox-stream = "0.9.0-rc.0"
 
 # Process lifecycle
 ur-taking-me-with-you = { version = "8", features = ["tokio"] }
 
 # Incremental computation
 # 2.0.1 carries the snapshot result-cache isolation fix the editor preview needs.
-picante = "2.0.1"
+picante = "3.0.0-rc.0"
 
 # File system
 fs-err = "3"
@@ -128,7 +128,7 @@ webp = "0.3"
 fontcull = { version = "2.0", default-features = false }
 
 # Markdown
-marq = "4.0.1"
+marq = "5.0.0-rc.0"
 pulldown-cmark = "0.13"
 arborium-theme = "2"
 
@@ -161,7 +161,7 @@ web-sys = { version = "0.3", features = [
 ] }
 libc = "0.2"
 rapidhash = "4"
-strid = "10"
+strid = "11.0.0-rc.0"
 serde_json = "1.0.150"
 
 # Misc utilities
@@ -175,20 +175,6 @@ rust-version = "1.92"
 
 # Force all transitive facet dependencies to use local version for development
 # No [patch.crates-io] for facet: everything is on crates.io facet 0.46.x now.
-
-[patch.crates-io]
-vox = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }
-vox-core = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }
-vox-fdpass = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }
-vox-jit = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }
-vox-jit-abi = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }
-vox-jit-cal = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }
-vox-postcard = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }
-vox-schema = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }
-vox-service-macros = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }
-vox-stream = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }
-vox-types = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }
-vox-websocket = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }
 
 # Uncomment to use local facet for development
 # cinereus = { path = "../hotmeal/cinereus" }
