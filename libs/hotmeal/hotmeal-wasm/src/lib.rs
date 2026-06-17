@@ -227,7 +227,7 @@ mod live_reload {
     use hotmeal_server::{LiveReloadBrowser, LiveReloadBrowserDispatcher, LiveReloadServiceClient};
     use std::cell::RefCell;
     use std::rc::Rc;
-    use vox_core::acceptor_on;
+    use vox::acceptor_on;
     use vox_websocket::WsLink;
 
     /// Browser-side implementation of the `LiveReloadBrowser` service.
@@ -337,7 +337,7 @@ mod live_reload {
         let (done_tx, done_rx) = futures_channel::oneshot::channel::<()>();
         let done_tx = Rc::new(RefCell::new(Some(done_tx)));
         let done_tx_spawn = done_tx.clone();
-        let client = acceptor_on(link)
+        let connection = acceptor_on(link)
             .spawn_fn(move |fut| {
                 let done_tx_spawn = done_tx_spawn.clone();
                 wasm_bindgen_futures::spawn_local(async move {
@@ -347,11 +347,34 @@ mod live_reload {
                     }
                 });
             })
-            .on_connection(dispatcher)
-            .establish::<LiveReloadServiceClient>()
+            .on_lane(dispatcher.clone())
+            .establish_connection()
             .await?;
 
-        log("[hotmeal-wasm] vox session established");
+        let settings = vox::ConnectionSettings {
+            parity: vox::Parity::Odd,
+            max_concurrent_requests: 64,
+            initial_channel_credit: 16,
+        };
+        let handle = connection
+            .open_lane_handle(
+                settings,
+                vox::metadata()
+                    .str(
+                        vox::VOX_SERVICE_METADATA_KEY,
+                        <LiveReloadServiceClient as vox::FromVoxLane>::SERVICE_NAME,
+                    )
+                    .build(),
+            )
+            .await?;
+        let mut driver = vox::Driver::new(handle, dispatcher);
+        let client = <LiveReloadServiceClient as vox::FromVoxLane>::from_vox_lane(
+            vox::Caller::new(driver.caller()),
+            Some(connection.clone()),
+        );
+        wasm_bindgen_futures::spawn_local(async move { driver.run().await });
+
+        log("[hotmeal-wasm] vox connection established");
 
         // Subscribe for the current browser route
         let route = web_sys::window()
@@ -365,7 +388,7 @@ mod live_reload {
             .map_err(|e| std::io::Error::other(format!("subscribe failed: {e:?}")))?;
         log("[hotmeal-wasm] subscribed, waiting for events");
 
-        // Wait for session to end (connection closed by server or network)
+        // Wait for connection to end (closed by server or network)
         let _ = done_rx.await;
 
         Ok(())

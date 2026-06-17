@@ -51,6 +51,6 @@ web-sys = { workspace = true, features = [
 ] }
 
 # RPC transport
-vox-core = { workspace = true }
+vox = { workspace = true }
 vox-websocket = { workspace = true }
 futures-channel = { workspace = true }
