@@ -27,9 +27,9 @@ hotmeal-server = { path = "hotmeal-server", version = "3.0.0-rc.0" }
 facet-postcard = "0.50.0-rc.0"
 
 # RPC
-vox = { git = "https://github.com/bearcove/vox.git", rev = "f854eeb02bfdc41f3010d0bab71d29af01ec8585", default-features = false, features = ["runtime"] }
-vox-core = { git = "https://github.com/bearcove/vox.git", rev = "f854eeb02bfdc41f3010d0bab71d29af01ec8585" }
-vox-websocket = { git = "https://github.com/bearcove/vox.git", rev = "f854eeb02bfdc41f3010d0bab71d29af01ec8585" }
+vox = { git = "https://github.com/bearcove/vox.git", rev = "2df266877a1b04b3fb8324862e0ad9ffb981c09b", default-features = false, features = ["runtime"] }
+vox-core = { git = "https://github.com/bearcove/vox.git", rev = "2df266877a1b04b3fb8324862e0ad9ffb981c09b" }
+vox-websocket = { git = "https://github.com/bearcove/vox.git", rev = "2df266877a1b04b3fb8324862e0ad9ffb981c09b" }
 
 # Data structures
 indextree = "4.7"

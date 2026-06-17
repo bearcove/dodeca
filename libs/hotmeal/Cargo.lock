@@ -1923,7 +1923,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 [[package]]
 name = "vox"
 version = "0.9.0-rc.0"
-source = "git+https://github.com/bearcove/vox.git?rev=f854eeb02bfdc41f3010d0bab71d29af01ec8585#f854eeb02bfdc41f3010d0bab71d29af01ec8585"
+source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
 dependencies = [
  "facet",
  "facet-pretty",
@@ -1940,7 +1940,7 @@ dependencies = [
 [[package]]
 name = "vox-core"
 version = "0.9.0-rc.0"
-source = "git+https://github.com/bearcove/vox.git?rev=f854eeb02bfdc41f3010d0bab71d29af01ec8585#f854eeb02bfdc41f3010d0bab71d29af01ec8585"
+source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
 dependencies = [
  "facet",
  "facet-core",
@@ -1960,7 +1960,7 @@ dependencies = [
 [[package]]
 name = "vox-macros-core"
 version = "0.9.0-rc.0"
-source = "git+https://github.com/bearcove/vox.git?rev=f854eeb02bfdc41f3010d0bab71d29af01ec8585#f854eeb02bfdc41f3010d0bab71d29af01ec8585"
+source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -1971,7 +1971,7 @@ dependencies = [
 [[package]]
 name = "vox-macros-parse"
 version = "0.9.0-rc.0"
-source = "git+https://github.com/bearcove/vox.git?rev=f854eeb02bfdc41f3010d0bab71d29af01ec8585#f854eeb02bfdc41f3010d0bab71d29af01ec8585"
+source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
 dependencies = [
  "proc-macro2",
  "unsynn",
@@ -1980,7 +1980,7 @@ dependencies = [
 [[package]]
 name = "vox-phon"
 version = "0.9.0-rc.0"
-source = "git+https://github.com/bearcove/vox.git?rev=f854eeb02bfdc41f3010d0bab71d29af01ec8585#f854eeb02bfdc41f3010d0bab71d29af01ec8585"
+source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
 dependencies = [
  "facet",
  "phon",
@@ -1994,7 +1994,7 @@ dependencies = [
 [[package]]
 name = "vox-rt"
 version = "0.9.0-rc.0"
-source = "git+https://github.com/bearcove/vox.git?rev=f854eeb02bfdc41f3010d0bab71d29af01ec8585#f854eeb02bfdc41f3010d0bab71d29af01ec8585"
+source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
 dependencies = [
  "futures-channel",
  "futures-util",
@@ -2010,12 +2010,12 @@ dependencies = [
 [[package]]
 name = "vox-rt-macros"
 version = "0.9.0-rc.0"
-source = "git+https://github.com/bearcove/vox.git?rev=f854eeb02bfdc41f3010d0bab71d29af01ec8585#f854eeb02bfdc41f3010d0bab71d29af01ec8585"
+source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
 
 [[package]]
 name = "vox-schema"
 version = "0.9.0-rc.0"
-source = "git+https://github.com/bearcove/vox.git?rev=f854eeb02bfdc41f3010d0bab71d29af01ec8585#f854eeb02bfdc41f3010d0bab71d29af01ec8585"
+source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
 dependencies = [
  "blake3",
  "facet",
@@ -2026,7 +2026,7 @@ dependencies = [
 [[package]]
 name = "vox-service-macros"
 version = "0.9.0-rc.0"
-source = "git+https://github.com/bearcove/vox.git?rev=f854eeb02bfdc41f3010d0bab71d29af01ec8585#f854eeb02bfdc41f3010d0bab71d29af01ec8585"
+source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
 dependencies = [
  "proc-macro2",
  "vox-macros-core",
@@ -2035,7 +2035,7 @@ dependencies = [
 [[package]]
 name = "vox-types"
 version = "0.9.0-rc.0"
-source = "git+https://github.com/bearcove/vox.git?rev=f854eeb02bfdc41f3010d0bab71d29af01ec8585#f854eeb02bfdc41f3010d0bab71d29af01ec8585"
+source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
 dependencies = [
  "bitflags",
  "blake3",
@@ -2058,7 +2058,7 @@ dependencies = [
 [[package]]
 name = "vox-websocket"
 version = "0.9.0-rc.0"
-source = "git+https://github.com/bearcove/vox.git?rev=f854eeb02bfdc41f3010d0bab71d29af01ec8585#f854eeb02bfdc41f3010d0bab71d29af01ec8585"
+source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
 dependencies = [
  "futures-channel",
  "futures-util",
