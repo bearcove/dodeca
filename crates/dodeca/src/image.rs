@@ -4,7 +4,7 @@
 //! - JPEG-XL (best compression, future-proof)
 //! - WebP (wide browser support, fallback)
 //!
-//! All image processing (decoding, resizing, thumbhash) is done via cells.
+//! All image processing (decoding, resizing, thumbhash) is done in process.
 //!
 //! Also generates:
 //! - Multiple width variants for srcset
@@ -103,20 +103,20 @@ pub async fn get_dimensions(data: &[u8], format: InputFormat) -> Option<(u32, u3
     Some((decoded.width, decoded.height))
 }
 
-/// Decode an image from bytes using the appropriate cell
+/// Decode an image from bytes using the appropriate processor.
 async fn decode_image(data: &[u8], format: InputFormat) -> Option<DecodedImage> {
     match format {
-        InputFormat::Png => cells::decode_png_cell(data).await,
-        InputFormat::Jpg => cells::decode_jpeg_cell(data).await,
-        InputFormat::Gif => cells::decode_gif_cell(data).await,
-        InputFormat::WebP => cells::decode_webp_cell(data).await,
-        InputFormat::Jxl => cells::decode_jxl_cell(data).await,
+        InputFormat::Png => cells::decode_png(data).await,
+        InputFormat::Jpg => cells::decode_jpeg(data).await,
+        InputFormat::Gif => cells::decode_gif(data).await,
+        InputFormat::WebP => cells::decode_webp(data).await,
+        InputFormat::Jxl => cells::decode_jxl(data).await,
     }
 }
 
 /// Resize an image to a target width, maintaining aspect ratio
 async fn resize_image(decoded: &DecodedImage, target_width: u32) -> Option<DecodedImage> {
-    cells::resize_image_cell(
+    cells::resize_image(
         &decoded.pixels,
         decoded.width,
         decoded.height,
@@ -128,18 +128,18 @@ async fn resize_image(decoded: &DecodedImage, target_width: u32) -> Option<Decod
 
 /// Generate a thumbhash and encode it as a data URL
 async fn generate_thumbhash_data_url(decoded: &DecodedImage) -> Option<String> {
-    cells::generate_thumbhash_cell(&decoded.pixels, decoded.width, decoded.height).await
+    cells::generate_thumbhash(&decoded.pixels, decoded.width, decoded.height).await
 }
 
-/// Encode pixels to WebP format (via cell)
+/// Encode pixels to WebP format.
 async fn encode_webp(pixels: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
-    cells::encode_webp_cell(pixels, width, height, 82).await
+    cells::encode_webp(pixels, width, height, 82).await
 }
 
-/// Encode pixels to JPEG-XL format (via cell)
+/// Encode pixels to JPEG-XL format.
 async fn encode_jxl(pixels: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
     // Quality 80 maps to distance ~3 in the cell (high quality)
-    cells::encode_jxl_cell(pixels, width, height, 80).await
+    cells::encode_jxl(pixels, width, height, 80).await
 }
 
 /// Image metadata without the processed bytes

@@ -1,4 +1,6 @@
-use crate::cells::{inject_code_buttons_cell, render_template_cell};
+use crate::cells::{
+    inject_code_buttons as inject_code_buttons_direct, render_template as render_template_direct,
+};
 use crate::db::{
     CodeExecutionMetadata, CodeExecutionResult, DependencySourceInfo, Heading, Page, Section,
     SiteTree,
@@ -442,13 +444,13 @@ fn build_code_metadata_map(
     map
 }
 
-/// Inject copy buttons and build info buttons into code blocks using the html cell.
+/// Inject copy buttons and build info buttons into code blocks.
 /// This is a single-pass operation that also sets position:relative inline on pre elements.
 async fn inject_code_buttons(
     html: &str,
     code_metadata: &HashMap<String, cell_html_proto::CodeExecutionMetadata>,
 ) -> (String, bool) {
-    match inject_code_buttons_cell(html.to_string(), code_metadata.clone()).await {
+    match inject_code_buttons_direct(html.to_string(), code_metadata.clone()).await {
         Ok((result, had_buttons)) => (result, had_buttons),
         Err(e) => {
             tracing::warn!("Code button injection failed: {}", e);
@@ -675,12 +677,11 @@ pub async fn try_render_template(
     // Build initial context
     let initial_context = renderable.build_context(site_tree, can_edit);
 
-    // Render via cell
-    let result = match render_template_cell(guard.id(), template_name, initial_context).await {
+    let result = match render_template_direct(guard.id(), template_name, initial_context).await {
         Ok(cell_gingembre_proto::RenderResult::Success { html }) => Ok(html),
         Ok(cell_gingembre_proto::RenderResult::Error { error }) => Err(error),
         Err(e) => Err(cell_gingembre_proto::TemplateRenderError {
-            message: format!("Gingembre cell error: {}", e),
+            message: format!("Gingembre render error: {}", e),
             location: None,
             help: None,
         }),
@@ -702,7 +703,7 @@ pub async fn try_render_template(
     result
 }
 
-/// Render page via cell - returns Result with structured error
+/// Render page template and return a structured error on failure.
 pub async fn render_page_template(
     page: &Page,
     site_tree: &SiteTree,
@@ -712,7 +713,7 @@ pub async fn render_page_template(
     try_render_template(Renderable::Page(page), site_tree, templates, can_edit).await
 }
 
-/// Render section via cell - returns Result with structured error
+/// Render section template and return a structured error on failure.
 pub async fn render_section_template(
     section: &Section,
     site_tree: &SiteTree,

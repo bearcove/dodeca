@@ -184,7 +184,7 @@ pub async fn search_index_files<DB: Db>(db: &DB) -> PicanteResult<Vec<OutputFile
         }
     }
 
-    let files = match crate::cells::build_search_index_cell(pages).await {
+    let files = match crate::cells::build_search_index(pages).await {
         Ok(files) => files,
         Err(e) => {
             tracing::warn!(error = %e, "search index unavailable; serving empty index");

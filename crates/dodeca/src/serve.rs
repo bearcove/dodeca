@@ -2425,8 +2425,8 @@ impl SiteServer {
         // Convert context to Value
         let context_value: facet_value::Value = ctx.into();
 
-        // Evaluate the expression via cell
-        match crate::cells::eval_expression_cell(guard.id(), expression, context_value).await {
+        // Evaluate the expression against the current render context.
+        match crate::cells::eval_expression(guard.id(), expression, context_value).await {
             Ok(cell_gingembre_proto::EvalResult::Success { value }) => {
                 Ok(value_to_scope_value(&value))
             }

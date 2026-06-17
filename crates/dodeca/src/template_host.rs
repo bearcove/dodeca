@@ -449,7 +449,7 @@ impl TemplateHost for TemplateHostImpl {
                     let body = get_kwarg("body").unwrap_or_default();
                     let body = body.trim();
 
-                    match crate::cells::highlight_code_cell(&lang, body).await {
+                    match crate::cells::highlight_code(&lang, body).await {
                         Ok(html) => CallFunctionResult::Success {
                             value: Value::from(html.as_str()),
                         },

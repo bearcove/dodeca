@@ -36,8 +36,7 @@ impl ViteServer {
         );
 
         let result =
-            crate::cells::start_vite_dev_server_cell(project_dir.to_string_lossy().to_string())
-                .await;
+            crate::cells::start_vite_dev_server(project_dir.to_string_lossy().to_string()).await;
 
         match result {
             StartDevServerResult::Success { port } => {
@@ -127,7 +126,7 @@ pub async fn maybe_run_vite_build(project_dir: &Path) -> Result<bool> {
         project_dir.display()
     );
 
-    let result = crate::cells::run_vite_build_cell(project_dir.to_string_lossy().to_string()).await;
+    let result = crate::cells::run_vite_build(project_dir.to_string_lossy().to_string()).await;
 
     match result {
         RunBuildResult::Success => {

@@ -28,7 +28,7 @@ use facet_value::{VObject, VString, Value};
 
 /// Parse a data file into a template Value.
 pub async fn parse_data_file(content: &str, format: DataFormat) -> Result<Value, String> {
-    match cells::load_data_cell(content.to_string(), format).await {
+    match cells::load_data(content.to_string(), format).await {
         LoadDataResult::Success { value } => Ok(value),
         LoadDataResult::Error { message } => Err(message),
     }

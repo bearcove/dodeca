@@ -1,8 +1,7 @@
-//! Transitional facade for former dodeca cells.
+//! In-process processing facade for the former dodeca cells.
 //!
-//! Internal processing now uses direct Rust calls. This module preserves the
-//! former helper names and protocol types while the call sites are folded into
-//! their owning modules.
+//! Internal processing uses direct Rust calls into the former cell crates. The
+//! protocol crates still hold the shared typed inputs/results for each operation.
 
 use cell_code_execution_proto::{
     CodeExecutionResult, CodeExecutor, ExecuteSamplesInput, ExtractSamplesInput,
@@ -50,7 +49,7 @@ impl ddc_cell_html::HtmlCallbacks for DodecaHtmlCallbacks {
         path_map: HashMap<String, String>,
     ) -> HtmlCallbackFuture<'a> {
         Box::pin(async move {
-            rewrite_urls_in_css_cell(css, path_map)
+            rewrite_urls_in_css(css, path_map)
                 .await
                 .map_err(|e| e.to_string())
         })
@@ -62,7 +61,7 @@ impl ddc_cell_html::HtmlCallbacks for DodecaHtmlCallbacks {
         path_map: HashMap<String, String>,
     ) -> HtmlCallbackFuture<'a> {
         Box::pin(async move {
-            rewrite_string_literals_in_js_cell(js, path_map)
+            rewrite_string_literals_in_js(js, path_map)
                 .await
                 .map_err(|e| e.to_string())
         })
@@ -70,7 +69,7 @@ impl ddc_cell_html::HtmlCallbacks for DodecaHtmlCallbacks {
 
     fn minify_css<'a>(&'a self, css: String) -> HtmlCallbackFuture<'a> {
         Box::pin(async move {
-            rewrite_urls_in_css_cell(css, HashMap::new())
+            rewrite_urls_in_css(css, HashMap::new())
                 .await
                 .map_err(|e| e.to_string())
         })
@@ -78,7 +77,7 @@ impl ddc_cell_html::HtmlCallbacks for DodecaHtmlCallbacks {
 
     fn minify_js<'a>(&'a self, js: String) -> HtmlCallbackFuture<'a> {
         Box::pin(async move {
-            rewrite_string_literals_in_js_cell(js, HashMap::new())
+            rewrite_string_literals_in_js(js, HashMap::new())
                 .await
                 .map_err(|e| e.to_string())
         })
@@ -145,15 +144,7 @@ pub async fn render_template(
     Ok(result)
 }
 
-pub async fn render_template_cell(
-    context_id: ContextId,
-    template_name: &str,
-    initial_context: Value,
-) -> eyre::Result<RenderResult> {
-    render_template(context_id, template_name, initial_context).await
-}
-
-pub async fn eval_expression_cell(
+pub async fn eval_expression(
     context_id: ContextId,
     expression: &str,
     context: Value,
@@ -206,10 +197,8 @@ pub async fn subset_font(input: SubsetFontInput) -> Result<FontResult, eyre::Err
     Ok(ddc_cell_fonts::FontProcessorImpl.subset_font(input).await)
 }
 
-/// Build the full-text search index from rendered pages via the search cell.
-pub async fn build_search_index_cell(
-    pages: Vec<SearchPage>,
-) -> Result<Vec<SearchFile>, eyre::Error> {
+/// Build the full-text search index from rendered pages.
+pub async fn build_search_index(pages: Vec<SearchPage>) -> Result<Vec<SearchFile>, eyre::Error> {
     match ddc_cell_search::SearchIndexerImpl.build_index(pages).await {
         SearchIndexResult::Success { files } => Ok(files),
         SearchIndexResult::Error { message } => {
@@ -234,38 +223,31 @@ pub async fn extract_code_samples(
         .await)
 }
 
-// ============================================================================
-// Additional Function Aliases (for compatibility with other modules)
-// ============================================================================
-
-// These are wrapper functions that other modules expect while the facade is
-// still being collapsed into direct calls.
-
 pub async fn select_dialog(prompt: String, items: Vec<String>) -> SelectResult {
     ddc_cell_dialoguer::DialoguerImpl
         .select(prompt, items)
         .await
 }
 
-pub async fn start_vite_dev_server_cell(project_dir: String) -> StartDevServerResult {
+pub async fn start_vite_dev_server(project_dir: String) -> StartDevServerResult {
     ddc_cell_vite::ViteManagerImpl
         .start_dev_server(project_dir)
         .await
 }
 
-pub async fn run_vite_build_cell(project_dir: String) -> RunBuildResult {
+pub async fn run_vite_build(project_dir: String) -> RunBuildResult {
     ddc_cell_vite::ViteManagerImpl.run_build(project_dir).await
 }
 
-pub async fn diff_html_cell(input: DiffInput) -> Result<DiffOutcome, DiffError> {
+pub async fn diff_html(input: DiffInput) -> Result<DiffOutcome, DiffError> {
     ddc_cell_html_diff::HtmlDifferImpl.diff_html(input).await
 }
 
-pub async fn minify_html_cell(html: String) -> MinifyResult {
+pub async fn minify_html(html: String) -> MinifyResult {
     ddc_cell_minify::MinifierImpl.minify_html(html).await
 }
 
-pub async fn process_html_cell(input: HtmlProcessInput) -> HtmlProcessResult {
+pub async fn process_html(input: HtmlProcessInput) -> HtmlProcessResult {
     html_processor().process(input).await
 }
 
@@ -275,7 +257,7 @@ pub struct UrlCheckResult {
     pub statuses: std::collections::HashMap<String, LinkStatus>,
 }
 
-pub async fn check_urls_cell(urls: Vec<String>, options: CheckOptions) -> Option<UrlCheckResult> {
+pub async fn check_urls(urls: Vec<String>, options: CheckOptions) -> Option<UrlCheckResult> {
     let input = LinkCheckInput {
         urls,
         delay_ms: options.rate_limit_ms,
@@ -301,7 +283,7 @@ pub struct CheckOptions {
     pub rate_limit_ms: u64,
 }
 
-pub async fn highlight_code_cell(lang: &str, code: &str) -> Result<String, eyre::Error> {
+pub async fn highlight_code(lang: &str, code: &str) -> Result<String, eyre::Error> {
     match ddc_cell_markdown::MarkdownProcessorImpl::new()
         .highlight_code(lang.to_string(), code.to_string())
         .await
@@ -313,7 +295,7 @@ pub async fn highlight_code_cell(lang: &str, code: &str) -> Result<String, eyre:
     }
 }
 
-pub async fn parse_and_render_markdown_cell(
+pub async fn parse_and_render_markdown(
     source_path: &str,
     content: &str,
     source_map: bool,
@@ -357,19 +339,7 @@ pub async fn parse_and_render_markdown_cell(
     }
 }
 
-pub async fn execute_code_samples_cell(
-    input: ExecuteSamplesInput,
-) -> Result<CodeExecutionResult, eyre::Error> {
-    execute_code_samples(input).await
-}
-
-pub async fn extract_code_samples_cell(
-    input: ExtractSamplesInput,
-) -> Result<CodeExecutionResult, eyre::Error> {
-    extract_code_samples(input).await
-}
-
-pub async fn inject_code_buttons_cell(
+pub async fn inject_code_buttons(
     html: String,
     code_metadata: HashMap<String, cell_html_proto::CodeExecutionMetadata>,
 ) -> Result<(String, bool), eyre::Error> {
@@ -425,11 +395,7 @@ pub async fn inject_code_buttons_cell(
     }
 }
 
-pub async fn optimize_svg_cell(input: String) -> Result<SvgoResult, eyre::Error> {
-    optimize_svg(input).await
-}
-
-pub async fn load_data_cell(content: String, format: DataFormat) -> LoadDataResult {
+pub async fn load_data(content: String, format: DataFormat) -> LoadDataResult {
     ddc_cell_data::DataLoaderImpl
         .load_data(content, format)
         .await
@@ -443,7 +409,7 @@ pub async fn extract_links_from_html(
     Ok(html_processor().extract_links(html).await)
 }
 
-pub async fn rewrite_string_literals_in_js_cell(
+pub async fn rewrite_string_literals_in_js(
     js: String,
     path_map: HashMap<String, String>,
 ) -> Result<String, eyre::Error> {
@@ -454,7 +420,7 @@ pub async fn rewrite_string_literals_in_js_cell(
         .map_err(|e| eyre::eyre!("JS rewrite error: {e}"))
 }
 
-pub async fn rewrite_urls_in_css_cell(
+pub async fn rewrite_urls_in_css(
     css: String,
     path_map: HashMap<String, String>,
 ) -> Result<String, eyre::Error> {
@@ -467,7 +433,7 @@ pub async fn rewrite_urls_in_css_cell(
     }
 }
 
-pub async fn decompress_font_cell(data: Vec<u8>) -> Result<Vec<u8>, eyre::Error> {
+pub async fn decompress_font(data: Vec<u8>) -> Result<Vec<u8>, eyre::Error> {
     match ddc_cell_fonts::FontProcessorImpl
         .decompress_font(data)
         .await
@@ -478,7 +444,7 @@ pub async fn decompress_font_cell(data: Vec<u8>) -> Result<Vec<u8>, eyre::Error>
     }
 }
 
-pub async fn compress_to_woff2_cell(data: Vec<u8>) -> Result<Vec<u8>, eyre::Error> {
+pub async fn compress_to_woff2(data: Vec<u8>) -> Result<Vec<u8>, eyre::Error> {
     match ddc_cell_fonts::FontProcessorImpl
         .compress_to_woff2(data)
         .await
@@ -489,13 +455,9 @@ pub async fn compress_to_woff2_cell(data: Vec<u8>) -> Result<Vec<u8>, eyre::Erro
     }
 }
 
-pub async fn subset_font_cell(input: SubsetFontInput) -> Result<FontResult, eyre::Error> {
-    subset_font(input).await
-}
-
-// Image decoding/encoding cell wrappers
+// Image decoding/encoding helpers.
 // These return Option to match what image.rs expects
-pub async fn decode_png_cell(data: &[u8]) -> Option<DecodedImage> {
+pub async fn decode_png(data: &[u8]) -> Option<DecodedImage> {
     match ddc_cell_image::ImageProcessorImpl
         .decode_png(data.to_vec())
         .await
@@ -509,7 +471,7 @@ pub async fn decode_png_cell(data: &[u8]) -> Option<DecodedImage> {
     }
 }
 
-pub async fn decode_jpeg_cell(data: &[u8]) -> Option<DecodedImage> {
+pub async fn decode_jpeg(data: &[u8]) -> Option<DecodedImage> {
     match ddc_cell_image::ImageProcessorImpl
         .decode_jpeg(data.to_vec())
         .await
@@ -523,7 +485,7 @@ pub async fn decode_jpeg_cell(data: &[u8]) -> Option<DecodedImage> {
     }
 }
 
-pub async fn decode_gif_cell(data: &[u8]) -> Option<DecodedImage> {
+pub async fn decode_gif(data: &[u8]) -> Option<DecodedImage> {
     match ddc_cell_image::ImageProcessorImpl
         .decode_gif(data.to_vec())
         .await
@@ -537,7 +499,7 @@ pub async fn decode_gif_cell(data: &[u8]) -> Option<DecodedImage> {
     }
 }
 
-pub async fn decode_webp_cell(data: &[u8]) -> Option<DecodedImage> {
+pub async fn decode_webp(data: &[u8]) -> Option<DecodedImage> {
     match ddc_cell_webp::WebPProcessorImpl
         .decode_webp(data.to_vec())
         .await
@@ -561,7 +523,7 @@ pub async fn decode_webp_cell(data: &[u8]) -> Option<DecodedImage> {
     }
 }
 
-pub async fn decode_jxl_cell(data: &[u8]) -> Option<DecodedImage> {
+pub async fn decode_jxl(data: &[u8]) -> Option<DecodedImage> {
     match ddc_cell_jxl::JXLProcessorImpl
         .decode_jxl(data.to_vec())
         .await
@@ -585,7 +547,7 @@ pub async fn decode_jxl_cell(data: &[u8]) -> Option<DecodedImage> {
     }
 }
 
-pub async fn resize_image_cell(
+pub async fn resize_image(
     pixels: &[u8],
     width: u32,
     height: u32,
@@ -609,7 +571,7 @@ pub async fn resize_image_cell(
     }
 }
 
-pub async fn generate_thumbhash_cell(pixels: &[u8], width: u32, height: u32) -> Option<String> {
+pub async fn generate_thumbhash(pixels: &[u8], width: u32, height: u32) -> Option<String> {
     let input = ThumbhashInput {
         pixels: pixels.to_vec(),
         width,
@@ -628,12 +590,7 @@ pub async fn generate_thumbhash_cell(pixels: &[u8], width: u32, height: u32) -> 
     }
 }
 
-pub async fn encode_webp_cell(
-    pixels: &[u8],
-    width: u32,
-    height: u32,
-    quality: u8,
-) -> Option<Vec<u8>> {
+pub async fn encode_webp(pixels: &[u8], width: u32, height: u32, quality: u8) -> Option<Vec<u8>> {
     let input = WebPEncodeInput {
         pixels: pixels.to_vec(),
         width,
@@ -650,12 +607,7 @@ pub async fn encode_webp_cell(
     }
 }
 
-pub async fn encode_jxl_cell(
-    pixels: &[u8],
-    width: u32,
-    height: u32,
-    quality: u8,
-) -> Option<Vec<u8>> {
+pub async fn encode_jxl(pixels: &[u8], width: u32, height: u32, quality: u8) -> Option<Vec<u8>> {
     let input = JXLEncodeInput {
         pixels: pixels.to_vec(),
         width,
@@ -672,8 +624,7 @@ pub async fn encode_jxl_cell(
     }
 }
 
-// SASS/CSS cell wrappers
-pub async fn compile_sass_cell(
+pub async fn compile_sass(
     input: &HashMap<String, String>,
     load_paths: &[String],
 ) -> Result<SassResult, eyre::Error> {

@@ -1,4 +1,4 @@
-//! URL rewriting using proper parsers through the former-cell facade.
+//! URL rewriting using proper parsers through the in-process processing facade.
 //!
 //! All HTML transformations are done by the HTML processor in a single pass:
 //! - URL rewriting (href, src, srcset attributes)
@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
-static HTML_PROCESS_RPC_ID: AtomicU64 = AtomicU64::new(1);
+static HTML_PROCESS_CALL_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Rewrite URLs in CSS using lightningcss parser.
 ///
@@ -20,7 +20,7 @@ static HTML_PROCESS_RPC_ID: AtomicU64 = AtomicU64::new(1);
 /// Also minifies the CSS output.
 /// Returns original CSS if rewriting fails.
 pub async fn rewrite_urls_in_css(css: &str, path_map: &HashMap<String, String>) -> String {
-    match crate::cells::rewrite_urls_in_css_cell(css.to_string(), path_map.clone()).await {
+    match crate::cells::rewrite_urls_in_css(css.to_string(), path_map.clone()).await {
         Ok(css) => css,
         Err(e) => {
             tracing::warn!("CSS rewriting failed: {}", e);
@@ -32,7 +32,7 @@ pub async fn rewrite_urls_in_css(css: &str, path_map: &HashMap<String, String>) 
 /// Rewrite string literals in JavaScript that contain asset paths (async version)
 /// Returns original JS if rewriting fails.
 pub async fn rewrite_string_literals_in_js(js: &str, path_map: &HashMap<String, String>) -> String {
-    match crate::cells::rewrite_string_literals_in_js_cell(js.to_string(), path_map.clone()).await {
+    match crate::cells::rewrite_string_literals_in_js(js.to_string(), path_map.clone()).await {
         Ok(js) => js,
         Err(e) => {
             tracing::warn!("JS rewriting failed: {}", e);
@@ -57,7 +57,7 @@ pub async fn process_html(
     html: &str,
     options: HtmlProcessOptions,
 ) -> Result<HtmlProcessOutput, eyre::Error> {
-    let rpc_id = HTML_PROCESS_RPC_ID.fetch_add(1, Ordering::Relaxed);
+    let call_id = HTML_PROCESS_CALL_ID.fetch_add(1, Ordering::Relaxed);
     let started_at = Instant::now();
     let has_path_map = options.path_map.is_some();
     let has_known_routes = options.known_routes.is_some();
@@ -67,7 +67,7 @@ pub async fn process_html(
     let has_image_variants = options.image_variants.is_some();
     let has_vite_css_map = options.vite_css_map.is_some();
     tracing::debug!(
-        rpc_id,
+        call_id,
         cell = "html",
         method = "process",
         html_len = html.len(),
@@ -96,7 +96,7 @@ pub async fn process_html(
         mount: options.mount,
     };
 
-    match crate::cells::process_html_cell(input).await {
+    match crate::cells::process_html(input).await {
         cell_html_proto::HtmlProcessResult::Success {
             html,
             had_dead_links,
@@ -106,7 +106,7 @@ pub async fn process_html(
             unresolved_wiki_links,
         } => {
             tracing::debug!(
-                rpc_id,
+                call_id,
                 cell = "html",
                 method = "process",
                 elapsed_ms = started_at.elapsed().as_millis(),
@@ -127,7 +127,7 @@ pub async fn process_html(
         }
         cell_html_proto::HtmlProcessResult::Error { message } => {
             tracing::error!(
-                rpc_id,
+                call_id,
                 cell = "html",
                 method = "process",
                 elapsed_ms = started_at.elapsed().as_millis(),
