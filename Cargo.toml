@@ -81,12 +81,10 @@ styx-tree = "3.0.2"
 figue = "4.0.3"
 
 # RPC framework
-# Minimal by default (proto crates / wasm devtools only need the service
-# macro + runtime). Transports are opt-in per-crate (host adds ffi/all;
-# devtools adds websocket) so they don't feature-unify onto the wasm build
-# (transport-tcp/local → vox-stream → tokio net → mio, unsupported on wasm).
+# Minimal by default: dodeca-protocol and the DevTools bridge need the service
+# macro + runtime. Transports stay opt-in per crate so they do not leak back
+# into the in-process processors or wasm builds.
 vox = { version = "0.8.1", default-features = false, features = ["runtime"] }
-vox-ffi = "0.8.1"
 vox-fdpass = "0.8.1"
 vox-stream = "0.8.1"
 
@@ -162,7 +160,6 @@ web-sys = { version = "0.3", features = [
   "console",
 ] }
 libc = "0.2"
-libloading = "0.8"
 rapidhash = "4"
 strid = "10"
 serde_json = "1.0.150"
@@ -183,7 +180,6 @@ rust-version = "1.92"
 vox = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }
 vox-core = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }
 vox-fdpass = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }
-vox-ffi = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }
 vox-jit = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }
 vox-jit-abi = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }
 vox-jit-cal = { git = "https://github.com/bearcove/vox.git", branch = "dodeca-vox-core-0.8.1" }

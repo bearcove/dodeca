@@ -9091,9 +9091,7 @@ dependencies = [
  "vox-jit 0.8.1",
  "vox-postcard 0.8.1",
  "vox-service-macros 0.8.1",
- "vox-stream",
  "vox-types 0.8.1",
- "vox-websocket 0.8.1",
 ]
 
 [[package]]
@@ -10389,8 +10387,3 @@ checksum = "27bc9d5b815bc103f142aa054f561d9187d191692ec7c2d1e2b4737f8dbd7296"
 dependencies = [
  "zune-core",
 ]
-
-[[patch.unused]]
-name = "vox-ffi"
-version = "0.8.1"
-source = "git+https://github.com/bearcove/vox.git?branch=dodeca-vox-core-0.8.1#b33d0ee247ef1e121074caca668e1766173c5efc"

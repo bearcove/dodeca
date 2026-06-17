@@ -94,7 +94,7 @@ open.workspace = true
 owo-colors.workspace = true
 picante.workspace = true
 ratatui.workspace = true
-vox = { workspace = true, features = ["transport-all"] }
+vox.workspace = true
 rapidhash.workspace = true
 arboard = { version = "3", default-features = false }
 strid.workspace = true

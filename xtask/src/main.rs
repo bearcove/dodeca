@@ -280,7 +280,7 @@ fn install_dev() -> bool {
     }
     eprintln!("  Installed ddc");
 
-    // Remove stale standalone cell binaries from the pre-cdylib era so the
+    // Remove stale standalone cell binaries from the old multi-process era so the
     // freshly installed `ddc` doesn't sit next to dead `ddc-cell-*` executables.
     if let Ok(entries) = fs::read_dir(&cargo_bin) {
         for entry in entries.flatten() {
