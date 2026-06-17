@@ -1,11 +1,11 @@
-//! Protocol definitions for the gingembre template rendering cell.
+//! Typed interface definitions for the gingembre template renderer.
 //!
-//! This cell handles template rendering with bidirectional RPC:
-//! - Host calls `TemplateRenderer::render()` to render a template
-//! - Cell calls back to `TemplateHost` for template loading, data resolution, and function calls
+//! This processor handles template rendering with typed host callbacks:
+//! - Dodeca calls `TemplateRenderer::render()` to render a template
+//! - The renderer calls back to `TemplateHost` for template loading, data resolution, and function calls
 //!
-//! This enables fine-grained dependency tracking via picante while keeping
-//! the template engine in a separate process (reducing main binary compile time).
+//! This preserves fine-grained dependency tracking via picante without a
+//! separate renderer process.
 
 use facet::Facet;
 use facet_value::Value;
@@ -118,9 +118,9 @@ pub enum CallFunctionResult {
 
 /// Identifies a render context on the host side.
 ///
-/// When the host calls `render()`, it creates a context with templates,
-/// data resolvers, etc. The context_id allows the cell to reference
-/// this context when making callbacks.
+/// When Dodeca calls `render()`, it creates a context with templates,
+/// data resolvers, etc. The context_id allows the renderer to reference this
+/// context when making callbacks.
 #[derive(Facet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ContextId(pub u64);
 
@@ -128,14 +128,14 @@ pub struct ContextId(pub u64);
 // Services
 // ============================================================================
 
-/// Service implemented by the CELL (host calls these methods)
+/// Renderer interface implemented by the template processor
 ///
 /// The template renderer receives render requests and produces HTML output,
 /// calling back to the host as needed for templates, data, and functions.
 pub trait TemplateRenderer {
     /// Render a template by name.
     ///
-    /// The cell will call back to `TemplateHost` to:
+    /// The renderer will call back to `TemplateHost` to:
     /// - Load the template source (and any parent templates for inheritance)
     /// - Resolve data values as they're accessed during rendering
     /// - Call template functions (get_url, get_section, etc.)

@@ -1,9 +1,8 @@
-//! RPC protocol for dodeca's full-text search indexing cell.
+//! Typed interface for dodeca's full-text search indexing processor.
 //!
-//! The cell receives the rendered HTML of every page and returns the complete
-//! set of search-index files to write under `/search/`. The on-disk format of
-//! those file *contents* lives in `dodeca-search-format`; this proto only
-//! describes the RPC envelope.
+//! The search indexer receives the rendered HTML of every page and returns the
+//! complete set of search-index files to write under `/search/`. The on-disk
+//! format of those file contents lives in `dodeca-search-format`.
 
 use facet::Facet;
 
@@ -39,9 +38,9 @@ pub enum SearchIndexResult {
     Error { message: String },
 }
 
-/// Search indexing service implemented by the cell.
+/// Search indexer interface.
 ///
-/// The host calls this once per build with every rendered HTML page.
+/// Dodeca calls this once per build with every rendered HTML page.
 #[allow(async_fn_in_trait)]
 pub trait SearchIndexer {
     /// Build a full-text search index from the given pages.

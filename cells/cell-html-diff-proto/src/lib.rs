@@ -1,4 +1,4 @@
-//! RPC protocol for dodeca HTML diff cell
+//! Typed interface for dodeca HTML diff processor
 //!
 //! Defines services for HTML DOM diffing.
 
@@ -26,9 +26,9 @@ pub enum DiffError {
     Generic(String),
 }
 
-/// HTML diff service implemented by the cell.
+/// HTML diff processor interface.
 ///
-/// The host calls these methods to diff HTML documents.
+/// Dodeca calls these methods to diff HTML documents.
 #[allow(async_fn_in_trait)]
 pub trait HtmlDiffer {
     /// Diff two HTML documents and produce patches to transform old into new

@@ -42,8 +42,8 @@ pub trait RouterContext: Send + Sync + 'static {
 /// cluster-wide Traefik forwardAuth gate copies onto the request), falling back
 /// to `X-Forwarded-*` (set by `--pass-user-headers` when oauth2-proxy is an
 /// inline reverse proxy). `None` if no user header is present — i.e.
-/// unauthenticated. HTTP/header parsing stays in the cell; the host only ever
-/// sees the resolved [`cell_http_proto::Identity`].
+/// unauthenticated. HTTP/header parsing stays in the router; Dodeca only sees
+/// the resolved [`cell_http_proto::Identity`].
 fn extract_identity(request: &axum::extract::Request) -> Option<cell_http_proto::Identity> {
     let headers = request.headers();
     // First non-empty value among `names`, tried in order.
@@ -94,7 +94,7 @@ pub fn build_router(ctx: Arc<dyn RouterContext>) -> axum::Router {
     const CACHE_IMMUTABLE: &str = "public, max-age=31536000, immutable";
     const CACHE_NO_CACHE: &str = "no-cache, no-store, must-revalidate";
 
-    /// Handle content requests by calling host via RPC
+    /// Handle content requests by calling host through the typed callback trait
     async fn content_handler(
         State(ctx): State<Arc<dyn RouterContext>>,
         request: Request,
@@ -106,19 +106,19 @@ pub fn build_router(ctx: Arc<dyn RouterContext>) -> axum::Router {
             return vite::vite_proxy_handler(State(ctx), request).await;
         }
 
-        // The forwarded auth identity (oauth2-proxy → these headers). The host
+        // The forwarded auth identity (oauth2-proxy -> these headers). Dodeca
         // uses it to gate `/_dodeca/*`. HTTP/header parsing lives here in the
-        // cell; the host only sees the resolved identity.
+        // router; Dodeca only sees the resolved identity.
         let identity = extract_identity(&request);
 
         // Call host to get content
         let host_call_started_at = Instant::now();
-        tracing::debug!(path, "http cell host find_content started");
+        tracing::debug!(path, "http router find_content started");
         let content = ctx.find_content(path.clone(), identity).await;
         tracing::debug!(
             path,
             elapsed_ms = host_call_started_at.elapsed().as_millis(),
-            "http cell host find_content finished"
+            "http router find_content finished"
         );
 
         // Convert ServeContent to HTTP response

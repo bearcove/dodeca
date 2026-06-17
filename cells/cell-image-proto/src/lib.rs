@@ -1,4 +1,4 @@
-//! RPC protocol for dodeca image cell
+//! Typed interface for dodeca image processor
 //!
 //! Defines services for image decoding, resizing, and thumbhash generation.
 
@@ -43,9 +43,9 @@ pub struct ThumbhashInput {
     pub height: u32,
 }
 
-/// Image processing service implemented by the cell.
+/// Image processor interface.
 ///
-/// The host calls these methods to process image content.
+/// Dodeca calls these methods to process image content.
 #[allow(async_fn_in_trait)]
 pub trait ImageProcessor {
     /// Decode a PNG image to RGBA pixels

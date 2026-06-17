@@ -1,4 +1,4 @@
-//! RPC protocol for dodeca CSS cell
+//! Typed interface for dodeca CSS processor
 //!
 //! Defines services for CSS URL rewriting and minification.
 
@@ -15,9 +15,9 @@ pub enum CssResult {
     Error { message: String },
 }
 
-/// CSS processing service implemented by the cell.
+/// CSS processor interface.
 ///
-/// The host calls these methods to process CSS content.
+/// Dodeca calls these methods to process CSS content.
 #[allow(async_fn_in_trait)]
 pub trait CssProcessor {
     /// Rewrite URLs in CSS and minify.

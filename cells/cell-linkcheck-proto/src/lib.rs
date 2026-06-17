@@ -1,4 +1,4 @@
-//! RPC protocol for dodeca linkcheck cell
+//! Typed interface for dodeca linkcheck processor
 //!
 //! Defines services for external link checking.
 
@@ -61,9 +61,9 @@ pub enum LinkCheckResult {
     Error { message: String },
 }
 
-/// Link checking service implemented by the cell.
+/// Link checker interface.
 ///
-/// The host calls these methods to check external URLs.
+/// Dodeca calls these methods to check external URLs.
 #[allow(async_fn_in_trait)]
 pub trait LinkChecker {
     /// Check external URLs for validity

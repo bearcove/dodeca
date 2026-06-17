@@ -1,4 +1,4 @@
-//! RPC protocol for dodeca vite cell
+//! Typed interface for dodeca Vite manager
 //!
 //! Manages Vite dev server and production builds.
 

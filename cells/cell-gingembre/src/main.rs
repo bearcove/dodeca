@@ -1,8 +1,8 @@
 //! Template rendering cell using gingembre.
 //!
-//! This cell handles template rendering with bidirectional RPC:
-//! - Receives render requests from the host
-//! - Calls back to host for template loading, data resolution, and function calls
+//! This processor handles template rendering with typed host callbacks:
+//! - Receives render requests from Dodeca
+//! - Calls back for template loading, data resolution, and function calls
 
 use cell_gingembre_proto::{
     CallFunctionResult, ContextId, ErrorLocation, EvalResult, KeysAtResult, LoadTemplateResult,
@@ -63,7 +63,7 @@ where
 }
 
 // ============================================================================
-// RPC-backed DataResolver
+// Callback-backed DataResolver
 // ============================================================================
 
 /// Data resolver that calls back through a host adapter.
@@ -110,11 +110,11 @@ where
 }
 
 // ============================================================================
-// RPC-backed function caller
+// Callback-backed function caller
 // ============================================================================
 
-/// Creates a function that calls back to the host via RPC.
-fn make_rpc_function(
+/// Creates a function that calls back through the typed host trait.
+fn make_callback_function(
     host: impl TemplateHost + Clone + Send + Sync + 'static,
     context_id: ContextId,
     name: String,
@@ -225,7 +225,7 @@ impl<H> TemplateRendererImpl<H> {
         // Set the data resolver for lazy data loading
         ctx.set_data_resolver(resolver);
 
-        // Register RPC-backed functions
+        // Register callback-backed functions.
         // These are the standard functions that templates expect
         let function_names = [
             "get_url",
@@ -239,10 +239,10 @@ impl<H> TemplateRendererImpl<H> {
         tracing::debug!(
             num_functions = function_names.len(),
             ?function_names,
-            "registering RPC-backed functions"
+            "registering callback-backed functions"
         );
         for name in function_names {
-            let func = make_rpc_function(host.clone(), context_id, name.to_string());
+            let func = make_callback_function(host.clone(), context_id, name.to_string());
             ctx.register_fn(name, func);
         }
 

@@ -1,4 +1,4 @@
-//! RPC protocol for dodeca fonts cell
+//! Typed interface for dodeca fonts processor
 //!
 //! Defines services for font subsetting and compression.
 
@@ -25,9 +25,9 @@ pub enum FontResult {
     Error { message: String },
 }
 
-/// Font processing service implemented by the cell.
+/// Font processor interface.
 ///
-/// The host calls these methods to process fonts.
+/// Dodeca calls these methods to process fonts.
 #[allow(async_fn_in_trait)]
 pub trait FontProcessor {
     /// Decompress a WOFF2/WOFF font to TTF

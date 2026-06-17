@@ -1,4 +1,4 @@
-//! RPC protocol for dodeca minify cell
+//! Typed interface for dodeca minify processor
 //!
 //! Defines services for HTML minification.
 
@@ -14,9 +14,9 @@ pub enum MinifyResult {
     Error { message: String },
 }
 
-/// Minification service implemented by the cell.
+/// Minifier interface.
 ///
-/// The host calls these methods to minify content.
+/// Dodeca calls these methods to minify content.
 #[allow(async_fn_in_trait)]
 pub trait Minifier {
     /// Minify HTML content

@@ -1,4 +1,4 @@
-//! RPC protocol for dodeca term cell
+//! Typed interface for dodeca terminal recorder
 //!
 //! Defines services for terminal session recording with ANSI color support.
 
@@ -25,7 +25,7 @@ pub enum TermResult {
     Error { message: String },
 }
 
-/// Terminal recording service implemented by the cell.
+/// Terminal recorder interface.
 #[allow(async_fn_in_trait)]
 pub trait TermRecorder {
     /// Record a terminal session interactively.

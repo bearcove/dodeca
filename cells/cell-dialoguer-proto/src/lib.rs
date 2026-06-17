@@ -1,6 +1,6 @@
-//! Protocol definitions for dodeca dialoguer cell
+//! Typed interface definitions for dodeca dialoguer processor
 //!
-//! This cell provides interactive terminal prompts (select, confirm, input).
+//! This processor provides interactive terminal prompts (select, confirm, input).
 
 use facet::Facet;
 

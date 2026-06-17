@@ -4,7 +4,7 @@
 
 use facet::Facet;
 
-// Re-export types from dodeca-protocol that are used in the RPC interface
+// Re-export types from dodeca-protocol that are used by the devtools interface.
 pub use dodeca_protocol::{EvalResult, ScopeEntry, ScopeValue};
 
 /// Content returned by the host for a given path

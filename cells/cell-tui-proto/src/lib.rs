@@ -1,4 +1,4 @@
-//! Protocol definitions for the dodeca TUI display.
+//! Typed interface definitions for the dodeca TUI display.
 //!
 //! Shared update and command shapes between the host and the local TUI display.
 
@@ -301,7 +301,7 @@ pub enum CommandResult {
 
 /// Service hosted by the local TUI display for the host to push updates.
 ///
-/// The host calls these methods to update the TUI display.
+/// Dodeca calls these methods to update the TUI display.
 #[allow(async_fn_in_trait)]
 pub trait TuiDisplay {
     /// Host pushes a progress update.

@@ -1,4 +1,4 @@
-//! RPC protocol for dodeca WebP cell
+//! Typed interface for dodeca WebP processor
 //!
 //! Defines services for WebP encoding and decoding.
 
@@ -30,9 +30,9 @@ pub enum WebPResult {
     Error { message: String },
 }
 
-/// WebP processing service implemented by the cell.
+/// WebP processor interface.
 ///
-/// The host calls these methods to process WebP images.
+/// Dodeca calls these methods to process WebP images.
 #[allow(async_fn_in_trait)]
 pub trait WebPProcessor {
     /// Decode WebP to RGBA/RGB pixels

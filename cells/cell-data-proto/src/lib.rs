@@ -1,4 +1,4 @@
-//! RPC protocol for dodeca data cell
+//! Typed interface for dodeca data processor
 //!
 //! Defines services for loading and parsing data files (JSON, TOML, YAML).
 
@@ -37,9 +37,9 @@ pub enum LoadDataResult {
     Error { message: String },
 }
 
-/// Data loading service implemented by the cell.
+/// Data loader interface.
 ///
-/// The host calls these methods to load and parse data files.
+/// Dodeca calls these methods to load and parse data files.
 #[allow(async_fn_in_trait)]
 pub trait DataLoader {
     /// Load and parse a data file

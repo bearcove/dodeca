@@ -1,4 +1,4 @@
-//! RPC protocol for dodeca JS cell
+//! Typed interface for dodeca JS processor
 //!
 //! Defines services for JavaScript string literal rewriting.
 
@@ -14,9 +14,9 @@ pub struct JsRewriteInput {
     pub path_map: HashMap<String, String>,
 }
 
-/// JS processing service implemented by the cell.
+/// JS processor interface.
 ///
-/// The host calls these methods to process JavaScript content.
+/// Dodeca calls these methods to process JavaScript content.
 #[allow(async_fn_in_trait)]
 pub trait JsProcessor {
     /// Rewrite string literals in JavaScript that contain asset paths

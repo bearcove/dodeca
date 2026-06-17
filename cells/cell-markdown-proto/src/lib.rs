@@ -1,6 +1,6 @@
-//! RPC protocol for dodeca markdown processing cell
+//! Typed interface for dodeca markdown processor
 //!
-//! This cell uses marq for:
+//! This processor uses marq for:
 //! - Markdown to HTML conversion with syntax highlighting
 //! - Frontmatter parsing (TOML/YAML)
 //! - Heading extraction
@@ -208,12 +208,12 @@ pub enum ParseResult {
 }
 
 // ============================================================================
-// Cell service (host calls these)
+// Processor interface
 // ============================================================================
 
-/// Markdown processing service implemented by the CELL.
+/// Markdown processing interface.
 ///
-/// The host calls these methods to process markdown content.
+/// Dodeca calls these methods to process markdown content.
 #[allow(async_fn_in_trait)]
 pub trait MarkdownProcessor {
     /// Parse frontmatter from content.
