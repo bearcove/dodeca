@@ -84,6 +84,12 @@ impl HtmlProcessorImpl<NoopHtmlCallbacks> {
     }
 }
 
+impl Default for HtmlProcessorImpl<NoopHtmlCallbacks> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<C> HtmlProcessorImpl<C> {
     pub fn with_callbacks(callbacks: C) -> Self {
         Self { callbacks }

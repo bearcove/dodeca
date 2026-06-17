@@ -105,6 +105,12 @@ impl MarkdownProcessorImpl {
     }
 }
 
+impl Default for MarkdownProcessorImpl {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 fn render_options(source_path: &str, source_map: bool) -> RenderOptions {
     RenderOptions::new()
         .with_handler(&["aa", "aasvg"], AasvgHandler::new())

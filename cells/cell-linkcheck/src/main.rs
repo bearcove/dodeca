@@ -39,7 +39,15 @@ impl LinkCheckerImpl {
 
         Self { client }
     }
+}
 
+impl Default for LinkCheckerImpl {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl LinkCheckerImpl {
     /// Extract domain from URL for rate limiting
     fn get_domain(url: &str) -> Option<String> {
         Url::parse(url)

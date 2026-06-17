@@ -774,7 +774,7 @@ impl TestSite {
             state.setup_duration = Some(setup_elapsed);
         }
 
-        let site = Self {
+        Self {
             child,
             port,
             fixture_dir,
@@ -783,9 +783,7 @@ impl TestSite {
             #[cfg(unix)]
             _unix_socket_dir: unix_socket_dir,
             test_id,
-        };
-
-        site
+        }
     }
 
     /// Clear captured logs for this test

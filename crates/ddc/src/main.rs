@@ -3348,7 +3348,7 @@ async fn serve_with_tui(
         while let Ok(event) = event_rx.recv() {
             let client = tui_client_events.clone();
             let proto_event = tui_host::convert_log_event(&event);
-            let _ = rt_handle.block_on(async move { client.push_event(proto_event).await });
+            rt_handle.block_on(async move { client.push_event(proto_event).await });
         }
     });
 

@@ -4456,7 +4456,6 @@ dependencies = [
  "owo-colors",
  "regex",
  "reqwest",
- "serde_json",
  "tempfile",
  "tokio",
  "tower-lsp",

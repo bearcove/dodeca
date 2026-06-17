@@ -77,7 +77,7 @@ impl CiPlatform {
     }
 
     /// The pinned stable toolchain version to use.
-    pub const RUST_TOOLCHAIN: &'static str = "1.92.0";
+    pub const RUST_TOOLCHAIN: &'static str = "1.95";
 
     /// Get the local cache action for this platform (for self-hosted runners).
     pub fn local_cache_action(&self) -> &'static str {
@@ -1055,7 +1055,6 @@ fn ci_linux_runner(platform: CiPlatform) -> CiRunner {
 ///
 /// Strategy:
 /// - Fan-out: Build ddc for each target platform
-/// - Fan-in: Assemble archives after integration
 /// - Integration: Run integration tests
 /// - Release: On tags, publish release (GitHub only)
 pub fn build_ci_workflow(platform: CiPlatform, _repo_root: &Utf8Path) -> Workflow {
@@ -1066,7 +1065,7 @@ pub fn build_ci_workflow(platform: CiPlatform, _repo_root: &Utf8Path) -> Workflo
 
     let mut jobs = IndexMap::new();
 
-    // Track jobs required before release (assemble + integration per target)
+    // Track jobs required before release.
     let mut all_release_needs: Vec<String> = Vec::new();
 
     // Verify generated CI files are up to date (no dependencies, runs in parallel with everything)
@@ -1214,9 +1213,21 @@ pub fn build_ci_workflow(platform: CiPlatform, _repo_root: &Utf8Path) -> Workflo
                             ("path", "crates/dodeca-search-wasm/pkg".into()),
                         ]),
                     Step::run("Build ddc", BUILD_DDC_COMMAND).shell("bash"),
-                    // Integration tests run in the integration phase after ddc is assembled.
                     Step::run("Test ddc", TEST_DDC_COMMAND).shell("bash"),
                     upload_artifact(platform, format!("ddc-{short}"), "target/release/ddc"),
+                    Step::run(
+                        "Install xz (macOS)",
+                        "if ! command -v xz >/dev/null 2>&1 && command -v brew >/dev/null 2>&1; then HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 brew install xz; fi",
+                    ),
+                    Step::run(
+                        "Assemble archive",
+                        format!("bash scripts/assemble-archive.sh {}", target.triple),
+                    ),
+                    upload_artifact(
+                        platform,
+                        format!("build-{short}"),
+                        format!("dodeca-{}.{}", target.triple, target.archive_ext),
+                    ),
                 ]),
         );
 
@@ -1278,6 +1289,7 @@ pub fn build_ci_workflow(platform: CiPlatform, _repo_root: &Utf8Path) -> Workflo
                     ]),
                 ]),
         );
+        all_release_needs.push(integration_job_id.clone());
 
         // Browser tests (Linux only) - tests livereload and DOM patching in real browser
         if target.triple == "x86_64-unknown-linux-gnu" {
@@ -1318,45 +1330,6 @@ pub fn build_ci_workflow(platform: CiPlatform, _repo_root: &Utf8Path) -> Workflo
                     ]),
             );
         }
-
-        // Assembly job: runs after integration, downloads all artifacts and creates archive
-        let assemble_job_id = format!("assemble-{short}");
-        let assemble_needs = vec![integration_job_id.clone(), wasm_job_id.clone()];
-
-        jobs.insert(
-            assemble_job_id.clone(),
-            Job::with_runner(target.runs_on())
-                .name(format!("Assemble ({short})"))
-                .timeout(30)
-                .needs(assemble_needs)
-                .steps([
-                    checkout(platform),
-                    // Download ddc binary
-                    Step::uses("Download ddc", platform.download_artifact_action()).with_inputs([
-                        ("name", format!("ddc-{short}")),
-                        ("path", "target/release".into()),
-                    ]),
-                    Step::uses("Download WASM", platform.download_artifact_action()).with_inputs([
-                        ("name", devtools_wasm_artifact.clone()),
-                        ("path", "crates/dodeca-devtools/pkg".into()),
-                    ]),
-                    Step::run(
-                        "Install xz (macOS)",
-                        "if ! command -v xz >/dev/null 2>&1 && command -v brew >/dev/null 2>&1; then HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 brew install xz; fi",
-                    ),
-                    Step::run("List binaries", "ls -la target/release/"),
-                    Step::run(
-                        "Assemble archive",
-                        format!("bash scripts/assemble-archive.sh {}", target.triple),
-                    ),
-                    upload_artifact(
-                        platform,
-                        format!("build-{short}"),
-                        format!("dodeca-{}.{}", target.triple, target.archive_ext),
-                    ),
-                ]),
-        );
-        all_release_needs.push(assemble_job_id.clone());
     }
 
     // Release job (GitHub only - Forgejo uses build_forgejo_workflow)

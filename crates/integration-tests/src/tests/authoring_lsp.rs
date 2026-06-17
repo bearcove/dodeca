@@ -1,6 +1,6 @@
 use super::*;
 use camino::{Utf8Path, Utf8PathBuf};
-use serde_json::{Value, json};
+use facet_value::{Value, value};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, ChildStdin, Stdio};
 use std::sync::{Arc, Mutex, mpsc};
@@ -144,11 +144,11 @@ impl LspClient {
         let root_uri = file_uri(root_dir).to_string();
         let result = self.request(
             "initialize",
-            json!({
+            value!({
                 "processId": null,
-                "rootUri": root_uri,
+                "rootUri": (root_uri.clone()),
                 "workspaceFolders": [{
-                    "uri": root_uri,
+                    "uri": (root_uri),
                     "name": "dodeca-lsp-integration",
                 }],
                 "capabilities": {
@@ -168,23 +168,23 @@ impl LspClient {
         assert_eq!(
             result
                 .pointer("/serverInfo/name")
-                .and_then(Value::as_str)
+                .and_then(LspJsonValue::as_str)
                 .unwrap_or(""),
             "dodeca-authoring"
         );
-        self.notify("initialized", json!({}));
+        self.notify("initialized", value!({}));
     }
 
     fn list_pages(&mut self) -> Value {
-        self.execute_command(LIST_PAGES_COMMAND, json!([]))
+        self.execute_command(LIST_PAGES_COMMAND, value!([]))
     }
 
     fn execute_command(&mut self, command: &str, arguments: Value) -> Value {
         self.request(
             "workspace/executeCommand",
-            json!({
-                "command": command,
-                "arguments": arguments,
+            value!({
+                "command": (command),
+                "arguments": (arguments),
             }),
         )
     }
@@ -192,25 +192,25 @@ impl LspClient {
     fn request(&mut self, method: &str, params: Value) -> Value {
         let id = self.next_id;
         self.next_id += 1;
-        self.send(json!({
+        self.send(value!({
             "jsonrpc": "2.0",
-            "id": id,
-            "method": method,
-            "params": params,
+            "id": (id),
+            "method": (method),
+            "params": (params),
         }));
         self.wait_for_response(id)
     }
 
     fn notify(&mut self, method: &str, params: Value) {
-        self.send(json!({
+        self.send(value!({
             "jsonrpc": "2.0",
-            "method": method,
-            "params": params,
+            "method": (method),
+            "params": (params),
         }));
     }
 
     fn send(&self, message: Value) {
-        let body = serde_json::to_vec(&message).expect("serialize lsp message");
+        let body = facet_json::to_vec(&message).expect("serialize lsp message");
         let mut stdin = self.stdin.lock().unwrap();
         write!(stdin, "Content-Length: {}\r\n\r\n", body.len()).expect("write lsp header");
         stdin.write_all(&body).expect("write lsp body");
@@ -226,16 +226,16 @@ impl LspClient {
             if self.capture_log_message(&message) {
                 continue;
             }
-            if message.get("id").and_then(Value::as_u64) == Some(id) {
+            if message.get("id").and_then(LspJsonValue::as_u64) == Some(id) {
                 if let Some(error) = message.get("error") {
                     self.drain_pending_logs();
                     let stderr = self.stderr.lock().unwrap().clone();
                     panic!(
-                        "LSP request {id} failed: {error:#}\nserver logs: {:#?}\nstderr:\n{stderr}",
+                        "LSP request {id} failed: {error:#?}\nserver logs: {:#?}\nstderr:\n{stderr}",
                         self.logs
                     );
                 }
-                return message.get("result").cloned().unwrap_or(Value::Null);
+                return message.get("result").cloned().unwrap_or(Value::NULL);
             }
         }
     }
@@ -252,8 +252,8 @@ impl LspClient {
             if self.capture_log_message(&message) {
                 continue;
             }
-            if message.get("method").and_then(Value::as_str) == Some(method) {
-                let params = message.get("params").cloned().unwrap_or(Value::Null);
+            if message.get("method").and_then(LspJsonValue::as_str) == Some(method) {
+                let params = message.get("params").cloned().unwrap_or(Value::NULL);
                 if predicate(&params) {
                     return params;
                 }
@@ -277,9 +277,9 @@ impl LspClient {
         if message.get("method").is_none() {
             return false;
         }
-        self.send(json!({
+        self.send(value!({
             "jsonrpc": "2.0",
-            "id": id,
+            "id": (id),
             "result": null,
         }));
         true
@@ -295,12 +295,12 @@ impl LspClient {
     }
 
     fn capture_log_message(&mut self, message: &Value) -> bool {
-        if message.get("method").and_then(Value::as_str) != Some("window/logMessage") {
+        if message.get("method").and_then(LspJsonValue::as_str) != Some("window/logMessage") {
             return false;
         }
         if let Some(text) = message
             .pointer("/params/message")
-            .and_then(Value::as_str)
+            .and_then(LspJsonValue::as_str)
             .map(str::to_string)
         {
             self.logs.push(text);
@@ -314,14 +314,14 @@ impl Drop for LspClient {
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let id = self.next_id;
             self.next_id += 1;
-            self.send(json!({
+            self.send(value!({
                 "jsonrpc": "2.0",
-                "id": id,
+                "id": (id),
                 "method": "shutdown",
                 "params": null,
             }));
             let _ = self.wait_for_response(id);
-            self.notify("exit", Value::Null);
+            self.notify("exit", Value::NULL);
         }));
         let _ = self.child.kill();
         let _ = self.child.wait();
@@ -348,11 +348,41 @@ fn read_lsp_message<R: Read>(reader: &mut BufReader<R>) -> Option<Value> {
     let len = content_length.expect("lsp message content length");
     let mut body = vec![0; len];
     reader.read_exact(&mut body).ok()?;
-    Some(serde_json::from_slice(&body).expect("parse lsp message"))
+    Some(facet_json::from_slice(&body).expect("parse lsp message"))
 }
 
 fn file_uri(path: &Utf8Path) -> Url {
     Url::from_file_path(path.as_std_path()).expect("file uri")
+}
+
+trait LspJsonValue {
+    fn get(&self, key: &str) -> Option<&Value>;
+    fn pointer(&self, pointer: &str) -> Option<&Value>;
+    fn as_str(&self) -> Option<&str>;
+    fn as_u64(&self) -> Option<u64>;
+}
+
+impl LspJsonValue for Value {
+    fn get(&self, key: &str) -> Option<&Value> {
+        self.as_object()?.get(key)
+    }
+
+    fn pointer(&self, pointer: &str) -> Option<&Value> {
+        pointer
+            .strip_prefix('/')
+            .unwrap_or(pointer)
+            .split('/')
+            .filter(|segment| !segment.is_empty())
+            .try_fold(self, |value, segment| value.get(segment))
+    }
+
+    fn as_str(&self) -> Option<&str> {
+        self.as_string().map(|string| string.as_str())
+    }
+
+    fn as_u64(&self) -> Option<u64> {
+        self.as_number()?.to_u64()
+    }
 }
 
 fn page_routes(pages: &Value) -> Vec<String> {
@@ -360,7 +390,7 @@ fn page_routes(pages: &Value) -> Vec<String> {
         .as_array()
         .expect("pages array")
         .iter()
-        .filter_map(|page| page.get("route").and_then(Value::as_str))
+        .filter_map(|page| page.get("route").and_then(LspJsonValue::as_str))
         .map(str::to_string)
         .collect()
 }
@@ -383,9 +413,9 @@ pub async fn lsp_uses_open_document_overlays() {
 
     client.notify(
         "textDocument/didOpen",
-        json!({
+        value!({
             "textDocument": {
-                "uri": uri,
+                "uri": (uri.as_str()),
                 "languageId": "markdown",
                 "version": 1,
                 "text": "+++\ntitle = \"Draft\"\n+++\n\n# Draft\n",
@@ -410,9 +440,9 @@ pub async fn lsp_reports_diagnostics_and_code_actions_over_stdio() {
 
     client.notify(
         "textDocument/didOpen",
-        json!({
+        value!({
             "textDocument": {
-                "uri": uri,
+                "uri": (uri.as_str()),
                 "languageId": "markdown",
                 "version": 1,
                 "text": "# Broken\n\nSee [missing](/missing).\n",
@@ -421,7 +451,7 @@ pub async fn lsp_reports_diagnostics_and_code_actions_over_stdio() {
     );
 
     let diagnostics = client.wait_for_notification("textDocument/publishDiagnostics", |params| {
-        params.get("uri").and_then(Value::as_str) == Some(uri.as_str())
+        params.get("uri").and_then(LspJsonValue::as_str) == Some(uri.as_str())
             && params
                 .get("diagnostics")
                 .and_then(Value::as_array)
@@ -432,7 +462,7 @@ pub async fn lsp_reports_diagnostics_and_code_actions_over_stdio() {
         .and_then(Value::as_array)
         .expect("diagnostics array")
         .iter()
-        .filter_map(|diagnostic| diagnostic.get("message").and_then(Value::as_str))
+        .filter_map(|diagnostic| diagnostic.get("message").and_then(LspJsonValue::as_str))
         .collect::<Vec<_>>();
     assert!(
         messages.iter().any(|message| message.contains("/missing")),
@@ -441,8 +471,8 @@ pub async fn lsp_reports_diagnostics_and_code_actions_over_stdio() {
 
     let actions = client.request(
         "textDocument/codeAction",
-        json!({
-            "textDocument": { "uri": uri },
+        value!({
+            "textDocument": { "uri": (uri.as_str()) },
             "range": {
                 "start": { "line": 0, "character": 0 },
                 "end": { "line": 0, "character": 0 },
@@ -455,10 +485,10 @@ pub async fn lsp_reports_diagnostics_and_code_actions_over_stdio() {
         .as_array()
         .expect("code action array")
         .iter()
-        .filter_map(|action| action.get("title").and_then(Value::as_str))
+        .filter_map(|action| action.get("title").and_then(LspJsonValue::as_str))
         .collect::<Vec<_>>();
     assert!(
-        titles.iter().any(|title| *title == "Create frontmatter"),
+        titles.contains(&"Create frontmatter"),
         "expected Create frontmatter action, got {titles:?}"
     );
 }
@@ -474,9 +504,9 @@ pub async fn lsp_updates_workspace_from_watched_file_changes() {
 
     client.notify(
         "workspace/didChangeWatchedFiles",
-        json!({
+        value!({
             "changes": [{
-                "uri": uri,
+                "uri": (uri.as_str()),
                 "type": 1,
             }],
         }),
