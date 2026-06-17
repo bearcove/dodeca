@@ -5,10 +5,10 @@
 use base64::Engine;
 use image::{DynamicImage, ImageEncoder, Rgb, Rgba};
 
-use cell_image_proto::{
-    DecodedImage, ImageProcessor, ImageProcessorDispatcher, ImageResult, ResizeInput,
-    ThumbhashInput,
-};
+use cell_image_proto::{DecodedImage, ImageProcessor, ImageResult, ResizeInput, ThumbhashInput};
+
+#[cfg(feature = "dynamic-cell")]
+use cell_image_proto::ImageProcessorDispatcher;
 
 /// Image processor implementation
 #[derive(Clone)]
@@ -169,6 +169,7 @@ fn pixels_to_dynamic_image(
     }
 }
 
-dodeca_cell_runtime::declare_cell!("image", |_host| ImageProcessorDispatcher::new(
-    ImageProcessorImpl
-));
+#[cfg(feature = "dynamic-cell")]
+dodeca_cell_runtime::declare_cell!("image", |_host| {
+    ImageProcessorDispatcher::new(ImageProcessorImpl)
+});

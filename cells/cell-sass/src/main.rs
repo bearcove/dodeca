@@ -5,7 +5,10 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use cell_sass_proto::{SassCompiler, SassCompilerDispatcher, SassResult};
+use cell_sass_proto::{SassCompiler, SassResult};
+
+#[cfg(feature = "dynamic-cell")]
+use cell_sass_proto::SassCompilerDispatcher;
 
 /// SASS compiler implementation
 #[derive(Clone)]
@@ -79,6 +82,7 @@ impl grass::Fs for InMemorySassFs {
     }
 }
 
-dodeca_cell_runtime::declare_cell!("sass", |_host| SassCompilerDispatcher::new(
-    SassCompilerImpl
-));
+#[cfg(feature = "dynamic-cell")]
+dodeca_cell_runtime::declare_cell!("sass", |_host| {
+    SassCompilerDispatcher::new(SassCompilerImpl)
+});

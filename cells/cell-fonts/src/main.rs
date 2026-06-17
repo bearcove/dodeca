@@ -7,7 +7,10 @@ use std::collections::HashSet;
 
 use tokio::task::spawn_blocking;
 
-use cell_fonts_proto::{FontProcessor, FontProcessorDispatcher, FontResult, SubsetFontInput};
+use cell_fonts_proto::{FontProcessor, FontResult, SubsetFontInput};
+
+#[cfg(feature = "dynamic-cell")]
+use cell_fonts_proto::FontProcessorDispatcher;
 
 /// Font processor implementation
 #[derive(Clone)]
@@ -58,6 +61,7 @@ impl FontProcessor for FontProcessorImpl {
     }
 }
 
-dodeca_cell_runtime::declare_cell!("fonts", |_host| FontProcessorDispatcher::new(
-    FontProcessorImpl
-));
+#[cfg(feature = "dynamic-cell")]
+dodeca_cell_runtime::declare_cell!("fonts", |_host| {
+    FontProcessorDispatcher::new(FontProcessorImpl)
+});

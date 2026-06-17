@@ -14,10 +14,10 @@
 use cell_code_execution_proto::{
     CodeExecutionResult, CodeExecutorClient, ExecuteSamplesInput, ExtractSamplesInput,
 };
-use cell_css_proto::{CssProcessorClient, CssResult};
+use cell_css_proto::{CssProcessor, CssProcessorClient, CssResult};
 use cell_data_proto::{DataFormat, DataLoader, DataLoaderClient, LoadDataResult};
 use cell_dialoguer_proto::DialoguerClient;
-use cell_fonts_proto::{FontProcessorClient, FontResult, SubsetFontInput};
+use cell_fonts_proto::{FontProcessor, FontProcessorClient, FontResult, SubsetFontInput};
 use cell_gingembre_proto::{ContextId, RenderResult, TemplateRendererClient};
 use cell_host_proto::{
     CallFunctionResult, CommandResult, HostService, KeysAtResult, LoadTemplateResult, ReadyAck,
@@ -26,19 +26,21 @@ use cell_host_proto::{
 use cell_html_diff_proto::HtmlDifferClient;
 use cell_html_proto::HtmlProcessorClient;
 use cell_http_proto::{ScopeEntry, TcpTunnelClient};
-use cell_image_proto::{ImageProcessorClient, ImageResult, ResizeInput, ThumbhashInput};
-use cell_js_proto::{JsProcessorClient, JsRewriteInput};
-use cell_jxl_proto::{JXLEncodeInput, JXLProcessorClient, JXLResult};
+use cell_image_proto::{
+    ImageProcessor, ImageProcessorClient, ImageResult, ResizeInput, ThumbhashInput,
+};
+use cell_js_proto::{JsProcessor, JsProcessorClient, JsRewriteInput};
+use cell_jxl_proto::{JXLEncodeInput, JXLProcessor, JXLProcessorClient, JXLResult};
 use cell_lifecycle_proto::CellLifecycle;
 use cell_linkcheck_proto::{LinkCheckInput, LinkCheckResult, LinkCheckerClient, LinkStatus};
 use cell_markdown_proto::MarkdownProcessorClient;
-use cell_sass_proto::{SassCompilerClient, SassResult};
+use cell_sass_proto::{SassCompiler, SassCompilerClient, SassResult};
 use cell_search_proto::{SearchFile, SearchIndexResult, SearchIndexerClient, SearchPage};
 use cell_svgo_proto::{SvgoOptimizer, SvgoOptimizerClient, SvgoResult};
 use cell_term_proto::{RecordConfig, TermRecorderClient, TermResult};
 use cell_tui_proto::TuiDisplayClient;
 use cell_vite_proto::ViteManagerClient;
-use cell_webp_proto::{WebPEncodeInput, WebPProcessorClient, WebPResult};
+use cell_webp_proto::{WebPEncodeInput, WebPProcessor, WebPProcessorClient, WebPResult};
 use dashmap::DashMap;
 use facet::Facet;
 
@@ -529,13 +531,7 @@ pub async fn optimize_svg(svg: String) -> Result<SvgoResult, eyre::Error> {
 }
 
 pub async fn subset_font(input: SubsetFontInput) -> Result<FontResult, eyre::Error> {
-    let client = font_cell()
-        .await
-        .ok_or_else(|| eyre::eyre!("Font cell not available"))?;
-    client
-        .subset_font(input)
-        .await
-        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
+    Ok(ddc_cell_fonts::FontProcessorImpl.subset_font(input).await)
 }
 
 /// Build the full-text search index from rendered pages via the search cell.
@@ -829,51 +825,45 @@ pub async fn rewrite_string_literals_in_js_cell(
     js: String,
     path_map: HashMap<String, String>,
 ) -> Result<String, eyre::Error> {
-    let client = js_cell()
-        .await
-        .ok_or_else(|| eyre::eyre!("JS cell not available"))?;
     let input = JsRewriteInput { js, path_map };
-    client
+    ddc_cell_js::JsProcessorImpl
         .rewrite_string_literals(input)
         .await
-        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
+        .map_err(|e| eyre::eyre!("JS rewrite error: {e}"))
 }
 
 pub async fn rewrite_urls_in_css_cell(
     css: String,
     path_map: HashMap<String, String>,
 ) -> Result<String, eyre::Error> {
-    let client = css_cell()
+    match ddc_cell_css::CssProcessorImpl
+        .rewrite_and_minify(css, path_map)
         .await
-        .ok_or_else(|| eyre::eyre!("CSS cell not available"))?;
-    match client.rewrite_and_minify(css, path_map).await {
-        Ok(CssResult::Success { css }) => Ok(css),
-        Ok(CssResult::Error { message }) => Err(eyre::eyre!(message)),
-        Err(e) => Err(eyre::eyre!("RPC error: {:?}", e)),
+    {
+        CssResult::Success { css } => Ok(css),
+        CssResult::Error { message } => Err(eyre::eyre!(message)),
     }
 }
 
 pub async fn decompress_font_cell(data: Vec<u8>) -> Result<Vec<u8>, eyre::Error> {
-    let client = font_cell()
+    match ddc_cell_fonts::FontProcessorImpl
+        .decompress_font(data)
         .await
-        .ok_or_else(|| eyre::eyre!("Font cell not available"))?;
-    match client.decompress_font(data).await {
-        Ok(FontResult::DecompressSuccess { data }) => Ok(data),
-        Ok(FontResult::Error { message }) => Err(eyre::eyre!(message)),
-        Ok(other) => Err(eyre::eyre!("Unexpected result: {:?}", other)),
-        Err(e) => Err(eyre::eyre!("RPC error: {:?}", e)),
+    {
+        FontResult::DecompressSuccess { data } => Ok(data),
+        FontResult::Error { message } => Err(eyre::eyre!(message)),
+        other => Err(eyre::eyre!("Unexpected result: {:?}", other)),
     }
 }
 
 pub async fn compress_to_woff2_cell(data: Vec<u8>) -> Result<Vec<u8>, eyre::Error> {
-    let client = font_cell()
+    match ddc_cell_fonts::FontProcessorImpl
+        .compress_to_woff2(data)
         .await
-        .ok_or_else(|| eyre::eyre!("Font cell not available"))?;
-    match client.compress_to_woff2(data).await {
-        Ok(FontResult::CompressSuccess { data }) => Ok(data),
-        Ok(FontResult::Error { message }) => Err(eyre::eyre!(message)),
-        Ok(other) => Err(eyre::eyre!("Unexpected result: {:?}", other)),
-        Err(e) => Err(eyre::eyre!("RPC error: {:?}", e)),
+    {
+        FontResult::CompressSuccess { data } => Ok(data),
+        FontResult::Error { message } => Err(eyre::eyre!(message)),
+        other => Err(eyre::eyre!("Unexpected result: {:?}", other)),
     }
 }
 
@@ -884,102 +874,92 @@ pub async fn subset_font_cell(input: SubsetFontInput) -> Result<FontResult, eyre
 // Image decoding/encoding cell wrappers
 // These return Option to match what image.rs expects
 pub async fn decode_png_cell(data: &[u8]) -> Option<DecodedImage> {
-    let client = image_cell().await?;
-    match client.decode_png(data.to_vec()).await {
-        Ok(ImageResult::Success { image }) => Some(image),
-        Ok(ImageResult::Error { message }) => {
+    match ddc_cell_image::ImageProcessorImpl
+        .decode_png(data.to_vec())
+        .await
+    {
+        ImageResult::Success { image } => Some(image),
+        ImageResult::Error { message } => {
             tracing::warn!("PNG decode error: {}", message);
             None
         }
-        Ok(_) => None,
-        Err(e) => {
-            tracing::warn!("PNG decode RPC error: {:?}", e);
-            None
-        }
+        _ => None,
     }
 }
 
 pub async fn decode_jpeg_cell(data: &[u8]) -> Option<DecodedImage> {
-    let client = image_cell().await?;
-    match client.decode_jpeg(data.to_vec()).await {
-        Ok(ImageResult::Success { image }) => Some(image),
-        Ok(ImageResult::Error { message }) => {
+    match ddc_cell_image::ImageProcessorImpl
+        .decode_jpeg(data.to_vec())
+        .await
+    {
+        ImageResult::Success { image } => Some(image),
+        ImageResult::Error { message } => {
             tracing::warn!("JPEG decode error: {}", message);
             None
         }
-        Ok(_) => None,
-        Err(e) => {
-            tracing::warn!("JPEG decode RPC error: {:?}", e);
-            None
-        }
+        _ => None,
     }
 }
 
 pub async fn decode_gif_cell(data: &[u8]) -> Option<DecodedImage> {
-    let client = image_cell().await?;
-    match client.decode_gif(data.to_vec()).await {
-        Ok(ImageResult::Success { image }) => Some(image),
-        Ok(ImageResult::Error { message }) => {
+    match ddc_cell_image::ImageProcessorImpl
+        .decode_gif(data.to_vec())
+        .await
+    {
+        ImageResult::Success { image } => Some(image),
+        ImageResult::Error { message } => {
             tracing::warn!("GIF decode error: {}", message);
             None
         }
-        Ok(_) => None,
-        Err(e) => {
-            tracing::warn!("GIF decode RPC error: {:?}", e);
-            None
-        }
+        _ => None,
     }
 }
 
 pub async fn decode_webp_cell(data: &[u8]) -> Option<DecodedImage> {
-    let client = webp_cell().await?;
-    match client.decode_webp(data.to_vec()).await {
-        Ok(WebPResult::DecodeSuccess {
+    match ddc_cell_webp::WebPProcessorImpl
+        .decode_webp(data.to_vec())
+        .await
+    {
+        WebPResult::DecodeSuccess {
             pixels,
             width,
             height,
             channels,
-        }) => Some(DecodedImage {
+        } => Some(DecodedImage {
             pixels,
             width,
             height,
             channels,
         }),
-        Ok(WebPResult::Error { message }) => {
+        WebPResult::Error { message } => {
             tracing::warn!("WebP decode error: {}", message);
             None
         }
-        Ok(_) => None,
-        Err(e) => {
-            tracing::warn!("WebP decode RPC error: {:?}", e);
-            None
-        }
+        _ => None,
     }
 }
 
 pub async fn decode_jxl_cell(data: &[u8]) -> Option<DecodedImage> {
-    let client = jxl_cell().await?;
-    match client.decode_jxl(data.to_vec()).await {
-        Ok(JXLResult::DecodeSuccess {
+    match ddc_cell_jxl::JXLProcessorImpl
+        .decode_jxl(data.to_vec())
+        .await
+    {
+        JXLResult::DecodeSuccess {
             pixels,
             width,
             height,
             channels,
-        }) => Some(DecodedImage {
+        } => Some(DecodedImage {
             pixels,
             width,
             height,
             channels,
         }),
-        Ok(JXLResult::Error { message }) => {
+        JXLResult::Error { message } => {
             tracing::warn!("JXL decode error: {}", message);
             None
         }
-        Ok(_) => None,
-        Err(e) => {
-            tracing::warn!("JXL decode RPC error: {:?}", e);
-            None
-        }
+        _ => None,
     }
 }
 
@@ -990,7 +970,6 @@ pub async fn resize_image_cell(
     channels: u8,
     target_width: u32,
 ) -> Option<DecodedImage> {
-    let client = image_cell().await?;
     let input = ResizeInput {
         pixels: pixels.to_vec(),
         width,
@@ -998,38 +977,32 @@ pub async fn resize_image_cell(
         channels,
         target_width,
     };
-    match client.resize_image(input).await {
-        Ok(ImageResult::Success { image }) => Some(image),
-        Ok(ImageResult::Error { message }) => {
+    match ddc_cell_image::ImageProcessorImpl.resize_image(input).await {
+        ImageResult::Success { image } => Some(image),
+        ImageResult::Error { message } => {
             tracing::warn!("Resize error: {}", message);
             None
         }
-        Ok(_) => None,
-        Err(e) => {
-            tracing::warn!("Resize RPC error: {:?}", e);
-            None
-        }
+        _ => None,
     }
 }
 
 pub async fn generate_thumbhash_cell(pixels: &[u8], width: u32, height: u32) -> Option<String> {
-    let client = image_cell().await?;
     let input = ThumbhashInput {
         pixels: pixels.to_vec(),
         width,
         height,
     };
-    match client.generate_thumbhash_data_url(input).await {
-        Ok(ImageResult::ThumbhashSuccess { data_url }) => Some(data_url),
-        Ok(ImageResult::Error { message }) => {
+    match ddc_cell_image::ImageProcessorImpl
+        .generate_thumbhash_data_url(input)
+        .await
+    {
+        ImageResult::ThumbhashSuccess { data_url } => Some(data_url),
+        ImageResult::Error { message } => {
             tracing::warn!("Thumbhash error: {}", message);
             None
         }
-        Ok(_) => None,
-        Err(e) => {
-            tracing::warn!("Thumbhash RPC error: {:?}", e);
-            None
-        }
+        _ => None,
     }
 }
 
@@ -1039,24 +1012,19 @@ pub async fn encode_webp_cell(
     height: u32,
     quality: u8,
 ) -> Option<Vec<u8>> {
-    let client = webp_cell().await?;
     let input = WebPEncodeInput {
         pixels: pixels.to_vec(),
         width,
         height,
         quality,
     };
-    match client.encode_webp(input).await {
-        Ok(WebPResult::EncodeSuccess { data }) => Some(data),
-        Ok(WebPResult::Error { message }) => {
+    match ddc_cell_webp::WebPProcessorImpl.encode_webp(input).await {
+        WebPResult::EncodeSuccess { data } => Some(data),
+        WebPResult::Error { message } => {
             tracing::warn!("WebP encode error: {}", message);
             None
         }
-        Ok(_) => None,
-        Err(e) => {
-            tracing::warn!("WebP encode RPC error: {:?}", e);
-            None
-        }
+        _ => None,
     }
 }
 
@@ -1066,24 +1034,19 @@ pub async fn encode_jxl_cell(
     height: u32,
     quality: u8,
 ) -> Option<Vec<u8>> {
-    let client = jxl_cell().await?;
     let input = JXLEncodeInput {
         pixels: pixels.to_vec(),
         width,
         height,
         quality,
     };
-    match client.encode_jxl(input).await {
-        Ok(JXLResult::EncodeSuccess { data }) => Some(data),
-        Ok(JXLResult::Error { message }) => {
+    match ddc_cell_jxl::JXLProcessorImpl.encode_jxl(input).await {
+        JXLResult::EncodeSuccess { data } => Some(data),
+        JXLResult::Error { message } => {
             tracing::warn!("JXL encode error: {}", message);
             None
         }
-        Ok(_) => None,
-        Err(e) => {
-            tracing::warn!("JXL encode RPC error: {:?}", e);
-            None
-        }
+        _ => None,
     }
 }
 
@@ -1092,13 +1055,9 @@ pub async fn compile_sass_cell(
     input: &HashMap<String, String>,
     load_paths: &[String],
 ) -> Result<SassResult, eyre::Error> {
-    let client = sass_cell()
-        .await
-        .ok_or_else(|| eyre::eyre!("SASS cell not available"))?;
-    client
+    Ok(ddc_cell_sass::SassCompilerImpl
         .compile_sass("main.scss".to_string(), input.clone(), load_paths.to_vec())
-        .await
-        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
+        .await)
 }
 
 // Markdown error type

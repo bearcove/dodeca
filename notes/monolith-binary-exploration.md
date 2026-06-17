@@ -121,6 +121,9 @@ a time:
    Started with `svgo` and `data`: both crates now expose `rlib` outputs, keep
    their dynamic-cell exports behind a default feature, and are consumed by
    dodeca with that feature disabled.
+   Continued with the main asset processors: `css`, `js`, `sass`, `image`,
+   `webp`, `jxl`, and `fonts` now follow the same pattern and are called
+   directly from the `cells.rs` facade.
 
 2. Replace `crates/dodeca/src/cells.rs` helpers to call direct APIs for the
    pilot modules while preserving the current helper function names. That keeps

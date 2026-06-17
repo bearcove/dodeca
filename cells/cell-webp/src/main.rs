@@ -2,7 +2,10 @@
 //!
 //! This cell handles WebP encoding and decoding.
 
-use cell_webp_proto::{WebPEncodeInput, WebPProcessor, WebPProcessorDispatcher, WebPResult};
+use cell_webp_proto::{WebPEncodeInput, WebPProcessor, WebPResult};
+
+#[cfg(feature = "dynamic-cell")]
+use cell_webp_proto::WebPProcessorDispatcher;
 
 /// WebP processor implementation
 #[derive(Clone)]
@@ -50,6 +53,7 @@ impl WebPProcessor for WebPProcessorImpl {
     }
 }
 
-dodeca_cell_runtime::declare_cell!("webp", |_host| WebPProcessorDispatcher::new(
-    WebPProcessorImpl
-));
+#[cfg(feature = "dynamic-cell")]
+dodeca_cell_runtime::declare_cell!("webp", |_host| {
+    WebPProcessorDispatcher::new(WebPProcessorImpl)
+});

@@ -4,7 +4,10 @@
 
 use jpegxl_rs::encode::EncoderFrame;
 
-use cell_jxl_proto::{JXLEncodeInput, JXLProcessor, JXLProcessorDispatcher, JXLResult};
+use cell_jxl_proto::{JXLEncodeInput, JXLProcessor, JXLResult};
+
+#[cfg(feature = "dynamic-cell")]
+use cell_jxl_proto::JXLProcessorDispatcher;
 
 /// JXL processor implementation
 #[derive(Clone)]
@@ -87,4 +90,7 @@ impl JXLProcessor for JXLProcessorImpl {
     }
 }
 
-dodeca_cell_runtime::declare_cell!("jxl", |_host| JXLProcessorDispatcher::new(JXLProcessorImpl));
+#[cfg(feature = "dynamic-cell")]
+dodeca_cell_runtime::declare_cell!("jxl", |_host| {
+    JXLProcessorDispatcher::new(JXLProcessorImpl)
+});
