@@ -110,6 +110,14 @@ impl CiPlatform {
             CiPlatform::Forgejo => "https://github.com/Swatinem/rust-cache@v2",
         }
     }
+
+    /// Get the wasm-pack installer action for this platform.
+    pub fn wasm_pack_action(&self) -> &'static str {
+        match self {
+            CiPlatform::GitHub => "jetli/wasm-pack-action@v0.4.0",
+            CiPlatform::Forgejo => "https://github.com/jetli/wasm-pack-action@v0.4.0",
+        }
+    }
 }
 
 // =============================================================================
@@ -1033,22 +1041,13 @@ done"#,
 /// CI runner configuration.
 struct CiRunner {
     runner: RunnerSpec,
-    wasm_pack_install: &'static str,
 }
 
 /// Get the CI Linux runner configuration for a platform.
 fn ci_linux_runner(platform: CiPlatform) -> CiRunner {
     let runner = linux_runner(platform);
-    let is_self_hosted = runner.is_self_hosted();
 
-    CiRunner {
-        runner,
-        wasm_pack_install: if is_self_hosted {
-            "true"
-        } else {
-            "cargo install wasm-pack --locked"
-        },
-    }
+    CiRunner { runner }
 }
 
 /// Build the unified CI workflow (runs on PRs, main branch, and tags).
@@ -1107,8 +1106,7 @@ pub fn build_ci_workflow(platform: CiPlatform, _repo_root: &Utf8Path) -> Workflo
         rust_cache_with_targets(platform, true, linux_target)
     };
 
-    // Build dodeca once to let build.rs generate the embedded WASM bundles.
-    // dodeca embeds both bundles at compile time via include_bytes!.
+    // Build the WASM bundles that dodeca embeds at compile time via include_bytes!.
     let wasm_job_id = "build-wasm".to_string();
     let devtools_wasm_artifact = "dodeca-devtools-wasm".to_string();
     let search_wasm_artifact = "dodeca-search-wasm".to_string();
@@ -1129,8 +1127,13 @@ pub fn build_ci_workflow(platform: CiPlatform, _repo_root: &Utf8Path) -> Workflo
                     )
                 },
                 ci_linux_cache.clone(),
-                Step::run("Install wasm-pack", ci_linux.wasm_pack_install),
-                Step::run("Build embedded WASM", "cargo build --package dodeca"),
+                Step::uses("Install wasm-pack", platform.wasm_pack_action())
+                    .with_inputs([("version", "latest")]),
+                Step::run(
+                    "Build embedded WASM",
+                    r#"wasm-pack build crates/dodeca-devtools --target web --target-dir target/wasm-pack
+wasm-pack build crates/dodeca-search-wasm --target web --target-dir target/wasm-pack"#,
+                ),
                 upload_artifact(
                     platform,
                     devtools_wasm_artifact.clone(),

@@ -22,6 +22,7 @@ browser-tests/test-results/
 .tracey/
 
 # Wasm build
+/target-wasm/
 crates/dodeca-devtools/pkg/
 crates/dodeca-search-wasm/pkg/
 crates/*/target-wasm/

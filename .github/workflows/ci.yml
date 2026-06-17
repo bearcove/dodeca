@@ -61,9 +61,13 @@ jobs:
           cache-on-failure: "true"
           cache-targets: "true"
       - name: Install wasm-pack
-        run: cargo install wasm-pack --locked
+        uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: latest
       - name: Build embedded WASM
-        run: cargo build --package dodeca
+        run: |-
+          wasm-pack build crates/dodeca-devtools --target web --target-dir target/wasm-pack
+          wasm-pack build crates/dodeca-search-wasm --target web --target-dir target/wasm-pack
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
