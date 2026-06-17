@@ -2,8 +2,11 @@
 //!
 //! This cell handles loading and parsing data files (JSON, TOML, YAML).
 
-use cell_data_proto::{DataFormat, DataLoader, DataLoaderDispatcher, LoadDataResult, Value};
+use cell_data_proto::{DataFormat, DataLoader, LoadDataResult, Value};
 use facet_format::{DeserializeError, FormatDeserializer, FormatParser};
+
+#[cfg(feature = "dynamic-cell")]
+use cell_data_proto::DataLoaderDispatcher;
 
 /// Data loader implementation
 #[derive(Clone)]
@@ -45,4 +48,7 @@ fn deserialize_value(parser: &mut dyn FormatParser<'_>) -> Result<Value, Deseria
     de.deserialize()
 }
 
-dodeca_cell_runtime::declare_cell!("data", |_host| DataLoaderDispatcher::new(DataLoaderImpl));
+#[cfg(feature = "dynamic-cell")]
+dodeca_cell_runtime::declare_cell!("data", |_host| {
+    DataLoaderDispatcher::new(DataLoaderImpl)
+});

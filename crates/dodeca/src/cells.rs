@@ -15,7 +15,7 @@ use cell_code_execution_proto::{
     CodeExecutionResult, CodeExecutorClient, ExecuteSamplesInput, ExtractSamplesInput,
 };
 use cell_css_proto::{CssProcessorClient, CssResult};
-use cell_data_proto::DataLoaderClient;
+use cell_data_proto::{DataFormat, DataLoader, DataLoaderClient, LoadDataResult};
 use cell_dialoguer_proto::DialoguerClient;
 use cell_fonts_proto::{FontProcessorClient, FontResult, SubsetFontInput};
 use cell_gingembre_proto::{ContextId, RenderResult, TemplateRendererClient};
@@ -34,7 +34,7 @@ use cell_linkcheck_proto::{LinkCheckInput, LinkCheckResult, LinkCheckerClient, L
 use cell_markdown_proto::MarkdownProcessorClient;
 use cell_sass_proto::{SassCompilerClient, SassResult};
 use cell_search_proto::{SearchFile, SearchIndexResult, SearchIndexerClient, SearchPage};
-use cell_svgo_proto::{SvgoOptimizerClient, SvgoResult};
+use cell_svgo_proto::{SvgoOptimizer, SvgoOptimizerClient, SvgoResult};
 use cell_term_proto::{RecordConfig, TermRecorderClient, TermResult};
 use cell_tui_proto::TuiDisplayClient;
 use cell_vite_proto::ViteManagerClient;
@@ -525,13 +525,7 @@ pub async fn record_term_command(
 }
 
 pub async fn optimize_svg(svg: String) -> Result<SvgoResult, eyre::Error> {
-    let client = svgo_cell()
-        .await
-        .ok_or_else(|| eyre::eyre!("SVGO cell not available"))?;
-    client
-        .optimize_svg(svg)
-        .await
-        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
+    Ok(ddc_cell_svgo::SvgoOptimizerImpl.optimize_svg(svg).await)
 }
 
 pub async fn subset_font(input: SubsetFontInput) -> Result<FontResult, eyre::Error> {
@@ -809,6 +803,12 @@ pub async fn eval_expression_cell(
 
 pub async fn optimize_svg_cell(input: String) -> Result<SvgoResult, eyre::Error> {
     optimize_svg(input).await
+}
+
+pub async fn load_data_cell(content: String, format: DataFormat) -> LoadDataResult {
+    ddc_cell_data::DataLoaderImpl
+        .load_data(content, format)
+        .await
 }
 
 /// Extract links and element IDs from HTML using the HTML cell's parser.
