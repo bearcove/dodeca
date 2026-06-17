@@ -116,8 +116,8 @@ impl CiPlatform {
 // Configuration
 // =============================================================================
 
-/// Standard GitHub-hosted Linux runner.
-const GITHUB_LINUX_RUNNER: &str = "ubuntu-24.04";
+/// Bearcove-hosted Linux runner for compile-heavy jobs.
+const GITHUB_LINUX_RUNNER: &str = "bearcove-ubuntu-24.04";
 
 /// Standard GitHub-hosted macOS arm64 runner.
 const GITHUB_MACOS_RUNNER: &str = "macos-15";

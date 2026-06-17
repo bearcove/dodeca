@@ -24,7 +24,7 @@ jobs:
   check-ci:
     name: Check CI up to date
     runs-on:
-      - ubuntu-24.04
+      - bearcove-ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -43,7 +43,7 @@ jobs:
   build-wasm:
     name: Build WASM
     runs-on:
-      - ubuntu-24.04
+      - bearcove-ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -77,7 +77,7 @@ jobs:
   clippy:
     name: Clippy
     runs-on:
-      - ubuntu-24.04
+      - bearcove-ubuntu-24.04
     timeout-minutes: 30
     needs:
       - build-wasm
@@ -111,7 +111,7 @@ jobs:
   build-ddc-linux-x64:
     name: Build ddc (linux-x64)
     runs-on:
-      - ubuntu-24.04
+      - bearcove-ubuntu-24.04
     timeout-minutes: 30
     needs:
       - build-wasm
@@ -179,7 +179,7 @@ jobs:
   integration-linux-x64:
     name: Integration (linux-x64)
     runs-on:
-      - ubuntu-24.04
+      - bearcove-ubuntu-24.04
     timeout-minutes: 30
     needs:
       - build-ddc-linux-x64
@@ -247,7 +247,7 @@ jobs:
   browser-tests-linux-x64:
     name: Browser Tests (linux-x64)
     runs-on:
-      - ubuntu-24.04
+      - bearcove-ubuntu-24.04
     timeout-minutes: 30
     needs:
       - build-ddc-linux-x64
