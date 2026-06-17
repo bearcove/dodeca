@@ -5,9 +5,6 @@
 use cell_data_proto::{DataFormat, DataLoader, LoadDataResult, Value};
 use facet_format::{DeserializeError, FormatDeserializer, FormatParser};
 
-#[cfg(feature = "dynamic-cell")]
-use cell_data_proto::DataLoaderDispatcher;
-
 /// Data loader implementation
 #[derive(Clone)]
 pub struct DataLoaderImpl;
@@ -47,8 +44,3 @@ fn deserialize_value(parser: &mut dyn FormatParser<'_>) -> Result<Value, Deseria
     let mut de = FormatDeserializer::new(parser);
     de.deserialize()
 }
-
-#[cfg(feature = "dynamic-cell")]
-dodeca_cell_runtime::declare_cell!("data", |_host| {
-    DataLoaderDispatcher::new(DataLoaderImpl)
-});

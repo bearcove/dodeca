@@ -2,8 +2,6 @@
 //!
 //! Provides interactive terminal prompts using the dialoguer crate.
 
-#[cfg(feature = "dynamic-cell")]
-use cell_dialoguer_proto::DialoguerDispatcher;
 use cell_dialoguer_proto::{ConfirmResult, Dialoguer, SelectResult};
 use dialoguer::{Confirm, Select, theme::ColorfulTheme};
 
@@ -47,6 +45,3 @@ impl Dialoguer for DialoguerImpl {
         }
     }
 }
-
-#[cfg(feature = "dynamic-cell")]
-dodeca_cell_runtime::declare_cell!("dialoguer", |_host| DialoguerDispatcher::new(DialoguerImpl));

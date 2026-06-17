@@ -12,9 +12,6 @@ use oxc::span::SourceType;
 
 use cell_js_proto::{JsProcessor, JsRewriteInput};
 
-#[cfg(feature = "dynamic-cell")]
-use cell_js_proto::JsProcessorDispatcher;
-
 /// JS processor implementation
 #[derive(Clone)]
 pub struct JsProcessorImpl;
@@ -122,6 +119,3 @@ impl<'a> Visit<'_> for StringCollector<'a> {
         }
     }
 }
-
-#[cfg(feature = "dynamic-cell")]
-dodeca_cell_runtime::declare_cell!("js", |_host| JsProcessorDispatcher::new(JsProcessorImpl));

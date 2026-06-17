@@ -16,16 +16,10 @@ use std::time::Instant;
 
 use hotmeal::{Document, LocalName, NodeId, NodeKind, QualName, Stem, StrTendril, ns};
 
-#[cfg(feature = "dynamic-cell")]
-use cell_host_proto::HostServiceClient;
-#[cfg(feature = "dynamic-cell")]
-use cell_html_proto::HtmlProcessorDispatcher;
 use cell_html_proto::{
     CodeExecutionMetadata, HtmlProcessInput, HtmlProcessResult, HtmlProcessor, HtmlResult,
     Injection, MountLocalization, ResponsiveImageInfo, WikiLinkRef,
 };
-#[cfg(feature = "dynamic-cell")]
-use dodeca_cell_runtime::HostHandle;
 
 type CallbackFuture<'a> = Pin<Box<dyn Future<Output = Result<String, String>> + Send + 'a>>;
 
@@ -73,84 +67,6 @@ impl HtmlCallbacks for NoopHtmlCallbacks {
 
     fn minify_js<'a>(&'a self, js: String) -> CallbackFuture<'a> {
         Box::pin(async move { Ok(js) })
-    }
-}
-
-#[cfg(feature = "dynamic-cell")]
-#[derive(Clone)]
-struct RpcHtmlCallbacks {
-    host: HostHandle,
-}
-
-#[cfg(feature = "dynamic-cell")]
-impl RpcHtmlCallbacks {
-    fn new(host: HostHandle) -> Self {
-        Self { host }
-    }
-
-    async fn host_client(&self) -> HostServiceClient {
-        self.host.client().await
-    }
-}
-
-#[cfg(feature = "dynamic-cell")]
-impl HtmlCallbacks for RpcHtmlCallbacks {
-    fn process_inline_css<'a>(
-        &'a self,
-        css: String,
-        path_map: HashMap<String, String>,
-    ) -> CallbackFuture<'a> {
-        Box::pin(async move {
-            match self
-                .host_client()
-                .await
-                .process_inline_css(css, path_map)
-                .await
-            {
-                Ok(cell_host_proto::ProcessCssResult::Success { css }) => Ok(css),
-                Ok(cell_host_proto::ProcessCssResult::Error { message }) => Err(message),
-                Err(e) => Err(format!("CSS URL rewriting RPC error: {e}")),
-            }
-        })
-    }
-
-    fn process_inline_js<'a>(
-        &'a self,
-        js: String,
-        path_map: HashMap<String, String>,
-    ) -> CallbackFuture<'a> {
-        Box::pin(async move {
-            match self
-                .host_client()
-                .await
-                .process_inline_js(js, path_map)
-                .await
-            {
-                Ok(cell_host_proto::ProcessJsResult::Success { js }) => Ok(js),
-                Ok(cell_host_proto::ProcessJsResult::Error { message }) => Err(message),
-                Err(e) => Err(format!("JS URL rewriting RPC error: {e}")),
-            }
-        })
-    }
-
-    fn minify_css<'a>(&'a self, css: String) -> CallbackFuture<'a> {
-        Box::pin(async move {
-            match self.host_client().await.minify_css(css).await {
-                Ok(cell_host_proto::MinifyCssResult::Success { css }) => Ok(css),
-                Ok(cell_host_proto::MinifyCssResult::Error { message }) => Err(message),
-                Err(e) => Err(format!("CSS minification RPC error: {e}")),
-            }
-        })
-    }
-
-    fn minify_js<'a>(&'a self, js: String) -> CallbackFuture<'a> {
-        Box::pin(async move {
-            match self.host_client().await.minify_js(js).await {
-                Ok(cell_host_proto::MinifyJsResult::Success { js }) => Ok(js),
-                Ok(cell_host_proto::MinifyJsResult::Error { message }) => Err(message),
-                Err(e) => Err(format!("JS minification RPC error: {e}")),
-            }
-        })
     }
 }
 
@@ -1857,16 +1773,6 @@ fn apply_injection(doc: &mut Document, injection: &Injection) {
         }
     }
 }
-
-// ============================================================================
-// Cell Setup
-// ============================================================================
-
-#[cfg(feature = "dynamic-cell")]
-dodeca_cell_runtime::declare_cell!("html", |host| {
-    let processor = HtmlProcessorImpl::with_callbacks(RpcHtmlCallbacks::new(host));
-    HtmlProcessorDispatcher::new(processor)
-});
 
 #[cfg(test)]
 mod tests {

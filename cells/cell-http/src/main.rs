@@ -20,17 +20,10 @@
 
 use std::sync::Arc;
 
-#[cfg(feature = "dynamic-cell")]
-use dodeca_cell_runtime::HostHandle;
-
 use cell_http_proto::ServeContent;
-#[cfg(feature = "dynamic-cell")]
-use cell_http_proto::TcpTunnelDispatcher;
 use futures_util::future::BoxFuture;
 
 mod devtools;
-#[cfg(feature = "dynamic-cell")]
-mod tunnel;
 mod vite;
 
 /// Router context used by the HTTP router to call back into dodeca.
@@ -48,59 +41,6 @@ pub trait RouterContext: Send + Sync + 'static {
         service: &str,
         connection: vox::PendingConnection,
     ) -> Result<(), vox::Metadata<'static>>;
-}
-
-#[cfg(feature = "dynamic-cell")]
-struct CellRouterContext {
-    host: HostHandle,
-}
-
-#[cfg(feature = "dynamic-cell")]
-impl RouterContext for CellRouterContext {
-    fn find_content(
-        &self,
-        path: String,
-        identity: Option<cell_http_proto::Identity>,
-    ) -> BoxFuture<'_, ServeContent> {
-        Box::pin(async move {
-            match self
-                .host
-                .client()
-                .await
-                .find_content(path.clone(), identity)
-                .await
-            {
-                Ok(content) => content,
-                Err(e) => {
-                    tracing::error!("RPC error fetching {}: {:?}", path, e);
-                    ServeContent::NotFound {
-                        html: "Host connection lost".to_string(),
-                        generation: 0,
-                    }
-                }
-            }
-        })
-    }
-
-    fn get_vite_port(&self) -> BoxFuture<'_, Option<u16>> {
-        Box::pin(async move {
-            match self.host.client().await.get_vite_port().await {
-                Ok(port) => port,
-                Err(e) => {
-                    tracing::warn!(error = ?e, "failed to get vite port from host");
-                    None
-                }
-            }
-        })
-    }
-
-    fn accept_devtools_connection(
-        &self,
-        service: &str,
-        connection: vox::PendingConnection,
-    ) -> Result<(), vox::Metadata<'static>> {
-        devtools::accept_proxied_connection(self.host.clone(), service, connection)
-    }
 }
 
 /// Build the forwarded auth identity from a request's oauth2-proxy identity
@@ -143,14 +83,6 @@ fn extract_identity(request: &axum::extract::Request) -> Option<cell_http_proto:
         groups,
     })
 }
-
-#[cfg(feature = "dynamic-cell")]
-dodeca_cell_runtime::declare_cell!("http", |host| {
-    let ctx: Arc<dyn RouterContext> = Arc::new(CellRouterContext { host });
-    let app = build_router(ctx.clone());
-    let tunnel_impl = tunnel::TcpTunnelImpl::new(ctx, app);
-    TcpTunnelDispatcher::new(tunnel_impl)
-});
 
 /// Build the axum router for the internal HTTP server
 pub fn build_router(ctx: Arc<dyn RouterContext>) -> axum::Router {

@@ -4,17 +4,11 @@
 //! - Receives render requests from the host
 //! - Calls back to host for template loading, data resolution, and function calls
 
-#[cfg(feature = "dynamic-cell")]
-use cell_gingembre_proto::TemplateRendererDispatcher;
 use cell_gingembre_proto::{
     CallFunctionResult, ContextId, ErrorLocation, EvalResult, KeysAtResult, LoadTemplateResult,
     RenderResult, ResolveDataResult, TemplateHost, TemplateRenderError, TemplateRenderer,
 };
-#[cfg(feature = "dynamic-cell")]
-use cell_host_proto::HostServiceClient;
 use dashmap::DashMap;
-#[cfg(feature = "dynamic-cell")]
-use dodeca_cell_runtime::HostHandle;
 use facet_value::DestructuredRef;
 use futures::future::BoxFuture;
 use gingembre::{
@@ -27,80 +21,6 @@ use std::time::Instant;
 /// Shared mapping from template name to absolute path.
 /// Used to convert relative template names to absolute paths in error messages.
 type PathMap = Arc<DashMap<String, String>>;
-
-// ============================================================================
-// RPC-backed TemplateLoader
-// ============================================================================
-
-#[cfg(feature = "dynamic-cell")]
-#[derive(Clone)]
-struct RpcTemplateHost {
-    host: HostHandle,
-}
-
-#[cfg(feature = "dynamic-cell")]
-impl RpcTemplateHost {
-    fn new(host: HostHandle) -> Self {
-        Self { host }
-    }
-
-    async fn client(&self) -> HostServiceClient {
-        self.host.client().await
-    }
-}
-
-#[cfg(feature = "dynamic-cell")]
-impl TemplateHost for RpcTemplateHost {
-    async fn load_template(&self, context_id: ContextId, name: String) -> LoadTemplateResult {
-        match self.client().await.load_template(context_id, name).await {
-            Ok(result) => result,
-            Err(e) => {
-                tracing::warn!("RPC error loading template: {:?}", e);
-                LoadTemplateResult::NotFound
-            }
-        }
-    }
-
-    async fn resolve_data(&self, context_id: ContextId, path: Vec<String>) -> ResolveDataResult {
-        match self.client().await.resolve_data(context_id, path).await {
-            Ok(result) => result,
-            Err(e) => {
-                tracing::warn!("RPC error resolving data: {:?}", e);
-                ResolveDataResult::NotFound
-            }
-        }
-    }
-
-    async fn keys_at(&self, context_id: ContextId, path: Vec<String>) -> KeysAtResult {
-        match self.client().await.keys_at(context_id, path).await {
-            Ok(result) => result,
-            Err(e) => {
-                tracing::warn!("RPC error getting keys: {:?}", e);
-                KeysAtResult::NotFound
-            }
-        }
-    }
-
-    async fn call_function(
-        &self,
-        context_id: ContextId,
-        name: String,
-        args: Vec<Value>,
-        kwargs: Vec<(String, Value)>,
-    ) -> CallFunctionResult {
-        match self
-            .client()
-            .await
-            .call_function(context_id, name, args, kwargs)
-            .await
-        {
-            Ok(result) => result,
-            Err(e) => CallFunctionResult::Error {
-                message: format!("RPC error calling function: {:?}", e),
-            },
-        }
-    }
-}
 
 /// Template loader that calls back through a host adapter.
 struct HostTemplateLoader<H> {
@@ -425,9 +345,3 @@ where
         }
     }
 }
-
-#[cfg(feature = "dynamic-cell")]
-dodeca_cell_runtime::declare_cell!("gingembre", |host| {
-    let renderer = TemplateRendererImpl::new(RpcTemplateHost::new(host));
-    TemplateRendererDispatcher::new(renderer)
-});

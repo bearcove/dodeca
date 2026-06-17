@@ -4,8 +4,6 @@
 //! Mermaid diagrams are rendered via callback to the host, which delegates to the mermaid cell.
 
 use cell_markdown_proto::*;
-#[cfg(feature = "dynamic-cell")]
-use dodeca_cell_runtime::HostHandle;
 use marq::{
     AasvgHandler, ArboriumHandler, CompareHandler, InlineCodeHandler, LinkResolver, MermaidHandler,
     PikruHandler, RenderOptions, TermHandler, WikiLink, WikiLinkOutput, WikiLinkResolver, render,
@@ -104,11 +102,6 @@ pub struct MarkdownProcessorImpl;
 impl MarkdownProcessorImpl {
     pub fn new() -> Self {
         Self
-    }
-
-    #[cfg(feature = "dynamic-cell")]
-    fn new_with_host(_host: HostHandle) -> Self {
-        Self::new()
     }
 }
 
@@ -341,9 +334,3 @@ fn convert_source_map(source_map: marq::SourceMap) -> SourceMap {
             .collect(),
     }
 }
-
-#[cfg(feature = "dynamic-cell")]
-dodeca_cell_runtime::declare_cell!("markdown", |host| {
-    let processor = MarkdownProcessorImpl::new_with_host(host);
-    MarkdownProcessorDispatcher::new(processor)
-});

@@ -41,7 +41,7 @@ pub struct Host {
     // -------------------------------------------------------------------------
     // TUI Command Forwarding
     // -------------------------------------------------------------------------
-    /// Channel to forward commands from TUI cell to main loop.
+    /// Channel to forward commands from the TUI display to the main loop.
     command_tx: mpsc::UnboundedSender<ServerCommand>,
     /// Receiver end - taken by main.rs via `take_command_rx()`.
     command_rx: Mutex<Option<mpsc::UnboundedReceiver<ServerCommand>>>,
@@ -140,7 +140,7 @@ impl Host {
         self.command_rx.lock().await.take()
     }
 
-    /// Handle a command from the TUI cell (called by HostService impl).
+    /// Handle a command from the TUI display.
     pub fn handle_tui_command(&self, command: ServerCommand) -> CommandResult {
         match self.command_tx.send(command) {
             Ok(_) => CommandResult::Ok,

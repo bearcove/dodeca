@@ -39,7 +39,7 @@ async function main() {
 
   if (!manifestKey || files.length === 0) {
     console.error("Usage: cas-upload-batch.ts <manifest-key> <file1> [file2] ...");
-    console.error("Example: cas-upload-batch.ts ci/3410/cells-linux-x64 dist/libddc_cell_*.so");
+    console.error("Example: cas-upload-batch.ts ci/3410/ddc-linux-x64 dist/ddc");
     process.exit(1);
   }
 

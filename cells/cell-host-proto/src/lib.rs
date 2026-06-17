@@ -59,7 +59,7 @@ pub enum ProcessJsResult {
 /// - Template host (for gingembre template rendering)
 /// - Content service (for HTTP cell serving content)
 /// - WebSocket tunnel (for devtools)
-/// - TUI commands (TUI cell → host direction)
+/// - TUI commands (local TUI display → host direction)
 ///
 /// Note: Host → TUI updates use TuiDisplay service (defined in cell-tui-proto).
 #[allow(async_fn_in_trait)]
@@ -109,7 +109,7 @@ pub trait HostService {
     async fn eval_expression(&self, route: String, expression: String) -> EvalResult;
 
     // =========================================================================
-    // TUI Commands (TUI cell → host)
+    // TUI Commands (local TUI display → host)
     // =========================================================================
 
     /// Send a command from TUI to the server.

@@ -7,9 +7,6 @@ use std::path::{Path, PathBuf};
 
 use cell_sass_proto::{SassCompiler, SassResult};
 
-#[cfg(feature = "dynamic-cell")]
-use cell_sass_proto::SassCompilerDispatcher;
-
 /// SASS compiler implementation
 #[derive(Clone)]
 pub struct SassCompilerImpl;
@@ -81,8 +78,3 @@ impl grass::Fs for InMemorySassFs {
             .map_err(|e| std::io::Error::new(e.kind(), format!("File not found: {path:?}: {e}")))
     }
 }
-
-#[cfg(feature = "dynamic-cell")]
-dodeca_cell_runtime::declare_cell!("sass", |_host| {
-    SassCompilerDispatcher::new(SassCompilerImpl)
-});

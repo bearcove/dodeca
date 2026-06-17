@@ -1,6 +1,7 @@
 [workspace]
 members = ["crates/*", "cells/*", "xtask"]
 default-members = ["crates/*", "cells/*"]
+exclude = ["crates/dodeca-cell-runtime", "cells/cell-tui"]
 resolver = "3"
 
 # getrandom is required for wasm32 targets (enables wasm_js feature)

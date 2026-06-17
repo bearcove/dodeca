@@ -9,8 +9,6 @@ use std::collections::BTreeMap;
 
 use hotmeal::{Document, NodeId, NodeKind, StrTendril};
 
-#[cfg(feature = "dynamic-cell")]
-use cell_search_proto::SearchIndexerDispatcher;
 use cell_search_proto::{SearchFile, SearchIndexResult, SearchIndexer, SearchPage};
 use dodeca_search_format as fmt;
 
@@ -307,11 +305,6 @@ fn build(pages: Vec<SearchPage>) -> Result<Vec<SearchFile>, String> {
 
     Ok(files)
 }
-
-#[cfg(feature = "dynamic-cell")]
-dodeca_cell_runtime::declare_cell!("search", |_host| {
-    SearchIndexerDispatcher::new(SearchIndexerImpl)
-});
 
 #[cfg(test)]
 mod tests {

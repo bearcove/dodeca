@@ -4,8 +4,6 @@
 
 use cell_css_proto::CssProcessor;
 
-#[cfg(feature = "dynamic-cell")]
-use cell_css_proto::CssProcessorDispatcher;
 use lightningcss::stylesheet::{ParserOptions, PrinterOptions, StyleSheet};
 use lightningcss::visitor::Visit;
 
@@ -76,8 +74,3 @@ impl<'i, 'a> lightningcss::visitor::Visitor<'i> for UrlRewriter<'a> {
         Ok(())
     }
 }
-
-#[cfg(feature = "dynamic-cell")]
-dodeca_cell_runtime::declare_cell!("css", |_host| {
-    CssProcessorDispatcher::new(CssProcessorImpl)
-});

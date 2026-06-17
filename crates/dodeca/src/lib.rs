@@ -38,6 +38,7 @@ pub mod template_host;
 pub mod template_paths;
 pub mod theme_resolver;
 pub mod tui;
+pub mod tui_display;
 pub mod tui_host;
 pub mod types;
 pub mod url_rewrite;

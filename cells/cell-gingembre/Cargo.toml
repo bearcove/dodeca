@@ -15,18 +15,12 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [lib]
 name = "ddc_cell_gingembre"
-crate-type = ["cdylib", "rlib"]
+crate-type = ["rlib"]
 path = "src/main.rs"
-
-[features]
-default = ["dynamic-cell"]
-dynamic-cell = ["dep:cell-host-proto", "dep:dodeca-cell-runtime"]
 
 [dependencies]
 cell-gingembre-proto = { path = "../cell-gingembre-proto" }
-cell-host-proto = { path = "../cell-host-proto", optional = true }
 dashmap.workspace = true
-dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime", optional = true }
 facet-value.workspace = true
 futures.workspace = true
 gingembre = { path = "../../crates/gingembre" }

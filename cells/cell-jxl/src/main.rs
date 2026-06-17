@@ -6,9 +6,6 @@ use jpegxl_rs::encode::EncoderFrame;
 
 use cell_jxl_proto::{JXLEncodeInput, JXLProcessor, JXLResult};
 
-#[cfg(feature = "dynamic-cell")]
-use cell_jxl_proto::JXLProcessorDispatcher;
-
 /// JXL processor implementation
 #[derive(Clone)]
 pub struct JXLProcessorImpl;
@@ -89,8 +86,3 @@ impl JXLProcessor for JXLProcessorImpl {
         }
     }
 }
-
-#[cfg(feature = "dynamic-cell")]
-dodeca_cell_runtime::declare_cell!("jxl", |_host| {
-    JXLProcessorDispatcher::new(JXLProcessorImpl)
-});

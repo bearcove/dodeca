@@ -12,14 +12,12 @@ first collapse pass is:
 - `crates/dodeca/src/host.rs` owns shared application state, but no longer owns
   typed cell client caching.
 - `crates/dodeca/src/cell_loader.rs` has been removed from the main crate.
-- `crates/dodeca-cell-runtime/src/lib.rs` exports the per-cell
-  `dodeca_cell_vtable_v1` symbol and starts a cell runtime thread after FFI
-  attach for the compatibility cell crates.
+- `crates/dodeca-cell-runtime` has been removed.
 - `crates/dodeca/src/cells.rs` is the main facade used by the build and serve
   code. It now calls former cell implementations directly rather than opening
   Vox clients.
-- `xtask/src/ci.rs` and `xtask/src/main.rs` still know how to discover, build,
-  install, verify, and package cell cdylibs.
+- `xtask/src/ci.rs` and `xtask/src/main.rs` now build, install, verify, and
+  package `ddc` as the only runtime artifact.
 
 That means the next collapse is not "processes to threads"; that already
 happened. The next collapse is "runtime-loaded service islands to ordinary Rust
@@ -120,27 +118,27 @@ a time:
 1. Add direct Rust APIs for callback-free modules first.
    Good pilots: `svgo`, `image`, `webp`, `css`, `js`, `sass`, `data`.
    These mostly expose an impl type already and do not need reverse host calls.
-   Started with `svgo` and `data`: both crates now expose `rlib` outputs, keep
-   their dynamic-cell exports behind a default feature, and are consumed by
-   dodeca with that feature disabled.
+   Started with `svgo` and `data`: both crates now expose `rlib` outputs and
+   are consumed by dodeca directly.
    Continued with the main asset processors: `css`, `js`, `sass`, `image`,
    `webp`, `jxl`, and `fonts` now follow the same pattern and are called
    directly from the `cells.rs` facade.
    Extended the same callback-free shape to `search`, `linkcheck`,
    `dialoguer`, `term`, `vite`, `html-diff`, `minify`, and
-   `code-execution`; their crates still keep dynamic-cell exports for now, but
-   the `dodeca` facade calls their Rust impls directly.
-   `markdown` also now follows the direct-call path; its host handle was stale,
-   so the dynamic constructor remains only as compatibility glue.
+   `code-execution`; the `dodeca` facade calls their Rust impls directly.
+   `markdown` also now follows the direct-call path.
    `html` now uses a local callback trait for inline CSS/JS work. The dynamic
-   build still adapts that trait to the old host RPC, while `dodeca` supplies a
-   direct adapter backed by the already-static CSS/JS processors.
+   RPC adapter is gone; `dodeca` supplies a direct adapter backed by the
+   already-static CSS/JS processors.
    `gingembre` now follows the same pattern with `TemplateHost`: the dynamic
-   build adapts host RPC to the trait, and `dodeca` instantiates the renderer
-   with `TemplateHostImpl` directly.
+   RPC adapter is gone, and `dodeca` instantiates the renderer with
+   `TemplateHostImpl` directly.
    `http` now exposes the axum router as a direct library API. `dodeca` serves
    browser TCP streams through hyper directly, and the browser DevTools Vox
    service is handled in-process rather than proxied through an internal cell.
+   `tui` now runs as a local ratatui display loop in the `dodeca` crate. It
+   receives progress/status/event updates through local channels and sends
+   commands directly to `Host`.
    The main `dodeca` crate no longer exports `cell_loader`, no longer has
    `Host::client_async`, and no longer depends directly on `libloading`,
    `vox-ffi`, fd passing, or Vox's FFI transport feature.
@@ -164,15 +162,14 @@ a time:
    - `libloading`, `vox-ffi`, and internal `transport-ffi` usage are gone from
      `crates/dodeca`.
 
-   Remaining cleanup:
-   - `crates/dodeca-cell-runtime`
-   - compatibility dynamic-cell features in the former cell crates
-   - compatibility `cdylib` crate types in the former cell crates
-
    Release and CI packaging no longer build, upload, verify, archive, install,
    or pass paths to cell cdylibs. The generated Forgejo/GitHub workflows,
    installers, archive scripts, Homebrew formula generator, repro helper, and
    integration harness now treat `ddc` as the single runtime artifact.
+
+   Former cell crates no longer expose `dynamic-cell` features or `cdylib`
+   crate types. The old `cell-tui` dynamic shell is gone; `cell-tui-proto`
+   remains because the monolith still uses those command/update types directly.
 
 5. Rename or remove the old `cells/` tree. The surviving code should become
    ordinary crates/modules named for product domains rather than deployment

@@ -1,18 +1,19 @@
-//! Dodeca TUI cell (cell-tui)
+//! Local TUI display loop.
 //!
-//! This cell implements TuiDisplay service - the host calls us to push updates.
-//! We call HostService::send_command() to send commands back.
+//! This is the former `cell-tui` display implementation wired directly into
+//! the monolith. Updates arrive through local channels, and key commands are
+//! sent straight to [`crate::host::Host`].
 
 use std::collections::VecDeque;
 use std::io::stdout;
 use std::time::Duration;
 
-use color_eyre::Result;
 use crossterm::{
     ExecutableCommand,
     event::{self, Event, KeyCode, KeyEvent, KeyEventKind},
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
+use eyre::Result;
 use ratatui::{
     DefaultTerminal, Frame,
     layout::{Constraint, Layout},
@@ -22,29 +23,48 @@ use ratatui::{
 };
 use tokio::sync::mpsc;
 
-use dodeca_cell_runtime::HostHandle;
-
-use cell_host_proto::ServerCommand;
 use cell_tui_proto::{
-    BindMode, BuildProgress, EventKind, LogEvent, ServerStatus, TaskStatus, TuiDisplay,
-    TuiDisplayDispatcher,
+    BindMode, BuildProgress, EventKind, LogEvent, ServerCommand, ServerStatus, TaskStatus,
+    TuiDisplay,
 };
 
-mod theme;
+mod theme {
+    use ratatui::style::Color;
 
-/// Maximum number of events to keep in buffer
+    pub const BG_DARK: Color = Color::Rgb(0x16, 0x16, 0x1e);
+    pub const FG: Color = Color::Rgb(0xa9, 0xb1, 0xd6);
+    pub const FG_DARK: Color = Color::Rgb(0x56, 0x5f, 0x89);
+    pub const FG_GUTTER: Color = Color::Rgb(0x3b, 0x40, 0x61);
+
+    pub const BLUE: Color = Color::Rgb(0x7a, 0xa2, 0xf7);
+    pub const CYAN: Color = Color::Rgb(0x7d, 0xcf, 0xff);
+    pub const GREEN: Color = Color::Rgb(0x9e, 0xce, 0x6a);
+    pub const RED: Color = Color::Rgb(0xf7, 0x76, 0x8e);
+    pub const YELLOW: Color = Color::Rgb(0xe0, 0xaf, 0x68);
+    pub const ORANGE: Color = Color::Rgb(0xff, 0x9e, 0x64);
+    pub const PURPLE: Color = Color::Rgb(0x9d, 0x7c, 0xd8);
+
+    pub fn http_status_color(status: u16) -> Color {
+        match status {
+            500..=599 => RED,
+            400..=499 => YELLOW,
+            300..=399 => CYAN,
+            200..=299 => GREEN,
+            100..=199 => BLUE,
+            _ => FG_DARK,
+        }
+    }
+}
+
 const MAX_EVENTS: usize = 100;
 
-/// Preset log filter expressions (cycled with 'f' key)
-/// Note: The first preset matches DEFAULT_TRACING_FILTER in dodeca/src/logging.rs
 const FILTER_PRESETS: &[&str] = &[
-    "info,hyper=warn,h2=warn,tower=warn,rustls=warn", // Info (default)
-    "debug,hyper=warn,h2=warn,tower=warn,rustls=warn", // Debug
-    "trace,hyper=warn,h2=warn,tower=warn,rustls=warn", // Trace
-    "warn",                                           // Quiet (warnings only)
+    "info,hyper=warn,h2=warn,tower=warn,rustls=warn",
+    "debug,hyper=warn,h2=warn,tower=warn,rustls=warn",
+    "trace,hyper=warn,h2=warn,tower=warn,rustls=warn",
+    "warn",
 ];
 
-/// Format bytes as compact human-readable size
 fn format_size(bytes: u64) -> String {
     const KB: u64 = 1024;
     const MB: u64 = KB * 1024;
@@ -53,11 +73,10 @@ fn format_size(bytes: u64) -> String {
     } else if bytes >= KB {
         format!("{:.0}K", bytes as f64 / KB as f64)
     } else {
-        format!("{}B", bytes)
+        format!("{bytes}B")
     }
 }
 
-/// TUI application state
 struct TuiApp {
     progress: BuildProgress,
     server_status: ServerStatus,
@@ -66,7 +85,6 @@ struct TuiApp {
     show_help: bool,
     should_quit: bool,
     filter_preset_index: usize,
-    /// Text input mode for custom filter
     filter_input: Option<String>,
 }
 
@@ -92,17 +110,14 @@ impl TuiApp {
     }
 
     fn handle_key(&mut self, code: KeyCode, modifiers: crossterm::event::KeyModifiers) {
-        // Handle filter input mode separately
         if let Some(ref mut input) = self.filter_input {
             match code {
                 KeyCode::Enter => {
-                    // Apply the filter
                     let filter = std::mem::take(input);
                     self.filter_input = None;
                     let _ = self.command_tx.send(ServerCommand::SetLogFilter { filter });
                 }
                 KeyCode::Esc => {
-                    // Cancel input
                     self.filter_input = None;
                 }
                 KeyCode::Backspace => {
@@ -130,9 +145,9 @@ impl TuiApp {
             KeyCode::Char('?') => self.show_help = !self.show_help,
             KeyCode::Char('o') => {
                 if let Some(url) = self.server_status.urls.first()
-                    && let Err(e) = open::that(url)
+                    && let Err(error) = open::that(url)
                 {
-                    eprintln!("Failed to open browser: {e}");
+                    tracing::warn!(%error, %url, "failed to open browser from TUI");
                 }
             }
             KeyCode::Char('p') => {
@@ -149,7 +164,6 @@ impl TuiApp {
                 let _ = self.command_tx.send(ServerCommand::CycleLogLevel);
             }
             KeyCode::Char('f') => {
-                // Cycle through preset log filters
                 self.filter_preset_index = (self.filter_preset_index + 1) % FILTER_PRESETS.len();
                 let filter = FILTER_PRESETS[self.filter_preset_index];
                 let _ = self.command_tx.send(ServerCommand::SetLogFilter {
@@ -157,7 +171,6 @@ impl TuiApp {
                 });
             }
             KeyCode::Char('F') => {
-                // Enter custom filter input mode
                 self.filter_input = Some(String::new());
             }
             _ => {}
@@ -168,8 +181,6 @@ impl TuiApp {
         use theme::*;
 
         let area = frame.area();
-
-        // Main layout
         let url_height = self.server_status.urls.len().max(1) as u16 + 2;
         let chunks = Layout::vertical([
             Constraint::Length(url_height),
@@ -179,15 +190,14 @@ impl TuiApp {
         ])
         .split(area);
 
-        // Server block
         let (network_icon, icon_color) = match self.server_status.bind_mode {
-            BindMode::Local => ("💻", GREEN),
-            BindMode::Lan => ("🏠", YELLOW),
+            BindMode::Local => ("local", GREEN),
+            BindMode::Lan => ("lan", YELLOW),
         };
         let status = if self.server_status.is_running {
-            ("●", GREEN)
+            ("*", GREEN)
         } else {
-            ("○", YELLOW)
+            ("-", YELLOW)
         };
 
         let url_lines: Vec<Line> = self
@@ -196,14 +206,14 @@ impl TuiApp {
             .iter()
             .map(|url| {
                 Line::from(vec![
-                    Span::raw("  → ").fg(CYAN),
+                    Span::raw("  -> ").fg(CYAN),
                     Span::raw(url.clone()).fg(BLUE),
                 ])
             })
             .collect();
 
         let server_title = Line::from(vec![
-            Span::raw(" 🌐 Server "),
+            Span::raw(" Server "),
             Span::styled(network_icon, Style::default().fg(icon_color)),
             Span::raw(" "),
             Span::styled(status.0, Style::default().fg(status.1)),
@@ -216,33 +226,31 @@ impl TuiApp {
         );
         frame.render_widget(urls_widget, chunks[0]);
 
-        // Build progress
         let tasks = [
-            (&self.progress.parse, "📄"),
-            (&self.progress.render, "🎨"),
-            (&self.progress.sass, "💅"),
+            (&self.progress.parse, "parse"),
+            (&self.progress.render, "render"),
+            (&self.progress.sass, "sass"),
         ];
         let mut status_spans: Vec<Span> = Vec::new();
-        for (i, (task, emoji)) in tasks.iter().enumerate() {
+        for (i, (task, label)) in tasks.iter().enumerate() {
             if i > 0 {
                 status_spans.push(Span::raw("  ").fg(FG_DARK));
             }
             let (color, symbol) = match task.status {
-                TaskStatus::Pending => (FG_DARK, "○"),
-                TaskStatus::Running => (CYAN, "◐"),
-                TaskStatus::Done => (GREEN, "✓"),
-                TaskStatus::Error => (RED, "✗"),
+                TaskStatus::Pending => (FG_DARK, "-"),
+                TaskStatus::Running => (CYAN, "~"),
+                TaskStatus::Done => (GREEN, "+"),
+                TaskStatus::Error => (RED, "!"),
             };
-            status_spans.push(Span::raw(format!("{emoji} ")).fg(FG));
+            status_spans.push(Span::raw(format!("{label} ")).fg(FG));
             status_spans.push(Span::styled(symbol, Style::default().fg(color)));
         }
-        // Cache size display
+
         let has_cache = self.server_status.picante_cache_size > 0
             || self.server_status.cas_cache_size > 0
             || self.server_status.code_exec_cache_size > 0;
         if has_cache {
-            status_spans.push(Span::raw("  ").fg(FG_DARK));
-            status_spans.push(Span::raw("💾 ").fg(FG));
+            status_spans.push(Span::raw("  cache ").fg(FG_DARK));
             let mut cache_parts = vec![
                 format_size(self.server_status.picante_cache_size),
                 format_size(self.server_status.cas_cache_size),
@@ -254,24 +262,20 @@ impl TuiApp {
         }
         let progress_widget = Paragraph::new(Line::from(status_spans)).block(
             Block::default()
-                .title(" 🔨 Status ")
+                .title(" Status ")
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(FG_GUTTER)),
         );
         frame.render_widget(progress_widget, chunks[1]);
 
-        // Events log
-        let available_width = chunks[2].width.saturating_sub(2) as usize; // account for borders
-        let max_lines = (chunks[2].height.saturating_sub(2)) as usize;
+        let available_width = chunks[2].width.saturating_sub(2) as usize;
+        let max_lines = chunks[2].height.saturating_sub(2) as usize;
 
-        // Render events into lines with smart field wrapping (chronological order)
         let mut all_lines: Vec<Line> = Vec::new();
-        for e in self.event_buffer.iter() {
-            let lines = format_event(e, available_width);
-            all_lines.extend(lines);
+        for event in self.event_buffer.iter() {
+            all_lines.extend(format_event(event, available_width));
         }
 
-        // Take the last max_lines (most recent)
         let skip = all_lines.len().saturating_sub(max_lines);
         let recent_lines: Vec<Line> = all_lines.into_iter().skip(skip).collect();
 
@@ -283,7 +287,6 @@ impl TuiApp {
         );
         frame.render_widget(events_widget, chunks[2]);
 
-        // Footer
         let footer = Paragraph::new(Line::from(vec![
             Span::raw("?").fg(YELLOW),
             Span::raw(" help  ").fg(FG_DARK),
@@ -303,12 +306,10 @@ impl TuiApp {
         .style(Style::default().fg(FG_DARK));
         frame.render_widget(footer, chunks[3]);
 
-        // Filter input overlay
         if self.filter_input.is_some() {
             self.draw_filter_input(frame, area);
         }
 
-        // Help overlay
         if self.show_help {
             self.draw_help_overlay(frame, area);
         }
@@ -318,7 +319,6 @@ impl TuiApp {
         use theme::*;
 
         let input = self.filter_input.as_deref().unwrap_or("");
-
         let input_width = 50u16;
         let input_height = 5u16;
         let x = area.width.saturating_sub(input_width) / 2;
@@ -336,8 +336,8 @@ impl TuiApp {
             Line::from(""),
             Line::from(vec![
                 Span::raw("  ").fg(FG),
-                Span::raw(input).fg(CYAN),
-                Span::raw("▌").fg(YELLOW), // cursor
+                Span::raw(input.to_string()).fg(CYAN),
+                Span::raw("|").fg(YELLOW),
             ]),
             Line::from(vec![
                 Span::raw("  Enter").fg(YELLOW),
@@ -350,7 +350,7 @@ impl TuiApp {
         let input_widget = Paragraph::new(input_lines)
             .block(
                 Block::default()
-                    .title(" 🔍 Log Filter (RUST_LOG syntax) ")
+                    .title(" Log Filter (RUST_LOG syntax) ")
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(CYAN)),
             )
@@ -362,8 +362,8 @@ impl TuiApp {
     fn draw_help_overlay(&self, frame: &mut Frame, area: ratatui::layout::Rect) {
         use theme::*;
 
-        let help_width = 40u16;
-        let help_height = 15u16;
+        let help_width = 42u16;
+        let help_height = 13u16;
         let x = area.width.saturating_sub(help_width) / 2;
         let y = area.height.saturating_sub(help_height) / 2;
         let help_area = ratatui::layout::Rect::new(
@@ -383,15 +383,15 @@ impl TuiApp {
             ]),
             Line::from(vec![
                 Span::raw("  o").fg(YELLOW),
-                Span::raw("      Open first URL in browser").fg(FG),
+                Span::raw("      Open first URL").fg(FG),
             ]),
             Line::from(vec![
                 Span::raw("  p").fg(YELLOW),
-                Span::raw("      Toggle public/local mode").fg(FG),
+                Span::raw("      Toggle public/local").fg(FG),
             ]),
             Line::from(vec![
                 Span::raw("  d").fg(YELLOW),
-                Span::raw("      Toggle picante debug logs").fg(FG),
+                Span::raw("      Toggle picante debug").fg(FG),
             ]),
             Line::from(vec![
                 Span::raw("  l").fg(YELLOW),
@@ -399,11 +399,11 @@ impl TuiApp {
             ]),
             Line::from(vec![
                 Span::raw("  f").fg(YELLOW),
-                Span::raw("      Cycle log filter presets").fg(FG),
+                Span::raw("      Cycle filter presets").fg(FG),
             ]),
             Line::from(vec![
                 Span::raw("  F").fg(YELLOW),
-                Span::raw("      Enter custom log filter").fg(FG),
+                Span::raw("      Enter custom filter").fg(FG),
             ]),
             Line::from(vec![
                 Span::raw("  q").fg(YELLOW),
@@ -415,19 +415,15 @@ impl TuiApp {
             ]),
             Line::from(""),
             Line::from(vec![
-                Span::raw("  💻").fg(GREEN),
+                Span::raw("  local").fg(GREEN),
                 Span::raw(" = localhost only").fg(FG),
-            ]),
-            Line::from(vec![
-                Span::raw("  🏠").fg(YELLOW),
-                Span::raw(" = LAN (home network)").fg(FG),
             ]),
         ];
 
         let help_widget = Paragraph::new(help_text)
             .block(
                 Block::default()
-                    .title(" ❓ Help ")
+                    .title(" Help ")
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(CYAN)),
             )
@@ -437,92 +433,71 @@ impl TuiApp {
     }
 }
 
-/// Format a log event into one or more lines with colored fields
-fn format_event(e: &LogEvent, max_width: usize) -> Vec<Line<'static>> {
+fn format_event(event: &LogEvent, max_width: usize) -> Vec<Line<'static>> {
     use theme::*;
 
-    let msg_color = event_color(&e.kind);
-
+    let msg_color = event_color(&event.kind);
     let mut lines: Vec<Line<'static>> = Vec::new();
 
-    if e.fields.is_empty() {
-        // No fields - just message
+    if event.fields.is_empty() {
         lines.push(Line::from(vec![Span::styled(
-            e.message.clone(),
+            event.message.clone(),
             Style::default().fg(msg_color),
         )]));
-    } else {
-        // Message + fields with smart wrapping
-        let mut first_line_spans = vec![Span::styled(
-            e.message.clone(),
-            Style::default().fg(msg_color),
-        )];
+        return lines;
+    }
 
-        let mut current_line_len = e.message.chars().count();
-        let indent = "    "; // continuation indent
-        let indent_len = indent.chars().count();
+    let mut first_line_spans = vec![Span::styled(
+        event.message.clone(),
+        Style::default().fg(msg_color),
+    )];
 
-        // Track if we need to start a new line for fields
-        let mut continuation_spans: Vec<Span<'static>> = Vec::new();
-        let mut continuation_len = indent_len;
+    let mut current_line_len = event.message.chars().count();
+    let indent = "    ";
+    let indent_len = indent.chars().count();
+    let mut continuation_spans: Vec<Span<'static>> = Vec::new();
+    let mut continuation_len = indent_len;
 
-        for (key, value) in &e.fields {
-            // Format: key=value (with space before)
-            let field_len = key.chars().count() + 1 + value.chars().count(); // key + = + value
-            let space_needed = 1; // always need space before field
+    for (key, value) in &event.fields {
+        let field_len = key.chars().count() + 1 + value.chars().count();
+        let total_field_len = 1 + field_len;
 
-            let total_field_len = space_needed + field_len;
-
-            // Decide where to put this field
-            if continuation_spans.is_empty() {
-                // Still on first line
-                if current_line_len + total_field_len <= max_width {
-                    // Fits on first line
-                    first_line_spans.push(Span::raw(" "));
-                    first_line_spans.push(Span::styled(key.clone(), Style::default().fg(CYAN)));
-                    first_line_spans.push(Span::styled("=", Style::default().fg(FG_DARK)));
-                    first_line_spans.push(Span::styled(value.clone(), Style::default().fg(GREEN)));
-                    current_line_len += total_field_len;
-                } else {
-                    // Start continuation line
-                    lines.push(Line::from(std::mem::take(&mut first_line_spans)));
-                    continuation_spans.push(Span::raw(indent.to_string()));
-                    continuation_spans.push(Span::styled(key.clone(), Style::default().fg(CYAN)));
-                    continuation_spans.push(Span::styled("=", Style::default().fg(FG_DARK)));
-                    continuation_spans
-                        .push(Span::styled(value.clone(), Style::default().fg(GREEN)));
-                    continuation_len = indent_len + field_len;
-                }
+        if continuation_spans.is_empty() {
+            if current_line_len + total_field_len <= max_width {
+                first_line_spans.push(Span::raw(" "));
+                first_line_spans.push(Span::styled(key.clone(), Style::default().fg(CYAN)));
+                first_line_spans.push(Span::styled("=", Style::default().fg(FG_DARK)));
+                first_line_spans.push(Span::styled(value.clone(), Style::default().fg(GREEN)));
+                current_line_len += total_field_len;
             } else {
-                // Already on continuation line
-                if continuation_len + total_field_len <= max_width {
-                    // Fits on current continuation
-                    continuation_spans.push(Span::raw(" "));
-                    continuation_spans.push(Span::styled(key.clone(), Style::default().fg(CYAN)));
-                    continuation_spans.push(Span::styled("=", Style::default().fg(FG_DARK)));
-                    continuation_spans
-                        .push(Span::styled(value.clone(), Style::default().fg(GREEN)));
-                    continuation_len += total_field_len;
-                } else {
-                    // Start new continuation line
-                    lines.push(Line::from(std::mem::take(&mut continuation_spans)));
-                    continuation_spans.push(Span::raw(indent.to_string()));
-                    continuation_spans.push(Span::styled(key.clone(), Style::default().fg(CYAN)));
-                    continuation_spans.push(Span::styled("=", Style::default().fg(FG_DARK)));
-                    continuation_spans
-                        .push(Span::styled(value.clone(), Style::default().fg(GREEN)));
-                    continuation_len = indent_len + field_len;
-                }
+                lines.push(Line::from(std::mem::take(&mut first_line_spans)));
+                continuation_spans.push(Span::raw(indent.to_string()));
+                continuation_spans.push(Span::styled(key.clone(), Style::default().fg(CYAN)));
+                continuation_spans.push(Span::styled("=", Style::default().fg(FG_DARK)));
+                continuation_spans.push(Span::styled(value.clone(), Style::default().fg(GREEN)));
+                continuation_len = indent_len + field_len;
             }
+        } else if continuation_len + total_field_len <= max_width {
+            continuation_spans.push(Span::raw(" "));
+            continuation_spans.push(Span::styled(key.clone(), Style::default().fg(CYAN)));
+            continuation_spans.push(Span::styled("=", Style::default().fg(FG_DARK)));
+            continuation_spans.push(Span::styled(value.clone(), Style::default().fg(GREEN)));
+            continuation_len += total_field_len;
+        } else {
+            lines.push(Line::from(std::mem::take(&mut continuation_spans)));
+            continuation_spans.push(Span::raw(indent.to_string()));
+            continuation_spans.push(Span::styled(key.clone(), Style::default().fg(CYAN)));
+            continuation_spans.push(Span::styled("=", Style::default().fg(FG_DARK)));
+            continuation_spans.push(Span::styled(value.clone(), Style::default().fg(GREEN)));
+            continuation_len = indent_len + field_len;
         }
+    }
 
-        // Flush remaining spans
-        if !first_line_spans.is_empty() {
-            lines.push(Line::from(first_line_spans));
-        }
-        if !continuation_spans.is_empty() {
-            lines.push(Line::from(continuation_spans));
-        }
+    if !first_line_spans.is_empty() {
+        lines.push(Line::from(first_line_spans));
+    }
+    if !continuation_spans.is_empty() {
+        lines.push(Line::from(continuation_spans));
     }
 
     lines
@@ -581,80 +556,76 @@ impl Drop for TerminalSession {
     }
 }
 
-/// TuiDisplay implementation - receives updates from host
 #[derive(Clone)]
-struct TuiDisplayImpl {
+pub struct TuiDisplayClient {
     progress_tx: mpsc::UnboundedSender<BuildProgress>,
     event_tx: mpsc::UnboundedSender<LogEvent>,
     status_tx: mpsc::UnboundedSender<ServerStatus>,
 }
 
-impl TuiDisplay for TuiDisplayImpl {
-    async fn update_progress(&self, progress: BuildProgress) {
+impl TuiDisplayClient {
+    pub async fn update_progress(&self, progress: BuildProgress) {
         let _ = self.progress_tx.send(progress);
     }
 
-    async fn push_event(&self, event: LogEvent) {
+    pub async fn push_event(&self, event: LogEvent) {
         let _ = self.event_tx.send(event);
     }
 
-    async fn update_status(&self, status: ServerStatus) {
+    pub async fn update_status(&self, status: ServerStatus) {
         let _ = self.status_tx.send(status);
     }
 }
 
-dodeca_cell_runtime::declare_cell!("tui", |host| {
-    // Channels for receiving updates from host (via TuiDisplay RPC)
+impl TuiDisplay for TuiDisplayClient {
+    async fn update_progress(&self, progress: BuildProgress) {
+        self.update_progress(progress).await;
+    }
+
+    async fn push_event(&self, event: LogEvent) {
+        self.push_event(event).await;
+    }
+
+    async fn update_status(&self, status: ServerStatus) {
+        self.update_status(status).await;
+    }
+}
+
+pub fn spawn_tui_display() -> TuiDisplayClient {
     let (progress_tx, progress_rx) = mpsc::unbounded_channel();
     let (event_tx, event_rx) = mpsc::unbounded_channel();
     let (status_tx, status_rx) = mpsc::unbounded_channel();
 
-    // Spawn TUI loop in background
-    tokio::spawn(run_tui_loop(host, progress_rx, event_rx, status_rx));
+    tokio::spawn(run_tui_loop(progress_rx, event_rx, status_rx));
 
-    // Return dispatcher
-    TuiDisplayDispatcher::new(TuiDisplayImpl {
+    TuiDisplayClient {
         progress_tx,
         event_tx,
         status_tx,
-    })
-});
+    }
+}
 
 async fn run_tui_loop(
-    host: HostHandle,
     mut progress_rx: mpsc::UnboundedReceiver<BuildProgress>,
     mut events_rx: mpsc::UnboundedReceiver<LogEvent>,
     mut status_rx: mpsc::UnboundedReceiver<ServerStatus>,
 ) {
-    if let Err(e) = run_tui_loop_inner(host, &mut progress_rx, &mut events_rx, &mut status_rx).await
-    {
-        eprintln!("TUI error: {e}");
+    if let Err(error) = run_tui_loop_inner(&mut progress_rx, &mut events_rx, &mut status_rx).await {
+        tracing::error!(%error, "TUI failed");
     }
 }
 
 async fn run_tui_loop_inner(
-    host: HostHandle,
     progress_rx: &mut mpsc::UnboundedReceiver<BuildProgress>,
     events_rx: &mut mpsc::UnboundedReceiver<LogEvent>,
     status_rx: &mut mpsc::UnboundedReceiver<ServerStatus>,
 ) -> Result<()> {
-    // Create host client (for sending commands back); HostHandle::client
-    // resolves once the cell session is established.
-    let client = host.client().await;
-
-    // Channel for sending commands
     let (command_tx, mut command_rx) = mpsc::unbounded_channel::<ServerCommand>();
-
-    // Channel for key events (read on a blocking thread so we don't stall the RPC runtime)
     let (key_tx, mut key_rx) = mpsc::unbounded_channel::<KeyEvent>();
 
     let mut terminal_session = TerminalSession::enter()?;
-
-    // Create app state
     let mut app = TuiApp::new(command_tx);
 
-    // Spawn a blocking reader for keyboard input.
-    // Exits automatically when the receiver is dropped.
     std::thread::spawn(move || {
         loop {
             if key_tx.is_closed() {
@@ -668,10 +639,16 @@ async fn run_tui_loop_inner(
                         }
                     }
                     Ok(_) => {}
-                    Err(_) => break,
+                    Err(error) => {
+                        tracing::debug!(%error, "TUI key reader stopped");
+                        break;
+                    }
                 },
                 Ok(false) => {}
-                Err(_) => break,
+                Err(error) => {
+                    tracing::debug!(%error, "TUI key poll failed");
+                    break;
+                }
             }
         }
     });
@@ -679,9 +656,6 @@ async fn run_tui_loop_inner(
     let mut tick = tokio::time::interval(Duration::from_millis(33));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-    // Main event loop
-    // Updates come via TuiDisplay RPC (host calls us)
-    // Commands go via HostService::send_command (we call host)
     loop {
         tokio::select! {
             _ = tick.tick() => {}
@@ -691,7 +665,7 @@ async fn run_tui_loop_inner(
             }
 
             Some(cmd) = command_rx.recv() => {
-                let _ = client.send_command(cmd).await;
+                let _ = crate::host::Host::get().handle_tui_command(cmd);
             }
 
             Some(progress) = progress_rx.recv() => {
@@ -707,19 +681,16 @@ async fn run_tui_loop_inner(
             }
         }
 
-        // Draw after handling any update (including tick) so we stay responsive to keys
         terminal_session
             .terminal_mut()
             .draw(|frame| app.draw(frame))?;
 
         if app.should_quit {
-            // Send any pending commands before exiting
             while let Ok(cmd) = command_rx.try_recv() {
-                let _ = client.send_command(cmd).await;
+                let _ = crate::host::Host::get().handle_tui_command(cmd);
             }
             terminal_session.restore()?;
-            // Tell the host to quit
-            let _ = client.quit().await;
+            crate::host::Host::get().signal_exit();
             break;
         }
     }

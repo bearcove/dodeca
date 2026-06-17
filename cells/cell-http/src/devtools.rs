@@ -55,42 +55,6 @@ impl vox::ConnectionAcceptor for DevtoolsAcceptor {
     }
 }
 
-#[cfg(feature = "dynamic-cell")]
-pub fn accept_proxied_connection(
-    host: dodeca_cell_runtime::HostHandle,
-    service: &str,
-    connection: vox::PendingConnection,
-) -> Result<(), vox::Metadata<'static>> {
-    match service {
-        s if s == vox::NoopClient::SERVICE_NAME => {
-            tracing::debug!("devtools browser root connection accepted");
-            connection.handle_with(());
-            Ok(())
-        }
-        s if s == dodeca_protocol::DevtoolsServiceClient::SERVICE_NAME => {
-            tracing::debug!("devtools browser service connection accepted; opening host proxy");
-            let incoming = connection.into_handle();
-            tokio::spawn(async move {
-                let upstream = host
-                    .open_connection(vec![vox::MetadataEntry::str(
-                        "vox-service",
-                        dodeca_protocol::DevtoolsServiceClient::SERVICE_NAME,
-                    )])
-                    .await;
-                tracing::debug!("devtools host service connection opened; starting proxy");
-                if let Err(error) = vox::proxy_connections(incoming, upstream).await {
-                    tracing::debug!(?error, "devtools websocket proxy ended");
-                }
-            });
-            Ok(())
-        }
-        other => Err(vec![vox::MetadataEntry::str(
-            "error",
-            format!("unsupported browser devtools service {other}"),
-        )]),
-    }
-}
-
 struct AxumWsLink {
     socket: WebSocket,
 }

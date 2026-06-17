@@ -7,9 +7,6 @@ use image::{DynamicImage, ImageEncoder, Rgb, Rgba};
 
 use cell_image_proto::{DecodedImage, ImageProcessor, ImageResult, ResizeInput, ThumbhashInput};
 
-#[cfg(feature = "dynamic-cell")]
-use cell_image_proto::ImageProcessorDispatcher;
-
 /// Image processor implementation
 #[derive(Clone)]
 pub struct ImageProcessorImpl;
@@ -168,8 +165,3 @@ fn pixels_to_dynamic_image(
         _ => None,
     }
 }
-
-#[cfg(feature = "dynamic-cell")]
-dodeca_cell_runtime::declare_cell!("image", |_host| {
-    ImageProcessorDispatcher::new(ImageProcessorImpl)
-});

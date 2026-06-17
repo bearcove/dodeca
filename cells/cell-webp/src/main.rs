@@ -4,9 +4,6 @@
 
 use cell_webp_proto::{WebPEncodeInput, WebPProcessor, WebPResult};
 
-#[cfg(feature = "dynamic-cell")]
-use cell_webp_proto::WebPProcessorDispatcher;
-
 /// WebP processor implementation
 #[derive(Clone)]
 pub struct WebPProcessorImpl;
@@ -52,8 +49,3 @@ impl WebPProcessor for WebPProcessorImpl {
         }
     }
 }
-
-#[cfg(feature = "dynamic-cell")]
-dodeca_cell_runtime::declare_cell!("webp", |_host| {
-    WebPProcessorDispatcher::new(WebPProcessorImpl)
-});

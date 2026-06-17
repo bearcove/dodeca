@@ -2703,11 +2703,8 @@ async fn serve_with_tui(
         .await
         .expect("Command receiver should be available");
 
-    // Get TUI display client for pushing updates to TUI cell (host → TUI direction)
-    // This spawns the TUI cell lazily on first access
-    let tui_client = cells::get_tui_display_client()
-        .await
-        .expect("TUI cell should be available");
+    // Spawn the local TUI display and push updates through direct channels.
+    let tui_client = dodeca::tui_display::spawn_tui_display();
 
     // Initialize asset cache (processed images, OG images, etc.)
     let parent_dir = content_dir.parent().unwrap_or(content_dir);
@@ -3275,7 +3272,7 @@ async fn serve_with_tui(
         }
     });
 
-    // Bridge proto commands from TUI cell to old tui commands (or handle directly)
+    // Bridge commands from the local TUI display to server actions.
     let mut proto_cmd_rx = proto_cmd_rx; // Move the receiver from earlier
     let filter_handle_for_bridge = filter_handle.clone();
     let event_tx_for_bridge = event_tx.clone();
@@ -3340,7 +3337,7 @@ async fn serve_with_tui(
             .await;
     }
 
-    // Spawn forwarders to push updates to TUI cell via RPC
+    // Spawn forwarders to push updates to the local TUI display.
     // Forward progress updates
     let tui_client_progress = tui_client.clone();
     dodeca::spawn::spawn(async move {
