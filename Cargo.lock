@@ -1763,6 +1763,7 @@ dependencies = [
  "cell-markdown-proto",
  "dodeca-cell-runtime",
  "marq",
+ "tracing",
 ]
 
 [[package]]
@@ -2851,6 +2852,7 @@ dependencies = [
  "cell-lifecycle-proto",
  "cell-linkcheck",
  "cell-linkcheck-proto",
+ "cell-markdown",
  "cell-markdown-proto",
  "cell-minify",
  "cell-minify-proto",

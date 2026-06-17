@@ -128,6 +128,8 @@ a time:
    `dialoguer`, `term`, `vite`, `html-diff`, `minify`, and
    `code-execution`; their crates still keep dynamic-cell exports for now, but
    the `dodeca` facade calls their Rust impls directly.
+   `markdown` also now follows the direct-call path; its host handle was stale,
+   so the dynamic constructor remains only as compatibility glue.
 
 2. Replace `crates/dodeca/src/cells.rs` helpers to call direct APIs for the
    pilot modules while preserving the current helper function names. That keeps

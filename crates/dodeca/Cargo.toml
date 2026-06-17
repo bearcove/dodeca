@@ -47,6 +47,7 @@ cell-jxl = { path = "../../cells/cell-jxl", default-features = false }
 cell-linkcheck-proto = { path = "../../cells/cell-linkcheck-proto" }
 cell-linkcheck = { path = "../../cells/cell-linkcheck", default-features = false }
 cell-markdown-proto = { path = "../../cells/cell-markdown-proto" }
+cell-markdown = { path = "../../cells/cell-markdown", default-features = false }
 cell-minify-proto = { path = "../../cells/cell-minify-proto" }
 cell-minify = { path = "../../cells/cell-minify", default-features = false }
 cell-sass-proto = { path = "../../cells/cell-sass-proto" }

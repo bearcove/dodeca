@@ -29,7 +29,7 @@ use cell_lifecycle_proto::CellLifecycle;
 use cell_linkcheck_proto::{
     LinkCheckInput, LinkCheckResult, LinkChecker, LinkCheckerClient, LinkStatus,
 };
-use cell_markdown_proto::MarkdownProcessorClient;
+use cell_markdown_proto::{MarkdownProcessor, MarkdownProcessorClient};
 use cell_minify_proto::{Minifier, MinifyResult};
 use cell_sass_proto::{SassCompiler, SassCompilerClient, SassResult};
 use cell_search_proto::{
@@ -574,13 +574,9 @@ pub struct CheckOptions {
 }
 
 pub async fn highlight_code_cell(lang: &str, code: &str) -> Result<String, eyre::Error> {
-    let client = markdown_cell()
-        .await
-        .ok_or_else(|| eyre::eyre!("Markdown cell not available"))?;
-    match client
+    match ddc_cell_markdown::MarkdownProcessorImpl::new()
         .highlight_code(lang.to_string(), code.to_string())
         .await
-        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))?
     {
         cell_markdown_proto::HighlightResult::Success { html } => Ok(html),
         cell_markdown_proto::HighlightResult::Error { message } => {
@@ -603,44 +599,34 @@ pub async fn parse_and_render_markdown_cell(
         source_path,
         source_len = content.len(),
         source_map,
-        "cell rpc client lookup starting"
+        "markdown render starting"
     );
-    let client = markdown_cell().await.ok_or_else(|| MarkdownParseError {
-        message: "Markdown cell not available".to_string(),
-    })?;
-    tracing::debug!(
-        rpc_id,
-        cell = "markdown",
-        method = "parse_and_render",
-        elapsed_ms = started_at.elapsed().as_millis(),
-        "cell rpc dispatch starting"
-    );
-    client
+    let result = ddc_cell_markdown::MarkdownProcessorImpl::new()
         .parse_and_render(source_path.to_string(), content.to_string(), source_map)
-        .await
-        .map(|result| {
+        .await;
+    match result {
+        result @ cell_markdown_proto::ParseResult::Success { .. } => {
             tracing::debug!(
                 rpc_id,
                 cell = "markdown",
                 method = "parse_and_render",
                 elapsed_ms = started_at.elapsed().as_millis(),
-                "cell rpc complete"
+                "markdown render complete"
             );
-            result
-        })
-        .map_err(|e| {
+            Ok(result)
+        }
+        cell_markdown_proto::ParseResult::Error { message } => {
             tracing::error!(
                 rpc_id,
                 cell = "markdown",
                 method = "parse_and_render",
                 elapsed_ms = started_at.elapsed().as_millis(),
-                error = ?e,
-                "cell rpc failed"
+                %message,
+                "markdown render failed"
             );
-            MarkdownParseError {
-                message: format!("RPC error: {:?}", e),
-            }
-        })
+            Err(MarkdownParseError { message })
+        }
+    }
 }
 
 pub async fn execute_code_samples_cell(
