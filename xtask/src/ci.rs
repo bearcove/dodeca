@@ -1102,9 +1102,9 @@ pub fn build_ci_workflow(platform: CiPlatform, _repo_root: &Utf8Path) -> Workflo
         .find(|t| t.triple == "x86_64-unknown-linux-gnu")
         .expect("Linux target should exist");
     let ci_linux_cache = if ci_linux.runner.is_self_hosted() {
-        local_cache_with_targets(platform, false, "ci-linux", "/home/amos/.cache")
+        local_cache_with_targets(platform, true, "ci-linux", "/home/amos/.cache")
     } else {
-        rust_cache_with_targets(platform, false, linux_target)
+        rust_cache_with_targets(platform, true, linux_target)
     };
 
     // Build dodeca once to let build.rs generate the embedded WASM bundles.
@@ -1195,12 +1195,12 @@ pub fn build_ci_workflow(platform: CiPlatform, _repo_root: &Utf8Path) -> Workflo
                     if target.is_self_hosted() {
                         local_cache_with_targets(
                             platform,
-                            false,
+                            true,
                             &format!("ddc-{}", short),
                             target.cache_base_path(),
                         )
                     } else {
-                        rust_cache_with_targets(platform, false, target)
+                        rust_cache_with_targets(platform, true, target)
                     },
                     // Download WASM bundles embedded at compile time via include_bytes!.
                     Step::uses("Download WASM", platform.download_artifact_action()).with_inputs([
@@ -1250,12 +1250,12 @@ pub fn build_ci_workflow(platform: CiPlatform, _repo_root: &Utf8Path) -> Workflo
                     if target.is_self_hosted() {
                         local_cache_with_targets(
                             platform,
-                            false,
+                            true,
                             &format!("integration-{}", short),
                             target.cache_base_path(),
                         )
                     } else {
-                        rust_cache_with_targets(platform, false, target)
+                        rust_cache_with_targets(platform, true, target)
                     },
                     // Download WASM bundles embedded at compile time via include_bytes!.
                     Step::uses("Download WASM", platform.download_artifact_action()).with_inputs([

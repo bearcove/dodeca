@@ -59,7 +59,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: "true"
-          cache-targets: "false"
+          cache-targets: "true"
       - name: Install wasm-pack
         run: cargo install wasm-pack --locked
       - name: Build embedded WASM
@@ -95,7 +95,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: "true"
-          cache-targets: "false"
+          cache-targets: "true"
       - name: Download WASM
         uses: actions/download-artifact@v4
         with:
@@ -126,7 +126,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: "true"
-          cache-targets: "false"
+          cache-targets: "true"
       - name: Download WASM
         uses: actions/download-artifact@v4
         with:
@@ -195,7 +195,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: "true"
-          cache-targets: "false"
+          cache-targets: "true"
       - name: Download WASM
         uses: actions/download-artifact@v4
         with:
@@ -295,7 +295,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: "true"
-          cache-targets: "false"
+          cache-targets: "true"
           cache-bin: "false"
       - name: Download WASM
         uses: actions/download-artifact@v4
@@ -365,7 +365,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: "true"
-          cache-targets: "false"
+          cache-targets: "true"
           cache-bin: "false"
       - name: Download WASM
         uses: actions/download-artifact@v4
