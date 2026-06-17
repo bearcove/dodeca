@@ -23,7 +23,6 @@ cell-code-execution = { path = "../../cells/cell-code-execution", default-featur
 cell-vite-proto = { path = "../../cells/cell-vite-proto" }
 cell-vite = { path = "../../cells/cell-vite", default-features = false }
 dodeca-config = { path = "../dodeca-config" }
-cell-lifecycle-proto = { path = "../../cells/cell-lifecycle-proto" }
 cell-dialoguer-proto = { path = "../../cells/cell-dialoguer-proto" }
 cell-dialoguer = { path = "../../cells/cell-dialoguer", default-features = false }
 cell-css-proto = { path = "../../cells/cell-css-proto" }
@@ -94,11 +93,7 @@ notify.workspace = true
 open.workspace = true
 owo-colors.workspace = true
 picante.workspace = true
-vox = { workspace = true, features = ["transport-all", "transport-ffi"] }
-vox-ffi.workspace = true
-libloading.workspace = true
-vox-fdpass.workspace = true
-vox-stream.workspace = true
+vox = { workspace = true, features = ["transport-all"] }
 rapidhash.workspace = true
 arboard = { version = "3", default-features = false }
 strid.workspace = true

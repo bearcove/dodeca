@@ -6,16 +6,18 @@ one statically linked `ddc` binary.
 ## Current source-of-truth shape
 
 The documentation still describes the older separate-process cell model, but
-the source has already moved past that. The current runtime shape is:
+the source has already moved past that. The current runtime shape after the
+first collapse pass is:
 
-- `crates/dodeca/src/host.rs` owns typed cell client caching.
-- `crates/dodeca/src/cell_loader.rs` lazily `dlopen`s
-  `libddc_cell_<name>.{dylib,so,dll}`.
+- `crates/dodeca/src/host.rs` owns shared application state, but no longer owns
+  typed cell client caching.
+- `crates/dodeca/src/cell_loader.rs` has been removed from the main crate.
 - `crates/dodeca-cell-runtime/src/lib.rs` exports the per-cell
   `dodeca_cell_vtable_v1` symbol and starts a cell runtime thread after FFI
-  attach.
+  attach for the compatibility cell crates.
 - `crates/dodeca/src/cells.rs` is the main facade used by the build and serve
-  code. Most of dodeca calls helpers there rather than opening clients itself.
+  code. It now calls former cell implementations directly rather than opening
+  Vox clients.
 - `xtask/src/ci.rs` and `xtask/src/main.rs` still know how to discover, build,
   install, verify, and package cell cdylibs.
 
@@ -139,6 +141,9 @@ a time:
    `http` now exposes the axum router as a direct library API. `dodeca` serves
    browser TCP streams through hyper directly, and the browser DevTools Vox
    service is handled in-process rather than proxied through an internal cell.
+   The main `dodeca` crate no longer exports `cell_loader`, no longer has
+   `Host::client_async`, and no longer depends directly on `libloading`,
+   `vox-ffi`, fd passing, or Vox's FFI transport feature.
 
 2. Replace `crates/dodeca/src/cells.rs` helpers to call direct APIs for the
    pilot modules while preserving the current helper function names. That keeps
@@ -152,12 +157,16 @@ a time:
    - `tui`/`http`: wire directly to host/server channels instead of opening
      internal services.
 
-4. Once no helper goes through `Host::client_async`, delete the dynamic
-   infrastructure:
-   - `crates/dodeca/src/cell_loader.rs`
+4. Once no helper goes through `Host::client_async`, delete the main-crate
+   dynamic infrastructure:
+   - `crates/dodeca/src/cell_loader.rs` is gone.
+   - Internal `CellClient` caching in `Host` is gone.
+   - `libloading`, `vox-ffi`, and internal `transport-ffi` usage are gone from
+     `crates/dodeca`.
+
+   Remaining cleanup:
    - `crates/dodeca-cell-runtime`
-   - internal `CellClient` caching in `Host`
-   - `libloading`, `vox-ffi`, and internal `transport-ffi` usage
+   - compatibility dynamic-cell features in the former cell crates
    - cell cdylib discovery/build/install/release code in `xtask`
 
 5. Rename or remove the old `cells/` tree. The surviving code should become

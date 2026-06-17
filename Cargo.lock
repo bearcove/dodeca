@@ -2853,7 +2853,6 @@ dependencies = [
  "cell-js-proto",
  "cell-jxl",
  "cell-jxl-proto",
- "cell-lifecycle-proto",
  "cell-linkcheck",
  "cell-linkcheck-proto",
  "cell-markdown",
@@ -2896,7 +2895,6 @@ dependencies = [
  "if-addrs",
  "ignore",
  "include_dir",
- "libloading",
  "marq",
  "notify",
  "open",
@@ -2912,9 +2910,6 @@ dependencies = [
  "ur-taking-me-with-you",
  "vox 0.8.1",
  "vox-codegen",
- "vox-fdpass",
- "vox-ffi",
- "vox-stream",
 ]
 
 [[package]]
@@ -5039,16 +5034,6 @@ checksum = "f12a681b7dd8ce12bff52488013ba614b869148d54dd79836ab85aafdd53f08d"
 dependencies = [
  "arbitrary",
  "cc",
-]
-
-[[package]]
-name = "libloading"
-version = "0.8.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7c4b02199fee7c5d21a5ae7d8cfa79a6ef5bb2fc834d6e9058e89c825efdc55"
-dependencies = [
- "cfg-if",
- "windows-link",
 ]
 
 [[package]]
@@ -9127,7 +9112,6 @@ dependencies = [
  "tokio",
  "tracing",
  "vox-core 0.8.1",
- "vox-ffi",
  "vox-jit 0.8.1",
  "vox-postcard 0.8.1",
  "vox-service-macros 0.8.1",

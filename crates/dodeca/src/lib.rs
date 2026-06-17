@@ -10,7 +10,6 @@ pub mod build_context;
 pub mod build_steps;
 pub mod cache_bust;
 pub mod cas;
-pub mod cell_loader;
 pub mod cell_server;
 pub mod cells;
 pub mod config;

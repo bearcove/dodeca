@@ -11,7 +11,7 @@ use axum::response::IntoResponse;
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use vox::{Backing, FromVoxSession, Link, LinkRx, LinkTx};
+use vox::{Backing, Link, LinkRx, LinkTx};
 
 use crate::RouterContext;
 

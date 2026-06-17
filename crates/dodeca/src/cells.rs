@@ -1,58 +1,40 @@
 //! Transitional facade for former dodeca cells.
 //!
-//! The monolith migration is replacing internal Vox/dynamic-cell calls with
-//! direct Rust calls while preserving this module's helper names for the rest
-//! of the codebase. Callback-heavy modules still use the old client path until
-//! their host interactions are made local.
+//! Internal processing now uses direct Rust calls. This module preserves the
+//! former helper names and protocol types while the call sites are folded into
+//! their owning modules.
 
 use cell_code_execution_proto::{
-    CodeExecutionResult, CodeExecutor, CodeExecutorClient, ExecuteSamplesInput, ExtractSamplesInput,
+    CodeExecutionResult, CodeExecutor, ExecuteSamplesInput, ExtractSamplesInput,
 };
-use cell_css_proto::{CssProcessor, CssProcessorClient, CssResult};
-use cell_data_proto::{DataFormat, DataLoader, DataLoaderClient, LoadDataResult};
-use cell_dialoguer_proto::{Dialoguer, DialoguerClient, SelectResult};
-use cell_fonts_proto::{FontProcessor, FontProcessorClient, FontResult, SubsetFontInput};
-use cell_gingembre_proto::{ContextId, RenderResult, TemplateRenderer, TemplateRendererClient};
-use cell_host_proto::{
-    CallFunctionResult, CommandResult, HostService, KeysAtResult, LoadTemplateResult, ReadyAck,
-    ReadyMsg, ResolveDataResult, ServeContent, ServerCommand, Value,
-};
-use cell_html_diff_proto::{DiffError, DiffInput, DiffOutcome, HtmlDiffer, HtmlDifferClient};
-use cell_html_proto::{
-    HtmlProcessInput, HtmlProcessResult, HtmlProcessor, HtmlProcessorClient, HtmlResult,
-};
-use cell_http_proto::{ScopeEntry, TcpTunnelClient};
-use cell_image_proto::{
-    ImageProcessor, ImageProcessorClient, ImageResult, ResizeInput, ThumbhashInput,
-};
-use cell_js_proto::{JsProcessor, JsProcessorClient, JsRewriteInput};
-use cell_jxl_proto::{JXLEncodeInput, JXLProcessor, JXLProcessorClient, JXLResult};
-use cell_lifecycle_proto::CellLifecycle;
-use cell_linkcheck_proto::{
-    LinkCheckInput, LinkCheckResult, LinkChecker, LinkCheckerClient, LinkStatus,
-};
-use cell_markdown_proto::{MarkdownProcessor, MarkdownProcessorClient};
+use cell_css_proto::{CssProcessor, CssResult};
+use cell_data_proto::{DataFormat, DataLoader, LoadDataResult};
+use cell_dialoguer_proto::{Dialoguer, SelectResult};
+use cell_fonts_proto::{FontProcessor, FontResult, SubsetFontInput};
+use cell_gingembre_proto::{ContextId, RenderResult, TemplateRenderer};
+use cell_host_proto::Value;
+use cell_html_diff_proto::{DiffError, DiffInput, DiffOutcome, HtmlDiffer};
+use cell_html_proto::{HtmlProcessInput, HtmlProcessResult, HtmlProcessor, HtmlResult};
+use cell_image_proto::{ImageProcessor, ImageResult, ResizeInput, ThumbhashInput};
+use cell_js_proto::{JsProcessor, JsRewriteInput};
+use cell_jxl_proto::{JXLEncodeInput, JXLProcessor, JXLResult};
+use cell_linkcheck_proto::{LinkCheckInput, LinkCheckResult, LinkChecker, LinkStatus};
+use cell_markdown_proto::MarkdownProcessor;
 use cell_minify_proto::{Minifier, MinifyResult};
-use cell_sass_proto::{SassCompiler, SassCompilerClient, SassResult};
-use cell_search_proto::{
-    SearchFile, SearchIndexResult, SearchIndexer, SearchIndexerClient, SearchPage,
-};
-use cell_svgo_proto::{SvgoOptimizer, SvgoOptimizerClient, SvgoResult};
-use cell_term_proto::{RecordConfig, TermRecorder, TermRecorderClient, TermResult};
-use cell_tui_proto::TuiDisplayClient;
-use cell_vite_proto::{RunBuildResult, StartDevServerResult, ViteManager, ViteManagerClient};
-use cell_webp_proto::{WebPEncodeInput, WebPProcessor, WebPProcessorClient, WebPResult};
-use dashmap::DashMap;
+use cell_sass_proto::{SassCompiler, SassResult};
+use cell_search_proto::{SearchFile, SearchIndexResult, SearchIndexer, SearchPage};
+use cell_svgo_proto::{SvgoOptimizer, SvgoResult};
+use cell_term_proto::{RecordConfig, TermRecorder, TermResult};
+use cell_vite_proto::{RunBuildResult, StartDevServerResult, ViteManager};
+use cell_webp_proto::{WebPEncodeInput, WebPProcessor, WebPResult};
 use facet::Facet;
 
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, OnceLock};
 use std::time::Instant;
-use std::time::SystemTime;
-use tracing::debug;
 
 use crate::serve::SiteServer;
 
@@ -112,297 +94,17 @@ pub(crate) fn template_renderer()
     ddc_cell_gingembre::TemplateRendererImpl::new(crate::template_host::TemplateHostImpl::new())
 }
 
-// ============================================================================
-// Global State
-// ============================================================================
-
 static CELL_RPC_ID: AtomicU64 = AtomicU64::new(1);
 
 fn next_cell_rpc_id() -> u64 {
     CELL_RPC_ID.fetch_add(1, Ordering::Relaxed)
 }
 
-// Note: Most globals have been moved to Host singleton:
-// - Site server: Host::get().site_server()
-// - Cell handles: Host::get().get_cell_handle(name)
-
 /// Provide the SiteServer for HTTP cell initialization.
 /// This must be called before cells are initialized when the HTTP cell needs to serve content.
 /// For build-only commands, this can be skipped.
 pub fn provide_site_server(server: Arc<SiteServer>) {
     crate::host::Host::get().provide_site_server(server);
-}
-
-// Note: TUI command forwarding now goes through Host::get().handle_tui_command()
-// The old TUI_HOST_FOR_INIT global has been removed.
-// Exit signaling now goes through Host::get().signal_exit() / wait_for_exit().
-// ============================================================================
-// Cell Readiness Registry
-// ============================================================================
-
-/// Registry for tracking cell readiness (RPC-ready state).
-/// Tracks by cell name (logical name like "gingembre", "sass").
-#[derive(Clone)]
-pub struct CellReadyRegistry {
-    ready: Arc<DashMap<String, ReadyMsg>>,
-}
-
-impl CellReadyRegistry {
-    fn new() -> Self {
-        Self {
-            ready: Arc::new(DashMap::new()),
-        }
-    }
-
-    fn mark_ready(&self, msg: ReadyMsg) {
-        // Normalize: cells report with underscores (code_execution) but we use hyphens (code-execution)
-        let cell_name = msg.cell_name.replace('_', "-");
-        debug!(
-            cell_name = %cell_name,
-            peer_id = msg.peer_id,
-            "CellReadyRegistry::mark_ready: marking cell as ready"
-        );
-        self.ready.insert(cell_name.clone(), msg);
-        debug!(
-            cell_name = %cell_name,
-            "CellReadyRegistry::mark_ready: cell marked ready, registry now has {} cells",
-            self.ready.len()
-        );
-    }
-}
-
-static CELL_READY_REGISTRY: OnceLock<CellReadyRegistry> = OnceLock::new();
-
-pub fn cell_ready_registry() -> &'static CellReadyRegistry {
-    CELL_READY_REGISTRY.get_or_init(CellReadyRegistry::new)
-}
-
-/// Host implementation of CellLifecycle service
-#[derive(Clone)]
-pub struct HostCellLifecycle {
-    registry: CellReadyRegistry,
-}
-
-impl HostCellLifecycle {
-    pub fn new(registry: CellReadyRegistry) -> Self {
-        Self { registry }
-    }
-}
-
-impl CellLifecycle for HostCellLifecycle {
-    async fn ready(&self, msg: ReadyMsg) -> ReadyAck {
-        let peer_id = msg.peer_id;
-        let cell_name = msg.cell_name.clone();
-        debug!("Cell {} (peer_id={}) is ready", cell_name, peer_id);
-        self.registry.mark_ready(msg);
-
-        let host_time_unix_ms = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .ok()
-            .map(|d| d.as_millis() as u64);
-
-        ReadyAck {
-            ok: true,
-            host_time_unix_ms,
-        }
-    }
-}
-
-// ============================================================================
-// Unified Host Service Implementation
-// ============================================================================
-
-/// Unified host service that all cells connect to.
-///
-/// This implements `HostService` by delegating to the specialized implementations.
-/// TUI command forwarding goes through `Host::get()`.
-#[derive(Clone)]
-pub struct HostServiceImpl {
-    lifecycle: HostCellLifecycle,
-    template_host: crate::template_host::TemplateHostImpl,
-    site_server: Option<Arc<SiteServer>>,
-}
-
-impl HostServiceImpl {
-    pub fn new(
-        lifecycle: HostCellLifecycle,
-        template_host: crate::template_host::TemplateHostImpl,
-        site_server: Option<Arc<SiteServer>>,
-    ) -> Self {
-        Self {
-            lifecycle,
-            template_host,
-            site_server,
-        }
-    }
-}
-
-/// Build the unified host service the cell loader serves back to every cell.
-pub fn make_host_service() -> HostServiceImpl {
-    HostServiceImpl::new(
-        HostCellLifecycle::new(cell_ready_registry().clone()),
-        crate::template_host::TemplateHostImpl::new(),
-        crate::host::Host::get().site_server().cloned(),
-    )
-}
-
-impl HostService for HostServiceImpl {
-    // Cell Lifecycle
-    async fn ready(&self, msg: ReadyMsg) -> ReadyAck {
-        let peer_id = msg.peer_id;
-        let cell_name = msg.cell_name.clone();
-        debug!("Cell {} (peer_id={}) is ready", cell_name, peer_id);
-        self.lifecycle.registry.mark_ready(msg);
-
-        let host_time_unix_ms = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .ok()
-            .map(|d| d.as_millis() as u64);
-
-        ReadyAck {
-            ok: true,
-            host_time_unix_ms,
-        }
-    }
-
-    // Template Host
-    async fn load_template(&self, context_id: ContextId, name: String) -> LoadTemplateResult {
-        use cell_gingembre_proto::TemplateHost;
-        self.template_host.load_template(context_id, name).await
-    }
-
-    async fn resolve_data(&self, context_id: ContextId, path: Vec<String>) -> ResolveDataResult {
-        use cell_gingembre_proto::TemplateHost;
-        self.template_host.resolve_data(context_id, path).await
-    }
-
-    async fn keys_at(&self, context_id: ContextId, path: Vec<String>) -> KeysAtResult {
-        use cell_gingembre_proto::TemplateHost;
-        self.template_host.keys_at(context_id, path).await
-    }
-
-    async fn call_function(
-        &self,
-        context_id: ContextId,
-        name: String,
-        args: Vec<Value>,
-        kwargs: Vec<(String, Value)>,
-    ) -> CallFunctionResult {
-        use cell_gingembre_proto::TemplateHost;
-        self.template_host
-            .call_function(context_id, name, args, kwargs)
-            .await
-    }
-
-    // Content Service
-    async fn find_content(
-        &self,
-        path: String,
-        identity: Option<cell_http_proto::Identity>,
-    ) -> ServeContent {
-        if let Some(server) = &self.site_server {
-            use cell_http_proto::ContentService;
-            let content_service = crate::content_service::HostContentService::new(server.clone());
-            content_service.find_content(path, identity).await
-        } else {
-            ServeContent::NotFound {
-                html: "Not in serve mode".to_string(),
-                generation: 0,
-            }
-        }
-    }
-
-    async fn get_scope(&self, route: String, path: Vec<String>) -> Vec<ScopeEntry> {
-        if let Some(server) = &self.site_server {
-            use cell_http_proto::ContentService;
-            let content_service = crate::content_service::HostContentService::new(server.clone());
-            content_service.get_scope(route, path).await
-        } else {
-            vec![]
-        }
-    }
-
-    async fn eval_expression(
-        &self,
-        route: String,
-        expression: String,
-    ) -> cell_host_proto::EvalResult {
-        if let Some(server) = &self.site_server {
-            use cell_http_proto::ContentService;
-            let content_service = crate::content_service::HostContentService::new(server.clone());
-            content_service.eval_expression(route, expression).await
-        } else {
-            cell_host_proto::EvalResult::Err("Not in serve mode".to_string())
-        }
-    }
-
-    // TUI Commands (TUI → Host)
-    async fn send_command(&self, command: ServerCommand) -> CommandResult {
-        // Forward to Host singleton
-        crate::host::Host::get().handle_tui_command(command)
-    }
-
-    async fn quit(&self) {
-        crate::host::Host::get().signal_exit();
-    }
-
-    // Vite Integration
-    async fn get_vite_port(&self) -> Option<u16> {
-        crate::host::Host::get().get_vite_port()
-    }
-
-    // HTML Host callbacks
-    async fn minify_css(&self, css: String) -> cell_host_proto::MinifyCssResult {
-        match rewrite_urls_in_css_cell(css, HashMap::new()).await {
-            Ok(css) => cell_host_proto::MinifyCssResult::Success { css },
-            Err(e) => cell_host_proto::MinifyCssResult::Error {
-                message: e.to_string(),
-            },
-        }
-    }
-
-    async fn minify_js(&self, js: String) -> cell_host_proto::MinifyJsResult {
-        match rewrite_string_literals_in_js_cell(js, HashMap::new()).await {
-            Ok(js) => cell_host_proto::MinifyJsResult::Success { js },
-            Err(e) => cell_host_proto::MinifyJsResult::Error {
-                message: e.to_string(),
-            },
-        }
-    }
-
-    async fn process_inline_css(
-        &self,
-        css: String,
-        path_map: HashMap<String, String>,
-    ) -> cell_host_proto::ProcessCssResult {
-        match rewrite_urls_in_css_cell(css, path_map).await {
-            Ok(css) => cell_host_proto::ProcessCssResult::Success { css },
-            Err(e) => cell_host_proto::ProcessCssResult::Error {
-                message: e.to_string(),
-            },
-        }
-    }
-
-    async fn process_inline_js(
-        &self,
-        js: String,
-        path_map: HashMap<String, String>,
-    ) -> cell_host_proto::ProcessJsResult {
-        match rewrite_string_literals_in_js_cell(js, path_map).await {
-            Ok(js) => cell_host_proto::ProcessJsResult::Success { js },
-            Err(e) => cell_host_proto::ProcessJsResult::Error {
-                message: e.to_string(),
-            },
-        }
-    }
-}
-
-/// Get the TUI display client for pushing updates to the TUI cell.
-/// This will spawn the TUI cell if it hasn't been spawned yet.
-pub async fn get_tui_display_client() -> Option<TuiDisplayClient> {
-    crate::host::Host::get()
-        .client_async::<TuiDisplayClient>()
-        .await
 }
 
 // ============================================================================
@@ -478,58 +180,6 @@ pub async fn eval_expression_cell(
     );
     Ok(result)
 }
-
-// ============================================================================
-// Cell Client Accessor Functions
-// ============================================================================
-
-/// Create a client for the given cell if available.
-///
-/// Uses Host for handle lookup. With lazy spawning, will spawn cell on first access.
-macro_rules! cell_client_accessor {
-    ($name:ident, $suffix:expr, $client:ty) => {
-        #[allow(unused)]
-        pub async fn $name() -> Option<Arc<$client>> {
-            // Use Host for handle lookup with lazy spawning support
-            crate::host::Host::get()
-                .client_async::<$client>()
-                .await
-                .map(Arc::new)
-        }
-    };
-}
-
-// Image processing
-cell_client_accessor!(image_cell, "image", ImageProcessorClient);
-cell_client_accessor!(webp_cell, "webp", WebPProcessorClient);
-cell_client_accessor!(jxl_cell, "jxl", JXLProcessorClient);
-
-// Text processing
-cell_client_accessor!(markdown_cell, "markdown", MarkdownProcessorClient);
-cell_client_accessor!(html_cell, "html", HtmlProcessorClient);
-cell_client_accessor!(css_cell, "css", CssProcessorClient);
-cell_client_accessor!(sass_cell, "sass", SassCompilerClient);
-cell_client_accessor!(js_cell, "js", JsProcessorClient);
-cell_client_accessor!(svgo_cell, "svgo", SvgoOptimizerClient);
-
-// Template rendering
-cell_client_accessor!(gingembre_cell, "gingembre", TemplateRendererClient);
-
-// Data processing
-cell_client_accessor!(data_cell, "data", DataLoaderClient);
-
-// Vite management
-cell_client_accessor!(vite_cell, "vite", ViteManagerClient);
-
-// Other cells
-cell_client_accessor!(font_cell, "fonts", FontProcessorClient);
-cell_client_accessor!(linkcheck_cell, "linkcheck", LinkCheckerClient);
-cell_client_accessor!(search_cell, "search", SearchIndexerClient);
-cell_client_accessor!(html_diff_cell, "html_diff", HtmlDifferClient);
-cell_client_accessor!(dialoguer_cell, "dialoguer", DialoguerClient);
-cell_client_accessor!(code_execution_cell, "code_execution", CodeExecutorClient);
-cell_client_accessor!(http_cell, "http", TcpTunnelClient);
-cell_client_accessor!(term_cell, "term", TermRecorderClient);
 
 /// Record a terminal session interactively
 pub async fn record_term_interactive(config: RecordConfig) -> Result<TermResult, eyre::Error> {
