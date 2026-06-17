@@ -45,8 +45,6 @@ function Main {
 
     # Create install directory
     New-Item -ItemType Directory -Force -Path $installDir | Out-Null
-    $pluginsDir = Join-Path $installDir "plugins"
-    New-Item -ItemType Directory -Force -Path $pluginsDir | Out-Null
 
     # Download and extract
     $tempDir = Join-Path $env:TEMP "dodeca-install-$(New-Guid)"
@@ -62,11 +60,6 @@ function Main {
 
         Write-Host "Installing..."
         Copy-Item -Path (Join-Path $tempDir "ddc.exe") -Destination $installDir -Force
-
-        $tempPluginsDir = Join-Path $tempDir "plugins"
-        if (Test-Path $tempPluginsDir) {
-            Copy-Item -Path (Join-Path $tempPluginsDir "*") -Destination $pluginsDir -Force
-        }
 
         Write-Host ""
         Write-Host "Successfully installed dodeca to $installDir\ddc.exe"

@@ -167,7 +167,12 @@ a time:
    Remaining cleanup:
    - `crates/dodeca-cell-runtime`
    - compatibility dynamic-cell features in the former cell crates
-   - cell cdylib discovery/build/install/release code in `xtask`
+   - compatibility `cdylib` crate types in the former cell crates
+
+   Release and CI packaging no longer build, upload, verify, archive, install,
+   or pass paths to cell cdylibs. The generated Forgejo/GitHub workflows,
+   installers, archive scripts, Homebrew formula generator, repro helper, and
+   integration harness now treat `ddc` as the single runtime artifact.
 
 5. Rename or remove the old `cells/` tree. The surviving code should become
    ordinary crates/modules named for product domains rather than deployment

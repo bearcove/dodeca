@@ -92,7 +92,6 @@ jobs:
           rm -rf dist
           mkdir -p dist
           cp target/release/ddc dist/
-          cp target/release/libddc_cell_*.so dist/
           chmod +x dist/ddc
           #!/bin/bash
           set -euo pipefail
@@ -107,172 +106,17 @@ jobs:
             echo '✓ ddc'
           fi
 
-          if [[ ! -f dist/libddc_cell_code_execution.so ]]; then
-            echo '❌ MISSING: libddc_cell_code_execution.so'
-            missing=1
-          else
-            echo '✓ libddc_cell_code_execution.so'
-          fi
-
-          if [[ ! -f dist/libddc_cell_css.so ]]; then
-            echo '❌ MISSING: libddc_cell_css.so'
-            missing=1
-          else
-            echo '✓ libddc_cell_css.so'
-          fi
-
-          if [[ ! -f dist/libddc_cell_data.so ]]; then
-            echo '❌ MISSING: libddc_cell_data.so'
-            missing=1
-          else
-            echo '✓ libddc_cell_data.so'
-          fi
-
-          if [[ ! -f dist/libddc_cell_dialoguer.so ]]; then
-            echo '❌ MISSING: libddc_cell_dialoguer.so'
-            missing=1
-          else
-            echo '✓ libddc_cell_dialoguer.so'
-          fi
-
-          if [[ ! -f dist/libddc_cell_fonts.so ]]; then
-            echo '❌ MISSING: libddc_cell_fonts.so'
-            missing=1
-          else
-            echo '✓ libddc_cell_fonts.so'
-          fi
-
-          if [[ ! -f dist/libddc_cell_gingembre.so ]]; then
-            echo '❌ MISSING: libddc_cell_gingembre.so'
-            missing=1
-          else
-            echo '✓ libddc_cell_gingembre.so'
-          fi
-
-          if [[ ! -f dist/libddc_cell_html.so ]]; then
-            echo '❌ MISSING: libddc_cell_html.so'
-            missing=1
-          else
-            echo '✓ libddc_cell_html.so'
-          fi
-
-          if [[ ! -f dist/libddc_cell_html_diff.so ]]; then
-            echo '❌ MISSING: libddc_cell_html_diff.so'
-            missing=1
-          else
-            echo '✓ libddc_cell_html_diff.so'
-          fi
-
-          if [[ ! -f dist/libddc_cell_http.so ]]; then
-            echo '❌ MISSING: libddc_cell_http.so'
-            missing=1
-          else
-            echo '✓ libddc_cell_http.so'
-          fi
-
-          if [[ ! -f dist/libddc_cell_image.so ]]; then
-            echo '❌ MISSING: libddc_cell_image.so'
-            missing=1
-          else
-            echo '✓ libddc_cell_image.so'
-          fi
-
-          if [[ ! -f dist/libddc_cell_js.so ]]; then
-            echo '❌ MISSING: libddc_cell_js.so'
-            missing=1
-          else
-            echo '✓ libddc_cell_js.so'
-          fi
-
-          if [[ ! -f dist/libddc_cell_jxl.so ]]; then
-            echo '❌ MISSING: libddc_cell_jxl.so'
-            missing=1
-          else
-            echo '✓ libddc_cell_jxl.so'
-          fi
-
-          if [[ ! -f dist/libddc_cell_linkcheck.so ]]; then
-            echo '❌ MISSING: libddc_cell_linkcheck.so'
-            missing=1
-          else
-            echo '✓ libddc_cell_linkcheck.so'
-          fi
-
-          if [[ ! -f dist/libddc_cell_markdown.so ]]; then
-            echo '❌ MISSING: libddc_cell_markdown.so'
-            missing=1
-          else
-            echo '✓ libddc_cell_markdown.so'
-          fi
-
-          if [[ ! -f dist/libddc_cell_minify.so ]]; then
-            echo '❌ MISSING: libddc_cell_minify.so'
-            missing=1
-          else
-            echo '✓ libddc_cell_minify.so'
-          fi
-
-          if [[ ! -f dist/libddc_cell_sass.so ]]; then
-            echo '❌ MISSING: libddc_cell_sass.so'
-            missing=1
-          else
-            echo '✓ libddc_cell_sass.so'
-          fi
-
-          if [[ ! -f dist/libddc_cell_search.so ]]; then
-            echo '❌ MISSING: libddc_cell_search.so'
-            missing=1
-          else
-            echo '✓ libddc_cell_search.so'
-          fi
-
-          if [[ ! -f dist/libddc_cell_svgo.so ]]; then
-            echo '❌ MISSING: libddc_cell_svgo.so'
-            missing=1
-          else
-            echo '✓ libddc_cell_svgo.so'
-          fi
-
-          if [[ ! -f dist/libddc_cell_term.so ]]; then
-            echo '❌ MISSING: libddc_cell_term.so'
-            missing=1
-          else
-            echo '✓ libddc_cell_term.so'
-          fi
-
-          if [[ ! -f dist/libddc_cell_tui.so ]]; then
-            echo '❌ MISSING: libddc_cell_tui.so'
-            missing=1
-          else
-            echo '✓ libddc_cell_tui.so'
-          fi
-
-          if [[ ! -f dist/libddc_cell_vite.so ]]; then
-            echo '❌ MISSING: libddc_cell_vite.so'
-            missing=1
-          else
-            echo '✓ libddc_cell_vite.so'
-          fi
-
-          if [[ ! -f dist/libddc_cell_webp.so ]]; then
-            echo '❌ MISSING: libddc_cell_webp.so'
-            missing=1
-          else
-            echo '✓ libddc_cell_webp.so'
-          fi
-
           if [[ $missing -eq 1 ]]; then
             echo ''
             echo 'ERROR: Some required binaries are missing!'
-            echo 'This usually means a cell build job failed or artifact upload was incomplete.'
+            echo 'This usually means a ddc build job failed or artifact upload was incomplete.'
             exit 1
           fi
 
           echo ''
-          echo 'All 23 artifacts verified.'
+          echo 'All artifacts verified.'
 
           DODECA_BIN="$STABLE_SRC/target/release/ddc" \
-          DODECA_CELL_PATH="$STABLE_SRC/target/release" \
             bash -lc 'cd "$STABLE_SRC/browser-tests" && npm ci && npx playwright install chromium --with-deps && npm test'
         shell: bash
       - name: Assemble archive
@@ -365,7 +209,6 @@ jobs:
           rm -rf dist
           mkdir -p dist
           cp target/release/ddc dist/
-          cp target/release/libddc_cell_*.dylib dist/
           chmod +x dist/ddc
           #!/bin/bash
           set -euo pipefail
@@ -380,169 +223,15 @@ jobs:
             echo '✓ ddc'
           fi
 
-          if [[ ! -f dist/libddc_cell_code_execution.dylib ]]; then
-            echo '❌ MISSING: libddc_cell_code_execution.dylib'
-            missing=1
-          else
-            echo '✓ libddc_cell_code_execution.dylib'
-          fi
-
-          if [[ ! -f dist/libddc_cell_css.dylib ]]; then
-            echo '❌ MISSING: libddc_cell_css.dylib'
-            missing=1
-          else
-            echo '✓ libddc_cell_css.dylib'
-          fi
-
-          if [[ ! -f dist/libddc_cell_data.dylib ]]; then
-            echo '❌ MISSING: libddc_cell_data.dylib'
-            missing=1
-          else
-            echo '✓ libddc_cell_data.dylib'
-          fi
-
-          if [[ ! -f dist/libddc_cell_dialoguer.dylib ]]; then
-            echo '❌ MISSING: libddc_cell_dialoguer.dylib'
-            missing=1
-          else
-            echo '✓ libddc_cell_dialoguer.dylib'
-          fi
-
-          if [[ ! -f dist/libddc_cell_fonts.dylib ]]; then
-            echo '❌ MISSING: libddc_cell_fonts.dylib'
-            missing=1
-          else
-            echo '✓ libddc_cell_fonts.dylib'
-          fi
-
-          if [[ ! -f dist/libddc_cell_gingembre.dylib ]]; then
-            echo '❌ MISSING: libddc_cell_gingembre.dylib'
-            missing=1
-          else
-            echo '✓ libddc_cell_gingembre.dylib'
-          fi
-
-          if [[ ! -f dist/libddc_cell_html.dylib ]]; then
-            echo '❌ MISSING: libddc_cell_html.dylib'
-            missing=1
-          else
-            echo '✓ libddc_cell_html.dylib'
-          fi
-
-          if [[ ! -f dist/libddc_cell_html_diff.dylib ]]; then
-            echo '❌ MISSING: libddc_cell_html_diff.dylib'
-            missing=1
-          else
-            echo '✓ libddc_cell_html_diff.dylib'
-          fi
-
-          if [[ ! -f dist/libddc_cell_http.dylib ]]; then
-            echo '❌ MISSING: libddc_cell_http.dylib'
-            missing=1
-          else
-            echo '✓ libddc_cell_http.dylib'
-          fi
-
-          if [[ ! -f dist/libddc_cell_image.dylib ]]; then
-            echo '❌ MISSING: libddc_cell_image.dylib'
-            missing=1
-          else
-            echo '✓ libddc_cell_image.dylib'
-          fi
-
-          if [[ ! -f dist/libddc_cell_js.dylib ]]; then
-            echo '❌ MISSING: libddc_cell_js.dylib'
-            missing=1
-          else
-            echo '✓ libddc_cell_js.dylib'
-          fi
-
-          if [[ ! -f dist/libddc_cell_jxl.dylib ]]; then
-            echo '❌ MISSING: libddc_cell_jxl.dylib'
-            missing=1
-          else
-            echo '✓ libddc_cell_jxl.dylib'
-          fi
-
-          if [[ ! -f dist/libddc_cell_linkcheck.dylib ]]; then
-            echo '❌ MISSING: libddc_cell_linkcheck.dylib'
-            missing=1
-          else
-            echo '✓ libddc_cell_linkcheck.dylib'
-          fi
-
-          if [[ ! -f dist/libddc_cell_markdown.dylib ]]; then
-            echo '❌ MISSING: libddc_cell_markdown.dylib'
-            missing=1
-          else
-            echo '✓ libddc_cell_markdown.dylib'
-          fi
-
-          if [[ ! -f dist/libddc_cell_minify.dylib ]]; then
-            echo '❌ MISSING: libddc_cell_minify.dylib'
-            missing=1
-          else
-            echo '✓ libddc_cell_minify.dylib'
-          fi
-
-          if [[ ! -f dist/libddc_cell_sass.dylib ]]; then
-            echo '❌ MISSING: libddc_cell_sass.dylib'
-            missing=1
-          else
-            echo '✓ libddc_cell_sass.dylib'
-          fi
-
-          if [[ ! -f dist/libddc_cell_search.dylib ]]; then
-            echo '❌ MISSING: libddc_cell_search.dylib'
-            missing=1
-          else
-            echo '✓ libddc_cell_search.dylib'
-          fi
-
-          if [[ ! -f dist/libddc_cell_svgo.dylib ]]; then
-            echo '❌ MISSING: libddc_cell_svgo.dylib'
-            missing=1
-          else
-            echo '✓ libddc_cell_svgo.dylib'
-          fi
-
-          if [[ ! -f dist/libddc_cell_term.dylib ]]; then
-            echo '❌ MISSING: libddc_cell_term.dylib'
-            missing=1
-          else
-            echo '✓ libddc_cell_term.dylib'
-          fi
-
-          if [[ ! -f dist/libddc_cell_tui.dylib ]]; then
-            echo '❌ MISSING: libddc_cell_tui.dylib'
-            missing=1
-          else
-            echo '✓ libddc_cell_tui.dylib'
-          fi
-
-          if [[ ! -f dist/libddc_cell_vite.dylib ]]; then
-            echo '❌ MISSING: libddc_cell_vite.dylib'
-            missing=1
-          else
-            echo '✓ libddc_cell_vite.dylib'
-          fi
-
-          if [[ ! -f dist/libddc_cell_webp.dylib ]]; then
-            echo '❌ MISSING: libddc_cell_webp.dylib'
-            missing=1
-          else
-            echo '✓ libddc_cell_webp.dylib'
-          fi
-
           if [[ $missing -eq 1 ]]; then
             echo ''
             echo 'ERROR: Some required binaries are missing!'
-            echo 'This usually means a cell build job failed or artifact upload was incomplete.'
+            echo 'This usually means a ddc build job failed or artifact upload was incomplete.'
             exit 1
           fi
 
           echo ''
-          echo 'All 23 artifacts verified.'
+          echo 'All artifacts verified.'
 
         shell: bash
       - name: Assemble archive

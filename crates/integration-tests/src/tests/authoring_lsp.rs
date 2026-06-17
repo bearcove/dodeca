@@ -99,10 +99,6 @@ impl LspClient {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        if let Some(cell_dir) = cell_path() {
-            cmd.env("DODECA_CELL_PATH", cell_dir);
-        }
-
         let mut child = cmd.spawn().expect("spawn ddc lsp");
         let stdin = Arc::new(Mutex::new(child.stdin.take().expect("capture lsp stdin")));
         let stdout = child.stdout.take().expect("capture lsp stdout");
