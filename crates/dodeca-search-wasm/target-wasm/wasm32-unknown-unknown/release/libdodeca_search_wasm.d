@@ -1,1 +1,0 @@
-/Users/amos/dodeca/crates/dodeca-search-wasm/target-wasm/wasm32-unknown-unknown/release/libdodeca_search_wasm.rlib: /Users/amos/dodeca/crates/dodeca-search-format/src/lib.rs /Users/amos/dodeca/crates/dodeca-search-wasm/src/lib.rs

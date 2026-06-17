@@ -24,6 +24,8 @@ browser-tests/test-results/
 # Wasm build
 crates/dodeca-devtools/pkg/
 crates/dodeca-search-wasm/pkg/
+crates/*/target-wasm/
+.pnpm-store/
 examples/vite-starter/node_modules
 
 .playwright-mcp/
