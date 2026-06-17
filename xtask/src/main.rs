@@ -13,7 +13,7 @@ use facet::Facet;
 use figue as args;
 use owo_colors::OwoColorize;
 
-/// Build command - build plugins + dodeca
+/// Build command - build dodeca workspace
 #[derive(Facet, Debug)]
 struct BuildArgs {
     /// Build in release mode
@@ -76,7 +76,7 @@ struct IntegrationArgs {
 #[derive(Facet, Debug)]
 #[repr(u8)]
 enum XtaskCommand {
-    /// Build plugins + dodeca
+    /// Build dodeca workspace
     Build(BuildArgs),
     /// Build all, then run ddc
     Run(RunArgs),
@@ -186,9 +186,9 @@ fn main() -> ExitCode {
 }
 
 fn build_all(release: bool) -> bool {
-    // Build everything else (dodeca + all cells in workspace)
+    // Build the workspace: dodeca plus supporting crates.
     eprintln!(
-        "Building dodeca + all cells{}...",
+        "Building dodeca workspace{}...",
         if release { " (release)" } else { "" }
     );
 
@@ -280,45 +280,7 @@ fn install_dev() -> bool {
     }
     eprintln!("  Installed ddc");
 
-    // Copy all cell cdylibs (libddc_cell_<name>.{dylib,so,dll}).
-    //
-    // Cells used to be standalone `ddc-cell-*` binaries; they are now cdylibs
-    // that `ddc` dlopen's from its own directory (see cell_loader::cell_library_path).
-    let dll_prefix = format!("{}ddc_cell_", std::env::consts::DLL_PREFIX);
-    let dll_suffix = std::env::consts::DLL_SUFFIX;
-    let mut installed_cells = 0;
-    if let Ok(entries) = fs::read_dir(&release_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-
-            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-
-            if name.starts_with(&dll_prefix) && name.ends_with(dll_suffix) {
-                let dst = cargo_bin.join(name);
-                let _ = fs::remove_file(&dst);
-                if let Err(e) = fs::copy(&path, &dst) {
-                    eprintln!("Failed to copy {name}: {e}");
-                    return false;
-                }
-                eprintln!("  Installed {name}");
-                installed_cells += 1;
-            }
-        }
-    }
-
-    if installed_cells == 0 {
-        eprintln!(
-            "{}: no cell cdylibs ({dll_prefix}*{dll_suffix}) found in {} — ddc would not be able to load cells",
-            "error".red().bold(),
-            release_dir.display(),
-        );
-        return false;
-    }
-
-    // Remove stale standalone cell binaries from the pre-cdylib era so the
+    // Remove stale standalone cell binaries from the old multi-process era so the
     // freshly installed `ddc` doesn't sit next to dead `ddc-cell-*` executables.
     if let Ok(entries) = fs::read_dir(&cargo_bin) {
         for entry in entries.flatten() {
@@ -334,7 +296,6 @@ fn install_dev() -> bool {
         }
     }
 
-    eprintln!("Installed {installed_cells} cell cdylibs");
     eprintln!("Installation complete!");
     true
 }
@@ -395,7 +356,7 @@ fn run_integration_tests(no_build: bool, extra_args: &[&str]) -> bool {
             "Building {} binaries for integration tests...",
             profile_name
         );
-        // build_all builds everything: WASM, dodeca, all cells, and integration-tests
+        // build_all builds the workspace, including ddc and integration-tests.
         if !build_all(release) {
             return false;
         }
@@ -469,8 +430,8 @@ fn run_integration_tests(no_build: bool, extra_args: &[&str]) -> bool {
     let mut cmd = Command::new(&integration_bin);
     cmd.args(extra_args);
 
-    // Check if DODECA_BIN and DODECA_CELL_PATH are already set in the environment
-    // If so, pass them through. Otherwise, set them to our built binaries.
+    // Check if DODECA_BIN is already set in the environment. If so, pass it
+    // through. Otherwise, set it to our built binary.
     let ddc_bin_path = if let Ok(env_bin) = env::var("DODECA_BIN") {
         eprintln!("Using DODECA_BIN from environment: {}", env_bin);
         PathBuf::from(env_bin)
@@ -488,22 +449,12 @@ fn run_integration_tests(no_build: bool, extra_args: &[&str]) -> bool {
         ddc_bin
     };
 
-    let cell_path = if let Ok(env_path) = env::var("DODECA_CELL_PATH") {
-        eprintln!("Using DODECA_CELL_PATH from environment: {}", env_path);
-        PathBuf::from(env_path)
-    } else {
-        target_dir.clone()
-    };
-
     // Set environment variables for the test harness
     let ddc_bin_abs = ddc_bin_path.canonicalize().unwrap_or(ddc_bin_path);
-    let cell_path_abs = cell_path.canonicalize().unwrap_or(cell_path);
 
     cmd.env("DODECA_BIN", &ddc_bin_abs);
-    cmd.env("DODECA_CELL_PATH", &cell_path_abs);
 
     eprintln!("  DODECA_BIN={}", ddc_bin_abs.display());
-    eprintln!("  DODECA_CELL_PATH={}", cell_path_abs.display());
 
     // Make fixture resolution independent of where `integration-tests` was built.
     // Use runtime path resolution instead of compile-time CARGO_MANIFEST_DIR to support

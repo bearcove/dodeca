@@ -1,4 +1,4 @@
-//! RPC protocol for dodeca JXL cell
+//! Typed interface for dodeca JXL processor
 //!
 //! Defines services for JPEG XL encoding and decoding.
 
@@ -30,11 +30,10 @@ pub enum JXLResult {
     Error { message: String },
 }
 
-/// JXL processing service implemented by the cell.
+/// JXL processor interface.
 ///
-/// The host calls these methods to process JPEG XL images.
+/// Dodeca calls these methods to process JPEG XL images.
 #[allow(async_fn_in_trait)]
-#[vox::service]
 pub trait JXLProcessor {
     /// Decode JPEG XL to RGBA pixels
     async fn decode_jxl(&self, data: Vec<u8>) -> JXLResult;

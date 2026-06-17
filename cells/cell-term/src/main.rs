@@ -1,8 +1,8 @@
-//! Dodeca term cell (cell-term)
+//! Dodeca terminal recorder.
 //!
-//! This cell handles terminal session recording with ANSI color support.
+//! This processor handles terminal session recording with ANSI color support.
 
-use cell_term_proto::{RecordConfig, TermRecorder, TermRecorderDispatcher, TermResult};
+use cell_term_proto::{RecordConfig, TermRecorder, TermResult};
 
 mod parser;
 mod recorder;
@@ -31,7 +31,3 @@ impl TermRecorder for TermRecorderImpl {
         }
     }
 }
-
-dodeca_cell_runtime::declare_cell!("term", |_host| TermRecorderDispatcher::new(
-    TermRecorderImpl
-));

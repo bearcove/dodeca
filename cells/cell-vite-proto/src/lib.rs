@@ -1,4 +1,4 @@
-//! RPC protocol for dodeca vite cell
+//! Typed interface for dodeca Vite manager
 //!
 //! Manages Vite dev server and production builds.
 
@@ -26,7 +26,6 @@ pub enum RunBuildResult {
 
 /// Vite management service
 #[allow(async_fn_in_trait)]
-#[vox::service]
 pub trait ViteManager {
     /// Start a Vite dev server in the given project directory.
     /// Returns the port the server is listening on.

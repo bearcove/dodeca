@@ -1,11 +1,11 @@
-//! Dodeca SASS cell (cell-sass)
+//! Dodeca SASS processor.
 //!
-//! This cell handles SASS/SCSS compilation using grass.
+//! This processor handles SASS/SCSS compilation using grass.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use cell_sass_proto::{SassCompiler, SassCompilerDispatcher, SassResult};
+use cell_sass_proto::{SassCompiler, SassResult};
 
 /// SASS compiler implementation
 #[derive(Clone)]
@@ -78,7 +78,3 @@ impl grass::Fs for InMemorySassFs {
             .map_err(|e| std::io::Error::new(e.kind(), format!("File not found: {path:?}: {e}")))
     }
 }
-
-dodeca_cell_runtime::declare_cell!("sass", |_host| SassCompilerDispatcher::new(
-    SassCompilerImpl
-));

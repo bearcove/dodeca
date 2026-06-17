@@ -1,21 +1,16 @@
 //! Unified Host for dodeca.
 //!
 //! The Host is a singleton that owns all shared state:
-//! - Cell infrastructure (SHM, connection handles)
 //! - Render context registry (for template callbacks)
 //! - TUI command forwarding
-//! - Pending cells (lazy spawning)
 //!
-//! Access via `Host::get()`. Get typed cell clients via `Host::client::<C>()`.
-//! For async spawning on demand, use `Host::client_async::<C>()`.
+//! Access via `Host::get()`.
 
-use std::any::{Any, TypeId};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Instant;
 
 use cell_gingembre_proto::ContextId;
-use cell_host_proto::{CommandResult, ServerCommand};
+use cell_tui_proto::{CommandResult, ServerCommand};
 use dashmap::DashMap;
 use tokio::sync::{Mutex, Notify, mpsc};
 
@@ -46,16 +41,16 @@ pub struct Host {
     // -------------------------------------------------------------------------
     // TUI Command Forwarding
     // -------------------------------------------------------------------------
-    /// Channel to forward commands from TUI cell to main loop.
+    /// Channel to forward commands from the TUI display to the main loop.
     command_tx: mpsc::UnboundedSender<ServerCommand>,
     /// Receiver end - taken by main.rs via `take_command_rx()`.
     command_rx: Mutex<Option<mpsc::UnboundedReceiver<ServerCommand>>>,
 
     // -------------------------------------------------------------------------
-    // Site Server (for HTTP cell)
+    // Site Server (for local HTTP serving)
     // -------------------------------------------------------------------------
-    /// SiteServer for HTTP cell content serving.
-    /// Set via `provide_site_server()` before cell initialization.
+    /// SiteServer for local HTTP content serving.
+    /// Set via `provide_site_server()` before HTTP serving starts.
     site_server: std::sync::OnceLock<Arc<crate::serve::SiteServer>>,
 
     // -------------------------------------------------------------------------
@@ -70,10 +65,6 @@ pub struct Host {
     // -------------------------------------------------------------------------
     /// Build step executor (set when config is loaded).
     build_step_executor: std::sync::OnceLock<Arc<crate::build_steps::BuildStepExecutor>>,
-
-    /// Long-lived typed clients per cell service.
-    client_cache: DashMap<TypeId, Arc<dyn Any + Send + Sync>>,
-    client_cache_lock: Mutex<()>,
 }
 
 impl Host {
@@ -92,8 +83,6 @@ impl Host {
                 site_server: std::sync::OnceLock::new(),
                 vite_port: std::sync::OnceLock::new(),
                 build_step_executor: std::sync::OnceLock::new(),
-                client_cache: DashMap::new(),
-                client_cache_lock: Mutex::new(()),
             })
         })
     }
@@ -151,7 +140,7 @@ impl Host {
         self.command_rx.lock().await.take()
     }
 
-    /// Handle a command from the TUI cell (called by HostService impl).
+    /// Handle a command from the TUI display.
     pub fn handle_tui_command(&self, command: ServerCommand) -> CommandResult {
         match self.command_tx.send(command) {
             Ok(_) => CommandResult::Ok,
@@ -165,8 +154,8 @@ impl Host {
     // Site Server
     // =========================================================================
 
-    /// Provide the SiteServer for HTTP cell content serving.
-    /// This must be called before cell initialization when the HTTP cell needs to serve content.
+    /// Provide the SiteServer for local HTTP content serving.
+    /// This must be called before the HTTP router needs to serve content.
     /// For build-only commands, this can be skipped.
     pub fn provide_site_server(&self, server: Arc<crate::serve::SiteServer>) {
         let _ = self.site_server.set(server);
@@ -200,144 +189,5 @@ impl Host {
     /// Get the build step executor.
     pub fn build_step_executor(&self) -> Option<&Arc<crate::build_steps::BuildStepExecutor>> {
         self.build_step_executor.get()
-    }
-}
-
-// ============================================================================
-// CellClient Trait
-// ============================================================================
-
-/// Trait for type-safe cell client access.
-///
-/// Implement this for each cell client type to enable `Host::client::<C>()`.
-pub trait CellClient: Sized {
-    /// The cell's logical name (e.g., "sass", "markdown", "gingembre").
-    /// The cdylib is `libddc_cell_{name}.{dylib,so,dll}`.
-    const CELL_NAME: &'static str;
-
-    /// Whether the underlying Vox caller is still connected.
-    fn is_connected(&self) -> bool;
-}
-
-// ============================================================================
-// Client Implementations
-// ============================================================================
-
-// Macro to map each vox-generated cell client type to its logical cell name.
-macro_rules! impl_cell_client {
-    ($client:ty, $name:literal) => {
-        impl CellClient for $client {
-            const CELL_NAME: &'static str = $name;
-
-            fn is_connected(&self) -> bool {
-                self.caller.is_connected()
-            }
-        }
-    };
-}
-
-// Implement for all cell clients (using logical names, not binary names)
-impl_cell_client!(cell_sass_proto::SassCompilerClient, "sass");
-impl_cell_client!(cell_markdown_proto::MarkdownProcessorClient, "markdown");
-impl_cell_client!(cell_html_proto::HtmlProcessorClient, "html");
-impl_cell_client!(cell_css_proto::CssProcessorClient, "css");
-impl_cell_client!(cell_image_proto::ImageProcessorClient, "image");
-impl_cell_client!(cell_webp_proto::WebPProcessorClient, "webp");
-impl_cell_client!(cell_jxl_proto::JXLProcessorClient, "jxl");
-impl_cell_client!(cell_minify_proto::MinifierClient, "minify");
-impl_cell_client!(cell_js_proto::JsProcessorClient, "js");
-impl_cell_client!(cell_svgo_proto::SvgoOptimizerClient, "svgo");
-impl_cell_client!(cell_fonts_proto::FontProcessorClient, "fonts");
-impl_cell_client!(cell_linkcheck_proto::LinkCheckerClient, "linkcheck");
-impl_cell_client!(cell_search_proto::SearchIndexerClient, "search");
-impl_cell_client!(cell_html_diff_proto::HtmlDifferClient, "html-diff");
-impl_cell_client!(cell_dialoguer_proto::DialoguerClient, "dialoguer");
-impl_cell_client!(
-    cell_code_execution_proto::CodeExecutorClient,
-    "code-execution"
-);
-impl_cell_client!(cell_http_proto::TcpTunnelClient, "http");
-impl_cell_client!(cell_gingembre_proto::TemplateRendererClient, "gingembre");
-impl_cell_client!(cell_tui_proto::TuiDisplayClient, "tui");
-impl_cell_client!(cell_term_proto::TermRecorderClient, "term");
-impl_cell_client!(cell_data_proto::DataLoaderClient, "data");
-impl_cell_client!(cell_vite_proto::ViteManagerClient, "vite");
-
-// ============================================================================
-// Client Access
-// ============================================================================
-
-impl Host {
-    pub fn clear_cell_client_cache(&self) {
-        self.client_cache.clear();
-    }
-
-    /// Get a typed cell client, `dlopen`'ing the cell cdylib and establishing
-    /// the vox-ffi link on first use, then opening a virtual connection for the
-    /// cell's service.
-    pub async fn client_async<C>(&self) -> Option<C>
-    where
-        C: CellClient + vox::FromVoxSession + Clone + Send + Sync + 'static,
-    {
-        let started_at = Instant::now();
-        tracing::debug!(cell = C::CELL_NAME, "cell client requested");
-        let type_id = TypeId::of::<C>();
-        if let Some(cached) = self.client_cache.get(&type_id)
-            && let Ok(client) = cached.clone().downcast::<C>()
-        {
-            if client.is_connected() {
-                tracing::debug!(
-                    cell = C::CELL_NAME,
-                    elapsed_ms = started_at.elapsed().as_millis(),
-                    "cell client cache hit"
-                );
-                return Some((*client).clone());
-            }
-            tracing::debug!(cell = C::CELL_NAME, "cell client cache stale");
-            self.client_cache.remove(&type_id);
-        }
-
-        let _guard = self.client_cache_lock.lock().await;
-        if let Some(cached) = self.client_cache.get(&type_id)
-            && let Ok(client) = cached.clone().downcast::<C>()
-        {
-            if client.is_connected() {
-                tracing::debug!(
-                    cell = C::CELL_NAME,
-                    elapsed_ms = started_at.elapsed().as_millis(),
-                    "cell client cache hit"
-                );
-                return Some((*client).clone());
-            }
-            tracing::debug!(cell = C::CELL_NAME, "cell client cache stale");
-            self.client_cache.remove(&type_id);
-        }
-
-        let session = crate::cell_loader::cell_session(C::CELL_NAME).await?;
-        tracing::debug!(
-            cell = C::CELL_NAME,
-            elapsed_ms = started_at.elapsed().as_millis(),
-            "cell session available for client"
-        );
-        let open_started_at = Instant::now();
-        tracing::debug!(cell = C::CELL_NAME, "cell service vconn open starting");
-        match session
-            .open::<C>(crate::cell_loader::connection_settings())
-            .await
-        {
-            Ok(c) => {
-                tracing::debug!(
-                    cell = C::CELL_NAME,
-                    elapsed_ms = open_started_at.elapsed().as_millis(),
-                    "cell service vconn open complete"
-                );
-                self.client_cache.insert(type_id, Arc::new(c.clone()));
-                Some(c)
-            }
-            Err(e) => {
-                tracing::error!(cell = C::CELL_NAME, error = %e, "open cell service vconn failed");
-                None
-            }
-        }
     }
 }

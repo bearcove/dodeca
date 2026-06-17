@@ -1,6 +1,6 @@
-//! Dodeca linkcheck cell (cell-linkcheck)
+//! Dodeca linkcheck processor.
 //!
-//! This cell handles external link checking with per-domain rate limiting.
+//! This processor handles external link checking with per-domain rate limiting.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -8,8 +8,7 @@ use std::time::Duration;
 use url::Url;
 
 use cell_linkcheck_proto::{
-    LinkCheckInput, LinkCheckOutput, LinkCheckResult, LinkChecker, LinkCheckerDispatcher,
-    LinkDiagnostics, LinkStatus,
+    LinkCheckInput, LinkCheckOutput, LinkCheckResult, LinkChecker, LinkDiagnostics, LinkStatus,
 };
 
 /// Generate a realistic browser User-Agent string.
@@ -30,7 +29,7 @@ pub struct LinkCheckerImpl {
 }
 
 impl LinkCheckerImpl {
-    fn new() -> Self {
+    pub fn new() -> Self {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
             .user_agent(generate_user_agent())
@@ -40,7 +39,15 @@ impl LinkCheckerImpl {
 
         Self { client }
     }
+}
 
+impl Default for LinkCheckerImpl {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl LinkCheckerImpl {
     /// Extract domain from URL for rate limiting
     fn get_domain(url: &str) -> Option<String> {
         Url::parse(url)
@@ -193,7 +200,3 @@ impl LinkChecker for LinkCheckerImpl {
         }
     }
 }
-
-dodeca_cell_runtime::declare_cell!("linkcheck", |_host| {
-    LinkCheckerDispatcher::new(LinkCheckerImpl::new())
-});

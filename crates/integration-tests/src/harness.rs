@@ -12,7 +12,6 @@
 //! # Environment Variables
 //!
 //! - `DODECA_BIN`: Path to the ddc binary (required)
-//! - `DODECA_CELL_PATH`: Path to cell binaries (defaults to same dir as ddc)
 //! - `DODECA_TEST_WRAPPER`: Optional wrapper script/command to run ddc under
 //!   (e.g., "valgrind --leak-check=full" or "strace -f -o /tmp/trace.out")
 //! - `DODECA_HARNESS_HTTP_TIMEOUT_SECS`: Per-request HTTP timeout in seconds.
@@ -284,11 +283,6 @@ pub fn ddc_binary() -> PathBuf {
         "DODECA_BIN is not set and inferred ddc binary does not exist at {}",
         inferred.display()
     );
-}
-
-/// Get the path to the cell binaries directory
-pub fn cell_path() -> Option<PathBuf> {
-    std::env::var("DODECA_CELL_PATH").map(PathBuf::from).ok()
 }
 
 /// Get the wrapper command if specified (e.g., "valgrind --leak-check=full")
@@ -590,11 +584,6 @@ impl TestSite {
         let _ = fs::create_dir_all(&code_exec_target_dir);
         cmd.env("DDC_CODE_EXEC_TARGET_DIR", &code_exec_target_dir);
 
-        // Set cell path from env var
-        if let Some(cell_dir) = cell_path() {
-            cmd.env("DODECA_CELL_PATH", &cell_dir);
-        }
-
         // Enable death-watch so ddc (and its cells) die when the test process dies.
         // This prevents orphan accumulation when tests are killed or crash.
         cmd.env("DODECA_DIE_WITH_PARENT", "1");
@@ -785,7 +774,7 @@ impl TestSite {
             state.setup_duration = Some(setup_elapsed);
         }
 
-        let site = Self {
+        Self {
             child,
             port,
             fixture_dir,
@@ -794,9 +783,7 @@ impl TestSite {
             #[cfg(unix)]
             _unix_socket_dir: unix_socket_dir,
             test_id,
-        };
-
-        site
+        }
     }
 
     /// Clear captured logs for this test
@@ -1482,10 +1469,6 @@ impl InlineSite {
         let mut cmd = StdCommand::new(&ddc);
         cmd.args(["build", &fixture_str]);
 
-        if let Some(cell_dir) = cell_path() {
-            cmd.env("DODECA_CELL_PATH", &cell_dir);
-        }
-
         let code_exec_target_dir = self.fixture_dir.join(".cache/code-exec-target");
         let _ = fs::create_dir_all(&code_exec_target_dir);
         cmd.env("DDC_CODE_EXEC_TARGET_DIR", &code_exec_target_dir);
@@ -1531,11 +1514,6 @@ fn build_site_from_source_sync(src: &Path) -> BuildResult {
     let ddc = ddc_binary();
     let mut cmd = StdCommand::new(&ddc);
     cmd.args(["build", &fixture_str]);
-
-    // Set cell path if provided via env var
-    if let Some(cell_dir) = cell_path() {
-        cmd.env("DODECA_CELL_PATH", &cell_dir);
-    }
 
     // Isolate code-execution build artifacts per build invocation to avoid macOS hangs due to
     // cargo file-lock contention under concurrent tests/processes.

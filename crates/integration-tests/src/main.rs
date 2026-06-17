@@ -8,7 +8,6 @@
 //!
 //! Environment variables:
 //!   DODECA_BIN       - Path to the ddc binary (optional, inferred from runner dir)
-//!   DODECA_CELL_PATH - Path to cell binaries (optional, defaults to same dir as ddc)
 
 mod harness;
 mod tests;
@@ -363,7 +362,6 @@ fn main() {
                 println!();
                 println!("Environment variables:");
                 println!("  DODECA_BIN          Path to the ddc binary (required)");
-                println!("  DODECA_CELL_PATH    Path to cell binaries directory");
                 std::process::exit(0);
             }
             arg if !arg.starts_with('-') => {

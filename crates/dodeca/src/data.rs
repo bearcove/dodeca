@@ -4,8 +4,8 @@
 //! the `data/` directory (sibling to content/) and exposed in templates
 //! under the `data` namespace.
 //!
-//! Parsing is delegated to the data cell to reduce monomorphization in
-//! the main binary.
+//! Parsing is delegated through the cells facade while the monolith migration
+//! collapses former cells into direct Rust calls.
 //!
 //! # Example
 //!
@@ -26,16 +26,11 @@ pub use cell_data_proto::DataFormat;
 use cell_data_proto::LoadDataResult;
 use facet_value::{VObject, VString, Value};
 
-/// Parse a data file into a template Value via the data cell.
+/// Parse a data file into a template Value.
 pub async fn parse_data_file(content: &str, format: DataFormat) -> Result<Value, String> {
-    let client = cells::data_cell()
-        .await
-        .ok_or_else(|| "Data cell not available".to_string())?;
-
-    match client.load_data(content.to_string(), format).await {
-        Ok(LoadDataResult::Success { value }) => Ok(value),
-        Ok(LoadDataResult::Error { message }) => Err(message),
-        Err(e) => Err(format!("RPC error: {:?}", e)),
+    match cells::load_data(content.to_string(), format).await {
+        LoadDataResult::Success { value } => Ok(value),
+        LoadDataResult::Error { message } => Err(message),
     }
 }
 

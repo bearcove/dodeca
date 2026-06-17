@@ -1,6 +1,6 @@
-//! Dodeca JS cell (cell-js)
+//! Dodeca JS processor.
 //!
-//! This cell handles JavaScript string literal rewriting using OXC.
+//! This processor handles JavaScript string literal rewriting using OXC.
 
 use std::collections::HashMap;
 
@@ -10,7 +10,7 @@ use oxc::ast_visit::Visit;
 use oxc::parser::Parser;
 use oxc::span::SourceType;
 
-use cell_js_proto::{JsProcessor, JsProcessorDispatcher, JsRewriteInput};
+use cell_js_proto::{JsProcessor, JsRewriteInput};
 
 /// JS processor implementation
 #[derive(Clone)]
@@ -119,5 +119,3 @@ impl<'a> Visit<'_> for StringCollector<'a> {
         }
     }
 }
-
-dodeca_cell_runtime::declare_cell!("js", |_host| JsProcessorDispatcher::new(JsProcessorImpl));

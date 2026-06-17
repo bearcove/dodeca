@@ -2,7 +2,7 @@
 //!
 //! These exercise the whole pipeline through the real production path: a
 //! served site triggers `search_index_files`, which renders every page and
-//! drives the `cell-search` cdylib over RPC; the resulting postcard files are
+//! drives the in-process search indexer; the resulting postcard files are
 //! served under `/search/` and decoded + queried here with the very same
 //! `dodeca-search-format` crate the browser WASM uses.
 

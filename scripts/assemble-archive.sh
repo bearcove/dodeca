@@ -20,52 +20,19 @@ echo "Using release directory: $RELEASE_DIR"
 case "$TARGET" in
     *windows*)
         BINARY_NAME="ddc.exe"
-        LIB_PREFIX=""
-        LIB_EXT="dll"
         ARCHIVE_EXT="zip"
         ;;
     *apple*)
         BINARY_NAME="ddc"
-        LIB_PREFIX="lib"
-        LIB_EXT="dylib"
         ARCHIVE_EXT="tar.xz"
         ;;
     *)
         BINARY_NAME="ddc"
-        LIB_PREFIX="lib"
-        LIB_EXT="so"
         ARCHIVE_EXT="tar.xz"
         ;;
 esac
 
 ARCHIVE_NAME="dodeca-${TARGET}.${ARCHIVE_EXT}"
-
-# Auto-discover cell cdylibs (cells with crate-type = ["cdylib"], excluding -proto)
-CELL_LIBS=()
-for dir in cells/cell-*/; do
-    dirname=$(basename "$dir")
-    # Skip proto crates
-    if [[ "$dirname" == *-proto ]]; then
-        continue
-    fi
-    if [[ -f "$dir/Cargo.toml" ]] && grep -q '"cdylib"' "$dir/Cargo.toml"; then
-        lib_name=$(
-            awk '
-                /^\[/ { in_lib = ($0 == "[lib]"); next }
-                in_lib && $1 == "name" {
-                    gsub(/"/, "", $3)
-                    print $3
-                    exit
-                }
-            ' "$dir/Cargo.toml"
-        )
-        if [[ -n "$lib_name" ]]; then
-            CELL_LIBS+=("$lib_name")
-        fi
-    fi
-done
-
-echo "Discovered cell cdylibs: ${CELL_LIBS[*]:-none}"
 
 # Create staging directory
 rm -rf staging
@@ -95,19 +62,6 @@ BIN_FILES=()
 cp "${RELEASE_DIR}/${BINARY_NAME}" staging/
 chmod +x "staging/${BINARY_NAME}"
 BIN_FILES+=("${BINARY_NAME}")
-
-# Copy and strip cell cdylibs
-for lib in "${CELL_LIBS[@]}"; do
-    LIB_FILE="${LIB_PREFIX}${lib}.${LIB_EXT}"
-    SRC="${RELEASE_DIR}/${LIB_FILE}"
-    if [[ -f "$SRC" ]]; then
-        cp "$SRC" staging/
-        BIN_FILES+=("${LIB_FILE}")
-        echo "Copied cell cdylib: ${LIB_FILE}"
-    else
-        echo "Warning: cell cdylib not found: $SRC"
-    fi
-done
 
 # Copy devtools WASM/JS bundle if present
 DEVTOOLS_DIR="crates/dodeca-devtools/pkg"

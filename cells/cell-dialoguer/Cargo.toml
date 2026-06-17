@@ -13,11 +13,10 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [lib]
 name = "ddc_cell_dialoguer"
-crate-type = ["cdylib"]
+crate-type = ["rlib"]
 path = "src/main.rs"
 
 [dependencies]
 cell-dialoguer-proto = { path = "../cell-dialoguer-proto" }
 dialoguer = "0.12"
-dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }
 tokio.workspace = true

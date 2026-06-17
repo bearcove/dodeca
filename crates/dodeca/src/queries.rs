@@ -8,7 +8,7 @@ use crate::db::{
 };
 use picante::PicanteResult;
 
-use crate::cells::{MarkdownParseError, parse_and_render_markdown_cell};
+use crate::cells::{MarkdownParseError, parse_and_render_markdown};
 use crate::image::{self, InputFormat, OutputFormat, add_width_suffix};
 use crate::types::{HtmlBody, Route, SassContent, StaticPath, TemplateContent, Title};
 use crate::url_rewrite::{rewrite_string_literals_in_js, rewrite_urls_in_css};
@@ -287,8 +287,7 @@ pub async fn compile_sass<DB: Db>(db: &DB) -> PicanteResult<Option<CompiledCss>>
         }
     }
 
-    // Compile via cell
-    match crate::cells::compile_sass_cell(&sass_map, &load_paths).await {
+    match crate::cells::compile_sass(&sass_map, &load_paths).await {
         Ok(cell_sass_proto::SassResult::Success { css }) => {
             tracing::info!(output_bytes = css.len(), "SASS compilation complete");
             Ok(Some(CompiledCss(css)))
@@ -298,7 +297,7 @@ pub async fn compile_sass<DB: Db>(db: &DB) -> PicanteResult<Option<CompiledCss>>
             Ok(None)
         }
         Err(e) => {
-            tracing::error!("SASS cell error: {}", e);
+            tracing::error!("SASS compilation error: {}", e);
             Ok(None)
         }
     }
@@ -344,7 +343,7 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
 
     // Use the markdown cell to parse frontmatter and render markdown
     let parse_result =
-        match parse_and_render_markdown_cell(path.as_str(), content.as_str(), source_maps).await {
+        match parse_and_render_markdown(path.as_str(), content.as_str(), source_maps).await {
             Ok(p) => p,
             Err(e) => return Ok(Err(e)),
         };
@@ -1310,7 +1309,7 @@ pub async fn render_page<DB: Db>(
     route: Route,
     can_edit: bool,
 ) -> PicanteResult<Result<RenderedHtml, SiteError>> {
-    use crate::render::render_page_via_cell;
+    use crate::render::render_page_template;
 
     tracing::debug!(route = %route, can_edit, "Rendering page");
 
@@ -1331,8 +1330,8 @@ pub async fn render_page<DB: Db>(
         .get(&route)
         .expect("Page not found for route");
 
-    // Render via gingembre cell
-    match render_page_via_cell(page, &site_tree, templates, can_edit).await {
+    // Render via the statically linked gingembre renderer.
+    match render_page_template(page, &site_tree, templates, can_edit).await {
         Ok(html) => Ok(Ok(RenderedHtml(html))),
         Err(error) => Ok(Err(RenderError {
             route: route.clone(),
@@ -1429,7 +1428,7 @@ pub async fn render_section<DB: Db>(
     route: Route,
     can_edit: bool,
 ) -> PicanteResult<Result<RenderedHtml, SiteError>> {
-    use crate::render::render_section_via_cell;
+    use crate::render::render_section_template;
 
     tracing::debug!(route = %route, can_edit, "Rendering section");
 
@@ -1449,8 +1448,8 @@ pub async fn render_section<DB: Db>(
         .get(&route)
         .expect("Section not found for route");
 
-    // Render via gingembre cell
-    match render_section_via_cell(section, &site_tree, templates, can_edit).await {
+    // Render via the statically linked gingembre renderer.
+    match render_section_template(section, &site_tree, templates, can_edit).await {
         Ok(html) => Ok(Ok(RenderedHtml(html))),
         Err(error) => Ok(Err(RenderError {
             route: route.clone(),
@@ -1753,7 +1752,7 @@ pub async fn decompress_font<DB: Db>(
     use crate::cas::{
         font_content_hash, get_cached_decompressed_font, put_cached_decompressed_font,
     };
-    use crate::cells::decompress_font_cell;
+    use crate::cells::decompress_font;
 
     let path = font_file.path(db)?.as_str().to_string();
     tracing::debug!(
@@ -1773,8 +1772,7 @@ pub async fn decompress_font<DB: Db>(
         return Ok(Some(cached));
     }
 
-    // Decompress the font via cell
-    match decompress_font_cell(font_data.clone()).await {
+    match decompress_font(font_data.clone()).await {
         Ok(decompressed) => {
             // Cache the result
             put_cached_decompressed_font(&content_hash, &decompressed);
@@ -1806,7 +1804,7 @@ pub async fn subset_font<DB: Db>(
     font_file: StaticFile,
     chars: CharSet,
 ) -> PicanteResult<Option<Vec<u8>>> {
-    use crate::cells::{compress_to_woff2_cell, subset_font_cell};
+    use crate::cells::{compress_to_woff2, subset_font as subset_font_direct};
 
     let path = font_file.path(db)?.as_str().to_string();
     let num_chars = chars.chars(db).map(|c| c.len()).unwrap_or(0);
@@ -1819,12 +1817,11 @@ pub async fn subset_font<DB: Db>(
 
     let char_vec: Vec<char> = chars.chars(db)?.to_vec();
 
-    // Subset the decompressed TTF via cell
     let input = cell_fonts_proto::SubsetFontInput {
         data: decompressed.clone(),
         chars: char_vec.clone(),
     };
-    let subsetted = match subset_font_cell(input).await {
+    let subsetted = match subset_font_direct(input).await {
         Ok(cell_fonts_proto::FontResult::SubsetSuccess { data }) => data,
         Ok(other) => {
             tracing::warn!("Unexpected font result: {:?}", other);
@@ -1840,8 +1837,7 @@ pub async fn subset_font<DB: Db>(
         }
     };
 
-    // Compress back to WOFF2 via cell
-    match compress_to_woff2_cell(subsetted.clone()).await {
+    match compress_to_woff2(subsetted.clone()).await {
         Ok(woff2) => {
             tracing::debug!(
                 "Subsetted font {} ({} chars, {} -> {} bytes)",
@@ -2129,7 +2125,7 @@ pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<Result<SiteOutput, Sit
 pub async fn all_rendered_html<DB: Db>(
     db: &DB,
 ) -> PicanteResult<Result<AllRenderedHtml, SiteError>> {
-    use crate::render::{render_page_via_cell, render_section_via_cell};
+    use crate::render::{render_page_template, render_section_template};
     use crate::url_rewrite::{resolve_internal_links, resolve_relative_links, resolve_wiki_links};
 
     let site_tree = match build_tree(db).await? {
@@ -2152,7 +2148,7 @@ pub async fn all_rendered_html<DB: Db>(
         // source serving this route so a mounted source renders with its own
         // chrome here too (this path bypasses `render_section`).
         let templates = templates_for_route(template_map.clone(), route.as_str());
-        let html = match render_section_via_cell(section, &site_tree, templates, false).await {
+        let html = match render_section_template(section, &site_tree, templates, false).await {
             Ok(html) => html,
             Err(error) => {
                 return Ok(Err(RenderError {
@@ -2181,7 +2177,7 @@ pub async fn all_rendered_html<DB: Db>(
         // Anonymous (`can_edit = false`): viewer-independent aggregate (font
         // subsetting). Narrow to the source serving this route for own-chrome.
         let templates = templates_for_route(template_map.clone(), route.as_str());
-        let html = match render_page_via_cell(page, &site_tree, templates, false).await {
+        let html = match render_page_template(page, &site_tree, templates, false).await {
             Ok(html) => html,
             Err(error) => {
                 return Ok(Err(RenderError {
@@ -2866,7 +2862,7 @@ fn is_font_file(path: &str) -> bool {
 /// Execute code samples from all source files and return results
 /// This is called during the build process to validate code samples
 pub async fn execute_all_code_samples<DB: Db>(db: &DB) -> PicanteResult<Vec<CodeExecutionResult>> {
-    use crate::cells::{execute_code_samples_cell, extract_code_samples_cell};
+    use crate::cells::{execute_code_samples, extract_code_samples};
 
     let mut all_results = Vec::new();
 
@@ -2880,12 +2876,11 @@ pub async fn execute_all_code_samples<DB: Db>(db: &DB) -> PicanteResult<Vec<Code
         let source_path = source.path(db)?.as_str().to_string();
 
         // Extract code samples from this source file
-        let extract_result =
-            extract_code_samples_cell(cell_code_execution_proto::ExtractSamplesInput {
-                source_path: source_path.clone(),
-                content: content.as_str().to_string(),
-            })
-            .await;
+        let extract_result = extract_code_samples(cell_code_execution_proto::ExtractSamplesInput {
+            source_path: source_path.clone(),
+            content: content.as_str().to_string(),
+        })
+        .await;
 
         let samples = match extract_result {
             Ok(cell_code_execution_proto::CodeExecutionResult::ExtractSuccess { output }) => {
@@ -2901,11 +2896,7 @@ pub async fn execute_all_code_samples<DB: Db>(db: &DB) -> PicanteResult<Vec<Code
             }
             Ok(_) => continue,
             Err(e) => {
-                tracing::warn!(
-                    "Cell error extracting code samples from {}: {}",
-                    source_path,
-                    e
-                );
+                tracing::warn!("Code sample extraction error from {}: {}", source_path, e);
                 continue;
             }
         };
@@ -2915,7 +2906,7 @@ pub async fn execute_all_code_samples<DB: Db>(db: &DB) -> PicanteResult<Vec<Code
 
             // Execute the code samples
             let execute_result =
-                execute_code_samples_cell(cell_code_execution_proto::ExecuteSamplesInput {
+                execute_code_samples(cell_code_execution_proto::ExecuteSamplesInput {
                     samples,
                     config: config.clone(),
                 })
@@ -2935,11 +2926,7 @@ pub async fn execute_all_code_samples<DB: Db>(db: &DB) -> PicanteResult<Vec<Code
                 }
                 Ok(_) => continue,
                 Err(e) => {
-                    tracing::warn!(
-                        "Cell error executing code samples from {}: {}",
-                        source_path,
-                        e
-                    );
+                    tracing::warn!("Code sample execution error from {}: {}", source_path, e);
                     continue;
                 }
             };
@@ -3059,7 +3046,7 @@ pub async fn check_external_url<DB: Db>(
     let _ = db;
     let _ = day_bucket;
 
-    use crate::cells::{CheckOptions, check_urls_cell};
+    use crate::cells::{CheckOptions, check_urls};
     use cell_linkcheck_proto::LinkStatus;
 
     let options = CheckOptions {
@@ -3067,7 +3054,7 @@ pub async fn check_external_url<DB: Db>(
         timeout_secs: 10,
     };
 
-    let result = check_urls_cell(vec![url.clone()], options).await;
+    let result = check_urls(vec![url.clone()], options).await;
 
     match result {
         Some(check_result) => match check_result.statuses.get(&url) {

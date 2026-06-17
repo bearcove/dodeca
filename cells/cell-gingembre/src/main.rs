@@ -1,18 +1,14 @@
-//! Template rendering cell using gingembre.
+//! Template rendering processor using gingembre.
 //!
-//! This cell handles template rendering with bidirectional RPC:
-//! - Receives render requests from the host
-//! - Calls back to host for template loading, data resolution, and function calls
+//! This processor handles template rendering with typed host callbacks:
+//! - Receives render requests from Dodeca
+//! - Calls back for template loading, data resolution, and function calls
 
 use cell_gingembre_proto::{
-    ContextId, ErrorLocation, EvalResult, RenderResult, TemplateRenderError, TemplateRenderer,
-    TemplateRendererDispatcher,
-};
-use cell_host_proto::{
-    CallFunctionResult, HostServiceClient, KeysAtResult, LoadTemplateResult, ResolveDataResult,
+    CallFunctionResult, ContextId, ErrorLocation, EvalResult, KeysAtResult, LoadTemplateResult,
+    RenderResult, ResolveDataResult, TemplateHost, TemplateRenderError, TemplateRenderer,
 };
 use dashmap::DashMap;
-use dodeca_cell_runtime::HostHandle;
 use facet_value::DestructuredRef;
 use futures::future::BoxFuture;
 use gingembre::{
@@ -26,89 +22,75 @@ use std::time::Instant;
 /// Used to convert relative template names to absolute paths in error messages.
 type PathMap = Arc<DashMap<String, String>>;
 
-// ============================================================================
-// RPC-backed TemplateLoader
-// ============================================================================
-
-/// Template loader that calls back to the host via RPC.
-struct RpcTemplateLoader {
-    client: HostServiceClient,
+/// Template loader that calls back through a host adapter.
+struct HostTemplateLoader<H> {
+    host: H,
     context_id: ContextId,
     /// Shared map from template name to absolute path
     path_map: PathMap,
 }
 
-impl RpcTemplateLoader {
-    fn new(client: HostServiceClient, context_id: ContextId, path_map: PathMap) -> Self {
+impl<H> HostTemplateLoader<H> {
+    fn new(host: H, context_id: ContextId, path_map: PathMap) -> Self {
         Self {
-            client,
+            host,
             context_id,
             path_map,
         }
     }
 }
 
-impl TemplateLoader for RpcTemplateLoader {
+impl<H> TemplateLoader for HostTemplateLoader<H>
+where
+    H: TemplateHost + Clone + Send + Sync + 'static,
+{
     fn load(&self, name: &str) -> BoxFuture<'_, Option<String>> {
         let name = name.to_string();
         Box::pin(async move {
-            match self
-                .client
-                .load_template(self.context_id, name.clone())
-                .await
-            {
-                Ok(LoadTemplateResult::Found {
+            match self.host.load_template(self.context_id, name.clone()).await {
+                LoadTemplateResult::Found {
                     source,
                     absolute_path,
-                }) => {
+                } => {
                     // Store the mapping for error reporting
                     self.path_map.insert(name, absolute_path);
                     Some(source)
                 }
-                Ok(LoadTemplateResult::NotFound) => None,
-                Err(e) => {
-                    tracing::warn!("RPC error loading template: {:?}", e);
-                    None
-                }
+                LoadTemplateResult::NotFound => None,
             }
         })
     }
 }
 
 // ============================================================================
-// RPC-backed DataResolver
+// Callback-backed DataResolver
 // ============================================================================
 
-/// Data resolver that calls back to the host via RPC.
-struct RpcDataResolver {
-    client: HostServiceClient,
+/// Data resolver that calls back through a host adapter.
+struct HostDataResolver<H> {
+    host: H,
     context_id: ContextId,
 }
 
-impl RpcDataResolver {
-    fn new(client: HostServiceClient, context_id: ContextId) -> Self {
-        Self { client, context_id }
+impl<H> HostDataResolver<H> {
+    fn new(host: H, context_id: ContextId) -> Self {
+        Self { host, context_id }
     }
 }
 
-impl DataResolver for RpcDataResolver {
+impl<H> DataResolver for HostDataResolver<H>
+where
+    H: TemplateHost + Clone + Send + Sync + 'static,
+{
     fn resolve(
         &self,
         path: &DataPath,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<Value>> + Send + '_>> {
         let path_segments = path.segments().to_vec();
         Box::pin(async move {
-            match self
-                .client
-                .resolve_data(self.context_id, path_segments)
-                .await
-            {
-                Ok(ResolveDataResult::Found { value }) => Some(value),
-                Ok(ResolveDataResult::NotFound) => None,
-                Err(e) => {
-                    tracing::warn!("RPC error resolving data: {:?}", e);
-                    None
-                }
+            match self.host.resolve_data(self.context_id, path_segments).await {
+                ResolveDataResult::Found { value } => Some(value),
+                ResolveDataResult::NotFound => None,
             }
         })
     }
@@ -119,39 +101,34 @@ impl DataResolver for RpcDataResolver {
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<Vec<String>>> + Send + '_>> {
         let path_segments = path.segments().to_vec();
         Box::pin(async move {
-            match self.client.keys_at(self.context_id, path_segments).await {
-                Ok(KeysAtResult::Found { keys }) => Some(keys),
-                Ok(KeysAtResult::NotFound) => None,
-                Err(e) => {
-                    tracing::warn!("RPC error getting keys: {:?}", e);
-                    None
-                }
+            match self.host.keys_at(self.context_id, path_segments).await {
+                KeysAtResult::Found { keys } => Some(keys),
+                KeysAtResult::NotFound => None,
             }
         })
     }
 }
 
 // ============================================================================
-// RPC-backed function caller
+// Callback-backed function caller
 // ============================================================================
 
-/// Creates a function that calls back to the host via RPC.
-fn make_rpc_function(
-    client: HostServiceClient,
+/// Creates a function that calls back through the typed host trait.
+fn make_callback_function(
+    host: impl TemplateHost + Clone + Send + Sync + 'static,
     context_id: ContextId,
     name: String,
 ) -> gingembre::GlobalFn {
     Box::new(move |args: &[Value], kwargs: &[(String, Value)]| {
-        let client = client.clone();
+        let host = host.clone();
         let name = name.clone();
         let args = args.to_vec();
         let kwargs = kwargs.to_vec();
 
         Box::pin(async move {
-            match client.call_function(context_id, name, args, kwargs).await {
-                Ok(CallFunctionResult::Success { value }) => Ok(value),
-                Ok(CallFunctionResult::Error { message }) => Err(message.into()),
-                Err(e) => Err(format!("RPC error calling function: {:?}", e).into()),
+            match host.call_function(context_id, name, args, kwargs).await {
+                CallFunctionResult::Success { value } => Ok(value),
+                CallFunctionResult::Error { message } => Err(message.into()),
             }
         })
     })
@@ -223,33 +200,32 @@ fn to_protocol_template_error(err: &TemplateError, path_map: &PathMap) -> Templa
 
 /// Template renderer implementation
 #[derive(Clone)]
-pub struct TemplateRendererImpl {
-    host: HostHandle,
+pub struct TemplateRendererImpl<H> {
+    host: H,
 }
 
-impl TemplateRendererImpl {
-    pub fn new(host: HostHandle) -> Self {
+impl<H> TemplateRendererImpl<H> {
+    pub fn new(host: H) -> Self {
         Self { host }
-    }
-
-    async fn host_client(&self) -> HostServiceClient {
-        self.host.client().await
     }
 
     /// Build a render context from initial variables
     fn build_context(
         &self,
-        client: HostServiceClient,
+        host: H,
         initial_context: &Value,
         resolver: Arc<dyn DataResolver>,
         context_id: ContextId,
-    ) -> Context {
+    ) -> Context
+    where
+        H: TemplateHost + Clone + Send + Sync + 'static,
+    {
         let mut ctx = Context::new();
 
         // Set the data resolver for lazy data loading
         ctx.set_data_resolver(resolver);
 
-        // Register RPC-backed functions
+        // Register callback-backed functions.
         // These are the standard functions that templates expect
         let function_names = [
             "get_url",
@@ -263,10 +239,10 @@ impl TemplateRendererImpl {
         tracing::debug!(
             num_functions = function_names.len(),
             ?function_names,
-            "registering RPC-backed functions"
+            "registering callback-backed functions"
         );
         for name in function_names {
-            let func = make_rpc_function(client.clone(), context_id, name.to_string());
+            let func = make_callback_function(host.clone(), context_id, name.to_string());
             ctx.register_fn(name, func);
         }
 
@@ -293,83 +269,75 @@ impl TemplateRendererImpl {
     }
 }
 
-impl TemplateRenderer for TemplateRendererImpl {
-    async fn render(
+impl<H> TemplateRenderer for TemplateRendererImpl<H>
+where
+    H: TemplateHost + Clone + Send + Sync + 'static,
+{
+    fn render(
         &self,
         context_id: ContextId,
         template_name: String,
         initial_context: Value,
-    ) -> RenderResult {
-        let started_at = Instant::now();
-        tracing::debug!(
-            context_id = context_id.0,
-            template_name = %template_name,
-            "gingembre cell render started"
-        );
-        // Create shared path map for tracking template name -> absolute path
-        let path_map: PathMap = Arc::new(DashMap::new());
+    ) -> BoxFuture<'_, RenderResult> {
+        Box::pin(async move {
+            let started_at = Instant::now();
+            tracing::debug!(
+                context_id = context_id.0,
+                template_name = %template_name,
+                "gingembre render started"
+            );
+            let path_map: PathMap = Arc::new(DashMap::new());
 
-        // Create RPC-backed loader and resolver
-        let client = self.host_client().await;
-        let loader = RpcTemplateLoader::new(client.clone(), context_id, path_map.clone());
-        let resolver = Arc::new(RpcDataResolver::new(client.clone(), context_id));
+            let loader = HostTemplateLoader::new(self.host.clone(), context_id, path_map.clone());
+            let resolver = Arc::new(HostDataResolver::new(self.host.clone(), context_id));
 
-        // Build the render context
-        let ctx = self.build_context(client, &initial_context, resolver, context_id);
+            let ctx = self.build_context(self.host.clone(), &initial_context, resolver, context_id);
 
-        // Create engine and render
-        let mut engine = Engine::new(loader);
-        match engine.render(&template_name, &ctx).await {
-            Ok(html) => {
-                tracing::debug!(
-                    context_id = context_id.0,
-                    template_name = %template_name,
-                    elapsed_ms = started_at.elapsed().as_millis(),
-                    html_len = html.len(),
-                    "gingembre cell render finished"
-                );
-                RenderResult::Success { html }
-            }
-            Err(e) => {
-                tracing::error!(
-                    context_id = context_id.0,
-                    template_name = %template_name,
-                    elapsed_ms = started_at.elapsed().as_millis(),
-                    error = ?e,
-                    "gingembre cell render failed"
-                );
-                RenderResult::Error {
-                    error: to_protocol_error(&e, &path_map),
+            let mut engine = Engine::new(loader);
+            match engine.render(&template_name, &ctx).await {
+                Ok(html) => {
+                    tracing::debug!(
+                        context_id = context_id.0,
+                        template_name = %template_name,
+                        elapsed_ms = started_at.elapsed().as_millis(),
+                        html_len = html.len(),
+                        "gingembre render finished"
+                    );
+                    RenderResult::Success { html }
+                }
+                Err(e) => {
+                    tracing::error!(
+                        context_id = context_id.0,
+                        template_name = %template_name,
+                        elapsed_ms = started_at.elapsed().as_millis(),
+                        error = ?e,
+                        "gingembre render failed"
+                    );
+                    RenderResult::Error {
+                        error: to_protocol_error(&e, &path_map),
+                    }
                 }
             }
-        }
+        })
     }
 
-    async fn eval_expression(
+    fn eval_expression(
         &self,
         context_id: ContextId,
         expression: String,
         context: Value,
-    ) -> EvalResult {
-        // Create RPC-backed resolver (no loader needed for expression eval)
-        let client = self.host_client().await;
-        let resolver = Arc::new(RpcDataResolver::new(client.clone(), context_id));
+    ) -> BoxFuture<'_, EvalResult> {
+        Box::pin(async move {
+            let resolver = Arc::new(HostDataResolver::new(self.host.clone(), context_id));
+            let ctx = self.build_context(self.host.clone(), &context, resolver, context_id);
 
-        // Build the context
-        let ctx = self.build_context(client, &context, resolver, context_id);
-
-        // Evaluate the expression
-        match gingembre::eval_expression(&expression, &ctx).await {
-            Ok(value) => EvalResult::Success { value },
-            Err(e) => {
-                let message = format!("{:?}", e);
-                EvalResult::Error { message }
+            match gingembre::eval_expression(&expression, &ctx).await {
+                Ok(value) => EvalResult::Success { value },
+                Err(e) => {
+                    let message = format!("{:?}", e);
+                    EvalResult::Error { message }
+                }
             }
-        }
+        })
     }
 }
-
-dodeca_cell_runtime::declare_cell!("gingembre", |host| {
-    let renderer = TemplateRendererImpl::new(host);
-    TemplateRendererDispatcher::new(renderer)
-});

@@ -1,8 +1,8 @@
-//! Dodeca WebP cell (cell-webp)
+//! Dodeca WebP processor.
 //!
-//! This cell handles WebP encoding and decoding.
+//! This processor handles WebP encoding and decoding.
 
-use cell_webp_proto::{WebPEncodeInput, WebPProcessor, WebPProcessorDispatcher, WebPResult};
+use cell_webp_proto::{WebPEncodeInput, WebPProcessor, WebPResult};
 
 /// WebP processor implementation
 #[derive(Clone)]
@@ -49,7 +49,3 @@ impl WebPProcessor for WebPProcessorImpl {
         }
     }
 }
-
-dodeca_cell_runtime::declare_cell!("webp", |_host| WebPProcessorDispatcher::new(
-    WebPProcessorImpl
-));

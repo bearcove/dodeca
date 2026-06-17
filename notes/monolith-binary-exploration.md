@@ -1,0 +1,201 @@
+# Monolith binary exploration
+
+This note explores collapsing dodeca from host + dynamically loaded cells into
+one statically linked `ddc` binary.
+
+## Current source-of-truth shape
+
+The documentation still describes the older separate-process cell model, but
+the source has already moved past that. The current runtime shape after the
+first collapse pass is:
+
+- `crates/dodeca/src/host.rs` owns shared application state, but no longer owns
+  typed cell client caching.
+- `crates/dodeca/src/cell_loader.rs` has been removed from the main crate.
+- `crates/dodeca-cell-runtime` has been removed.
+- `crates/dodeca/src/cells.rs` is the main facade used by the build and serve
+  code. It now calls former cell implementations directly rather than opening
+  Vox clients.
+- `xtask/src/ci.rs` and `xtask/src/main.rs` now build, install, verify, and
+  package `ddc` as the only runtime artifact.
+
+That means the next collapse is not "processes to threads"; that already
+happened. The next collapse is "runtime-loaded service islands to ordinary Rust
+modules/libraries linked into `ddc`."
+
+## Target shape
+
+The target should be one `ddc` artifact for the host platform:
+
+- No `libloading`.
+- No `dodeca-cell-runtime`.
+- No `libddc_cell_*` release artifacts.
+- No internal vox-ffi links for build pipeline transformations.
+- No proto crates whose only job is host-to-cell serialization.
+- Keep vox for external boundaries that are actually RPC boundaries, such as
+  browser devtools/websocket paths, if those remain.
+
+The implementation boundary should become ordinary Rust APIs:
+
+- `crates/dodeca/src/cells.rs` becomes a temporary compatibility facade, then
+  gets renamed or dissolved into domain modules such as `markdown`, `html`,
+  `assets`, `search`, `templates`, and `serve_ui`.
+- Former `cell-*-proto` result enums either disappear in favor of domain
+  errors, or move next to the code that still benefits from those shaped
+  outputs.
+- Former host callbacks become local traits or closures. For example:
+  - gingembre rendering gets a local `TemplateLoader` and `DataResolver`;
+  - HTML inline CSS/JS processing calls the CSS and JS modules directly;
+  - TUI commands use the existing `Host` channels directly.
+
+This removes the most confusing part of the current system: everything is
+already in one process, but still behaves like a plugin network.
+
+## Module survival pass
+
+Keep the product feature surface. The point of the monolith is to remove the
+deployment/runtime cell boundary, not to use the migration as a hidden feature
+diet.
+
+Surviving feature modules:
+
+- `gingembre`: template rendering is core. It should be a normal template
+  module using the existing `gingembre` crate directly.
+- `markdown`: markdown/frontmatter/highlighting/source maps are core authoring
+  path.
+- `html`: hotmeal-based DOM rewriting, link extraction, code button injection,
+  wiki/internal link resolution, image transforms, and minification belong in
+  core.
+- `css`: URL rewriting and minification are on the dev=prod path.
+- `js`: URL rewriting through parsed JS is on the dev=prod path.
+- `image`: decode/resize/thumbhash is core to responsive images.
+- `webp`: optimized raster output path.
+- `jxl`: keep format support; any future format-policy change should be explicit
+  and independent from the monolith work.
+- `fonts`: fontcull subsetting is explicitly part of the dodeca promise.
+- `data`: loading structured data is core.
+- `search`: built-in search is a product feature.
+- `linkcheck`: internal and external link checking are correctness machinery.
+- `sass`: documented asset pipeline feature.
+- `svgo`: SVG optimization remains part of asset handling.
+- `vite`: the integration may still spawn Vite/node externally, but it does not
+  need to be a dynamically loaded internal module.
+- `http`: serve/devtools plumbing, folded into server modules.
+- `tui`: local task/module wired to existing host channels.
+- `dialoguer`: CLI prompting support, called directly where needed.
+- `term`: terminal recording support for authoring/rendered code blocks.
+- `code-execution`: docs/code-sample execution support; keep its sandboxing
+  boundary explicit even after removing the cell boundary.
+- `minify`: keep the feature, but merge the implementation into the HTML module
+  if the standalone service crate is just deployment residue.
+- `html-diff`: keep live-reload diffing if still needed, but place it at the
+  hotmeal/live-reload boundary rather than preserving a cell-shaped module.
+
+Only architecture scaffolding is on the cut list:
+
+- `lifecycle` proto/service wiring.
+- `host-proto` as an internal cell callback protocol.
+- `dodeca-cell-runtime`.
+- `libloading` and `vox-ffi` usage for internal build pipeline calls.
+- cell cdylib discovery/build/install/release code in `xtask`.
+
+The earlier concern about shedding some diagram rendering belongs in `marq`,
+where those handlers live. Dodeca's markdown module should follow marq's public
+handler surface rather than deciding diagram-handler policy during this
+monolith migration.
+
+`marq` and `tracey` are expected to be absorbed into dodeca later, but not as
+part of this pass. During the monolith collapse they should remain external
+crates with stable call sites. The collapse should remove the cell/runtime
+deployment boundary first; ecosystem absorption is a later source-tree and
+ownership move.
+
+## Migration shape
+
+The least risky path is to keep behavior observable and collapse one boundary at
+a time:
+
+1. Add direct Rust APIs for callback-free modules first.
+   Good pilots: `svgo`, `image`, `webp`, `css`, `js`, `sass`, `data`.
+   These mostly expose an impl type already and do not need reverse host calls.
+   Started with `svgo` and `data`: both crates now expose `rlib` outputs and
+   are consumed by dodeca directly.
+   Continued with the main asset processors: `css`, `js`, `sass`, `image`,
+   `webp`, `jxl`, and `fonts` now follow the same pattern and are called
+   directly from the `cells.rs` facade.
+   Extended the same callback-free shape to `search`, `linkcheck`,
+   `dialoguer`, `term`, `vite`, `html-diff`, `minify`, and
+   `code-execution`; the `dodeca` facade calls their Rust impls directly.
+   `markdown` also now follows the direct-call path.
+   `html` now uses a local callback trait for inline CSS/JS work. The dynamic
+   RPC adapter is gone; `dodeca` supplies a direct adapter backed by the
+   already-static CSS/JS processors.
+   `gingembre` now follows the same pattern with `TemplateHost`: the dynamic
+   RPC adapter is gone, and `dodeca` instantiates the renderer with
+   `TemplateHostImpl` directly.
+   `http` now exposes the axum router as a direct library API. `dodeca` serves
+   browser TCP streams through hyper directly, and the browser DevTools Vox
+   service is handled in-process rather than proxied through an internal cell.
+   `tui` now runs as a local ratatui display loop in the `dodeca` crate. It
+   receives progress/status/event updates through local channels and sends
+   commands directly to `Host`.
+   The main `dodeca` crate no longer exports `cell_loader`, no longer has
+   `Host::client_async`, and no longer depends directly on `libloading`,
+   `vox-ffi`, fd passing, or Vox's FFI transport feature.
+
+2. Replace `crates/dodeca/src/cells.rs` helpers to call direct APIs for the
+   pilot modules while preserving the current helper function names. That keeps
+   the production build paths as the oracle.
+
+3. Move callback-heavy modules next.
+   - `gingembre`: replace RPC-backed template/data/function callbacks with
+     local loader/resolver/function adapters.
+   - `html`: replace callback-to-host CSS/JS processing with direct calls into
+     the CSS/JS modules.
+   - `tui`/`http`: wire directly to host/server channels instead of opening
+     internal services.
+
+4. Once no helper goes through `Host::client_async`, delete the main-crate
+   dynamic infrastructure:
+   - `crates/dodeca/src/cell_loader.rs` is gone.
+   - Internal `CellClient` caching in `Host` is gone.
+   - `libloading`, `vox-ffi`, and internal `transport-ffi` usage are gone from
+     `crates/dodeca`.
+
+   Release and CI packaging no longer build, upload, verify, archive, install,
+   or pass paths to cell cdylibs. The generated Forgejo/GitHub workflows,
+   installers, archive scripts, Homebrew formula generator, repro helper, and
+   integration harness now treat `ddc` as the single runtime artifact.
+
+   Former cell crates no longer expose `dynamic-cell` features or `cdylib`
+   crate types. The old `cell-tui` dynamic shell is gone; `cell-tui-proto`
+   remains because the monolith still uses those command/update types directly.
+   The former `cell-host-proto` and `cell-lifecycle-proto` crates are gone.
+   Former cell proto crates no longer generate Vox clients/dispatchers; their
+   traits are direct Rust API contracts. The remaining Vox protocol is the
+   DevTools/browser protocol in `dodeca-protocol`.
+
+5. Rename or remove the old `cells/` tree. The surviving code should become
+   ordinary crates/modules named for product domains rather than deployment
+   mechanics.
+
+## Verification oracle
+
+Use existing production-like paths instead of unit-test rewrites:
+
+- `cargo check -p ddc -p dodeca`
+- focused integration runs through `crates/integration-tests`, especially:
+  - `rendered_markdown`
+  - `templates`
+  - `sass`
+  - `static_assets`
+  - `cache_busting`
+  - `search`
+  - `internal_links`
+  - `dead_links`
+  - `code_execution`, only if that module is still in the survival set
+- a real `ddc build --no-tui` on a fixture or known site after the dynamic
+  loader is gone.
+
+The key invariant: dev mode must still use the same production transformations.
+Collapsing cells is not permission to create a dev shortcut path.

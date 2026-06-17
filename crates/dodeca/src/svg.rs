@@ -2,7 +2,6 @@
 //!
 //! Provides HTML and SVG minification utilities.
 
-use crate::cells::optimize_svg_cell;
 use cell_svgo_proto::SvgoResult;
 
 /// Minify HTML content
@@ -19,14 +18,14 @@ pub async fn minify_html(html: &str) -> String {
 /// Removes unnecessary metadata, collapses groups, optimizes paths, etc.
 /// Preserves case sensitivity of SVG attributes.
 pub async fn optimize_svg(svg_content: &str) -> Option<String> {
-    match optimize_svg_cell(svg_content.to_string()).await {
+    match crate::cells::optimize_svg(svg_content.to_string()).await {
         Ok(SvgoResult::Success { svg }) => Some(svg),
         Ok(SvgoResult::Error { message }) => {
             tracing::warn!("SVG optimization failed: {}", message);
             None
         }
         Err(e) => {
-            tracing::warn!("SVG optimization RPC failed: {}", e);
+            tracing::warn!("SVG optimization failed: {}", e);
             None
         }
     }
@@ -36,10 +35,6 @@ pub async fn optimize_svg(svg_content: &str) -> Option<String> {
 #[allow(clippy::disallowed_methods)]
 mod tests {
     use super::*;
-
-    // These tests require external cells to be loaded, which only happens
-    // in integration tests. The async machinery works correctly - the cell
-    // just isn't available in unit test context.
 
     #[tokio::test]
     async fn test_minify_html() {
@@ -58,7 +53,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "requires dodeca-svgo cell"]
     async fn test_optimize_svg() {
         let input = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
             <!-- A red circle -->

@@ -1,13 +1,13 @@
-//! Dodeca fonts cell (cell-fonts)
+//! Dodeca fonts processor.
 //!
-//! This cell handles font subsetting and compression.
+//! This processor handles font subsetting and compression.
 //! All CPU-intensive operations use spawn_blocking to enable parallelism.
 
 use std::collections::HashSet;
 
 use tokio::task::spawn_blocking;
 
-use cell_fonts_proto::{FontProcessor, FontProcessorDispatcher, FontResult, SubsetFontInput};
+use cell_fonts_proto::{FontProcessor, FontResult, SubsetFontInput};
 
 /// Font processor implementation
 #[derive(Clone)]
@@ -57,7 +57,3 @@ impl FontProcessor for FontProcessorImpl {
         })
     }
 }
-
-dodeca_cell_runtime::declare_cell!("fonts", |_host| FontProcessorDispatcher::new(
-    FontProcessorImpl
-));

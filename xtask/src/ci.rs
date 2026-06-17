@@ -77,7 +77,7 @@ impl CiPlatform {
     }
 
     /// The pinned stable toolchain version to use.
-    pub const RUST_TOOLCHAIN: &'static str = "1.92.0";
+    pub const RUST_TOOLCHAIN: &'static str = "1.95";
 
     /// Get the local cache action for this platform (for self-hosted runners).
     pub fn local_cache_action(&self) -> &'static str {
@@ -110,14 +110,22 @@ impl CiPlatform {
             CiPlatform::Forgejo => "https://github.com/Swatinem/rust-cache@v2",
         }
     }
+
+    /// Get the wasm-pack installer action for this platform.
+    pub fn wasm_pack_action(&self) -> &'static str {
+        match self {
+            CiPlatform::GitHub => "jetli/wasm-pack-action@v0.4.0",
+            CiPlatform::Forgejo => "https://github.com/jetli/wasm-pack-action@v0.4.0",
+        }
+    }
 }
 
 // =============================================================================
 // Configuration
 // =============================================================================
 
-/// Standard GitHub-hosted Linux runner.
-const GITHUB_LINUX_RUNNER: &str = "ubuntu-24.04";
+/// Bearcove-hosted Linux runner for compile-heavy jobs.
+const GITHUB_LINUX_RUNNER: &str = "bearcove-ubuntu-24.04";
 
 /// Standard GitHub-hosted macOS arm64 runner.
 const GITHUB_MACOS_RUNNER: &str = "macos-15";
@@ -135,16 +143,12 @@ pub fn targets_for_platform(platform: CiPlatform) -> Vec<Target> {
             triple: "x86_64-unknown-linux-gnu",
             os: "ubuntu-24.04",
             runner: linux_runner(platform),
-            lib_ext: "so",
-            lib_prefix: "lib",
             archive_ext: "tar.xz",
         },
         Target {
             triple: "aarch64-apple-darwin",
             os: "macos-15",
             runner: macos_runner(platform),
-            lib_ext: "dylib",
-            lib_prefix: "lib",
             archive_ext: "tar.xz",
         },
     ]
@@ -169,101 +173,6 @@ fn macos_runner(platform: CiPlatform) -> RunnerSpec {
         CiPlatform::GitHub => RunnerSpec::single(GITHUB_MACOS_RUNNER),
         CiPlatform::Forgejo => RunnerSpec::labels(FORGEJO_MACOS_LABELS),
     }
-}
-
-/// Discover cdylib plugins by scanning crates/dodeca-*/Cargo.toml for cdylib crate-type.
-pub fn discover_cdylib_cells(repo_root: &Utf8Path) -> Vec<String> {
-    let mut cells = Vec::new();
-    let crates_dir = repo_root.join("crates");
-
-    if let Ok(entries) = std::fs::read_dir(&crates_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if let Some(name) = path.file_name().and_then(|n| n.to_str())
-                && name.starts_with("dodeca-")
-            {
-                let cargo_toml = path.join("Cargo.toml");
-                if let Ok(content) = std::fs::read_to_string(&cargo_toml)
-                    && content.contains("cdylib")
-                {
-                    cells.push(name.to_string());
-                }
-            }
-        }
-    }
-
-    cells.sort();
-    cells
-}
-
-fn discover_cell_lib_name(cargo_toml: &str) -> Option<String> {
-    let mut in_lib = false;
-    let mut lib_name = None;
-    let mut is_cdylib = false;
-
-    for line in cargo_toml.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with('[') {
-            in_lib = trimmed == "[lib]";
-            continue;
-        }
-
-        if !in_lib {
-            continue;
-        }
-
-        if let Some((key, value)) = trimmed.split_once('=')
-            && key.trim() == "name"
-        {
-            lib_name = Some(value.trim().trim_matches('"').to_string());
-        }
-
-        if trimmed.starts_with("crate-type") && trimmed.contains("\"cdylib\"") {
-            is_cdylib = true;
-        }
-    }
-
-    if is_cdylib { lib_name } else { None }
-}
-
-/// Discover cells by scanning cells/cell-*/Cargo.toml for cdylib `[lib]` targets.
-/// Returns (package_name, library_name) pairs sorted alphabetically.
-pub fn discover_cells(repo_root: &Utf8Path) -> Vec<(String, String)> {
-    let mut cells = Vec::new();
-    let cells_dir = repo_root.join("cells");
-
-    if let Ok(entries) = std::fs::read_dir(&cells_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if let Some(name) = path.file_name().and_then(|n| n.to_str())
-                // Skip proto crates
-                && name.starts_with("cell-")
-                && !name.ends_with("-proto")
-            {
-                let cargo_toml = path.join("Cargo.toml");
-                if let Ok(content) = std::fs::read_to_string(&cargo_toml)
-                    && let Some(lib_name) = discover_cell_lib_name(&content)
-                {
-                    cells.push((name.to_string(), lib_name));
-                }
-            }
-        }
-    }
-
-    cells.sort();
-    cells
-}
-
-/// Group cells into chunks of N for parallel CI builds.
-pub fn cell_groups(
-    repo_root: &Utf8Path,
-    chunk_size: usize,
-) -> Vec<(String, Vec<(String, String)>)> {
-    discover_cells(repo_root)
-        .chunks(chunk_size)
-        .enumerate()
-        .map(|(i, chunk)| (format!("{}", i + 1), chunk.to_vec()))
-        .collect()
 }
 
 /// Runner specification - can be a single string or a list of labels.
@@ -305,8 +214,6 @@ pub struct Target {
     pub triple: &'static str,
     pub os: &'static str,
     pub runner: RunnerSpec,
-    pub lib_ext: &'static str,
-    pub lib_prefix: &'static str,
     pub archive_ext: &'static str,
 }
 
@@ -339,11 +246,6 @@ impl Target {
             "x86_64-unknown-linux-gnu" => "/home/amos/.cache",
             _ => "/tmp/.cache",
         }
-    }
-
-    /// Get the release artifact filename for a cell cdylib target.
-    pub fn cell_library_filename(&self, lib_name: &str) -> String {
-        format!("{}{}.{}", self.lib_prefix, lib_name, self.lib_ext)
     }
 }
 
@@ -1104,9 +1006,8 @@ done"#,
         format!(r#"aws s3 --endpoint-url "${{S3_ENDPOINT}}" {args}"#)
     }
 
-    /// Generate a shell script to verify all expected artifacts exist.
-    /// Fails CI if ddc or any cell cdylib is missing.
-    pub fn verify_artifacts_script(target: &Target, cells: &[(String, String)]) -> String {
+    /// Generate a shell script to verify the required release artifacts exist.
+    pub fn verify_artifacts_script() -> String {
         let mut script = String::new();
         script.push_str("#!/bin/bash\nset -euo pipefail\n\n");
         script.push_str("echo 'Verifying all required artifacts exist in dist/'\n");
@@ -1120,28 +1021,14 @@ done"#,
         script.push_str("  echo '✓ ddc'\n");
         script.push_str("fi\n\n");
 
-        // Check all cell cdylibs
-        for (_, lib_name) in cells {
-            let filename = target.cell_library_filename(lib_name);
-            script.push_str(&format!("if [[ ! -f dist/{filename} ]]; then\n"));
-            script.push_str(&format!("  echo '❌ MISSING: {filename}'\n"));
-            script.push_str("  missing=1\n");
-            script.push_str("else\n");
-            script.push_str(&format!("  echo '✓ {filename}'\n"));
-            script.push_str("fi\n\n");
-        }
-
         script.push_str("if [[ $missing -eq 1 ]]; then\n");
         script.push_str("  echo ''\n");
         script.push_str("  echo 'ERROR: Some required binaries are missing!'\n");
-        script.push_str("  echo 'This usually means a cell build job failed or artifact upload was incomplete.'\n");
+        script.push_str("  echo 'This usually means a ddc build job failed or artifact upload was incomplete.'\n");
         script.push_str("  exit 1\n");
         script.push_str("fi\n\n");
         script.push_str("echo ''\n");
-        script.push_str(&format!(
-            "echo 'All {} artifacts verified.'\n",
-            cells.len() + 1
-        ));
+        script.push_str("echo 'All artifacts verified.'\n");
 
         script
     }
@@ -1154,42 +1041,30 @@ done"#,
 /// CI runner configuration.
 struct CiRunner {
     runner: RunnerSpec,
-    wasm_pack_install: &'static str,
 }
 
 /// Get the CI Linux runner configuration for a platform.
 fn ci_linux_runner(platform: CiPlatform) -> CiRunner {
     let runner = linux_runner(platform);
-    let is_self_hosted = runner.is_self_hosted();
 
-    CiRunner {
-        runner,
-        wasm_pack_install: if is_self_hosted {
-            "true"
-        } else {
-            "cargo install wasm-pack --locked"
-        },
-    }
+    CiRunner { runner }
 }
 
 /// Build the unified CI workflow (runs on PRs, main branch, and tags).
 ///
 /// Strategy:
-/// - Fan-out: Build ddc + cell groups for each target platform
-/// - Fan-in: Assemble archives after all cell groups complete
+/// - Fan-out: Build ddc for each target platform
 /// - Integration: Run integration tests
 /// - Release: On tags, publish release (GitHub only)
-pub fn build_ci_workflow(platform: CiPlatform, repo_root: &Utf8Path) -> Workflow {
+pub fn build_ci_workflow(platform: CiPlatform, _repo_root: &Utf8Path) -> Workflow {
     use common::*;
 
     let ci_linux = ci_linux_runner(platform);
     let targets = targets_for_platform(platform);
-    let cells = discover_cells(repo_root);
 
     let mut jobs = IndexMap::new();
-    let groups = cell_groups(repo_root, 100);
 
-    // Track jobs required before release (assemble + integration per target)
+    // Track jobs required before release.
     let mut all_release_needs: Vec<String> = Vec::new();
 
     // Verify generated CI files are up to date (no dependencies, runs in parallel with everything)
@@ -1226,13 +1101,12 @@ pub fn build_ci_workflow(platform: CiPlatform, repo_root: &Utf8Path) -> Workflow
         .find(|t| t.triple == "x86_64-unknown-linux-gnu")
         .expect("Linux target should exist");
     let ci_linux_cache = if ci_linux.runner.is_self_hosted() {
-        local_cache_with_targets(platform, false, "ci-linux", "/home/amos/.cache")
+        local_cache_with_targets(platform, true, "ci-linux", "/home/amos/.cache")
     } else {
-        rust_cache_with_targets(platform, false, linux_target)
+        rust_cache_with_targets(platform, true, linux_target)
     };
 
-    // Build dodeca once to let build.rs generate the embedded WASM bundles.
-    // dodeca embeds both bundles at compile time via include_bytes!.
+    // Build the WASM bundles that dodeca embeds at compile time via include_bytes!.
     let wasm_job_id = "build-wasm".to_string();
     let devtools_wasm_artifact = "dodeca-devtools-wasm".to_string();
     let search_wasm_artifact = "dodeca-search-wasm".to_string();
@@ -1253,8 +1127,13 @@ pub fn build_ci_workflow(platform: CiPlatform, repo_root: &Utf8Path) -> Workflow
                     )
                 },
                 ci_linux_cache.clone(),
-                Step::run("Install wasm-pack", ci_linux.wasm_pack_install),
-                Step::run("Build embedded WASM", "cargo build --package dodeca"),
+                Step::uses("Install wasm-pack", platform.wasm_pack_action())
+                    .with_inputs([("version", "latest")]),
+                Step::run(
+                    "Build embedded WASM",
+                    r#"wasm-pack build crates/dodeca-devtools --target web --target-dir target/wasm-pack
+wasm-pack build crates/dodeca-search-wasm --target web --target-dir target/wasm-pack"#,
+                ),
                 upload_artifact(
                     platform,
                     devtools_wasm_artifact.clone(),
@@ -1319,12 +1198,12 @@ pub fn build_ci_workflow(platform: CiPlatform, repo_root: &Utf8Path) -> Workflow
                     if target.is_self_hosted() {
                         local_cache_with_targets(
                             platform,
-                            false,
+                            true,
                             &format!("ddc-{}", short),
                             target.cache_base_path(),
                         )
                     } else {
-                        rust_cache_with_targets(platform, false, target)
+                        rust_cache_with_targets(platform, true, target)
                     },
                     // Download WASM bundles embedded at compile time via include_bytes!.
                     Step::uses("Download WASM", platform.download_artifact_action()).with_inputs([
@@ -1337,85 +1216,27 @@ pub fn build_ci_workflow(platform: CiPlatform, repo_root: &Utf8Path) -> Workflow
                             ("path", "crates/dodeca-search-wasm/pkg".into()),
                         ]),
                     Step::run("Build ddc", BUILD_DDC_COMMAND).shell("bash"),
-                    // Only run binary unit tests here - integration tests (serve/) need cells
-                    // and run in the integration phase after assembly
                     Step::run("Test ddc", TEST_DDC_COMMAND).shell("bash"),
                     upload_artifact(platform, format!("ddc-{short}"), "target/release/ddc"),
+                    Step::run(
+                        "Install xz (macOS)",
+                        "if ! command -v xz >/dev/null 2>&1 && command -v brew >/dev/null 2>&1; then HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 brew install xz; fi",
+                    ),
+                    Step::run(
+                        "Assemble archive",
+                        format!("bash scripts/assemble-archive.sh {}", target.triple),
+                    ),
+                    upload_artifact(
+                        platform,
+                        format!("build-{short}"),
+                        format!("dodeca-{}.{}", target.triple, target.archive_ext),
+                    ),
                 ]),
         );
 
-        // Jobs 2-N: Build cell groups in parallel
-        let mut cell_group_jobs: Vec<String> = Vec::new();
-        for (group_num, cells) in &groups {
-            let group_job_id = format!("build-cells-{short}-{group_num}");
-
-            let build_args: String = cells
-                .iter()
-                .map(|(pkg, _)| format!("--package {pkg}"))
-                .collect::<Vec<_>>()
-                .join(" ");
-
-            let test_args: String = cells
-                .iter()
-                .map(|(pkg, _)| format!("--package {pkg}"))
-                .collect::<Vec<_>>()
-                .join(" ");
-
-            let cell_names: String = cells
-                .iter()
-                .map(|(pkg, _)| pkg.as_str())
-                .collect::<Vec<_>>()
-                .join(", ");
-
-            // Collect binary paths for upload
-            let binary_paths: String = cells
-                .iter()
-                .map(|(_, lib_name)| {
-                    format!("target/release/{}", target.cell_library_filename(lib_name))
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
-
-            jobs.insert(
-                group_job_id.clone(),
-                Job::with_runner(target.runs_on())
-                    .name(format!("Build cells ({short}) [{cell_names}]"))
-                    .timeout(30)
-                    .steps([
-                        checkout(platform),
-                        install_rust(platform),
-                        if target.is_self_hosted() {
-                            local_cache_with_targets(
-                                platform,
-                                true,
-                                &format!("cells-{}-{}", short, group_num),
-                                target.cache_base_path(),
-                            )
-                        } else {
-                            rust_cache_with_targets(platform, true, target)
-                        },
-                        Step::run(
-                            "Build cells",
-                            format!("cargo build --release {build_args} --verbose"),
-                        ),
-                        Step::run("Test cells", format!("cargo test --release {test_args}")),
-                        upload_artifact(
-                            platform,
-                            format!("cells-{short}-{group_num}"),
-                            binary_paths,
-                        ),
-                    ]),
-            );
-
-            cell_group_jobs.push(group_job_id);
-        }
-
-        let cell_group_needs = cell_group_jobs.clone();
-
         // Integration tests compile dodeca, which embeds WASM bundles at compile time.
         let integration_job_id = format!("integration-{short}");
-        let mut integration_needs = vec![ddc_job_id.clone(), wasm_job_id.clone()];
-        integration_needs.extend(cell_group_needs.clone());
+        let integration_needs = vec![ddc_job_id.clone(), wasm_job_id.clone()];
 
         // Use platform-specific workspace variable
         let workspace_var = platform.context_var("workspace");
@@ -1432,12 +1253,12 @@ pub fn build_ci_workflow(platform: CiPlatform, repo_root: &Utf8Path) -> Workflow
                     if target.is_self_hosted() {
                         local_cache_with_targets(
                             platform,
-                            false,
+                            true,
                             &format!("integration-{}", short),
                             target.cache_base_path(),
                         )
                     } else {
-                        rust_cache_with_targets(platform, false, target)
+                        rust_cache_with_targets(platform, true, target)
                     },
                     // Download WASM bundles embedded at compile time via include_bytes!.
                     Step::uses("Download WASM", platform.download_artifact_action()).with_inputs([
@@ -1456,29 +1277,14 @@ pub fn build_ci_workflow(platform: CiPlatform, repo_root: &Utf8Path) -> Workflow
                     ),
                     Step::uses("Download ddc", platform.download_artifact_action())
                         .with_inputs([("name", format!("ddc-{short}")), ("path", "dist".into())]),
-                    Step::uses("Download cells", platform.download_artifact_action()).with_inputs(
-                        [
-                            ("pattern", format!("cells-{short}-*")),
-                            ("path", "dist".into()),
-                            ("merge-multiple", "true".into()),
-                        ],
-                    ),
-                    // Forgejo v3 download-artifact doesn't support merge-multiple properly,
-                    // so we need to flatten any subdirectories created by the pattern download.
-                    Step::run(
-                        "Flatten cell directories",
-                        "find dist -mindepth 2 -type f -exec mv -t dist {} + 2>/dev/null || true; \
-                         find dist -mindepth 1 -type d -empty -delete 2>/dev/null || true",
-                    ),
                     Step::run("Prepare artifacts", "chmod +x dist/ddc && ls -la dist/"),
-                    Step::run("Verify artifacts", verify_artifacts_script(target, &cells)),
+                    Step::run("Verify artifacts", verify_artifacts_script()),
                     Step::run(
                         "Run integration tests",
                         "cargo xtask integration --no-build",
                     )
                     .with_env([
                         ("DODECA_BIN", format!("{}/dist/ddc", workspace_var)),
-                        ("DODECA_CELL_PATH", format!("{}/dist", workspace_var)),
                         (
                             "DODECA_TEST_FIXTURES_DIR",
                             format!("{}/crates/integration-tests/fixtures", workspace_var),
@@ -1486,12 +1292,12 @@ pub fn build_ci_workflow(platform: CiPlatform, repo_root: &Utf8Path) -> Workflow
                     ]),
                 ]),
         );
+        all_release_needs.push(integration_job_id.clone());
 
         // Browser tests (Linux only) - tests livereload and DOM patching in real browser
         if target.triple == "x86_64-unknown-linux-gnu" {
             let browser_tests_job_id = format!("browser-tests-{short}");
-            let mut browser_tests_needs = vec![ddc_job_id.clone(), wasm_job_id.clone()];
-            browser_tests_needs.extend(cell_group_needs.clone());
+            let browser_tests_needs = vec![ddc_job_id.clone(), wasm_job_id.clone()];
 
             jobs.insert(
                 browser_tests_job_id.clone(),
@@ -1504,19 +1310,6 @@ pub fn build_ci_workflow(platform: CiPlatform, repo_root: &Utf8Path) -> Workflow
                         // Download ddc
                         Step::uses("Download ddc", platform.download_artifact_action())
                             .with_inputs([("name", format!("ddc-{short}")), ("path", "dist".into())]),
-                        // Download cells
-                        Step::uses("Download cells", platform.download_artifact_action()).with_inputs(
-                            [
-                                ("pattern", format!("cells-{short}-*")),
-                                ("path", "dist".into()),
-                                ("merge-multiple", "true".into()),
-                            ],
-                        ),
-                        Step::run(
-                            "Flatten cell directories",
-                            "find dist -mindepth 2 -type f -exec mv -t dist {} + 2>/dev/null || true; \
-                             find dist -mindepth 1 -type d -empty -delete 2>/dev/null || true",
-                        ),
                         // Download WASM devtools for the archive served in browser tests.
                         Step::uses("Download WASM", platform.download_artifact_action()).with_inputs([
                             ("name", devtools_wasm_artifact.clone()),
@@ -1536,64 +1329,10 @@ pub fn build_ci_workflow(platform: CiPlatform, repo_root: &Utf8Path) -> Workflow
                             "Run browser tests",
                             "cd browser-tests && npm test",
                         )
-                        .with_env([
-                            ("DODECA_BIN", format!("{}/dist/ddc", workspace_var)),
-                            ("DODECA_CELL_PATH", format!("{}/dist", workspace_var)),
-                        ]),
+                        .with_env([("DODECA_BIN", format!("{}/dist/ddc", workspace_var))]),
                     ]),
             );
         }
-
-        // Assembly job: runs after integration, downloads all artifacts and creates archive
-        let assemble_job_id = format!("assemble-{short}");
-        let assemble_needs = vec![integration_job_id.clone(), wasm_job_id.clone()];
-
-        jobs.insert(
-            assemble_job_id.clone(),
-            Job::with_runner(target.runs_on())
-                .name(format!("Assemble ({short})"))
-                .timeout(30)
-                .needs(assemble_needs)
-                .steps([
-                    checkout(platform),
-                    // Download ddc binary
-                    Step::uses("Download ddc", platform.download_artifact_action()).with_inputs([
-                        ("name", format!("ddc-{short}")),
-                        ("path", "target/release".into()),
-                    ]),
-                    // Download all cell group artifacts
-                    Step::uses("Download cells", platform.download_artifact_action()).with_inputs([
-                        ("pattern", format!("cells-{short}-*")),
-                        ("path", "target/release".into()),
-                        ("merge-multiple", "true".into()),
-                    ]),
-                    // Forgejo v3 download-artifact doesn't support merge-multiple properly
-                    Step::run(
-                        "Flatten cell directories",
-                        "find target/release -mindepth 2 -type f -exec mv -t target/release {} + 2>/dev/null || true; \
-                         find target/release -mindepth 1 -type d -empty -delete 2>/dev/null || true",
-                    ),
-                    Step::uses("Download WASM", platform.download_artifact_action()).with_inputs([
-                        ("name", devtools_wasm_artifact.clone()),
-                        ("path", "crates/dodeca-devtools/pkg".into()),
-                    ]),
-                    Step::run(
-                        "Install xz (macOS)",
-                        "if ! command -v xz >/dev/null 2>&1 && command -v brew >/dev/null 2>&1; then HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 brew install xz; fi",
-                    ),
-                    Step::run("List binaries", "ls -la target/release/"),
-                    Step::run(
-                        "Assemble archive",
-                        format!("bash scripts/assemble-archive.sh {}", target.triple),
-                    ),
-                    upload_artifact(
-                        platform,
-                        format!("build-{short}"),
-                        format!("dodeca-{}.{}", target.triple, target.archive_ext),
-                    ),
-                ]),
-        );
-        all_release_needs.push(assemble_job_id.clone());
     }
 
     // Release job (GitHub only - Forgejo uses build_forgejo_workflow)
@@ -1685,12 +1424,11 @@ gh release create "{ref_name}" \
 /// coarse: each platform builds, tests, assembles, and uploads only its final
 /// archive. Linux uses the shared vixen-ci image and mounted cache; macOS uses
 /// the same helper from its public copy.
-pub fn build_forgejo_workflow(repo_root: &Utf8Path) -> Workflow {
+pub fn build_forgejo_workflow(_repo_root: &Utf8Path) -> Workflow {
     use common::*;
 
     let platform = CiPlatform::Forgejo;
     let targets = targets_for_platform(platform);
-    let cells = discover_cells(repo_root);
     let mut jobs = IndexMap::new();
 
     for target in &targets {
@@ -1755,7 +1493,6 @@ fi
         };
         let maybe_browser_tests = if is_linux {
             r#"DODECA_BIN="$STABLE_SRC/target/release/ddc" \
-DODECA_CELL_PATH="$STABLE_SRC/target/release" \
   bash -lc 'cd "$STABLE_SRC/browser-tests" && npm ci && npx playwright install chromium --with-deps && npm test'
 "#
         } else {
@@ -1834,13 +1571,10 @@ fi
 rm -rf dist
 mkdir -p dist
 cp target/release/ddc dist/
-cp target/release/{lib_prefix}ddc_cell_*.{lib_ext} dist/
 chmod +x dist/ddc
 {verify}
 {maybe_browser_tests}"#,
-                lib_prefix = target.lib_prefix,
-                lib_ext = target.lib_ext,
-                verify = verify_artifacts_script(target, &cells),
+                verify = verify_artifacts_script(),
             ),
         )
         .shell("bash");
@@ -2105,13 +1839,6 @@ main() {{
     cp "$tmpdir/ddc" "$install_dir/"
     chmod +x "$install_dir/ddc"
 
-    # Copy cell cdylibs (libddc_cell_*)
-    for plugin in "$tmpdir"/libddc_cell_*; do
-        if [ -f "$plugin" ]; then
-            cp "$plugin" "$install_dir/"
-        fi
-    done
-
     echo ""
     echo "Successfully installed dodeca to $install_dir/ddc"
     echo ""
@@ -2185,8 +1912,6 @@ function Main {{
 
     # Create install directory
     New-Item -ItemType Directory -Force -Path $installDir | Out-Null
-    $pluginsDir = Join-Path $installDir "plugins"
-    New-Item -ItemType Directory -Force -Path $pluginsDir | Out-Null
 
     # Download and extract
     $tempDir = Join-Path $env:TEMP "dodeca-install-$(New-Guid)"
@@ -2202,11 +1927,6 @@ function Main {{
 
         Write-Host "Installing..."
         Copy-Item -Path (Join-Path $tempDir "ddc.exe") -Destination $installDir -Force
-
-        $tempPluginsDir = Join-Path $tempDir "plugins"
-        if (Test-Path $tempPluginsDir) {{
-            Copy-Item -Path (Join-Path $tempPluginsDir "*") -Destination $pluginsDir -Force
-        }}
 
         Write-Host ""
         Write-Host "Successfully installed dodeca to $installDir\ddc.exe"

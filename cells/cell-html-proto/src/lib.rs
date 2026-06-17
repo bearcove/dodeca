@@ -1,6 +1,6 @@
-//! RPC protocol for dodeca HTML processing cell
+//! Typed interface for dodeca HTML processor
 //!
-//! This cell handles all HTML transformations:
+//! This processor handles all HTML transformations:
 //! - Parsing and serialization (via facet-format-html)
 //! - URL rewriting (href, src, srcset attributes)
 //! - Dead link marking
@@ -216,16 +216,15 @@ pub enum DependencySource {
 }
 
 // ============================================================================
-// Cell service (host calls these)
+// Processor interface
 // ============================================================================
 
-/// HTML processing service implemented by the CELL.
+/// HTML processing interface.
 ///
-/// The host calls these methods to process HTML content.
+/// Dodeca calls these methods to process HTML content.
 /// For operations that need CSS/JS minification, the cell calls back
-/// to the HtmlHost service.
+/// to the HtmlHost callback interface.
 #[allow(async_fn_in_trait)]
-#[vox::service]
 pub trait HtmlProcessor {
     /// Unified HTML processing: parse, transform, serialize.
     ///
@@ -234,11 +233,11 @@ pub trait HtmlProcessor {
     /// - Dead link marking (if known_routes provided)
     /// - Code button injection (if code_metadata provided)
     /// - Content injection (if injections provided)
-    /// - Inline CSS/JS minification (if minify options set, calls HtmlHost)
+    /// - Inline CSS/JS minification (if minify options set, calls callbacks)
     /// - HTML structural minification (if minify.minify_html set)
     async fn process(&self, input: HtmlProcessInput) -> HtmlProcessResult;
 
-    // === Legacy methods (for backward compatibility during migration) ===
+    // === Focused HTML operations ===
 
     /// Rewrite URLs in HTML (href, src, srcset attributes).
     async fn rewrite_urls(&self, html: String, path_map: HashMap<String, String>) -> HtmlResult;
@@ -308,7 +307,6 @@ pub enum ProcessJsResult {
 /// This enables the cell to delegate CSS/JS processing to specialized cells
 /// without needing direct cell-to-cell communication.
 #[allow(async_fn_in_trait)]
-#[vox::service]
 pub trait HtmlHost {
     /// Minify CSS content.
     ///

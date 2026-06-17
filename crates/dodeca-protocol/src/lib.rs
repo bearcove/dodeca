@@ -7,7 +7,7 @@
 //!
 //! The devtools use vox RPC over WebSocket:
 //! - Browser connects to `/_/ws` endpoint
-//! - cell-http forwards vox RPC calls via `ForwardingDispatcher`
+//! - dodeca accepts the Vox session in process
 //! - Host implements `DevtoolsService`
 //!
 

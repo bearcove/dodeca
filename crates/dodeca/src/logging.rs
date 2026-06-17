@@ -31,7 +31,7 @@ const SLOW_SPAN_THRESHOLD_MS: u128 = 50;
 /// - `ddc build` (non-TUI mode)
 /// - `ddc serve --no-tui` (non-TUI mode)
 /// - `ddc serve` (TUI mode default)
-/// - Cells (pushed via TracingConfig RPC)
+/// - In-process processors
 pub const DEFAULT_TRACING_FILTER: &str = "info,hyper=warn,h2=warn,tower=warn,rustls=warn";
 
 /// A tracing layer that sends formatted events to a channel (for TUI Activity panel)

@@ -1,11 +1,9 @@
-//! Dodeca markdown processing cell (cell-markdown)
+//! Dodeca markdown processor.
 //!
-//! This cell uses marq for markdown rendering with direct code block rendering.
-//! Mermaid diagrams are rendered via callback to the host, which delegates to the mermaid cell.
+//! This processor uses marq for markdown rendering with direct code block rendering.
+//! Mermaid diagrams are rendered via callback to Dodeca.
 
 use cell_markdown_proto::*;
-use dodeca_cell_runtime::HostHandle;
-use dodeca_cell_runtime::tracing;
 use marq::{
     AasvgHandler, ArboriumHandler, CompareHandler, InlineCodeHandler, LinkResolver, MermaidHandler,
     PikruHandler, RenderOptions, TermHandler, WikiLink, WikiLinkOutput, WikiLinkResolver, render,
@@ -102,9 +100,14 @@ impl WikiLinkResolver for DodecaWikiLinkResolver {
 pub struct MarkdownProcessorImpl;
 
 impl MarkdownProcessorImpl {
-    fn new(_host: HostHandle) -> Self {
-        // The markdown cell does not call back into the host.
+    pub fn new() -> Self {
         Self
+    }
+}
+
+impl Default for MarkdownProcessorImpl {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -337,8 +340,3 @@ fn convert_source_map(source_map: marq::SourceMap) -> SourceMap {
             .collect(),
     }
 }
-
-dodeca_cell_runtime::declare_cell!("markdown", |host| {
-    let processor = MarkdownProcessorImpl::new(host);
-    MarkdownProcessorDispatcher::new(processor)
-});

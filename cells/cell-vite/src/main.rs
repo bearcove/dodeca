@@ -1,8 +1,8 @@
-//! Dodeca vite cell (cell-vite)
+//! Dodeca Vite manager.
 //!
 //! Manages Vite dev server and production builds.
 
-use cell_vite_proto::{RunBuildResult, StartDevServerResult, ViteManager, ViteManagerDispatcher};
+use cell_vite_proto::{RunBuildResult, StartDevServerResult, ViteManager};
 use eyre::WrapErr;
 use std::path::Path;
 use std::process::Stdio;
@@ -221,5 +221,3 @@ fn strip_ansi_escapes(s: &str) -> String {
 
     result
 }
-
-dodeca_cell_runtime::declare_cell!("vite", |_host| ViteManagerDispatcher::new(ViteManagerImpl));

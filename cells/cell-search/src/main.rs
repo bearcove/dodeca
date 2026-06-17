@@ -1,17 +1,15 @@
-//! Dodeca full-text search indexing cell (cell-search).
+//! Dodeca full-text search indexing processor.
 //!
 //! Receives the rendered HTML of every page, extracts searchable text and the
 //! heading structure with hotmeal, and builds a sharded inverted index in the
-//! `dodeca-search-format` postcard layout. The host writes the returned files
+//! `dodeca-search-format` postcard layout. Dodeca writes the returned files
 //! under `/search/` as static site assets.
 
 use std::collections::BTreeMap;
 
 use hotmeal::{Document, NodeId, NodeKind, StrTendril};
 
-use cell_search_proto::{
-    SearchFile, SearchIndexResult, SearchIndexer, SearchIndexerDispatcher, SearchPage,
-};
+use cell_search_proto::{SearchFile, SearchIndexResult, SearchIndexer, SearchPage};
 use dodeca_search_format as fmt;
 
 /// Tags whose subtrees carry no page content worth indexing (site chrome,
@@ -24,7 +22,7 @@ const SKIP_TAGS: &[&str] = &[
 /// Search indexer implementation. Stateless — every `build_index` call is
 /// self-contained.
 #[derive(Clone)]
-struct SearchIndexerImpl;
+pub struct SearchIndexerImpl;
 
 impl SearchIndexer for SearchIndexerImpl {
     async fn build_index(&self, pages: Vec<SearchPage>) -> SearchIndexResult {
@@ -308,10 +306,6 @@ fn build(pages: Vec<SearchPage>) -> Result<Vec<SearchFile>, String> {
     Ok(files)
 }
 
-dodeca_cell_runtime::declare_cell!("search", |_host| {
-    SearchIndexerDispatcher::new(SearchIndexerImpl)
-});
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -322,7 +316,7 @@ mod tests {
             SearchPage {
                 url: "/cells/".into(),
                 source: "kb".into(),
-                html: "<main><h1 id=\"intro\">Cells</h1><p>Cells communicate over RPC.</p>\
+                html: "<main><h1 id=\"intro\">Cells</h1><p>Processors run in process.</p>\
                        <nav>skip me</nav></main>"
                     .into(),
             },

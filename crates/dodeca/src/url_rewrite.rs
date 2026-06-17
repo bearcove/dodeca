@@ -1,70 +1,47 @@
-//! URL rewriting using proper parsers via cells
+//! URL rewriting using proper parsers through the in-process processing facade.
 //!
-//! All HTML transformations are done by the HTML cell in a single pass:
+//! All HTML transformations are done by the HTML processor in a single pass:
 //! - URL rewriting (href, src, srcset attributes)
 //! - Internal link resolution (@/ links)
 //! - Relative link resolution
 //! - Image transformation to picture elements
-//! - Inline CSS/JS processing (via CSS/JS cells)
+//! - Inline CSS/JS processing (via direct CSS/JS processors)
 //! - Dead link marking
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
-use cell_css_proto::CssResult;
-use cell_js_proto::JsRewriteInput;
+static HTML_PROCESS_CALL_ID: AtomicU64 = AtomicU64::new(1);
 
-static HTML_PROCESS_RPC_ID: AtomicU64 = AtomicU64::new(1);
-
-/// Rewrite URLs in CSS using lightningcss parser (via cell)
+/// Rewrite URLs in CSS using lightningcss parser.
 ///
 /// Only rewrites actual `url()` values in CSS, not text that happens to look like URLs.
 /// Also minifies the CSS output.
-/// Returns original CSS if cell is not available.
+/// Returns original CSS if rewriting fails.
 pub async fn rewrite_urls_in_css(css: &str, path_map: &HashMap<String, String>) -> String {
-    let Some(client) = crate::cells::css_cell().await else {
-        return css.to_string();
-    };
-
-    match client
-        .rewrite_and_minify(css.to_string(), path_map.clone())
-        .await
-    {
-        Ok(CssResult::Success { css }) => css,
-        Ok(CssResult::Error { message }) => {
-            tracing::warn!("CSS rewriting failed: {}", message);
-            css.to_string()
-        }
+    match crate::cells::rewrite_urls_in_css(css.to_string(), path_map.clone()).await {
+        Ok(css) => css,
         Err(e) => {
-            tracing::warn!("CSS rewriting failed: {:?}", e);
+            tracing::warn!("CSS rewriting failed: {}", e);
             css.to_string()
         }
     }
 }
 
 /// Rewrite string literals in JavaScript that contain asset paths (async version)
-/// Returns original JS if cell is not available.
+/// Returns original JS if rewriting fails.
 pub async fn rewrite_string_literals_in_js(js: &str, path_map: &HashMap<String, String>) -> String {
-    let Some(client) = crate::cells::js_cell().await else {
-        return js.to_string();
-    };
-
-    let input = JsRewriteInput {
-        js: js.to_string(),
-        path_map: path_map.clone(),
-    };
-
-    match client.rewrite_string_literals(input).await {
-        Ok(result) => result,
+    match crate::cells::rewrite_string_literals_in_js(js.to_string(), path_map.clone()).await {
+        Ok(js) => js,
         Err(e) => {
-            tracing::warn!("JS rewriting failed: {:?}", e);
+            tracing::warn!("JS rewriting failed: {}", e);
             js.to_string()
         }
     }
 }
 
-/// Process HTML with all transformations via the HTML cell.
+/// Process HTML with all transformations via the HTML processor.
 ///
 /// This is the main entry point for HTML processing. It performs all transformations
 /// in a single parse/serialize cycle:
@@ -73,14 +50,14 @@ pub async fn rewrite_string_literals_in_js(js: &str, path_map: &HashMap<String, 
 /// - Relative link resolution (if base_route provided)
 /// - Image transformation (if image_variants provided)
 /// - Dead link marking (if known_routes provided)
-/// - Inline CSS/JS URL rewriting (via host callbacks to CSS/JS cells)
+/// - Inline CSS/JS URL rewriting (via direct CSS/JS processors)
 ///
 /// Returns the processed HTML and metadata.
 pub async fn process_html(
     html: &str,
     options: HtmlProcessOptions,
 ) -> Result<HtmlProcessOutput, eyre::Error> {
-    let rpc_id = HTML_PROCESS_RPC_ID.fetch_add(1, Ordering::Relaxed);
+    let call_id = HTML_PROCESS_CALL_ID.fetch_add(1, Ordering::Relaxed);
     let started_at = Instant::now();
     let has_path_map = options.path_map.is_some();
     let has_known_routes = options.known_routes.is_some();
@@ -90,7 +67,7 @@ pub async fn process_html(
     let has_image_variants = options.image_variants.is_some();
     let has_vite_css_map = options.vite_css_map.is_some();
     tracing::debug!(
-        rpc_id,
+        call_id,
         cell = "html",
         method = "process",
         html_len = html.len(),
@@ -101,11 +78,8 @@ pub async fn process_html(
         has_base_route,
         has_image_variants,
         has_vite_css_map,
-        "cell rpc client lookup starting"
+        "html processing starting"
     );
-    let client = crate::cells::html_cell()
-        .await
-        .ok_or_else(|| eyre::eyre!("HTML cell not available"))?;
 
     let input = cell_html_proto::HtmlProcessInput {
         html: html.to_string(),
@@ -122,24 +96,17 @@ pub async fn process_html(
         mount: options.mount,
     };
 
-    tracing::debug!(
-        rpc_id,
-        cell = "html",
-        method = "process",
-        elapsed_ms = started_at.elapsed().as_millis(),
-        "cell rpc dispatch starting"
-    );
-    match client.process(input).await {
-        Ok(cell_html_proto::HtmlProcessResult::Success {
+    match crate::cells::process_html(input).await {
+        cell_html_proto::HtmlProcessResult::Success {
             html,
             had_dead_links,
             had_code_buttons: _,
             hrefs,
             element_ids,
             unresolved_wiki_links,
-        }) => {
+        } => {
             tracing::debug!(
-                rpc_id,
+                call_id,
                 cell = "html",
                 method = "process",
                 elapsed_ms = started_at.elapsed().as_millis(),
@@ -148,7 +115,7 @@ pub async fn process_html(
                 href_count = hrefs.len(),
                 element_id_count = element_ids.len(),
                 unresolved_wiki_link_count = unresolved_wiki_links.len(),
-                "cell rpc complete"
+                "html processing complete"
             );
             Ok(HtmlProcessOutput {
                 html,
@@ -158,27 +125,16 @@ pub async fn process_html(
                 unresolved_wiki_links,
             })
         }
-        Ok(cell_html_proto::HtmlProcessResult::Error { message }) => {
+        cell_html_proto::HtmlProcessResult::Error { message } => {
             tracing::error!(
-                rpc_id,
+                call_id,
                 cell = "html",
                 method = "process",
                 elapsed_ms = started_at.elapsed().as_millis(),
                 %message,
-                "cell rpc returned error"
+                "html processing returned error"
             );
             Err(eyre::eyre!("HTML processing error: {}", message))
-        }
-        Err(e) => {
-            tracing::error!(
-                rpc_id,
-                cell = "html",
-                method = "process",
-                elapsed_ms = started_at.elapsed().as_millis(),
-                error = ?e,
-                "cell rpc failed"
-            );
-            Err(eyre::eyre!("RPC error: {:?}", e))
         }
     }
 }
@@ -220,7 +176,7 @@ pub struct HtmlProcessOutput {
     pub unresolved_wiki_links: Vec<cell_html_proto::WikiLinkRef>,
 }
 
-/// Mark dead internal links in HTML using the cell
+/// Mark dead internal links in HTML.
 ///
 /// Adds `data-dead` attribute to ``<a>`` tags with internal hrefs that don't exist in known_routes.
 /// Returns (modified_html, had_dead_links) tuple.
@@ -244,7 +200,7 @@ pub use cell_html_proto::ResponsiveImageInfo;
 
 /// Resolve `@/` prefixed links in HTML using source path to route mapping.
 ///
-/// Now delegates to the HTML cell for proper parsing.
+/// Now delegates to the HTML processor for proper parsing.
 pub async fn resolve_internal_links(
     html: &str,
     source_to_route: &HashMap<String, String>,
@@ -295,7 +251,7 @@ pub struct WikiLinkResolution {
 
 /// Resolve relative links in HTML by joining with base route.
 ///
-/// Now delegates to the HTML cell for proper parsing.
+/// Now delegates to the HTML processor for proper parsing.
 pub async fn resolve_relative_links(html: &str, base_route: &str) -> String {
     let options = HtmlProcessOptions {
         base_route: Some(base_route.to_string()),

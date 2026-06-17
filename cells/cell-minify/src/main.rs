@@ -1,8 +1,8 @@
-//! Dodeca minify cell (cell-minify)
+//! Dodeca minify processor.
 //!
-//! This cell handles HTML minification.
+//! This processor handles HTML minification.
 
-use cell_minify_proto::{Minifier, MinifierDispatcher, MinifyResult};
+use cell_minify_proto::{Minifier, MinifyResult};
 
 /// Minifier implementation
 #[derive(Clone)]
@@ -15,5 +15,3 @@ impl Minifier for MinifierImpl {
         MinifyResult::Success { content: html }
     }
 }
-
-dodeca_cell_runtime::declare_cell!("minify", |_host| MinifierDispatcher::new(MinifierImpl));

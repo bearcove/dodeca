@@ -13,8 +13,7 @@ publish = false
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [dependencies]
-# RPC framework
-vox.workspace = true
+# Typed interface
 
 # Serialization
 facet.workspace = true

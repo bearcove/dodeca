@@ -1,6 +1,6 @@
 //! Full-text search integration.
 //!
-//! Ties the `cell-search` indexer into the build graph and serves the
+//! Ties the search indexer into the build graph and serves the
 //! resulting assets under `/search/`. Two kinds of file land there:
 //!
 //! - **Runtime assets** — the WASM query core, its wasm-bindgen loader, the UI
@@ -10,7 +10,7 @@
 //!   between the JS files is a plain *relative* URL that inherits `<v>` for
 //!   free — no path rewriting.
 //! - **Index files** ([`search_index_files`]) — the postcard manifest, shards
-//!   and fragments built by `cell-search` from the rendered HTML. These are
+//!   and fragments built by the search indexer from the rendered HTML. These are
 //!   content-derived; the function is a tracked query that re-runs only when
 //!   page content changes. They keep stable paths and are served revalidated.
 //!
@@ -140,7 +140,7 @@ pub fn search_head_injection() -> String {
 }
 
 // ============================================================================
-// Index files — content-derived, built by cell-search.
+// Index files — content-derived, built by the search indexer.
 // ============================================================================
 
 /// The canonical, trailing-slashed URL of a route — the form a browser
@@ -154,12 +154,12 @@ fn route_to_url(route: &Route) -> String {
 }
 
 /// Build the `/search/` index files (manifest, shards, fragments) from every
-/// rendered page, via the `cell-search` indexer.
+/// rendered page, via the search indexer.
 ///
 /// Tracked: `serve_html` is memoized per route, so this shares phase-1 renders
 /// with `build_site` and only re-runs when page content changes. A missing or
-/// failing `cell-search` cdylib degrades gracefully to an empty index — the
-/// build still succeeds, search just has nothing to answer with.
+/// failing search indexer degrades gracefully to an empty index — the build
+/// still succeeds, search just has nothing to answer with.
 //
 // `build_site` calls this to emit the index to disk; `serve`'s `find_content`
 // calls it to serve the index live — the single shared path behind both modes.
@@ -184,7 +184,7 @@ pub async fn search_index_files<DB: Db>(db: &DB) -> PicanteResult<Vec<OutputFile
         }
     }
 
-    let files = match crate::cells::build_search_index_cell(pages).await {
+    let files = match crate::cells::build_search_index(pages).await {
         Ok(files) => files,
         Err(e) => {
             tracing::warn!(error = %e, "search index unavailable; serving empty index");

@@ -1,4 +1,4 @@
-//! RPC protocol for dodeca SVGO cell
+//! Typed interface for dodeca SVGO processor
 //!
 //! Defines services for SVG optimization.
 
@@ -14,11 +14,10 @@ pub enum SvgoResult {
     Error { message: String },
 }
 
-/// SVG optimization service implemented by the cell.
+/// SVG optimizer interface.
 ///
-/// The host calls these methods to optimize SVG content.
+/// Dodeca calls these methods to optimize SVG content.
 #[allow(async_fn_in_trait)]
-#[vox::service]
 pub trait SvgoOptimizer {
     /// Optimize SVG content
     ///

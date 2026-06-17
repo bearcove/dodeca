@@ -113,10 +113,6 @@ fi
 cat >> dodeca.rb << 'FORMULA_END'
   def install
     bin.install "ddc"
-    # Install plugins
-    if File.directory?("plugins")
-      (lib/"dodeca/plugins").install Dir["plugins/*"]
-    end
   end
 
   test do

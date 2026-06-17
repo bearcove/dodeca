@@ -1,8 +1,8 @@
-//! Dodeca dialoguer cell
+//! Dodeca dialoguer processor.
 //!
 //! Provides interactive terminal prompts using the dialoguer crate.
 
-use cell_dialoguer_proto::{ConfirmResult, Dialoguer, DialoguerDispatcher, SelectResult};
+use cell_dialoguer_proto::{ConfirmResult, Dialoguer, SelectResult};
 use dialoguer::{Confirm, Select, theme::ColorfulTheme};
 
 /// Dialoguer service implementation
@@ -45,5 +45,3 @@ impl Dialoguer for DialoguerImpl {
         }
     }
 }
-
-dodeca_cell_runtime::declare_cell!("dialoguer", |_host| DialoguerDispatcher::new(DialoguerImpl));

@@ -1,11 +1,9 @@
-//! HTTP cell server for roam RPC communication
+//! HTTP server for dodeca browser traffic.
 //!
 //! This module handles:
-//! - Setting up ContentService on the http cell's session (via hub)
-//! - Handling TCP connections from browsers via TcpTunnel
-//! - Accepting virtual connections from browsers through cell-http
-//!
-//! The http cell is loaded through the hub like all other cells.
+//! - Serving browser TCP connections through the local HTTP router
+//! - Handling browser DevTools Vox sessions over WebSocket
+//! - Binding listeners and coordinating graceful shutdown
 
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -13,29 +11,85 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Instant;
 
 use eyre::Result;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::watch;
+use vox::FromVoxSession;
 
-use cell_http_proto::TcpTunnelClient;
+use cell_http_proto::{ContentService, ServeContent};
+use futures_util::future::BoxFuture;
 
 use crate::boot_state::BootStateManager;
-use crate::host::Host;
 use crate::serve::SiteServer;
 
 static NEXT_CONN_ID: AtomicU64 = AtomicU64::new(1);
 
-/// Find the cell binary path (for backwards compatibility).
-///
-/// Note: The http cell is now loaded via the hub, so this just returns a dummy path.
-/// The actual cell location is determined by cells.rs.
-pub fn find_cell_path() -> Result<std::path::PathBuf> {
-    // Return a dummy path - cells are loaded via hub now
-    Ok(std::path::PathBuf::from("ddc-cell-http"))
+#[derive(Clone)]
+struct DodecaHttpContext {
+    server: Arc<SiteServer>,
 }
 
-// Note: Cell tracing is handled by roam_tracing's TracingHost which subscribes
-// to each cell's CellTracing service. See cells.rs for the host-side setup.
+impl DodecaHttpContext {
+    fn new(server: Arc<SiteServer>) -> Self {
+        Self { server }
+    }
+}
+
+impl ddc_cell_http::RouterContext for DodecaHttpContext {
+    fn find_content(
+        &self,
+        path: String,
+        identity: Option<cell_http_proto::Identity>,
+    ) -> BoxFuture<'_, ServeContent> {
+        Box::pin(async move {
+            let content_service =
+                crate::content_service::HostContentService::new(self.server.clone());
+            content_service.find_content(path, identity).await
+        })
+    }
+
+    fn get_vite_port(&self) -> BoxFuture<'_, Option<u16>> {
+        Box::pin(async move { crate::host::Host::get().get_vite_port() })
+    }
+
+    fn accept_devtools_connection(
+        &self,
+        service: &str,
+        connection: vox::PendingConnection,
+    ) -> std::result::Result<(), vox::Metadata> {
+        match service {
+            s if s == vox::NoopClient::SERVICE_NAME => {
+                tracing::debug!("devtools browser root connection accepted");
+                connection.handle_with(());
+                Ok(())
+            }
+            s if s == dodeca_protocol::DevtoolsServiceClient::SERVICE_NAME => {
+                let browser_id = next_devtools_browser_id();
+                let svc = HostDevtoolsService::new(self.server.clone(), browser_id);
+                tracing::debug!(
+                    browser_id,
+                    "devtools browser service connection accepted directly"
+                );
+                let browser: dodeca_protocol::BrowserServiceClient = connection
+                    .handle_with_client(dodeca_protocol::DevtoolsServiceDispatcher::new(svc));
+                self.server.register_browser(browser_id, browser.clone());
+                crate::spawn::spawn({
+                    let server = self.server.clone();
+                    async move {
+                        browser.caller.closed().await;
+                        server.unregister_browser(browser_id);
+                    }
+                });
+                Ok(())
+            }
+            other => Err(vox::metadata()
+                .str(
+                    "error",
+                    format!("unsupported browser devtools service {other}"),
+                )
+                .build()),
+        }
+    }
+}
 
 // ============================================================================
 // HostDevtoolsService - vox RPC implementation of DevtoolsService
@@ -48,8 +102,8 @@ use dodeca_protocol::{
 /// Host-side implementation of DevtoolsService for direct vox RPC.
 ///
 /// This implements the `DevtoolsService` trait from `dodeca-protocol`,
-/// allowing browser devtools to call methods over the WebSocket-backed
-/// vox connection proxied through cell-http.
+/// allowing browser devtools to call methods over the WebSocket-backed Vox
+/// connection accepted by the local HTTP router.
 #[derive(Clone)]
 pub struct HostDevtoolsService {
     server: Arc<SiteServer>,
@@ -132,7 +186,7 @@ impl DevtoolsService for HostDevtoolsService {
 
     /// Dismiss an error notification.
     async fn dismiss_error(&self, route: String) {
-        tracing::debug!(route = %route, "Client dismissed error via RPC");
+        tracing::debug!(route = %route, "DevTools client dismissed error via RPC");
         // The existing implementation just logs this - errors are resolved
         // when the template successfully re-renders
     }
@@ -307,34 +361,33 @@ impl DevtoolsService for HostDevtoolsService {
     }
 }
 
-/// Start the HTTP cell server with optional shutdown signal
+/// Start the HTTP server with optional shutdown signal
 ///
 /// This:
-/// 1. Ensures the http cell is loaded (via all())
-/// 2. Sets up ContentService on the http cell's session
-/// 3. Listens for browser TCP connections and tunnels them to the cell
+/// 1. Builds the HTTP router with direct access to the site server
+/// 2. Listens for browser TCP connections
+/// 3. Serves each connection through hyper/axum
 ///
 /// If `shutdown_rx` is provided, the server will stop when the signal is received.
 ///
 /// The `bind_ips` parameter specifies which IP addresses to bind to.
 ///
 /// # Boot State Contract
-/// - The accept loop is NEVER aborted due to cell loading failures
+/// - The accept loop is never aborted due to startup rendering failures
 /// - Connections are accepted immediately and held open
 /// - If boot fails fatally, connections receive HTTP 500 responses
-/// - If boot succeeds, connections are tunneled to the HTTP cell
+/// - If boot succeeds, connections are served by the local HTTP router
 #[allow(clippy::too_many_arguments)]
-pub async fn start_cell_server_with_shutdown(
+pub async fn start_http_server_with_shutdown(
     server: Arc<SiteServer>,
-    _cell_path: std::path::PathBuf,
     bind_ips: Vec<std::net::Ipv4Addr>,
     port: u16,
     shutdown_rx: Option<watch::Receiver<bool>>,
     port_tx: Option<tokio::sync::oneshot::Sender<u16>>,
     pre_bound_listener: Option<std::net::TcpListener>,
 ) -> Result<()> {
-    // Provide SiteServer for HTTP cell initialization (must be before all())
     crate::cells::provide_site_server(server.clone());
+    let http_app = ddc_cell_http::build_router(Arc::new(DodecaHttpContext::new(server.clone())));
 
     // Create boot state manager
     let boot_state = Arc::new(BootStateManager::new());
@@ -425,10 +478,15 @@ pub async fn start_cell_server_with_shutdown(
     // Start accepting connections immediately
     let accept_server = server.clone();
     let accept_task = crate::spawn::spawn(async move {
-        run_async_accept_loop(tokio_listeners, accept_server, shutdown_rx, shutdown_flag).await
+        run_async_accept_loop(
+            tokio_listeners,
+            accept_server,
+            http_app,
+            shutdown_rx,
+            shutdown_flag,
+        )
+        .await
     });
-
-    // Accept loop will spawn cells lazily on first connection
 
     match accept_task.await {
         Ok(Ok(())) => Ok(()),
@@ -441,18 +499,17 @@ pub async fn start_cell_server_with_shutdown(
 async fn run_async_accept_loop(
     listeners: Vec<tokio::net::TcpListener>,
     server: Arc<SiteServer>,
+    http_app: axum::Router,
     shutdown_rx: Option<watch::Receiver<bool>>,
     shutdown_flag: Arc<AtomicBool>,
 ) -> Result<()> {
-    tracing::debug!(
-        num_listeners = listeners.len(),
-        "Accept loop starting - cells will spawn on demand"
-    );
+    tracing::debug!(num_listeners = listeners.len(), "Accept loop starting");
 
     // Spawn accept tasks for each listener
     let mut accept_handles = Vec::new();
     for listener in listeners {
         let server = server.clone();
+        let http_app = http_app.clone();
         let shutdown_flag = shutdown_flag.clone();
 
         let task_handle = crate::spawn::spawn(async move {
@@ -484,8 +541,11 @@ async fn run_async_accept_loop(
                 );
 
                 let server = server.clone();
+                let http_app = http_app.clone();
                 crate::spawn::spawn(async move {
-                    if let Err(e) = handle_browser_connection(conn_id, stream, server).await {
+                    if let Err(e) =
+                        handle_browser_connection(conn_id, stream, server, http_app).await
+                    {
                         tracing::warn!(
                             conn_id,
                             error = ?e,
@@ -520,23 +580,21 @@ async fn run_async_accept_loop(
     Ok(())
 }
 
-/// Start the cell server (convenience wrapper without shutdown signal)
+/// Start the HTTP server (convenience wrapper without shutdown signal).
 #[allow(dead_code)]
-pub async fn start_cell_server(
+pub async fn start_http_server(
     server: Arc<SiteServer>,
-    cell_path: std::path::PathBuf,
     bind_ips: Vec<std::net::Ipv4Addr>,
     port: u16,
 ) -> Result<()> {
-    start_cell_server_with_shutdown(server, cell_path, bind_ips, port, None, None, None).await
+    start_http_server_with_shutdown(server, bind_ips, port, None, None, None).await
 }
 
-/// Start a cell server with a static content service (for `ddc serve --static` mode)
+/// Start an HTTP server with a static content service (for `ddc serve --static` mode).
 ///
 /// This is used when serving pre-built static files without the full dodeca system.
-pub async fn start_static_cell_server<C>(
+pub async fn start_static_http_server<C>(
     _content_service: Arc<C>,
-    _cell_path: std::path::PathBuf,
     _bind_ips: Vec<std::net::Ipv4Addr>,
     _port: u16,
     _port_tx: Option<tokio::sync::oneshot::Sender<u16>>,
@@ -544,26 +602,18 @@ pub async fn start_static_cell_server<C>(
 where
     C: cell_http_proto::ContentService + Send + Sync + 'static,
 {
-    // TODO: Implement static content serving with roam
-    // For now, return an error indicating this is not yet implemented
+    // TODO: Implement static content serving through the direct HTTP router.
     Err(eyre::eyre!(
-        "Static content serving not yet implemented for roam migration"
+        "Static content serving not yet implemented for direct HTTP server"
     ))
 }
 
-/// HTTP 500 response for fatal boot errors
-const FATAL_ERROR_RESPONSE: &[u8] = b"HTTP/1.1 500 Internal Server Error\r\n\
-Content-Type: text/plain; charset=utf-8\r\n\
-Connection: close\r\n\
-Content-Length: 52\r\n\
-\r\n\
-Server failed to start. Check server logs for details";
-
-/// Handle a browser TCP connection by tunneling it through the cell
+/// Handle a browser TCP connection directly through the HTTP router.
 async fn handle_browser_connection(
     conn_id: u64,
-    mut browser_stream: TcpStream,
+    browser_stream: TcpStream,
     server: Arc<SiteServer>,
+    http_app: axum::Router,
 ) -> Result<()> {
     let started_at = Instant::now();
     let peer_addr = browser_stream.peer_addr().ok();
@@ -575,18 +625,6 @@ async fn handle_browser_connection(
         "handle_browser_connection: start"
     );
 
-    // Get HTTP cell client (spawns lazily on first access)
-    let tunnel_client = match Host::get().client_async::<TcpTunnelClient>().await {
-        Some(client) => client,
-        None => {
-            tracing::error!(conn_id, "Failed to get HTTP cell client");
-            if let Err(e) = browser_stream.write_all(FATAL_ERROR_RESPONSE).await {
-                tracing::warn!(conn_id, error = %e, "Failed to write 500 response");
-            }
-            return Ok(());
-        }
-    };
-
     // Wait for revision readiness (site content built)
     tracing::trace!(conn_id, "Waiting for revision readiness (per-connection)");
     let revision_start = Instant::now();
@@ -597,81 +635,14 @@ async fn handle_browser_connection(
         "Revision ready (per-connection)"
     );
 
-    // A tunnel is just a pair of vox channels. The cell reads browser bytes
-    // from `inbound` and writes responses to `outbound`; the host keeps the
-    // opposite halves and pumps them against the browser TCP socket.
-    let (inbound_tx, inbound_rx) = vox::channel::<Vec<u8>>();
-    let (outbound_tx, mut outbound_rx) = vox::channel::<Vec<u8>>();
-
-    let tunnel = async move {
-        let open_started = Instant::now();
-        match tunnel_client.open(inbound_rx, outbound_tx).await {
-            Ok(()) => {
-                tracing::trace!(
-                    conn_id,
-                    open_elapsed_ms = open_started.elapsed().as_millis(),
-                    "Tunnel open RPC returned"
-                );
-                Ok(())
-            }
-            Err(err) => {
-                tracing::warn!(
-                    conn_id,
-                    open_elapsed_ms = open_started.elapsed().as_millis(),
-                    ?err,
-                    "Tunnel open RPC failed"
-                );
-                Err(eyre::eyre!("Tunnel open RPC failed: {:?}", err))
-            }
-        }
-    };
-
-    let bridge = async move {
-        let bridge_started = Instant::now();
-        tracing::trace!(conn_id, "browser <-> tunnel bridge: start");
-        let (mut br, mut bw) = tokio::io::split(browser_stream);
-
-        // browser -> cell
-        let up = async move {
-            let mut buf = vec![0u8; 64 * 1024];
-            loop {
-                match br.read(&mut buf).await {
-                    Ok(0) | Err(_) => break,
-                    Ok(n) => {
-                        if inbound_tx.send(buf[..n].to_vec()).await.is_err() {
-                            break;
-                        }
-                    }
-                }
-            }
-        };
-
-        // cell -> browser
-        let down = async move {
-            while let Ok(Some(chunk)) = outbound_rx.recv().await {
-                // Vec<u8> isn't `Reborrow`, so move the owned bytes out via map.
-                let mut bytes: Option<Vec<u8>> = None;
-                let _ = chunk.map(|v| {
-                    bytes = Some(v);
-                });
-                let Some(bytes) = bytes else { break };
-                if bw.write_all(&bytes).await.is_err() {
-                    break;
-                }
-            }
-            let _ = bw.shutdown().await;
-        };
-
-        tokio::join!(up, down);
-        tracing::trace!(
-            conn_id,
-            elapsed_ms = bridge_started.elapsed().as_millis(),
-            "browser <-> tunnel bridge: done"
-        );
-    };
-
-    let (tunnel_result, ()) = tokio::join!(tunnel, bridge);
-    tunnel_result?;
+    hyper::server::conn::http1::Builder::new()
+        .serve_connection(
+            hyper_util::rt::TokioIo::new(browser_stream),
+            hyper_util::service::TowerToHyperService::new(http_app),
+        )
+        .with_upgrades()
+        .await
+        .map_err(|e| eyre::eyre!("HTTP connection error: {}", e))?;
 
     tracing::trace!(
         conn_id,
@@ -681,7 +652,5 @@ async fn handle_browser_connection(
     Ok(())
 }
 
-// Browser virtual connections are now accepted by the vox `HostAcceptor` in
-// `cell_loader` (routed by `vox-service` name over the in-process cell-http
-// link). The old roam `IncomingConnections` acceptor + `BrowserServiceClient`
-// registration is rebuilt there together with the devtools-identity TODO.
+// Browser virtual connections are accepted by the HTTP router's WebSocket
+// handler and served directly by `HostDevtoolsService`.

@@ -1,8 +1,8 @@
-//! Dodeca SVGO cell (cell-svgo)
+//! Dodeca SVGO processor.
 //!
-//! This cell handles SVG optimization.
+//! This processor handles SVG optimization.
 
-use cell_svgo_proto::{SvgoOptimizer, SvgoOptimizerDispatcher, SvgoResult};
+use cell_svgo_proto::{SvgoOptimizer, SvgoResult};
 
 /// SVGO optimizer implementation
 #[derive(Clone)]
@@ -18,7 +18,3 @@ impl SvgoOptimizer for SvgoOptimizerImpl {
         }
     }
 }
-
-dodeca_cell_runtime::declare_cell!("svgo", |_host| SvgoOptimizerDispatcher::new(
-    SvgoOptimizerImpl
-));

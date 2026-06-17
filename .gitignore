@@ -22,9 +22,11 @@ browser-tests/test-results/
 .tracey/
 
 # Wasm build
+/target-wasm/
 crates/dodeca-devtools/pkg/
-crates/dodeca-devtools/target-wasm/
 crates/dodeca-search-wasm/pkg/
+crates/*/target-wasm/
+.pnpm-store/
 examples/vite-starter/node_modules
 
 .playwright-mcp/

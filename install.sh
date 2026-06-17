@@ -73,13 +73,6 @@ main() {
     cp "$tmpdir/ddc" "$install_dir/"
     chmod +x "$install_dir/ddc"
 
-    # Copy cell cdylibs (libddc_cell_*)
-    for plugin in "$tmpdir"/libddc_cell_*; do
-        if [ -f "$plugin" ]; then
-            cp "$plugin" "$install_dir/"
-        fi
-    done
-
     echo ""
     echo "Successfully installed dodeca to $install_dir/ddc"
     echo ""

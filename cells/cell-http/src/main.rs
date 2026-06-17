@@ -1,49 +1,39 @@
-//! Dodeca HTTP cell (cell-http)
+//! Dodeca HTTP serving module.
 //!
-//! This binary handles HTTP serving for dodeca via L4 tunneling:
+//! This library builds the Axum router used by dodeca's local HTTP server.
 //!
 //! Architecture:
 //! ```text
-//! Browser → Host (TCP) → roam tunnel → Cell → internal axum
-//!                                              ↓
-//!                              ContentService RPC → Host (picante DB)
-//!                                    ↑
-//!                          (zero-copy via SHM)
+//! Browser -> dodeca TCP listener -> Axum router -> ContentService -> picante DB
+//!                                \-> DevTools WebSocket -> Vox DevTools service
 //! ```
 //!
-//! The cell:
-//! - Runs axum internally on localhost (not exposed to network)
-//! - Implements TcpTunnel service (host opens tunnels for each browser connection)
-//! - Calls ContentService on host for all content (HTML, CSS, static files)
-//! - Runs roam RPC session for devtools (forwarded to host via virtual connection)
-//! - Uses SHM transport for zero-copy content transfer
+//! Build content uses direct Rust calls. Vox remains only for the browser
+//! DevTools websocket service.
 
 use std::sync::Arc;
 
-use dodeca_cell_runtime::HostHandle;
-
-use cell_host_proto::HostServiceClient;
-use cell_http_proto::TcpTunnelDispatcher;
+use cell_http_proto::ServeContent;
+use futures_util::future::BoxFuture;
 
 mod devtools;
-mod tunnel;
 mod vite;
 
-/// Router context: yields a `HostServiceClient` for calling back to the host.
+/// Router context used by the HTTP router to call back into dodeca.
 pub trait RouterContext: Send + Sync + 'static {
-    /// The cell's host handle (clone-cheap); `.client().await` opens the
-    /// `HostService` virtual connection on first use.
-    fn host(&self) -> HostHandle;
-}
+    fn find_content(
+        &self,
+        path: String,
+        identity: Option<cell_http_proto::Identity>,
+    ) -> BoxFuture<'_, ServeContent>;
 
-struct CellRouterContext {
-    host: HostHandle,
-}
+    fn get_vite_port(&self) -> BoxFuture<'_, Option<u16>>;
 
-impl RouterContext for CellRouterContext {
-    fn host(&self) -> HostHandle {
-        self.host.clone()
-    }
+    fn accept_devtools_connection(
+        &self,
+        service: &str,
+        connection: vox::PendingConnection,
+    ) -> Result<(), vox::Metadata>;
 }
 
 /// Build the forwarded auth identity from a request's oauth2-proxy identity
@@ -52,8 +42,8 @@ impl RouterContext for CellRouterContext {
 /// cluster-wide Traefik forwardAuth gate copies onto the request), falling back
 /// to `X-Forwarded-*` (set by `--pass-user-headers` when oauth2-proxy is an
 /// inline reverse proxy). `None` if no user header is present — i.e.
-/// unauthenticated. HTTP/header parsing stays in the cell; the host only ever
-/// sees the resolved [`cell_http_proto::Identity`].
+/// unauthenticated. HTTP/header parsing stays in the router; Dodeca only sees
+/// the resolved [`cell_http_proto::Identity`].
 fn extract_identity(request: &axum::extract::Request) -> Option<cell_http_proto::Identity> {
     let headers = request.headers();
     // First non-empty value among `names`, tried in order.
@@ -87,20 +77,8 @@ fn extract_identity(request: &axum::extract::Request) -> Option<cell_http_proto:
     })
 }
 
-/// Convenience: get a connected `HostServiceClient`.
-pub async fn host_client(ctx: &Arc<dyn RouterContext>) -> HostServiceClient {
-    ctx.host().client().await
-}
-
-dodeca_cell_runtime::declare_cell!("http", |host| {
-    let ctx: Arc<dyn RouterContext> = Arc::new(CellRouterContext { host });
-    let app = build_router(ctx.clone());
-    let tunnel_impl = tunnel::TcpTunnelImpl::new(ctx, app);
-    TcpTunnelDispatcher::new(tunnel_impl)
-});
-
 /// Build the axum router for the internal HTTP server
-fn build_router(ctx: Arc<dyn RouterContext>) -> axum::Router {
+pub fn build_router(ctx: Arc<dyn RouterContext>) -> axum::Router {
     use axum::{
         Router,
         body::Body,
@@ -112,13 +90,11 @@ fn build_router(ctx: Arc<dyn RouterContext>) -> axum::Router {
     };
     use std::time::Instant;
 
-    use cell_http_proto::ServeContent;
-
     /// Cache control headers
     const CACHE_IMMUTABLE: &str = "public, max-age=31536000, immutable";
     const CACHE_NO_CACHE: &str = "no-cache, no-store, must-revalidate";
 
-    /// Handle content requests by calling host via RPC
+    /// Handle content requests by calling host through the typed callback trait
     async fn content_handler(
         State(ctx): State<Arc<dyn RouterContext>>,
         request: Request,
@@ -130,33 +106,20 @@ fn build_router(ctx: Arc<dyn RouterContext>) -> axum::Router {
             return vite::vite_proxy_handler(State(ctx), request).await;
         }
 
-        let client = crate::host_client(&ctx).await;
-
-        // The forwarded auth identity (oauth2-proxy → these headers). The host
+        // The forwarded auth identity (oauth2-proxy -> these headers). Dodeca
         // uses it to gate `/_dodeca/*`. HTTP/header parsing lives here in the
-        // cell; the host only sees the resolved identity.
+        // router; Dodeca only sees the resolved identity.
         let identity = extract_identity(&request);
 
         // Call host to get content
         let host_call_started_at = Instant::now();
-        tracing::debug!(path, "http cell host find_content started");
-        let content = match client.find_content(path.clone(), identity).await {
-            Ok(c) => {
-                tracing::debug!(
-                    path,
-                    elapsed_ms = host_call_started_at.elapsed().as_millis(),
-                    "http cell host find_content finished"
-                );
-                c
-            }
-            Err(e) => {
-                tracing::error!("RPC error fetching {}: {:?}", path, e);
-                return Response::builder()
-                    .status(StatusCode::BAD_GATEWAY)
-                    .body(Body::from("Host connection lost"))
-                    .unwrap();
-            }
-        };
+        tracing::debug!(path, "http router find_content started");
+        let content = ctx.find_content(path.clone(), identity).await;
+        tracing::debug!(
+            path,
+            elapsed_ms = host_call_started_at.elapsed().as_millis(),
+            "http router find_content finished"
+        );
 
         // Convert ServeContent to HTTP response
         match content {
@@ -237,10 +200,10 @@ fn build_router(ctx: Arc<dyn RouterContext>) -> axum::Router {
 
         let mut response = next.run(request).await;
 
-        // Add header to identify this is served by the cell
+        // Add header to identify the local dodeca HTTP server.
         response
             .headers_mut()
-            .insert("x-served-by", "cell-http".parse().unwrap());
+            .insert("x-served-by", "dodeca".parse().unwrap());
 
         let status = response.status().as_u16();
         let latency_ms = start.elapsed().as_secs_f64() * 1000.0;
@@ -255,12 +218,12 @@ fn build_router(ctx: Arc<dyn RouterContext>) -> axum::Router {
     }
 
     Router::new()
-        // Devtools WebSocket - roam RPC session forwarded to host
+        // DevTools WebSocket - Vox session accepted by the host context.
         .route("/_/ws", get(devtools::ws_handler))
         // Legacy endpoints
         .route("/__dodeca", get(devtools::ws_handler))
         .route("/__livereload", get(devtools::ws_handler))
-        // All other content (HTML, CSS, static, devtools assets) - ask host
+        // All other content (HTML, CSS, static, devtools assets) - ask dodeca.
         .fallback(content_handler)
         .with_state(ctx)
         .layer(middleware::from_fn(log_requests))

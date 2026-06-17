@@ -1,4 +1,4 @@
-//! RPC protocol for dodeca SASS cell
+//! Typed interface for dodeca SASS processor
 //!
 //! Defines services for SASS/SCSS compilation.
 
@@ -15,11 +15,10 @@ pub enum SassResult {
     Error { message: String },
 }
 
-/// SASS compilation service implemented by the cell.
+/// SASS compiler interface.
 ///
-/// The host calls these methods to compile SASS/SCSS to CSS.
+/// Dodeca calls these methods to compile SASS/SCSS to CSS.
 #[allow(async_fn_in_trait)]
-#[vox::service]
 pub trait SassCompiler {
     /// Compile SASS/SCSS to CSS
     ///

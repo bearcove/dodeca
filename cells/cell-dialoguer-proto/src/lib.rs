@@ -1,6 +1,6 @@
-//! Protocol definitions for dodeca dialoguer cell
+//! Typed interface definitions for dodeca dialoguer processor
 //!
-//! This cell provides interactive terminal prompts (select, confirm, input).
+//! This processor provides interactive terminal prompts (select, confirm, input).
 
 use facet::Facet;
 
@@ -28,7 +28,6 @@ pub enum ConfirmResult {
 
 /// Interactive prompt service
 #[allow(async_fn_in_trait)]
-#[vox::service]
 pub trait Dialoguer {
     /// Show a select prompt with a list of items.
     /// Returns the index of the selected item, or None if cancelled.

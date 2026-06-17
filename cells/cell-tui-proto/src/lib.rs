@@ -1,8 +1,6 @@
-//! Protocol definitions for the dodeca TUI cell.
+//! Typed interface definitions for the dodeca TUI display.
 //!
-//! Bidirectional RPC:
-//! - Host calls TuiDisplay on the TUI cell to push updates
-//! - TUI cell calls HostService::send_command() to send commands to host
+//! Shared update and command shapes between the host and the local TUI display.
 
 // ============================================================================
 // Build Progress Types
@@ -298,15 +296,13 @@ pub enum CommandResult {
 }
 
 // ============================================================================
-// TuiDisplay Service (hosted by TUI cell, called by host)
+// TuiDisplay Service (hosted by the local TUI display, called by host)
 // ============================================================================
 
-/// Service hosted by the TUI cell for the host to push updates.
+/// Service hosted by the local TUI display for the host to push updates.
 ///
-/// The host calls these methods to update the TUI display.
-/// For commands from TUI → host, use HostService::send_command().
+/// Dodeca calls these methods to update the TUI display.
 #[allow(async_fn_in_trait)]
-#[vox::service]
 pub trait TuiDisplay {
     /// Host pushes a progress update.
     async fn update_progress(&self, progress: BuildProgress);

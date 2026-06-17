@@ -1,4 +1,4 @@
-//! RPC protocol for dodeca code execution cell
+//! Typed interface for dodeca code execution processor
 //!
 //! Defines services for extracting and executing code samples from markdown.
 
@@ -392,7 +392,7 @@ pub enum DependencySource {
 }
 
 // ============================================================================
-// RPC Input/Output Types
+// Input/Output Types
 // ============================================================================
 
 /// Input for extracting code samples
@@ -428,7 +428,7 @@ pub struct ExecuteSamplesOutput {
 }
 
 // ============================================================================
-// RPC Service
+// Processor Interface
 // ============================================================================
 
 /// Result of code execution operations
@@ -443,11 +443,10 @@ pub enum CodeExecutionResult {
     Error { message: String },
 }
 
-/// Code execution service implemented by the cell.
+/// Code execution processor interface.
 ///
-/// The host calls these methods to process code samples.
+/// Dodeca calls these methods to process code samples.
 #[allow(async_fn_in_trait)]
-#[vox::service]
 pub trait CodeExecutor {
     /// Extract code samples from markdown content
     async fn extract_code_samples(&self, input: ExtractSamplesInput) -> CodeExecutionResult;

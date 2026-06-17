@@ -1,8 +1,8 @@
-//! Dodeca data cell (cell-data)
+//! Dodeca data processor.
 //!
-//! This cell handles loading and parsing data files (JSON, TOML, YAML).
+//! This processor handles loading and parsing data files (JSON, TOML, YAML).
 
-use cell_data_proto::{DataFormat, DataLoader, DataLoaderDispatcher, LoadDataResult, Value};
+use cell_data_proto::{DataFormat, DataLoader, LoadDataResult, Value};
 use facet_format::{DeserializeError, FormatDeserializer, FormatParser};
 
 /// Data loader implementation
@@ -44,5 +44,3 @@ fn deserialize_value(parser: &mut dyn FormatParser<'_>) -> Result<Value, Deseria
     let mut de = FormatDeserializer::new(parser);
     de.deserialize()
 }
-
-dodeca_cell_runtime::declare_cell!("data", |_host| DataLoaderDispatcher::new(DataLoaderImpl));

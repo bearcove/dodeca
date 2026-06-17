@@ -1,7 +1,7 @@
-//! ContentService implementation for the roam RPC server
+//! ContentService implementation for the local HTTP router.
 //!
 //! This implements the ContentService trait from cell-http-proto,
-//! allowing the HTTP cell to fetch content from the host's picante DB via RPC.
+//! allowing the HTTP router to fetch content from the picante DB.
 
 use std::sync::Arc;
 

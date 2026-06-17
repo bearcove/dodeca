@@ -7,7 +7,7 @@ use include_dir::{Dir, include_dir};
 use owo_colors::OwoColorize;
 use std::fs;
 
-use crate::cells::dialoguer_client;
+use crate::cells::select_dialog;
 
 /// Embedded project templates
 static TEMPLATES: Dir = include_dir!("$CARGO_MANIFEST_DIR/templates");
@@ -62,20 +62,12 @@ pub async fn run_init(
                 )
             })?
     } else {
-        // Interactive selection via cell
-        let client = dialoguer_client()
-            .await
-            .ok_or_else(|| eyre!("Dialoguer cell not available"))?;
-
         let items: Vec<String> = templates
             .iter()
             .map(|t| format!("{} - {}", t.name, t.description))
             .collect();
 
-        let result = client
-            .select("Choose a starter template:".to_string(), items)
-            .await
-            .map_err(|e| eyre!("Failed to show template selection: {}", e))?;
+        let result = select_dialog("Choose a starter template:".to_string(), items).await;
 
         match result {
             SelectResult::Selected { index } => &templates[index],

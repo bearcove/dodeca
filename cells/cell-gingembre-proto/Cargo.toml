@@ -3,7 +3,7 @@ name = "cell-gingembre-proto"
 version = "0.6.1"
 edition = "2024"
 rust-version = "1.91"
-description = "RPC protocol for dodeca template rendering cell"
+description = "Typed interface for dodeca template rendering"
 license = "MIT OR Apache-2.0"
 publish = false
 
@@ -15,4 +15,4 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 [dependencies]
 facet.workspace = true
 facet-value.workspace = true
-vox.workspace = true
+futures.workspace = true

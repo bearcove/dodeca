@@ -1,13 +1,11 @@
-//! Dodeca HTML diff cell (cell-html-diff)
+//! Dodeca HTML diff processor.
 //!
-//! This cell handles HTML DOM diffing for live reload using hotmeal
+//! This processor handles HTML DOM diffing for live reload using hotmeal
 //! for parsing and diffing.
 
 use hotmeal::StrTendril;
 
-use cell_html_diff_proto::{DiffError, DiffInput, DiffOutcome, HtmlDiffer, HtmlDifferDispatcher};
-
-use dodeca_protocol::facet_postcard;
+use cell_html_diff_proto::{DiffError, DiffInput, DiffOutcome, HtmlDiffer};
 
 // ============================================================================
 // HTML Differ Implementation
@@ -45,7 +43,3 @@ impl HtmlDiffer for HtmlDifferImpl {
         Ok(DiffOutcome { patches_blob })
     }
 }
-
-dodeca_cell_runtime::declare_cell!("html_diff", |_host| HtmlDifferDispatcher::new(
-    HtmlDifferImpl
-));
