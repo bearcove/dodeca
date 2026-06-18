@@ -1,0 +1,10 @@
+/target
+/test_output
+/node_modules
+.claude
+
+# Downloaded test corpus (regenerate with: cargo xtask fetch-corpus)
+/tests/corpus/w3c
+/tests/corpus/oxygen
+/tests/corpus/wikimedia
+tests/fixtures/
