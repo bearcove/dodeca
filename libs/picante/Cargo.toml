@@ -1,0 +1,39 @@
+[workspace]
+members = ["crates/*"]
+resolver = "3"
+
+[workspace.package]
+version = "3.0.0-rc.0"
+edition = "2024"
+rust-version = "1.91"
+license = "Apache-2.0 OR MIT"
+authors = ["Amos Wenger <amos@bearcove.eu>"]
+repository = "https://github.com/bearcove/picante"
+homepage = "https://github.com/bearcove/picante"
+readme = "README.md"
+
+[workspace.dependencies]
+dashmap = "6"
+im = "15.1.0"
+divan = "0.1"
+facet = { version = "0.50.0-rc.0" }
+facet-core = { version = "0.50.0-rc.0" }
+facet-postcard = { version = "0.50.0-rc.0" }
+facet-reflect = { version = "0.50.0-rc.0" }
+heck = "0.5.0"
+parking_lot = "0.12.4"
+proc-macro2 = "1.0.101"
+quote = "1.0.41"
+tokio = { version = "1.48.0", features = ["fs", "rt", "sync", "time"] }
+tokio-test-lite = "0.2"
+tracing = { version = "0.1.41", default-features = false, features = ["std"] }
+tracing-subscriber = "0.3.20"
+trybuild = "1.0"
+unsynn = "0.3.0"
+picante-macros = { version = "3.0.0-rc.0", path = "crates/picante-macros" }
+
+# [patch."https://github.com/facet-rs/facet"]
+# facet = { path = "../facet/facet" }
+# facet-core = { path = "../facet/facet-core" }
+# facet-postcard = { path = "../facet/facet-postcard" }
+# facet-reflect = { path = "../facet/facet-reflect" }
