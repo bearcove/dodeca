@@ -1,0 +1,8 @@
+@schema {id crate:captain-config@1, cli captain}
+
+// Captain configuration
+// All options default to #true. Use #false to disable.
+
+pre-commit {}
+
+pre-push {}

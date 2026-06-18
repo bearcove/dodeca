@@ -1,0 +1,225 @@
+[package]
+name = "marq"
+version = "5.0.0-rc.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Markdown rendering with pluggable code block handlers"
+repository = "https://github.com/bearcove/marq"
+
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+[features]
+default = ["default-langs"]
+# Syntax highlighting via arborium (tree-sitter based)
+highlight = ["dep:arborium"]
+# ASCII art to SVG conversion
+aasvg = ["dep:aasvg"]
+# Pikchr diagram rendering
+pikru = ["dep:pikru"]
+# All handlers
+all-handlers = ["highlight", "aasvg", "pikru"]
+
+# Default set of languages (enabled by default)
+default-langs = [
+  "lang-asm",
+  "lang-c",
+  "lang-cpp",
+  "lang-rust",
+  "lang-zig",
+  "lang-bash",
+  "lang-fish",
+  "lang-powershell",
+  "lang-zsh",
+  "lang-css",
+  "lang-html",
+  "lang-javascript",
+  "lang-scss",
+  "lang-svelte",
+  "lang-typescript",
+  "lang-tsx",
+  "lang-vue",
+  "lang-elixir",
+  "lang-go",
+  "lang-graphql",
+  "lang-java",
+  "lang-php",
+  "lang-python",
+  "lang-ruby",
+  "lang-clojure",
+  "lang-haskell",
+  "lang-ocaml",
+  "lang-scala",
+  "lang-julia",
+  "lang-r",
+  "lang-sql",
+  "lang-dockerfile",
+  "lang-ini",
+  "lang-jinja2",
+  "lang-json",
+  "lang-markdown",
+  "lang-nginx",
+  "lang-toml",
+  "lang-typst",
+  "lang-xml",
+  "lang-yaml",
+  "lang-styx",
+  "lang-cmake",
+  "lang-meson",
+  "lang-nix",
+  "lang-hcl",
+  "lang-capnp",
+  "lang-textproto",
+  "lang-thrift",
+  "lang-diff",
+  "lang-kotlin",
+  "lang-lua",
+  "lang-perl",
+  "lang-swift",
+  "lang-vim",
+]
+
+# Third-party languages that are not part of the Arborium bundle.
+# These stay opt-in so marq's default feature set only includes permissively
+# licensed grammars from Arborium itself.
+lang-vixen = ["dep:tree-sitter-vixen"]
+
+# Individual language features (forwarded to arborium)
+lang-asm = ["arborium?/lang-asm"]
+lang-bash = ["arborium?/lang-bash"]
+lang-c = ["arborium?/lang-c"]
+lang-capnp = ["arborium?/lang-capnp"]
+lang-clojure = ["arborium?/lang-clojure"]
+lang-cmake = ["arborium?/lang-cmake"]
+lang-cpp = ["arborium?/lang-cpp"]
+lang-css = ["arborium?/lang-css"]
+lang-diff = ["arborium?/lang-diff"]
+lang-dockerfile = ["arborium?/lang-dockerfile"]
+lang-elixir = ["arborium?/lang-elixir"]
+lang-fish = ["arborium?/lang-fish"]
+lang-go = ["arborium?/lang-go"]
+lang-graphql = ["arborium?/lang-graphql"]
+lang-haskell = ["arborium?/lang-haskell"]
+lang-hcl = ["arborium?/lang-hcl"]
+lang-html = ["arborium?/lang-html"]
+lang-ini = ["arborium?/lang-ini"]
+lang-java = ["arborium?/lang-java"]
+lang-javascript = ["arborium?/lang-javascript"]
+lang-jinja2 = ["arborium?/lang-jinja2"]
+lang-json = ["arborium?/lang-json"]
+lang-julia = ["arborium?/lang-julia"]
+lang-kotlin = ["arborium?/lang-kotlin"]
+lang-lua = ["arborium?/lang-lua"]
+lang-markdown = ["arborium?/lang-markdown"]
+lang-meson = ["arborium?/lang-meson"]
+lang-nginx = ["arborium?/lang-nginx"]
+lang-nix = ["arborium?/lang-nix"]
+lang-ocaml = ["arborium?/lang-ocaml"]
+lang-perl = ["arborium?/lang-perl"]
+lang-php = ["arborium?/lang-php"]
+lang-powershell = ["arborium?/lang-powershell"]
+lang-python = ["arborium?/lang-python"]
+lang-r = ["arborium?/lang-r"]
+lang-ruby = ["arborium?/lang-ruby"]
+lang-rust = ["arborium?/lang-rust"]
+lang-scala = ["arborium?/lang-scala"]
+lang-scss = ["arborium?/lang-scss"]
+lang-sql = ["arborium?/lang-sql"]
+lang-styx = ["arborium?/lang-styx"]
+lang-svelte = ["arborium?/lang-svelte"]
+lang-swift = ["arborium?/lang-swift"]
+lang-textproto = ["arborium?/lang-textproto"]
+lang-thrift = ["arborium?/lang-thrift"]
+lang-toml = ["arborium?/lang-toml"]
+lang-tsx = ["arborium?/lang-tsx"]
+lang-typescript = ["arborium?/lang-typescript"]
+lang-typst = ["arborium?/lang-typst"]
+lang-vim = ["arborium?/lang-vim"]
+lang-vue = ["arborium?/lang-vue"]
+lang-xml = ["arborium?/lang-xml"]
+lang-yaml = ["arborium?/lang-yaml"]
+lang-zig = ["arborium?/lang-zig"]
+lang-zsh = ["arborium?/lang-zsh"]
+
+[dependencies]
+# Markdown parsing
+pulldown-cmark.workspace = true
+
+# Frontmatter parsing
+facet.workspace = true
+facet-toml.workspace = true
+facet-yaml.workspace = true
+facet-value.workspace = true
+
+# Error handling
+thiserror.workspace = true
+
+# Regex for stripping markers
+regex.workspace = true
+
+# Optional handlers
+arborium = { workspace = true, optional = true }
+aasvg = { workspace = true, optional = true }
+pikru = { workspace = true, optional = true }
+tree-sitter-vixen = { version = "0.1.0", optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }
+facet-postcard.workspace = true
+
+[workspace.dependencies]
+# Serialization - Facet ecosystem (git)
+facet = { version = "0.50.0-rc.0" }
+facet-postcard = { version = "0.50.0-rc.0" }
+facet-toml = { version = "0.50.0-rc.0" }
+facet-value = { version = "0.50.0-rc.0" }
+facet-yaml = { version = "0.50.0-rc.0" }
+
+# Markdown
+pulldown-cmark = "0.13"
+
+# Error handling
+thiserror = "2.0"
+
+# Regex
+regex = "1.12"
+
+# Async runtime
+tokio = { version = "1.48", features = [
+  "full",
+  "macros",
+  "process",
+  "rt",
+  "rt-multi-thread",
+  "sync",
+  "time",
+] }
+
+# ASCII diagrams to SVG
+aasvg = "1.0"
+
+# Pikchr diagrams
+pikru = { version = "2.0.0-rc.0" }
+
+# Syntax highlighting - features controlled by marq's lang-* features
+arborium = { version = "2", default-features = false }
+
+# # Force all transitive facet dependencies to use git version
+# [patch.crates-io]
+# facet-xml = { git = "https://github.com/facet-rs/facet-xml", branch = "main" }
+# facet-svg = { git = "https://github.com/facet-rs/facet-xml", branch = "main" }
+# facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
+# facet-core = { git = "https://github.com/facet-rs/facet", branch = "main" }
+# facet-macro-parse = { git = "https://github.com/facet-rs/facet", branch = "main" }
+# facet-macro-types = { git = "https://github.com/facet-rs/facet", branch = "main" }
+# facet-macros = { git = "https://github.com/facet-rs/facet", branch = "main" }
+# facet-macros-impl = { git = "https://github.com/facet-rs/facet", branch = "main" }
+# facet-postcard = { git = "https://github.com/facet-rs/facet", branch = "main" }
+# facet-reflect = { git = "https://github.com/facet-rs/facet", branch = "main" }
+# facet-solver = { git = "https://github.com/facet-rs/facet", branch = "main" }
+# facet-toml = { git = "https://github.com/facet-rs/facet", branch = "main" }
+# facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
+# facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
+# pikru = { git = "https://github.com/bearcove/pikru", branch = "main" }
