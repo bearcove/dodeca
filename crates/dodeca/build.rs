@@ -21,22 +21,34 @@ fn main() {
         .cli("ddc")
         .write("schema.styx");
 
-    // Generate the browser editor's TypeScript vox client + build the editor.
-    generate_editor_client();
+    // Generate the browser editor's TypeScript vox bindings + build the editor.
+    generate_editor_bindings();
     build_editor();
 }
 
-/// Generate the TypeScript vox client for the in-browser editor from
-/// `DevtoolsService`'s descriptor — the same generator vox uses for its own
+/// Generate the TypeScript vox bindings for the in-browser editor from the
+/// DevTools protocol descriptors — the same generator vox uses for its own
 /// clients. Written into the editor's source tree (write-if-changed, so we
 /// don't retrigger the build), then bundled by vite.
-fn generate_editor_client() {
+fn generate_editor_bindings() {
     println!("cargo::rerun-if-changed=../dodeca-protocol/src/lib.rs");
 
-    let descriptor = dodeca_protocol::devtools_service_service_descriptor();
-    let ts = vox_codegen::targets::typescript::generate_service(descriptor);
+    write_generated_ts(
+        "editor/src/devtools.generated.ts",
+        vox_codegen::targets::typescript::generate_service(
+            dodeca_protocol::devtools_service_service_descriptor(),
+        ),
+    );
+    write_generated_ts(
+        "editor/src/browser.generated.ts",
+        vox_codegen::targets::typescript::generate_service(
+            dodeca_protocol::browser_service_service_descriptor(),
+        ),
+    );
+}
 
-    let path = std::path::Path::new("editor/src/devtools.generated.ts");
+fn write_generated_ts(path: &str, ts: String) {
+    let path = std::path::Path::new(path);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).expect("create editor/src");
     }
@@ -68,7 +80,7 @@ fn build_editor() {
 }
 
 /// `pnpm install` + `pnpm run build` in the editor dir. Returns whether
-/// `dist/edit.js` was produced. Runs *after* `generate_editor_client()` has
+/// `dist/edit.js` was produced. Runs *after* `generate_editor_bindings()` has
 /// written `src/devtools.generated.ts`, which the bundle imports.
 fn run_editor_build(editor: &std::path::Path) -> bool {
     if !editor.join("package.json").exists() {

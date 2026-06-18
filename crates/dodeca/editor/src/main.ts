@@ -26,10 +26,14 @@ import {
   type MessageReader,
   type MessageWriter,
 } from "vscode-jsonrpc";
-import { connectLane, voxServiceMetadata, channel } from "@bearcove/vox-core";
+import { connect, Driver, voxServiceMetadata, channel } from "@bearcove/vox-core";
 import { wsConnector } from "@bearcove/vox-ws";
 import initHotmeal, { diff_html, apply_patches_json_on_element } from "hotmeal-wasm";
 import { DevtoolsServiceClient, type EditEntry } from "./devtools.generated";
+import {
+  BrowserServiceDispatcher,
+  type DevtoolsEvent as BrowserDevtoolsEvent,
+} from "./browser.generated";
 import { ArboriumHighlighter } from "./highlight";
 // @ts-expect-error — monaco-vim ships no types; initVimMode(editor, statusNode) → { dispose() }.
 import { initVimMode } from "monaco-vim";
@@ -156,11 +160,38 @@ async function main(mount: HTMLElement): Promise<void> {
   const previewBody = (): HTMLElement | null =>
     previewFrame.contentDocument?.body ?? null;
 
-  // 1. Connect over the devtools websocket and open the DevtoolsService lane.
+  // 1. Connect over the devtools websocket and open a lane that carries both
+  //    directions: browser -> host DevtoolsService calls, and host -> browser
+  //    BrowserService events.
   status("connecting…");
-  const client = await connectLane(wsConnector(wsUrl()), DevtoolsServiceClient, {
-    laneMetadata: voxServiceMetadata("DevtoolsService"),
+  let refreshPreviewFromEvent: (() => void) | undefined;
+  const handleBrowserEvent = async (event: BrowserDevtoolsEvent): Promise<void> => {
+    switch (event.tag) {
+      case "Reload":
+      case "CssChanged":
+        refreshPreviewFromEvent?.();
+        break;
+      case "Patches": {
+        const tab = activeTab();
+        if (tab && normalizeRoute(event.route) === normalizeRoute(tab.entry.route)) {
+          refreshPreviewFromEvent?.();
+        }
+        break;
+      }
+      case "Error":
+      case "ErrorResolved":
+        break;
+    }
+  };
+  const connection = await connect(wsConnector(wsUrl()));
+  const devtoolsLane = await connection.openRawLane({
+    metadata: voxServiceMetadata("DevtoolsService"),
   });
+  void Driver.new(
+    devtoolsLane,
+    new BrowserServiceDispatcher({ onEvent: handleBrowserEvent }),
+  ).run();
+  const client = new DevtoolsServiceClient(devtoolsLane.caller());
 
   // 2. Load the page list + the initial page.
   const list = await client.editList(token);
@@ -465,6 +496,10 @@ async function main(mount: HTMLElement): Promise<void> {
     tab.prevBody = body;
     rebuildLineIndex(result.source_map);
   };
+  refreshPreviewFromEvent = () => {
+    if (previewTimer) clearTimeout(previewTimer);
+    previewTimer = setTimeout(() => void refreshPreview(), 50) as unknown as number;
+  };
   const schedulePreview = () => {
     if (previewTimer) clearTimeout(previewTimer);
     previewTimer = setTimeout(() => void refreshPreview(), 250) as unknown as number;
@@ -581,6 +616,7 @@ async function main(mount: HTMLElement): Promise<void> {
     uri: loaded.uri,
     title: entries.find((e) => e.uri === loaded.uri)?.title ?? loaded.route,
   });
+  await client.subscribe(loaded.route);
 
   status("ready");
   saveBtn.disabled = false;
