@@ -13,7 +13,7 @@ use std::time::Instant;
 use eyre::Result;
 use tokio::net::TcpStream;
 use tokio::sync::watch;
-use vox::FromVoxSession;
+use vox::FromVoxLane;
 
 use cell_http_proto::{ContentService, ServeContent};
 use futures_util::future::BoxFuture;
@@ -54,14 +54,9 @@ impl ddc_cell_http::RouterContext for DodecaHttpContext {
     fn accept_devtools_connection(
         &self,
         service: &str,
-        connection: vox::PendingConnection,
-    ) -> std::result::Result<(), vox::Metadata> {
+        lane: vox::PendingLane,
+    ) -> std::result::Result<(), vox::LaneRejection> {
         match service {
-            s if s == vox::NoopClient::SERVICE_NAME => {
-                tracing::debug!("devtools browser root connection accepted");
-                connection.handle_with(());
-                Ok(())
-            }
             s if s == dodeca_protocol::DevtoolsServiceClient::SERVICE_NAME => {
                 let browser_id = next_devtools_browser_id();
                 let svc = HostDevtoolsService::new(self.server.clone(), browser_id);
@@ -69,8 +64,8 @@ impl ddc_cell_http::RouterContext for DodecaHttpContext {
                     browser_id,
                     "devtools browser service connection accepted directly"
                 );
-                let browser: dodeca_protocol::BrowserServiceClient = connection
-                    .handle_with_client(dodeca_protocol::DevtoolsServiceDispatcher::new(svc));
+                let browser: dodeca_protocol::BrowserServiceClient =
+                    lane.handle_with_client(dodeca_protocol::DevtoolsServiceDispatcher::new(svc));
                 self.server.register_browser(browser_id, browser.clone());
                 crate::spawn::spawn({
                     let server = self.server.clone();
@@ -81,12 +76,10 @@ impl ddc_cell_http::RouterContext for DodecaHttpContext {
                 });
                 Ok(())
             }
-            other => Err(vox::metadata()
-                .str(
-                    "error",
-                    format!("unsupported browser devtools service {other}"),
-                )
-                .build()),
+            other => Err(vox::LaneRejection::with_message(
+                vox::LaneRejectReason::UnknownService,
+                format!("unsupported browser devtools service {other}"),
+            )),
         }
     }
 }

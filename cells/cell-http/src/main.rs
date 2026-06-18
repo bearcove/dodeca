@@ -32,8 +32,8 @@ pub trait RouterContext: Send + Sync + 'static {
     fn accept_devtools_connection(
         &self,
         service: &str,
-        connection: vox::PendingConnection,
-    ) -> Result<(), vox::Metadata>;
+        lane: vox::PendingLane,
+    ) -> Result<(), vox::LaneRejection>;
 }
 
 /// Build the forwarded auth identity from a request's oauth2-proxy identity

@@ -9,7 +9,7 @@ use crate::protocol::{
     BrowserService, BrowserServiceDispatcher, DeadLinkTarget, DevtoolsEvent, DevtoolsServiceClient,
     ErrorInfo, OpenSourceResult, ScopeEntry, ScopeValue,
 };
-use vox::FromVoxSession;
+use vox::FromVoxLane;
 use vox_websocket::WsLink;
 
 /// A single REPL entry with expression and result
@@ -103,7 +103,7 @@ impl DevtoolsState {
 
 // Thread-local storage for RPC client (WASM is single-threaded)
 thread_local! {
-    static RPC_ROOT: RefCell<Option<vox::NoopClient>> = const { RefCell::new(None) };
+    static RPC_ROOT: RefCell<Option<vox::ConnectionHandle>> = const { RefCell::new(None) };
     static RPC_CLIENT: RefCell<Option<DevtoolsServiceClient>> = const { RefCell::new(None) };
     static STATE_SIGNAL: RefCell<Option<Signal<DevtoolsState>>> = const { RefCell::new(None) };
     static ROUTE_WATCHER_INSTALLED: RefCell<bool> = const { RefCell::new(false) };
@@ -249,27 +249,22 @@ pub async fn connect_websocket(state: Signal<DevtoolsState>) -> Result<(), Strin
         .await
         .map_err(|e| format!("WebSocket connect failed: {:?}", e))?;
 
-    // Establish a root vox session with BrowserService as our local handler.
-    // The actual DevtoolsService RPC runs on a virtual connection over this
-    // root; that lets the cell proxy only the service vconn to the host.
+    // Establish the WebSocket-backed Vox connection with BrowserService as our
+    // local handler for host-initiated browser events.
     let dispatcher = BrowserServiceDispatcher::new(BrowserServiceImpl);
-    let root = vox::initiator_on(link)
-        .on_connection(dispatcher)
-        .establish::<vox::NoopClient>()
+    let connection = vox::initiator_on(link)
+        .on_lane(dispatcher)
+        .establish_connection()
         .await
         .map_err(|e| format!("RPC handshake failed: {:?}", e))?;
 
-    let session = root
-        .session
-        .clone()
-        .ok_or("vox root session did not expose a session handle")?;
     let settings = vox::ConnectionSettings {
         parity: vox::Parity::Odd,
         max_concurrent_requests: 64,
         initial_channel_credit: 16,
     };
-    let handle = session
-        .open_connection(
+    let handle = connection
+        .open_lane_handle(
             settings,
             vox::metadata()
                 .str(
@@ -281,7 +276,10 @@ pub async fn connect_websocket(state: Signal<DevtoolsState>) -> Result<(), Strin
         .await
         .map_err(|e| format!("DevtoolsService open failed: {:?}", e))?;
     let mut driver = vox::Driver::new(handle, BrowserServiceDispatcher::new(BrowserServiceImpl));
-    let client = DevtoolsServiceClient::from_vox_session(vox::Caller::new(driver.caller()), None);
+    let client = DevtoolsServiceClient::from_vox_lane(
+        vox::Caller::new(driver.caller()),
+        Some(connection.clone()),
+    );
 
     wasm_bindgen_futures::spawn_local(async move {
         driver.run().await;
@@ -292,10 +290,10 @@ pub async fn connect_websocket(state: Signal<DevtoolsState>) -> Result<(), Strin
         });
     });
 
-    // Store root + client for later use. Keeping the root alive keeps the
-    // WebSocket session alive.
+    // Store connection + client for later use. Keeping the connection handle
+    // alive keeps the WebSocket session alive.
     RPC_ROOT.with(|cell| {
-        *cell.borrow_mut() = Some(root);
+        *cell.borrow_mut() = Some(connection);
     });
     RPC_CLIENT.with(|cell| {
         *cell.borrow_mut() = Some(client.clone());

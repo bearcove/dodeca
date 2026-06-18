@@ -1922,8 +1922,9 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vox"
-version = "0.9.0-rc.0"
-source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
+version = "0.10.0-rc.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "53791725a493459baec3ad0e899623bd7e7e8dc51ef6ffeb30a5c4df98647506"
 dependencies = [
  "facet",
  "facet-pretty",
@@ -1939,8 +1940,9 @@ dependencies = [
 
 [[package]]
 name = "vox-core"
-version = "0.9.0-rc.0"
-source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
+version = "0.10.0-rc.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3f473dfcefb303cc7fc48aef049de945cf70fe55f4b7413de48da0c954ecb44"
 dependencies = [
  "facet",
  "facet-core",
@@ -1959,8 +1961,9 @@ dependencies = [
 
 [[package]]
 name = "vox-macros-core"
-version = "0.9.0-rc.0"
-source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
+version = "0.10.0-rc.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "da867c9e4d6bbe2125815de33096d2e8548d60de3013ee5d027ec144b9817099"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -1970,8 +1973,9 @@ dependencies = [
 
 [[package]]
 name = "vox-macros-parse"
-version = "0.9.0-rc.0"
-source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
+version = "0.10.0-rc.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7d9343b40ab32198f34b5c4ad78abefaea134223b78a979fcf8ab9206ad5a8f"
 dependencies = [
  "proc-macro2",
  "unsynn",
@@ -1979,8 +1983,9 @@ dependencies = [
 
 [[package]]
 name = "vox-phon"
-version = "0.9.0-rc.0"
-source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
+version = "0.10.0-rc.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed618f1beea63491818b583eadd655755d27e2ebf559287ebb97a686ff151e2a"
 dependencies = [
  "facet",
  "phon",
@@ -1993,8 +1998,9 @@ dependencies = [
 
 [[package]]
 name = "vox-rt"
-version = "0.9.0-rc.0"
-source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
+version = "0.10.0-rc.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "acebab1b27de9463b8289ef6677d756174e585b7d849acdf610793eda12756fd"
 dependencies = [
  "futures-channel",
  "futures-util",
@@ -2009,13 +2015,15 @@ dependencies = [
 
 [[package]]
 name = "vox-rt-macros"
-version = "0.9.0-rc.0"
-source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
+version = "0.10.0-rc.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a882da2efef63c01bd80d8e97425e8ca033a5573d247c10d8b8ff5938a73259"
 
 [[package]]
 name = "vox-schema"
-version = "0.9.0-rc.0"
-source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
+version = "0.10.0-rc.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "26c4e42c6d8bb8f7c5e448abb1d1cbbb8ce03c330fc9df715bd9a5db26d58a61"
 dependencies = [
  "blake3",
  "facet",
@@ -2025,8 +2033,9 @@ dependencies = [
 
 [[package]]
 name = "vox-service-macros"
-version = "0.9.0-rc.0"
-source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
+version = "0.10.0-rc.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b779bf06e8c57be338248fdccf171f42d72b3c04cc8a15c071ab94801a602275"
 dependencies = [
  "proc-macro2",
  "vox-macros-core",
@@ -2034,8 +2043,9 @@ dependencies = [
 
 [[package]]
 name = "vox-types"
-version = "0.9.0-rc.0"
-source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
+version = "0.10.0-rc.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62399150bf3cb33fbf72092c0c5d6a8ae6eb90eb417afd2e04c1fd102eeb1606"
 dependencies = [
  "bitflags",
  "blake3",
@@ -2057,8 +2067,9 @@ dependencies = [
 
 [[package]]
 name = "vox-websocket"
-version = "0.9.0-rc.0"
-source = "git+https://github.com/bearcove/vox.git?rev=2df266877a1b04b3fb8324862e0ad9ffb981c09b#2df266877a1b04b3fb8324862e0ad9ffb981c09b"
+version = "0.10.0-rc.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a66fffa423d43b8243fa1e9bb5b63efbb2321f52e4dc20135968b43ce282cd79"
 dependencies = [
  "futures-channel",
  "futures-util",

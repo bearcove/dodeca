@@ -94,9 +94,9 @@ figue = "5.0.0-rc.0"
 # Minimal by default: protocol crates and the DevTools bridge need the service
 # macro + runtime. Transports stay opt-in per crate so they do not leak back
 # into the in-process processors or wasm builds.
-vox = { version = "0.9.0-rc.0", default-features = false, features = ["runtime"] }
-vox-fdpass = "0.9.0-rc.0"
-vox-stream = "0.9.0-rc.0"
+vox = { version = "0.10.0-rc.0", default-features = false, features = ["runtime"] }
+vox-fdpass = "0.10.0-rc.0"
+vox-stream = "0.10.0-rc.0"
 
 # Process lifecycle
 ur-taking-me-with-you = { version = "8", features = ["tokio"] }

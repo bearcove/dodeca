@@ -26,7 +26,7 @@ import {
   type MessageReader,
   type MessageWriter,
 } from "vscode-jsonrpc";
-import { session, voxServiceMetadata, channel } from "@bearcove/vox-core";
+import { connectLane, voxServiceMetadata, channel } from "@bearcove/vox-core";
 import { wsConnector } from "@bearcove/vox-ws";
 import initHotmeal, { diff_html, apply_patches_json_on_element } from "hotmeal-wasm";
 import { DevtoolsServiceClient, type EditEntry } from "./devtools.generated";
@@ -156,15 +156,11 @@ async function main(mount: HTMLElement): Promise<void> {
   const previewBody = (): HTMLElement | null =>
     previewFrame.contentDocument?.body ?? null;
 
-  // 1. Connect over the devtools websocket (Noop root + DevtoolsService sub-connection).
+  // 1. Connect over the devtools websocket and open the DevtoolsService lane.
   status("connecting…");
-  const established = await session.initiator(wsConnector(wsUrl()), {
-    metadata: voxServiceMetadata("Noop"),
+  const client = await connectLane(wsConnector(wsUrl()), DevtoolsServiceClient, {
+    laneMetadata: voxServiceMetadata("DevtoolsService"),
   });
-  const devtools = await established
-    .handle()
-    .openConnection(undefined, voxServiceMetadata("DevtoolsService"));
-  const client = new DevtoolsServiceClient(devtools.caller());
 
   // 2. Load the page list + the initial page.
   const list = await client.editList(token);

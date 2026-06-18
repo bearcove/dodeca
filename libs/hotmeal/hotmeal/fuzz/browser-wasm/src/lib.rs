@@ -398,9 +398,9 @@ pub async fn connect(port: u32) -> Result<(), JsValue> {
     web_sys::console::log_1(&"[browser-wasm] connected, starting handshake".into());
 
     let dispatcher = BrowserDispatcher::new(Handler);
-    let _client = initiator_on(link)
-        .on_connection(dispatcher)
-        .establish::<vox_core::NoopClient>()
+    let _connection = initiator_on(link)
+        .on_lane(dispatcher)
+        .establish_connection()
         .await
         .map_err(|e| format!("handshake failed: {:?}", e))?;
 
