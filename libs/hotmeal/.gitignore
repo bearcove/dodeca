@@ -1,0 +1,7 @@
+/target
+.handoffs
+hotmeal/fuzz/target
+hotmeal/fuzz/artifacts
+.tracey/
+*.log
+profile.json.gz

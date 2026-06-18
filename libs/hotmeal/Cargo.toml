@@ -1,0 +1,60 @@
+[workspace]
+members = ["cinereus", "hotmeal", "hotmeal-server", "hotmeal-wasm"]
+exclude = ["hotmeal/fuzz"]
+resolver = "3"
+
+[workspace.package]
+version = "3.0.0-rc.0"
+edition = "2024"
+rust-version = "1.91"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/bearcove/hotmeal"
+homepage = "https://github.com/bearcove/hotmeal"
+
+[workspace.dependencies]
+# Facet dependencies
+facet = "0.50.0-rc.0"
+facet-error = "0.50.0-rc.0"
+facet-json = "0.50.0-rc.0"
+facet-testhelpers = "0.50.0-rc.0"
+
+# Local crates
+cinereus = { path = "cinereus", version = "3.0.0-rc.0" }
+hotmeal = { path = "hotmeal", version = "3.0.0-rc.0" }
+hotmeal-server = { path = "hotmeal-server", version = "3.0.0-rc.0" }
+
+# Serialization
+facet-postcard = "0.50.0-rc.0"
+
+# RPC
+vox = { git = "https://github.com/bearcove/vox.git", rev = "2df266877a1b04b3fb8324862e0ad9ffb981c09b", default-features = false, features = ["runtime"] }
+vox-core = { git = "https://github.com/bearcove/vox.git", rev = "2df266877a1b04b3fb8324862e0ad9ffb981c09b" }
+vox-websocket = { git = "https://github.com/bearcove/vox.git", rev = "2df266877a1b04b3fb8324862e0ad9ffb981c09b" }
+
+# Data structures
+indextree = "4.7"
+smallvec = "1"
+compact_str = "0.9"
+rapidhash = "1"
+
+# HTML parsing
+html5ever = "0.38.0"
+markup5ever = "0.38.0"
+tendril = "0.5.0"
+
+# Other
+js-sys = "0.3"
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+wasm-bindgen = "=0.2.108"
+wasm-bindgen-futures = "0.4"
+wasm-tracing = "2.1"
+web-sys = "0.3"
+datatest-stable = "0.3"
+divan = "0.1"
+futures-channel = "0.3"
+
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(facet_no_doc)"] }
+
+[workspace.metadata.cargo-shear]
+ignored = ["facet-error"]

@@ -1,0 +1,56 @@
+[package]
+name = "hotmeal-wasm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+description = "WASM client for hotmeal - applies DOM patches in the browser"
+keywords = ["html", "diff", "wasm", "dom", "patches"]
+categories = ["wasm", "web-programming"]
+
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+hotmeal = { workspace = true }
+facet-json = { workspace = true }
+facet-postcard = { workspace = true }
+hotmeal-server = { workspace = true, features = ["vox"] }
+js-sys = { workspace = true }
+smallvec = { workspace = true }
+tracing = { workspace = true }
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = { workspace = true }
+wasm-tracing = { workspace = true }
+web-sys = { workspace = true, features = [
+  "Attr",
+  "Comment",
+  "console",
+  "CustomEvent",
+  "CustomEventInit",
+  "Document",
+  "DocumentFragment",
+  "Element",
+  "EventTarget",
+  "HtmlElement",
+  "HtmlTemplateElement",
+  "Location",
+  "NamedNodeMap",
+  "Node",
+  "NodeList",
+  "Text",
+  "Window",
+] }
+
+# RPC transport
+vox = { workspace = true }
+vox-websocket = { workspace = true }
+futures-channel = { workspace = true }

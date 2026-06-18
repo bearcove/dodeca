@@ -1,0 +1,605 @@
+//! Tree representation for diffing.
+//!
+//! Uses `indextree` as the arena backend for efficient tree storage.
+
+use core::cell::Cell;
+use core::fmt::{self, Display};
+use core::hash::Hash;
+use indextree::{Arena, NodeId};
+
+thread_local! {
+    /// Counter for position() calls - for profiling
+    pub static POSITION_CALLS: Cell<u64> = const { Cell::new(0) };
+    /// Counter for total siblings scanned - for profiling
+    pub static SIBLINGS_SCANNED: Cell<u64> = const { Cell::new(0) };
+}
+
+/// Reset position profiling counters
+pub fn reset_position_counters() {
+    POSITION_CALLS.with(|c| c.set(0));
+    SIBLINGS_SCANNED.with(|c| c.set(0));
+}
+
+/// Get position profiling stats: (calls, siblings_scanned)
+pub fn get_position_stats() -> (u64, u64) {
+    (
+        POSITION_CALLS.with(|c| c.get()),
+        SIBLINGS_SCANNED.with(|c| c.get()),
+    )
+}
+
+/// Trait that bundles all the type parameters for a tree.
+///
+/// This simplifies function signatures by replacing multiple generic parameters
+/// with a single `T: TreeTypes` bound.
+///
+/// # Example
+///
+/// ```ignore
+/// struct MyTreeTypes;
+///
+/// impl TreeTypes for MyTreeTypes {
+///     type Kind = NodeKind;
+///     type Props = HtmlProperties;
+///     type Text = String;
+/// }
+///
+/// // Now use Tree<MyTreeTypes> instead of Tree<NodeKind, NodeLabel, HtmlProperties>
+/// ```
+pub trait TreeTypes {
+    /// The kind/type of nodes (e.g., "div", "span" for HTML).
+    /// Used during matching: only nodes of the same kind can match.
+    type Kind: Clone + Eq + Hash + Display;
+
+    /// The properties type for key-value pairs attached to nodes (e.g., attributes).
+    type Props: Properties;
+
+    /// The text content type for text/comment nodes.
+    /// Use `()` if your tree doesn't have text nodes.
+    type Text: Clone + Eq + Display;
+}
+
+/// Trait for types that can be diffed as trees.
+///
+/// This abstracts over the tree storage, allowing different implementations
+/// (e.g., `Tree<T>` or a wrapper around `Document`) to be used with the
+/// matching and edit script algorithms.
+pub trait DiffTree {
+    /// The tree types (kind and properties).
+    type Types: TreeTypes;
+
+    /// Get the root node ID.
+    fn root(&self) -> NodeId;
+
+    /// Get the total number of nodes.
+    fn node_count(&self) -> usize;
+
+    /// Get the hash of a node.
+    fn hash(&self, id: NodeId) -> NodeHash;
+
+    /// Get the kind of a node.
+    fn kind(&self, id: NodeId) -> &<Self::Types as TreeTypes>::Kind;
+
+    /// Get the properties of a node.
+    fn properties(&self, id: NodeId) -> &<Self::Types as TreeTypes>::Props;
+
+    /// Get the text content of a node (for text/comment nodes).
+    /// Returns None for element nodes.
+    fn text(&self, id: NodeId) -> Option<&<Self::Types as TreeTypes>::Text>;
+
+    /// Get the parent of a node.
+    fn parent(&self, id: NodeId) -> Option<NodeId>;
+
+    /// Get an iterator over the children of a node.
+    fn children(&self, id: NodeId) -> impl Iterator<Item = NodeId> + '_;
+
+    /// Get the number of children of a node.
+    fn child_count(&self, id: NodeId) -> usize {
+        self.children(id).count()
+    }
+
+    /// Get the position of a node among its siblings (0-indexed).
+    fn position(&self, id: NodeId) -> usize {
+        POSITION_CALLS.with(|c| c.set(c.get() + 1));
+        if let Some(parent) = self.parent(id) {
+            for (pos, c) in self.children(parent).enumerate() {
+                SIBLINGS_SCANNED.with(|s| s.set(s.get() + 1));
+                if c == id {
+                    return pos;
+                }
+            }
+            0
+        } else {
+            0
+        }
+    }
+
+    /// Get the height of a node (distance to furthest leaf).
+    fn height(&self, id: NodeId) -> usize;
+
+    /// Iterate all nodes in the tree (breadth-first/pre-order).
+    fn iter(&self) -> impl Iterator<Item = NodeId> + '_;
+
+    /// Iterate nodes in post-order (children before parents).
+    fn post_order(&self) -> impl Iterator<Item = NodeId> + '_;
+
+    /// Get all descendants of a node (including the node itself).
+    fn descendants(&self, id: NodeId) -> impl Iterator<Item = NodeId> + '_;
+
+    /// Whether this node is opaque (treated as atomic during diffing).
+    /// Opaque nodes are matched but their children are never recursed into.
+    /// When an opaque node's content changes, the caller handles it separately.
+    fn is_opaque(&self, _id: NodeId) -> bool {
+        false
+    }
+}
+
+/// A structural hash of a node and all its descendants (Merkle-tree style).
+/// Two nodes with the same hash are structurally identical.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct NodeHash(pub u64);
+
+impl fmt::Debug for NodeHash {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "NodeHash({:#018x})", self.0)
+    }
+}
+
+impl fmt::Display for NodeHash {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:#018x}", self.0)
+    }
+}
+
+impl From<u64> for NodeHash {
+    fn from(value: u64) -> Self {
+        Self(value)
+    }
+}
+
+impl From<NodeHash> for u64 {
+    fn from(value: NodeHash) -> Self {
+        value.0
+    }
+}
+
+/// Value of a property in the final state after diff.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PropValue<V> {
+    /// Value is unchanged from the old state
+    Same,
+    /// Value is new or changed
+    Different(V),
+}
+
+/// A property in the final state after diff.
+/// Position is implicit from the Vec index.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PropertyInFinalState<K, V> {
+    /// The property key
+    pub key: K,
+    /// The value in the final state
+    pub value: PropValue<V>,
+}
+
+/// Trait for node properties (key-value pairs that are NOT tree children).
+///
+/// Properties are compared field-by-field when nodes match, generating
+/// granular update operations. This avoids the cross-matching problem
+/// where identical values (like None) get matched across different fields.
+pub trait Properties: Clone {
+    /// The key type for properties (e.g., &'static str for attribute names)
+    type Key: Clone + Eq + Hash + Display;
+    /// The value type for properties
+    type Value: Clone + Eq + Display;
+
+    /// Compute similarity between two property sets (0.0 to 1.0).
+    /// Used during bottom-up matching to prefer nodes with similar properties.
+    fn similarity(&self, other: &Self) -> f64;
+
+    /// Generate the final property state needed to transform self into other.
+    /// Returns ALL properties in the final state in order, with values marked as Same or Different.
+    fn diff(&self, other: &Self) -> Vec<PropertyInFinalState<Self::Key, Self::Value>>;
+
+    /// Check if this property set is empty (no properties defined).
+    fn is_empty(&self) -> bool;
+
+    /// Return the number of properties in this set.
+    fn len(&self) -> usize;
+}
+
+/// A placeholder type for "no key" that implements Display.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct NoKey;
+
+impl Display for NoKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "(none)")
+    }
+}
+
+/// A placeholder type for "no value" that implements Display.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct NoVal;
+
+impl Display for NoVal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "(none)")
+    }
+}
+
+/// Default "no properties" type for backward compatibility.
+///
+/// Nodes without properties behave exactly as before.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct NoProps;
+
+/// Default "no text" type for trees without text content.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct NoText;
+
+impl Display for NoText {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "(no text)")
+    }
+}
+
+impl Properties for NoProps {
+    type Key = NoKey;
+    type Value = NoVal;
+
+    fn similarity(&self, _other: &Self) -> f64 {
+        1.0 // No properties = perfect match
+    }
+
+    fn diff(&self, _other: &Self) -> Vec<PropertyInFinalState<Self::Key, Self::Value>> {
+        vec![] // No properties = no final state
+    }
+
+    fn is_empty(&self) -> bool {
+        true
+    }
+
+    fn len(&self) -> usize {
+        0
+    }
+}
+
+/// A simple tree types marker for trees with specific K, P, T types.
+///
+/// This allows using `Tree<SimpleTypes<K, P, T>>` which bundles all type parameters.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SimpleTypes<K, P = NoProps, T = NoText>(core::marker::PhantomData<(K, P, T)>);
+
+impl<K, P, T> TreeTypes for SimpleTypes<K, P, T>
+where
+    K: Clone + Eq + Hash + Display + Send + Sync,
+    P: Properties + Send + Sync,
+    T: Clone + Eq + Display + Send + Sync,
+{
+    type Kind = K;
+    type Props = P;
+    type Text = T;
+}
+
+/// Data stored in each tree node.
+///
+/// This is the minimal information needed for the GumTree/Chawathe algorithms:
+/// - A structural hash for fast equality checking
+/// - A "kind" for type-based matching (nodes of different kinds don't match)
+/// - Properties: key-value pairs that are NOT tree children
+/// - Text: optional text content for text/comment nodes
+#[derive(Debug)]
+pub struct NodeData<T: TreeTypes> {
+    /// Structural hash of this node and all its descendants (Merkle-tree style).
+    /// Two nodes with the same hash are structurally identical.
+    pub hash: NodeHash,
+
+    /// The kind/type of this node.
+    /// Used during matching: only nodes of the same kind can match.
+    pub kind: T::Kind,
+
+    /// Properties: key-value pairs attached to this node.
+    /// Unlike children, properties are diffed field-by-field when nodes match.
+    pub properties: T::Props,
+
+    /// Text content for text/comment nodes. None for element nodes.
+    pub text: Option<T::Text>,
+}
+
+impl<T: TreeTypes> Clone for NodeData<T> {
+    fn clone(&self) -> Self {
+        Self {
+            hash: self.hash,
+            kind: self.kind.clone(),
+            properties: self.properties.clone(),
+            text: self.text.clone(),
+        }
+    }
+}
+
+impl<T: TreeTypes> NodeData<T> {
+    /// Create a new node with the given hash, kind, properties, and optional text.
+    pub fn new(hash: NodeHash, kind: T::Kind, properties: T::Props, text: Option<T::Text>) -> Self {
+        Self {
+            hash,
+            kind,
+            properties,
+            text,
+        }
+    }
+
+    /// Create a new element node (no text content).
+    pub fn element(hash: NodeHash, kind: T::Kind, properties: T::Props) -> Self {
+        Self {
+            hash,
+            kind,
+            properties,
+            text: None,
+        }
+    }
+
+    /// Create a new text node with content.
+    pub fn text_node(hash: NodeHash, kind: T::Kind, text: T::Text) -> Self
+    where
+        T::Props: Default,
+    {
+        Self {
+            hash,
+            kind,
+            properties: T::Props::default(),
+            text: Some(text),
+        }
+    }
+}
+
+/// Convenience constructors for trees without properties or text.
+impl<K> NodeData<SimpleTypes<K>>
+where
+    K: Clone + Eq + Hash + Display + Send + Sync,
+{
+    /// Create a new node with no properties or text.
+    pub fn simple(hash: NodeHash, kind: K) -> Self {
+        Self {
+            hash,
+            kind,
+            properties: NoProps,
+            text: None,
+        }
+    }
+
+    /// Create a new node with no properties or text, hash as u64.
+    pub fn simple_u64(hash: u64, kind: K) -> Self {
+        Self {
+            hash: NodeHash(hash),
+            kind,
+            properties: NoProps,
+            text: None,
+        }
+    }
+}
+
+/// A tree structure for diffing.
+///
+/// Wraps an `indextree::Arena` with a designated root node.
+pub struct Tree<T: TreeTypes> {
+    /// The arena storing all nodes.
+    pub arena: Arena<NodeData<T>>,
+    /// The root node ID.
+    pub root: NodeId,
+}
+
+impl<T: TreeTypes> fmt::Debug for Tree<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Tree")
+            .field("root", &self.root)
+            .field("node_count", &self.arena.count())
+            .finish()
+    }
+}
+
+impl<T: TreeTypes> Tree<T> {
+    /// Create a new tree with a single root node.
+    pub fn new(root_data: NodeData<T>) -> Self {
+        let mut arena = Arena::new();
+        let root = arena.new_node(root_data);
+        Self { arena, root }
+    }
+
+    /// Add a child node to a parent.
+    pub fn add_child(&mut self, parent: NodeId, data: NodeData<T>) -> NodeId {
+        let child = self.arena.new_node(data);
+        parent.append(child, &mut self.arena);
+        child
+    }
+
+    /// Get the data for a node.
+    pub fn get(&self, id: NodeId) -> &NodeData<T> {
+        self.arena.get(id).expect("invalid node id").get()
+    }
+
+    /// Get the parent of a node.
+    pub fn parent(&self, id: NodeId) -> Option<NodeId> {
+        self.arena.get(id).and_then(|n| n.parent())
+    }
+
+    /// Get the children of a node.
+    pub fn children(&self, id: NodeId) -> impl Iterator<Item = NodeId> + '_ {
+        id.children(&self.arena)
+    }
+
+    /// Get the number of children of a node.
+    pub fn child_count(&self, id: NodeId) -> usize {
+        id.children(&self.arena).count()
+    }
+
+    /// Get the position of a node among its siblings (0-indexed).
+    pub fn position(&self, id: NodeId) -> usize {
+        if let Some(parent) = self.parent(id) {
+            parent
+                .children(&self.arena)
+                .position(|c| c == id)
+                .unwrap_or(0)
+        } else {
+            0
+        }
+    }
+
+    /// Iterate all nodes in the tree.
+    pub fn iter(&self) -> impl Iterator<Item = NodeId> + '_ {
+        self.root.descendants(&self.arena)
+    }
+
+    /// Iterate nodes in post-order (children before parents).
+    /// This is needed for bottom-up matching.
+    pub fn post_order(&self) -> impl Iterator<Item = NodeId> + '_ {
+        PostOrderIter::new(self.root, &self.arena)
+    }
+
+    /// Get all descendants of a node (including the node itself).
+    pub fn descendants(&self, id: NodeId) -> impl Iterator<Item = NodeId> + '_ {
+        id.descendants(&self.arena)
+    }
+
+    /// Get the height of a node (distance to furthest leaf).
+    pub fn height(&self, id: NodeId) -> usize {
+        let children: Vec<_> = self.children(id).collect();
+        if children.is_empty() {
+            0
+        } else {
+            1 + children.iter().map(|&c| self.height(c)).max().unwrap_or(0)
+        }
+    }
+}
+
+impl<T: TreeTypes> DiffTree for Tree<T> {
+    type Types = T;
+
+    fn root(&self) -> NodeId {
+        self.root
+    }
+
+    fn node_count(&self) -> usize {
+        self.arena.count()
+    }
+
+    fn hash(&self, id: NodeId) -> NodeHash {
+        self.get(id).hash
+    }
+
+    fn kind(&self, id: NodeId) -> &T::Kind {
+        &self.get(id).kind
+    }
+
+    fn properties(&self, id: NodeId) -> &T::Props {
+        &self.get(id).properties
+    }
+
+    fn text(&self, id: NodeId) -> Option<&T::Text> {
+        self.get(id).text.as_ref()
+    }
+
+    fn parent(&self, id: NodeId) -> Option<NodeId> {
+        Tree::parent(self, id)
+    }
+
+    fn children(&self, id: NodeId) -> impl Iterator<Item = NodeId> + '_ {
+        Tree::children(self, id)
+    }
+
+    fn child_count(&self, id: NodeId) -> usize {
+        Tree::child_count(self, id)
+    }
+
+    fn position(&self, id: NodeId) -> usize {
+        Tree::position(self, id)
+    }
+
+    fn height(&self, id: NodeId) -> usize {
+        Tree::height(self, id)
+    }
+
+    fn iter(&self) -> impl Iterator<Item = NodeId> + '_ {
+        Tree::iter(self)
+    }
+
+    fn post_order(&self) -> impl Iterator<Item = NodeId> + '_ {
+        Tree::post_order(self)
+    }
+
+    fn descendants(&self, id: NodeId) -> impl Iterator<Item = NodeId> + '_ {
+        Tree::descendants(self, id)
+    }
+}
+
+/// Post-order iterator over tree nodes.
+struct PostOrderIter<'a, T: TreeTypes> {
+    arena: &'a Arena<NodeData<T>>,
+    stack: Vec<(NodeId, bool)>, // (node_id, children_visited)
+}
+
+impl<'a, T: TreeTypes> PostOrderIter<'a, T> {
+    fn new(root: NodeId, arena: &'a Arena<NodeData<T>>) -> Self {
+        Self {
+            arena,
+            stack: vec![(root, false)],
+        }
+    }
+}
+
+impl<T: TreeTypes> Iterator for PostOrderIter<'_, T> {
+    type Item = NodeId;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some((id, children_visited)) = self.stack.pop() {
+            if children_visited {
+                return Some(id);
+            }
+            // Push this node back with children_visited = true
+            self.stack.push((id, true));
+            // Push children in reverse order so they come out in order
+            let children: Vec<_> = id.children(self.arena).collect();
+            for child in children.into_iter().rev() {
+                self.stack.push((child, false));
+            }
+        }
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    type TestTypes = SimpleTypes<&'static str>;
+
+    #[test]
+    fn test_tree_basics() {
+        let mut tree: Tree<TestTypes> = Tree::new(NodeData::simple_u64(0, "root"));
+
+        let child1 = tree.add_child(tree.root, NodeData::simple_u64(1, "leaf"));
+        let child2 = tree.add_child(tree.root, NodeData::simple_u64(2, "leaf"));
+
+        assert_eq!(tree.child_count(tree.root), 2);
+        assert_eq!(tree.position(child1), 0);
+        assert_eq!(tree.position(child2), 1);
+        assert_eq!(tree.parent(child1), Some(tree.root));
+        assert_eq!(tree.height(tree.root), 1);
+    }
+
+    #[test]
+    fn test_post_order() {
+        let mut tree: Tree<TestTypes> = Tree::new(NodeData::simple_u64(0, "root"));
+
+        let child1 = tree.add_child(tree.root, NodeData::simple_u64(1, "node"));
+        let _leaf1 = tree.add_child(child1, NodeData::simple_u64(2, "leaf"));
+        let _leaf2 = tree.add_child(child1, NodeData::simple_u64(3, "leaf"));
+        let _child2 = tree.add_child(tree.root, NodeData::simple_u64(4, "leaf"));
+
+        let order: Vec<_> = tree.post_order().collect();
+        // Post-order: leaves first, then parents
+        // leaf1, leaf2, child1, child2, root
+        assert_eq!(order.len(), 5);
+        assert_eq!(order.last(), Some(&tree.root));
+    }
+}

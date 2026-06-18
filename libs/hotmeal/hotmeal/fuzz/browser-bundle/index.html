@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Browser Fuzzer</title>
+</head>
+<body>
+  <script type="module">
+    import init, { connect } from './browser_wasm.js';
+    await init();
+
+    // Read port from URL fragment: file://...#12345
+    const port = parseInt(window.location.hash.slice(1), 10);
+    if (port) {
+      console.log('[browser-bundle] Connecting to port', port);
+      connect(port).catch(e => console.error('[browser-bundle] connect failed:', e));
+    } else {
+      console.log('[browser-bundle] No port in URL hash, waiting...');
+      window.browserWasmConnect = connect;
+    }
+    window.browserWasmReady = true;
+  </script>
+</body>
+</html>

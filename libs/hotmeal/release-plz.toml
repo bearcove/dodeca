@@ -1,0 +1,24 @@
+[workspace]
+changelog_update = true
+semver_check = true
+dependencies_update = true
+git_release_enable = true
+
+# ============================================================================
+# Publishable packages - all synchronized versions, single changelog
+# ============================================================================
+
+[[package]]
+name = "cinereus"
+version_group = "hotmeal"
+changelog_path = "CHANGELOG.md"
+
+[[package]]
+name = "hotmeal"
+version_group = "hotmeal"
+changelog_path = "CHANGELOG.md"
+
+[[package]]
+name = "hotmeal-wasm"
+version_group = "hotmeal"
+changelog_path = "CHANGELOG.md"

@@ -1,0 +1,68 @@
+[package]
+name = "hotmeal"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+description = "HTML toolkit with arena-based DOM, html5ever parsing, and serialization"
+keywords = ["html", "dom", "html5ever", "parsing", "facet"]
+categories = ["encoding", "parsing", "web-programming"]
+
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+[dependencies]
+facet = { workspace = true, features = ["indexmap", "tendril", "smallvec", "compact_str"] }
+facet-error = { workspace = true }
+
+# Tree diffing - GumTree/Chawathe algorithm
+cinereus = { workspace = true }
+rapidhash = { workspace = true }
+smallvec = { workspace = true }
+
+# HTML parsing - full HTML5 tree construction with error recovery
+html5ever = { workspace = true }
+tendril = { workspace = true }
+compact_str = { workspace = true }
+
+# Optional tracing support
+tracing = { workspace = true, optional = true }
+
+[features]
+tracing = ["dep:tracing"]
+
+[dev-dependencies]
+cinereus = { path = "../cinereus" }
+tracing = { workspace = true }
+facet-testhelpers = { workspace = true }
+facet-json = { workspace = true }
+datatest-stable = { workspace = true }
+divan = { workspace = true }
+
+[[test]]
+name = "roundtrip"
+harness = false
+
+[[bench]]
+name = "parsing"
+harness = false
+
+[[bench]]
+name = "diffing"
+harness = false
+
+[[bench]]
+name = "serialization"
+harness = false
+
+[[bench]]
+name = "full_cycle"
+harness = false
+
+[lints]
+workspace = true

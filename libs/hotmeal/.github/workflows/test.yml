@@ -1,0 +1,153 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  merge_group:
+
+jobs:
+  test-x86_64-unknown-linux-gnu:
+    runs-on: bearcove-ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: Run tests
+        env:
+          PROPTEST_CASES: 0
+        run: |
+          cargo nextest run
+
+  clippy:
+    runs-on: bearcove-ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run clippy
+        run: |
+          cargo clippy --workspace --all-features --all-targets --keep-going -- -D warnings --allow deprecated
+
+  lockfile:
+    runs-on: bearcove-ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check lockfile is updated
+        run: |
+          cargo update --workspace --locked
+
+  docs:
+    runs-on: bearcove-ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check documentation
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: |
+          cargo doc --workspace --no-deps
+
+  test-wasm-browser:
+    runs-on: bearcove-ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Ensure WASM target is installed
+        run: rustup target add wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.28.1
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          package-manager-cache: false
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack
+
+      - name: Install dependencies
+        working-directory: hotmeal-wasm
+        run: pnpm install
+
+      - name: Install Playwright browsers
+        working-directory: hotmeal-wasm
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run browser tests
+        working-directory: hotmeal-wasm
+        run: pnpm test
+
+  test-browser-fuzz:
+    runs-on: bearcove-ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          package-manager-cache: false
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Chromium runtime dependencies
+        run: npx --yes playwright@1.57.0 install-deps chromium
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack
+
+      - name: Build browser-wasm bundle
+        working-directory: hotmeal/fuzz/browser-wasm
+        run: wasm-pack build --target web --dev --out-dir ../browser-bundle/dist
+
+      - name: Copy browser-bundle index.html into dist
+        run: cp hotmeal/fuzz/browser-bundle/index.html hotmeal/fuzz/browser-bundle/dist/index.html
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: Run browser tests
+        working-directory: hotmeal/fuzz
+        run: cargo nextest run -E 'test(browser)' --no-capture -j1
