@@ -1,6 +1,17 @@
 [workspace]
 members = ["crates/*", "cells/*", "xtask"]
 default-members = ["crates/*", "cells/*"]
+exclude = [
+  "libs/aasvg",
+  "libs/fontcull/fontcull",
+  "libs/hotmeal/hotmeal",
+  "libs/hotmeal/hotmeal-server",
+  "libs/hotmeal/hotmeal-wasm",
+  "libs/marq",
+  "libs/picante/crates/picante",
+  "libs/pikru",
+  "libs/svag",
+]
 resolver = "3"
 
 # getrandom is required for wasm32 targets (enables wasm_js feature)
@@ -59,11 +70,10 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
   "std",
 ] }
 
-# Serialization - Facet ecosystem (git)
-# Do NOT change those to path dependencies, use the patch blocks below.
-hotmeal = "3.0.0-rc.0"
-hotmeal-server = { version = "3.0.0-rc.0", features = ["tracing"] }
-hotmeal-wasm = "3.0.0-rc.0"
+# Absorbed first-wave Dodeca libraries.
+hotmeal = { path = "libs/hotmeal/hotmeal" }
+hotmeal-server = { path = "libs/hotmeal/hotmeal-server", features = ["tracing"] }
+hotmeal-wasm = { path = "libs/hotmeal/hotmeal-wasm" }
 
 facet = "0.50.0-rc.0"
 facet-default = "0.50.0-rc.0"
@@ -93,7 +103,7 @@ ur-taking-me-with-you = { version = "8", features = ["tokio"] }
 
 # Incremental computation
 # 2.0.1 carries the snapshot result-cache isolation fix the editor preview needs.
-picante = "3.0.0-rc.0"
+picante = { path = "libs/picante/crates/picante" }
 
 # File system
 fs-err = "3"
@@ -125,10 +135,10 @@ thumbhash = "0.1"
 webp = "0.3"
 
 # Font processing
-fontcull = { version = "2.0", default-features = false }
+fontcull = { path = "libs/fontcull/fontcull", default-features = false }
 
 # Markdown
-marq = "5.0.0-rc.0"
+marq = { path = "libs/marq" }
 pulldown-cmark = "0.13"
 arborium-theme = "2"
 
@@ -136,8 +146,8 @@ arborium-theme = "2"
 rust-stemmers = "1.2"
 unicode-segmentation = "1.13"
 
-# SVG optimization (git)
-svag = { git = "https://github.com/bearcove/svag" }
+# SVG optimization
+svag = { path = "libs/svag" }
 getrandom = { version = "0.3", features = ["wasm_js"] }
 tracing-wasm = "0.2"
 tower-lsp = "0.20"
@@ -218,6 +228,10 @@ rust-version = "1.92"
 # facet-postcard = { path = "../facet/facet-postcard" }
 # facet-pretty = { path = "../facet/facet-pretty" }
 # facet-reflect = { path = "../facet/facet-reflect" }
+
+[patch.crates-io]
+aasvg = { path = "libs/aasvg" }
+pikru = { path = "libs/pikru" }
 # facet-solver = { path = "../facet/facet-solver" }
 # facet-toml = { path = "../facet/facet-toml" }
 # facet-value = { path = "../facet/facet-value" }

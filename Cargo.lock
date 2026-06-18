@@ -5,8 +5,6 @@ version = 4
 [[package]]
 name = "aasvg"
 version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f82509a4fd112244705d14c6d5780862ad279ca76ae8288ff8415fbc717e69ef"
 
 [[package]]
 name = "addr2line"
@@ -1873,8 +1871,6 @@ dependencies = [
 [[package]]
 name = "cinereus"
 version = "3.0.0-rc.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4ade5427eceea66bc5b418be44275168a15c31d4421f5acd13527b51235d92a"
 dependencies = [
  "indextree",
  "rapidhash 1.4.0",
@@ -3393,8 +3389,6 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 [[package]]
 name = "fontcull"
 version = "2.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a45c509e7858288938a51b22fa51c9f812144d53cd4adb9ff1a3f419052948e"
 dependencies = [
  "fontcull-klippa",
  "fontcull-read-fonts",
@@ -3406,8 +3400,6 @@ dependencies = [
 [[package]]
 name = "fontcull-font-types"
 version = "0.10.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7187211f698d3144c4278d99cede5f6d67814cd676bbf1d2b8607049b3d76b2"
 dependencies = [
  "bytemuck",
 ]
@@ -3415,8 +3407,6 @@ dependencies = [
 [[package]]
 name = "fontcull-klippa"
 version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ceb68d1b34e3c675e78f1cabbc49e19c5962d6c6173b7c77d77392431b99840"
 dependencies = [
  "clap",
  "fnv",
@@ -3430,8 +3420,6 @@ dependencies = [
 [[package]]
 name = "fontcull-read-fonts"
 version = "0.38.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "170928e2d36f9605167b8480acd6e9fc5ef5daaf64fac43d178af9c563adba29"
 dependencies = [
  "bytemuck",
  "fontcull-font-types",
@@ -3440,8 +3428,6 @@ dependencies = [
 [[package]]
 name = "fontcull-skrifa"
 version = "0.39.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c39120d1806ed11baf0559537bd601c6c60d7bf84ddcc385adea8fb8ff62d35"
 dependencies = [
  "bytemuck",
  "fontcull-read-fonts",
@@ -3450,8 +3436,6 @@ dependencies = [
 [[package]]
 name = "fontcull-write-fonts"
 version = "0.44.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47b506b0883cf5f8998391cbffa92024143cedcbd0f344fc3f1507dec12956cf"
 dependencies = [
  "fontcull-font-types",
  "fontcull-read-fonts",
@@ -3915,8 +3899,6 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 [[package]]
 name = "hotmeal"
 version = "3.0.0-rc.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7150a69a3bb214acb39c341be6433990e729c2a9af787b4b3aa219cbacc0b45"
 dependencies = [
  "cinereus",
  "compact_str",
@@ -3932,8 +3914,6 @@ dependencies = [
 [[package]]
 name = "hotmeal-server"
 version = "3.0.0-rc.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4832f2de98d857e320c95b148e65f791deca258b985e9864720981ec9291caad"
 dependencies = [
  "facet",
  "facet-postcard",
@@ -3945,8 +3925,6 @@ dependencies = [
 [[package]]
 name = "hotmeal-wasm"
 version = "3.0.0-rc.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15901b1f267010ee4b06a6fd6d1ae1b0105f06f27f7ec0040ae92ed8a0b54dfa"
 dependencies = [
  "facet-json",
  "facet-postcard",
@@ -3956,7 +3934,7 @@ dependencies = [
  "js-sys",
  "smallvec 1.15.2",
  "tracing",
- "vox-core",
+ "vox",
  "vox-websocket",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -4937,8 +4915,6 @@ dependencies = [
 [[package]]
 name = "marq"
 version = "5.0.0-rc.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35e304bb3d0aa8ce3cd0d0c389b9fda49a82ec48d4ebac317631d5d47eaae889"
 dependencies = [
  "aasvg",
  "arborium",
@@ -6272,8 +6248,6 @@ dependencies = [
 [[package]]
 name = "picante"
 version = "3.0.0-rc.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fabb4bdd63fbe5236d299c29f9620d93a4185b86fd389b34639a6b0052064b0d"
 dependencies = [
  "dashmap 6.2.1",
  "facet",
@@ -6291,8 +6265,6 @@ dependencies = [
 [[package]]
 name = "picante-macros"
 version = "3.0.0-rc.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d888de705b8c86883f0f172846c110442347a09481587d4ca0e262c596695bc8"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -6303,8 +6275,6 @@ dependencies = [
 [[package]]
 name = "pikru"
 version = "2.0.0-rc.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "99224efe9874c31038b25a076b43381d2d683230e143d1d76a07404411faad63"
 dependencies = [
  "ariadne 0.6.0",
  "enum_dispatch",
@@ -7878,7 +7848,6 @@ dependencies = [
 [[package]]
 name = "svag"
 version = "0.1.2"
-source = "git+https://github.com/bearcove/svag#0f1ce770814087f9e46c92b894d8ca9d54054b84"
 dependencies = [
  "clap",
  "ignore",
