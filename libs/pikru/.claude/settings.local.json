@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__pikru-test__list_pikru_tests",
+      "mcp__pikru-test__run_pikru_test",
+      "WebSearch"
+    ],
+    "additionalDirectories": [
+      "/Users/amos/bearcove"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "pikru-test"
+  ]
+}

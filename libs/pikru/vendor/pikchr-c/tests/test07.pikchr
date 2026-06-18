@@ -1,0 +1,15 @@
+B: box "This is" "<b>" "box \"B\"" color DarkRed
+
+   "B.nw" rjust above at 0.05 left of B.nw
+   "B.w" rjust at 0.05 left of B.w
+   "B.sw" rjust below at 0.05 left of B.sw;  $abc = DarkBlue
+   "B.s" below at B.s
+   // C++ style comments allowed.
+   "B.se" ljust below at 0.05 right of B.se color DarkBlue
+   "B.e" ljust at 0.05 right of B.e  /* C-style comments */
+   "B.ne" ljust above at 0.05 right of B.ne
+   "B.n" center above at B.n
+print "this is a test: " /*comment ignored*/, $abc
+print "Colors:", Orange, Black, White, Red, Green, Blue
+
+#   line from B.ne + (0.05,0) right 1.0 then down 2.5 then left 1.5

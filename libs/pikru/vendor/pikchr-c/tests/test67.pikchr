@@ -1,0 +1,7 @@
+box invis "invis"
+move
+box same solid "same" "solid"
+move
+box thin "thin"
+move
+box same solid "same" "solid"

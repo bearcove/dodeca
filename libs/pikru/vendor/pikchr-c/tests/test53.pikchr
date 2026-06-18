@@ -1,0 +1,8 @@
+line color green
+dot color red
+line color blue
+
+text "\"dot\" object causes no motion" with .s at 8mm above last dot
+
+assert( 1st dot.start == 1st dot.end )
+assert( 1st line.end == 2nd line.start )

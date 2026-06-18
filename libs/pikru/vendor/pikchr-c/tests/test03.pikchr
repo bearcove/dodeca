@@ -1,0 +1,18 @@
+right
+B1: box "One"; line
+B2: box "Two"; arrow
+B3: box "Three"; down; arrow down 50%; circle "Hi!"; left;
+spline -> left 2cm then to One.se
+Macro: [
+  B4: box "four"
+  B5: box "five"
+  B6: box "six"
+] with n at 3cm below s of 2nd box
+
+arrow from s of 2nd box to Macro.B5.n
+
+spline -> from e of last circle right 1cm then down 1cm then to Macro.B4.e
+
+box width Macro.width+0.1 height Macro.height+0.1 at Macro color Red
+box width Macro.B5.width+0.05 \
+    height Macro.B5.height+0.05 at Macro.B5 color blue

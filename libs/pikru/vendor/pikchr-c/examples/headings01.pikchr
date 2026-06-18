@@ -1,0 +1,20 @@
+# demo label: Cardinal headings
+   linerad = 5px
+C: circle "Center" rad 150%
+   circle "N"  at 1.0 n  of C; arrow from C to last chop ->
+   circle "NE" at 1.0 ne of C; arrow from C to last chop <-
+   circle "E"  at 1.0 e  of C; arrow from C to last chop <->
+   circle "SE" at 1.0 se of C; arrow from C to last chop ->
+   circle "S"  at 1.0 s  of C; arrow from C to last chop <-
+   circle "SW" at 1.0 sw of C; arrow from C to last chop <->
+   circle "W"  at 1.0 w  of C; arrow from C to last chop ->
+   circle "NW" at 1.0 nw of C; arrow from C to last chop <-
+   arrow from 2nd circle to 3rd circle chop
+   arrow from 4th circle to 3rd circle chop
+   arrow from SW to S chop <->
+   circle "ESE" at 2.0 heading 112.5 from Center \
+      thickness 150% fill lightblue radius 75%
+   arrow from Center to ESE thickness 150% <-> chop
+   arrow from ESE up 1.35 then to NE chop
+   line dashed <- from E.e to (ESE.x,E.y)
+   line dotted <-> thickness 50% from N to NW chop

@@ -1,0 +1,53 @@
+      fill = bisque
+      linerad = 15px
+      leftmargin = 2cm
+
+      oval "SUBMIT TICKET" width 150%
+      down
+      arrow 50%
+NEW:  file "New bug ticket" "marked \"Open\"" fit
+      arrow same
+      box "Triage," "augment &" "correct" fit
+      arrow same
+DC:   box "Developer comments" fit
+      arrow same
+FR:   box "Filer responds" fit
+      arrow 100%
+REJ:  diamond "Reject?"
+      right
+      arrow 100% "Yes" above
+      box "Mark ticket" "\"Rejected\" &" "\"Resolved\"" fit with .w at previous.e
+      arrow right 50%
+REJF: file "Rejected" "ticket" fit
+      arrow right 50%
+REOP: diamond "Reopen?"
+      down
+REJA: arrow 75% from REJ.s "  No; fix it" ljust
+CHNG: box "Developer changes code" with .n at last arrow.s fit
+      arrow 50%
+FIXD: diamond "Fixed?"
+      right
+FNO:  arrow "No" above
+RES:  box "Optional:" "Update ticket resolution:" "\"Partial Fix\", etc." fit
+      down
+      arrow 75% "  Yes" ljust from FIXD.s
+      box "Mark ticket" "\"Fixed\" & \"Closed\"" fit
+      arrow 50%
+RESF: file "Resolved ticket" fit
+      arrow same
+      oval "END"
+
+      line from 0.3<FR.ne,FR.se> right even with 0.25 right of DC.e then \
+          up even with DC.e then to DC.e ->
+
+      line from NEW.w left 0.5 then down even with REJ.w then to REJ.w ->
+      line invis from 2nd vertex of last line to 3rd vertex of last line \
+          "fast reject path" above aligned
+
+      line from RES.e right 0.3 then up even with CHNG.e then to CHNG.e ->
+
+      line from REOP.s "No" aligned above down 0.4
+      line from previous.s down to (previous.s, RESF.e) then to RESF.e ->
+
+      line from REOP.n "Yes" aligned below up 0.3
+      line from previous.n up even with 0.6<FR.ne,FR.se> then to 0.6<FR.ne,FR.se> ->

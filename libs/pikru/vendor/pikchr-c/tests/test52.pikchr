@@ -1,0 +1,9 @@
+All: [
+  file "A"
+  cylinder "B" at 5cm heading 125 from A
+  X: line from A to B chop "from A to B" aligned above
+  dot color red at X.c
+  dot color red at X.start
+  dot color red at X.end
+]
+"Text Alignment" big "On A Chopped Line" big with .s at .3cm above All.n

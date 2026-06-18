@@ -1,0 +1,3 @@
+# Isolated test for rounded corner path generation
+linerad = 10px
+line right linerad then up linerad

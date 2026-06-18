@@ -1,0 +1,17 @@
+# Font size layout tests
+#
+box "small*2"  small small fit
+move 10%
+box "small" small fit
+move same
+box "normal" fit
+move same
+box "big" big fit
+move same
+box "big*2" big big fit
+move to 2cm below 1st box.w
+box "very small" small small "small" small "normal" \
+     "big" big "very big"  big big fit
+move
+box "Very big" big big "big" big "normal" \
+    "small" small "very small" small small fit

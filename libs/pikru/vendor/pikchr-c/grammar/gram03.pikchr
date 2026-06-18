@@ -1,0 +1,33 @@
+$r = 0.2in
+linerad = 0.75*$r
+linewid = 0.25
+
+# Start and end blocks
+#
+box "object-definition" bold fit
+line down 50% from last box.sw
+START: dot rad 250% color black
+X0: last.e
+move right 3.2in
+END: box wid 5% ht 25% fill black
+X9: last.w
+
+# The main rule
+#
+arrow from X0 right 2*linerad+arrowht
+TYPENAME: box "object-type-name" fit
+
+# The text-attribute rule
+#
+arrow right linerad from X0 then down 1.25*$r then right linerad+arrowht
+TEXT: box "text-attribute" fit
+line right even with linerad right of TYPENAME.e \
+     then up even with TYPENAME then right linerad
+X3: previous.end
+
+# The attribute loop
+ATTR: box "attribute" fit with .w at X3 + (2*linerad+arrowht, -1.25*$r)
+arrow from TYPENAME.e right even with ATTR
+arrow to X9
+arrow from (ATTR.e,X9) right linerad then down even with ATTR then to ATTR.e
+line from ATTR.w left linerad then up even with X9 then right linerad

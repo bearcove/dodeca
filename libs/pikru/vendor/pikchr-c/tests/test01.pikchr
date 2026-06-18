@@ -1,0 +1,37 @@
+    right;
+    circle "C0";
+A0: arrow;
+    circle "C1";
+A1: arrow; circle "C2";
+    arrow;
+    circle "C4";
+    arrow;
+    circle "C6"
+    circle "C3" at (C4.x-C2.x) ne of C2;
+    arrow;
+    circle "C5"
+    arrow from C2.ne to C3.sw
+
+assert( previous == last arrow )
+assert( previous == 6th arrow )
+
+# Demonstrate that a new point can be established using LABEL: notation
+AS: start of last arrow
+AE: end of last arrow
+
+# Validate various kinds of expressions and locations as a test of
+# parser expression processing and layout
+#
+assert( last arrow.start.x == C2.ne.x )
+assert( AS.y == C2.ne.y )
+assert( last arrow.end.x == C3.sw.x )
+assert( AE.y == C3.sw.y )
+assert( AE == C3.sw )
+assert( 1st last arrow.end == C3.sw )
+assert( start of A0 == C0.e )
+
+assert( C0.y == C1.y );
+assert( C0.y == C2.y );
+assert( C0.y == C4.y );
+assert( C0.y == C6.y );
+assert( C3.y == C5.y );

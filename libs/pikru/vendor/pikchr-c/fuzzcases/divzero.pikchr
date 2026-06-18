@@ -1,0 +1,32 @@
+
+
+
+
+
+
+
+
+
+
+##x
+C: circle rad 0%
+C: circle rad 0%
+ circle ""  at 0n  of C;; arrow from C to last chop <-
+ ""  at C;
+arrow from C to last chop <-
+ ""  at C;
+#x
+C: circle rad 0%
+ circle ""  at 0n  of C;; arrow from C to last chop <-
+ ""  at C;; arrow from C to last chop <-# x
+C: circle rad 0%
+C: circle rad 0%
+ circle ""  at 0n  of C;; arrow from C to last chop <-
+ ""  at C;
+arrow from C to last chop <-
+ ""  at C;
+#x
+C: circle rad 0%
+ circle ""  at 0n  of C;; arrow from C to last chop <-
+ ""  at C;; arrow from C to last chop <-# d
+       box wid

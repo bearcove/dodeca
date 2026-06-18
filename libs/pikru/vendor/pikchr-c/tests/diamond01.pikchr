@@ -1,0 +1,14 @@
+D1: diamond "First Diamond"
+arrow
+D2: diamond "Above" above "Below" below
+arrow
+D3: diamond "Fitted" fit
+arrow from D2.s down 1cm
+down
+D4: diamond "Long string above" above "Below1" below fit
+right
+arrow
+D5: diamond width 300% "thin" fit
+arrow from D3.e right 2cm
+right
+D6: diamond height 300% "tall" above "diamond" below fit

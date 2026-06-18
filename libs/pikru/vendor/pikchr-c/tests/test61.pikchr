@@ -1,0 +1,4 @@
+# Error messages from macro processing
+#
+define xyz {box $1 $2}
+xyz("hello",error)

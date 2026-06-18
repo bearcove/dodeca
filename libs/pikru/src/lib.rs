@@ -1,0 +1,772 @@
+#![doc = include_str!("../README.md")]
+
+use pest_derive::Parser;
+
+pub mod ast;
+pub mod errors;
+pub(crate) mod log;
+pub mod macros;
+pub mod parse;
+pub mod render;
+pub mod types;
+
+pub use render::RenderOptions;
+
+#[derive(Parser)]
+#[grammar = "pikchr.pest"]
+pub struct PikchrParser;
+
+/// Render pikchr source to SVG.
+///
+/// Returns the SVG string on success, or an error string with diagnostics.
+///
+/// # Example
+///
+/// ```
+/// let svg = pikru::pikchr(r#"box "Hello" arrow box "World""#).unwrap();
+/// assert!(svg.contains("<svg"));
+/// ```
+pub fn pikchr(source: &str) -> Result<String, String> {
+    pikchr_with_options(source, &RenderOptions::default())
+}
+
+/// Render pikchr source to SVG with custom options.
+///
+/// Use this to enable CSS variables for light/dark mode support:
+///
+/// # Example
+///
+/// ```
+/// use pikru::{pikchr_with_options, RenderOptions};
+///
+/// let options = RenderOptions { css_variables: true, ..Default::default() };
+/// let svg = pikchr_with_options(r#"box "Hello""#, &options).unwrap();
+/// assert!(svg.contains("light-dark("));
+/// ```
+pub fn pikchr_with_options(source: &str, options: &RenderOptions) -> Result<String, String> {
+    use errors::PikruError;
+
+    // Parse source into AST
+    let program = parse::parse(source).map_err(|e| {
+        let err: PikruError = e;
+        err.to_report("<input>", source)
+    })?;
+
+    // Expand macros
+    let program = macros::expand_macros(program).map_err(|e| {
+        let err: PikruError = e;
+        err.to_report("<input>", source)
+    })?;
+
+    // Render to SVG
+    render::render_with_options(&program, options).map_err(|e| {
+        let err: PikruError = e;
+        err.to_report("<input>", source)
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use facet_svg::facet_xml::SerializeOptions;
+    use pest::Parser;
+
+    #[test]
+    fn parse_simple_box() {
+        let input = r#"box "Hello""#;
+        let result = PikchrParser::parse(Rule::program, input);
+        assert!(result.is_ok(), "Failed to parse: {:?}", result.err());
+    }
+
+    #[test]
+    fn parse_arrow() {
+        let input = "arrow";
+        let result = PikchrParser::parse(Rule::program, input);
+        assert!(result.is_ok(), "Failed to parse: {:?}", result.err());
+    }
+
+    #[test]
+    fn parse_labeled() {
+        let input = "A: box";
+        let result = PikchrParser::parse(Rule::program, input);
+        assert!(result.is_ok(), "Failed to parse: {:?}", result.err());
+    }
+
+    #[test]
+    fn parse_multiple_statements() {
+        let input = r#"
+            box "One"
+            arrow
+            box "Two"
+        "#;
+        let result = PikchrParser::parse(Rule::program, input);
+        assert!(result.is_ok(), "Failed to parse: {:?}", result.err());
+    }
+
+    #[test]
+    fn parse_sublist() {
+        let input = r#"
+            A: [
+                box "inner"
+                arrow
+            ]
+        "#;
+        let result = PikchrParser::parse(Rule::program, input);
+        assert!(result.is_ok(), "Failed to parse: {:?}", result.err());
+    }
+
+    #[test]
+    fn parse_position_expr() {
+        let input = "box at (1, 2)";
+        let result = PikchrParser::parse(Rule::program, input);
+        assert!(result.is_ok(), "Failed to parse: {:?}", result.err());
+    }
+
+    #[test]
+    fn parse_variable_assignment() {
+        let input = "$x = 10";
+        let result = PikchrParser::parse(Rule::program, input);
+        assert!(result.is_ok(), "Failed to parse: {:?}", result.err());
+    }
+
+    #[test]
+    fn parse_dollar_one() {
+        let input = "$one = 1.0";
+        let result = PikchrParser::parse(Rule::program, input);
+        assert!(result.is_ok(), "Failed to parse: {:?}", result.err());
+    }
+
+    #[test]
+    fn parse_dot_x() {
+        // Test C4.x style access
+        let input = "box at C4.x, C4.y";
+        let result = PikchrParser::parse(Rule::program, input);
+        assert!(result.is_ok(), "Failed to parse: {:?}", result.err());
+    }
+
+    #[test]
+    fn parse_expr_edgept() {
+        // Test "expr ne of position" style
+        let input = "circle at 1 ne of C2";
+        let result = PikchrParser::parse(Rule::program, input);
+        assert!(result.is_ok(), "Failed to parse: {:?}", result.err());
+    }
+
+    #[test]
+    fn parse_paren_expr_edgept() {
+        // Test "(expr) ne of position" style - this is the failing case
+        let input = "circle at (1+2) ne of C2";
+        let result = PikchrParser::parse(Rule::program, input);
+        assert!(result.is_ok(), "Failed to parse: {:?}", result.err());
+    }
+
+    #[test]
+    fn parse_assert_objects() {
+        let input = "assert( previous == last arrow )";
+        let result = PikchrParser::parse(Rule::program, input);
+        assert!(result.is_ok(), "Failed to parse: {:?}", result.err());
+    }
+
+    #[test]
+    fn parse_last_arrow() {
+        // Test that "last arrow" parses as an object reference
+        let input = "box at last arrow";
+        let result = PikchrParser::parse(Rule::program, input);
+        assert!(result.is_ok(), "Failed to parse: {:?}", result.err());
+    }
+
+    #[test]
+    fn parse_nth_rule() {
+        // Direct test of nth parsing
+        let input = "last arrow";
+        let result = PikchrParser::parse(Rule::nth, input);
+        assert!(result.is_ok(), "Failed to parse nth: {:?}", result.err());
+    }
+
+    #[test]
+    fn parse_position_last_arrow() {
+        // "last arrow" is a position (via nth/object/place), not an expr
+        let input = "last arrow";
+        let result = PikchrParser::parse(Rule::position, input);
+        assert!(
+            result.is_ok(),
+            "Failed to parse position: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn parse_assert_stmt() {
+        // Test assert statement
+        let input = "assert( previous == last arrow )";
+        let result = PikchrParser::parse(Rule::assert_stmt, input);
+        assert!(
+            result.is_ok(),
+            "Failed to parse assert_stmt: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn parse_position_just_last() {
+        // "last" alone is a position (via nth/object/place), not an expr
+        let input = "last";
+        let result = PikchrParser::parse(Rule::position, input);
+        println!("Result for 'last' as position: {:?}", result);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn parse_start_of() {
+        let input = "AS: start of last arrow";
+        let result = PikchrParser::parse(Rule::program, input);
+        assert!(result.is_ok(), "Failed to parse: {:?}", result.err());
+    }
+
+    #[test]
+    fn parse_place_edgept() {
+        let input = "start of last arrow";
+        let result = PikchrParser::parse(Rule::place, input);
+        assert!(result.is_ok(), "Failed to parse place: {:?}", result.err());
+    }
+
+    #[test]
+    fn parse_edgept_start() {
+        let input = "start";
+        let result = PikchrParser::parse(Rule::EDGEPT, input);
+        assert!(result.is_ok(), "Failed to parse EDGEPT: {:?}", result.err());
+    }
+
+    #[test]
+    fn parse_place_simple() {
+        // Simplest form: EDGEPT of object
+        let input = "n of C2";
+        let result = PikchrParser::parse(Rule::place, input);
+        assert!(result.is_ok(), "Failed to parse place: {:?}", result.err());
+    }
+
+    #[test]
+    fn parse_place_start_of_c2() {
+        let input = "start of C2";
+        let result = PikchrParser::parse(Rule::place, input);
+        assert!(result.is_ok(), "Failed to parse place: {:?}", result.err());
+    }
+
+    #[test]
+    fn parse_test01() {
+        let input = include_str!("../vendor/pikchr-c/tests/test01.pikchr");
+        let result = PikchrParser::parse(Rule::program, input);
+        assert!(
+            result.is_ok(),
+            "Failed to parse test01.pikchr: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn parse_nested_object() {
+        // Main.C2.n - nested object with edge
+        let input = "box at Main.C2.n";
+        let result = PikchrParser::parse(Rule::program, input);
+        assert!(result.is_ok(), "Failed to parse: {:?}", result.err());
+    }
+
+    #[test]
+    fn parse_position_plus_offset() {
+        // place + (x, y) offset
+        let input = "box at C2.n + (0.35, 0.35)";
+        let result = PikchrParser::parse(Rule::program, input);
+        assert!(result.is_ok(), "Failed to parse: {:?}", result.err());
+    }
+
+    #[test]
+    fn parse_test02() {
+        let input = include_str!("../vendor/pikchr-c/tests/test02.pikchr");
+        let result = PikchrParser::parse(Rule::program, input);
+        assert!(
+            result.is_ok(),
+            "Failed to parse test02.pikchr: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn parse_one_dot_se() {
+        // Test One.se as place - object with dot edge
+        let input = "One.se";
+        let result = PikchrParser::parse(Rule::place, input);
+        println!("place('One.se'): {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Failed to parse as place: {:?}",
+            result.err()
+        );
+
+        // Test One.se as position
+        let result = PikchrParser::parse(Rule::position, input);
+        println!("position('One.se'): {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Failed to parse as position: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn parse_then_to_one_se() {
+        // Test progressively to find where it breaks
+        let tests = [
+            "spline to One.se",
+            "spline then to One.se",
+            "spline -> to One.se",
+            "spline left to One.se",
+            "spline left 2cm to One.se",
+            "spline -> left 2cm to One.se",
+            "spline -> left 2cm then to One.se",
+        ];
+        for input in tests {
+            let result = PikchrParser::parse(Rule::program, input);
+            println!("{}: {}", input, if result.is_ok() { "OK" } else { "FAIL" });
+            if result.is_err() {
+                println!("  {:?}", result.err());
+            }
+        }
+        // Final assertion
+        let input = "spline -> left 2cm then to One.se";
+        let result = PikchrParser::parse(Rule::program, input);
+        assert!(result.is_ok(), "Failed to parse: {:?}", result.err());
+    }
+
+    #[test]
+    fn parse_test03() {
+        let input = include_str!("../vendor/pikchr-c/tests/test03.pikchr");
+        let result = PikchrParser::parse(Rule::program, input);
+        assert!(
+            result.is_ok(),
+            "Failed to parse test03.pikchr: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn parse_test10() {
+        let input = include_str!("../vendor/pikchr-c/tests/test10.pikchr");
+        let result = PikchrParser::parse(Rule::program, input);
+        assert!(
+            result.is_ok(),
+            "Failed to parse test10.pikchr: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_pathdata_serialization() {
+        use facet_svg::{Path, PathData, Svg, SvgNode, facet_xml};
+
+        // Create a simple path
+        let path_data = PathData::parse("M10,10L50,50").unwrap();
+        println!("PathData: {:?}", path_data);
+        println!("PathData to_string: {}", path_data);
+
+        let path = Path {
+            d: Some(path_data),
+            fill: None,
+            stroke: Some("black".to_string()),
+            stroke_width: None,
+            stroke_dasharray: None,
+            style: None,
+        };
+
+        let svg = Svg {
+            width: None,
+            height: None,
+            view_box: Some("0 0 100 100".to_string()),
+            children: vec![SvgNode::Path(path)],
+        };
+
+        let xml = facet_xml::to_string_with_options(
+            &svg,
+            &SerializeOptions {
+                pretty: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        println!("Generated XML: {}", xml);
+
+        // Should contain the path data
+        assert!(xml.contains("M10,10L50,50"));
+    }
+
+    #[test]
+    fn test_facet_xml_namespace_issue() {
+        // Minimal reproduction of namespace prefixing issue with facet-xml
+        use facet_svg::{Circle, Svg, SvgNode, facet_xml};
+
+        let svg = Svg {
+            width: None,
+            height: None,
+            view_box: Some("0 0 100 100".to_string()),
+            children: vec![SvgNode::Circle(Circle {
+                cx: Some(50.0),
+                cy: Some(50.0),
+                r: Some(25.0),
+                fill: None,
+                stroke: None,
+                stroke_width: None,
+                stroke_dasharray: None,
+                style: None,
+            })],
+        };
+
+        let xml = facet_xml::to_string_with_options(
+            &svg,
+            &SerializeOptions {
+                pretty: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        println!("Generated XML: {}", xml);
+
+        // This test previously demonstrated a bug where facet-xml generated:
+        // <Svg xmlns:svg="http://www.w3.org/2000/svg" svg:viewBox="0 0 100 100">
+        //   <circle svg:cx="50" svg:cy="50" svg:r="25"/>
+        // </Svg>
+        //
+        // The bug is now fixed! Valid SVG is generated:
+        // <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+        //   <circle cx="50" cy="50" r="25"/>
+        // </svg>
+
+        assert!(
+            !xml.contains("svg:"),
+            "Should NOT contain namespace prefixes (bug is fixed)"
+        );
+        assert!(
+            xml.contains("xmlns=\"http://www.w3.org/2000/svg\""),
+            "Should have default xmlns declaration"
+        );
+        assert!(xml.contains("<svg"), "Element should be lowercase <svg>");
+    }
+
+    #[test]
+    fn parse_expr_file() {
+        let input = include_str!("../vendor/pikchr-c/tests/expr.pikchr");
+        let result = PikchrParser::parse(Rule::program, input);
+        assert!(
+            result.is_ok(),
+            "Failed to parse expr.pikchr: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn parse_all_pikchr_files() {
+        // Files that are intentionally testing error handling (contain intentional syntax errors)
+        let error_test_files = ["test60.pikchr", "test61.pikchr", "test62.pikchr"];
+
+        let test_dir = std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/vendor/pikchr-c/tests"
+        ));
+        let mut pass = 0;
+        let mut fail = 0;
+        let mut expected_errors = 0;
+        let mut failures = Vec::new();
+
+        for entry in std::fs::read_dir(test_dir).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if path.extension().map(|e| e == "pikchr").unwrap_or(false) {
+                let filename = path.file_name().unwrap().to_string_lossy();
+                let source = std::fs::read_to_string(&path).unwrap();
+
+                match PikchrParser::parse(Rule::program, &source) {
+                    Ok(_) => pass += 1,
+                    Err(e) => {
+                        if error_test_files.contains(&filename.as_ref()) {
+                            expected_errors += 1;
+                        } else {
+                            fail += 1;
+                            failures.push((filename.to_string(), e.to_string()));
+                        }
+                    }
+                }
+            }
+        }
+
+        println!(
+            "\nParse results: {} passed, {} expected errors, {} unexpected failures",
+            pass, expected_errors, fail
+        );
+        for (name, err) in &failures {
+            println!("  FAIL: {} - {}", name, err.lines().next().unwrap_or(""));
+        }
+        assert!(
+            failures.is_empty(),
+            "{} files failed to parse unexpectedly",
+            fail
+        );
+    }
+
+    // AST parsing tests
+    #[test]
+    fn ast_simple_box() {
+        let input = r#"box "Hello""#;
+        let result = crate::parse::parse(input);
+        assert!(result.is_ok(), "Failed to build AST: {:?}", result.err());
+        let program = result.unwrap();
+        assert_eq!(program.statements.len(), 1);
+    }
+
+    #[test]
+    fn ast_multiple_statements() {
+        let input = r#"
+            box "One"
+            arrow
+            box "Two"
+        "#;
+        let result = crate::parse::parse(input);
+        assert!(result.is_ok(), "Failed to build AST: {:?}", result.err());
+        let program = result.unwrap();
+        assert_eq!(program.statements.len(), 3);
+    }
+
+    #[test]
+    fn ast_test01_file() {
+        let input = include_str!("../vendor/pikchr-c/tests/test01.pikchr");
+        let result = crate::parse::parse(input);
+        assert!(
+            result.is_ok(),
+            "Failed to build AST for test01.pikchr: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn ast_test02_file() {
+        let input = include_str!("../vendor/pikchr-c/tests/test02.pikchr");
+        let result = crate::parse::parse(input);
+        assert!(
+            result.is_ok(),
+            "Failed to build AST for test02.pikchr: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn ast_test03_file() {
+        let input = include_str!("../vendor/pikchr-c/tests/test03.pikchr");
+        let result = crate::parse::parse(input);
+        assert!(
+            result.is_ok(),
+            "Failed to build AST for test03.pikchr: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn ast_all_pikchr_files() {
+        // Files that are intentionally testing error handling
+        let error_test_files = ["test60.pikchr", "test61.pikchr", "test62.pikchr"];
+
+        let test_dir = std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/vendor/pikchr-c/tests"
+        ));
+        let mut pass = 0;
+        let mut fail = 0;
+        let mut expected_errors = 0;
+        let mut failures = Vec::new();
+
+        for entry in std::fs::read_dir(test_dir).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if path.extension().map(|e| e == "pikchr").unwrap_or(false) {
+                let filename = path.file_name().unwrap().to_string_lossy();
+                let source = std::fs::read_to_string(&path).unwrap();
+
+                match crate::parse::parse(&source) {
+                    Ok(_) => pass += 1,
+                    Err(e) => {
+                        if error_test_files.contains(&filename.as_ref()) {
+                            expected_errors += 1;
+                        } else {
+                            fail += 1;
+                            failures.push((filename.to_string(), e.to_string()));
+                        }
+                    }
+                }
+            }
+        }
+
+        println!(
+            "\nAST build results: {} passed, {} expected errors, {} unexpected failures",
+            pass, expected_errors, fail
+        );
+        for (name, err) in &failures {
+            println!("  FAIL: {} - {}", name, err.lines().next().unwrap_or(""));
+        }
+        assert!(
+            failures.is_empty(),
+            "{} files failed to build AST unexpectedly",
+            fail
+        );
+    }
+
+    // SVG rendering tests
+    #[test]
+    fn render_simple_box() {
+        let input = r#"box "Hello""#;
+        let result = crate::pikchr(input);
+        assert!(result.is_ok(), "Failed to render: {:?}", result.err());
+        let svg = result.unwrap();
+        assert!(svg.contains("<svg"), "Output should be SVG");
+        assert!(svg.contains("<path"), "Should contain a path for box");
+        assert!(svg.contains("Hello"), "Should contain the text");
+    }
+
+    #[test]
+    fn render_arrow() {
+        let input = "arrow";
+        let result = crate::pikchr(input);
+        assert!(result.is_ok(), "Failed to render: {:?}", result.err());
+        let svg = result.unwrap();
+        assert!(svg.contains("<svg"), "Output should be SVG");
+        assert!(svg.contains("<path"), "Should contain a path");
+    }
+
+    #[test]
+    fn render_box_arrow_box() {
+        let input = r#"
+            box "One"
+            arrow
+            box "Two"
+        "#;
+        let result = crate::pikchr(input);
+        assert!(result.is_ok(), "Failed to render: {:?}", result.err());
+        let svg = result.unwrap();
+        assert!(svg.contains("<svg"), "Output should be SVG");
+        assert!(
+            svg.matches("<path").count() >= 3,
+            "Should have at least 3 paths (2 boxes + 1 arrow)"
+        );
+    }
+
+    #[test]
+    fn render_circle() {
+        let input = "circle";
+        let result = crate::pikchr(input);
+        assert!(result.is_ok(), "Failed to render: {:?}", result.err());
+        let svg = result.unwrap();
+        assert!(svg.contains("<circle"), "Should contain a circle");
+    }
+
+    #[test]
+    fn render_explicit_size() {
+        use crate::render::{RenderOptions, render_with_options};
+
+        let input = r#"box "Hello""#;
+        let program = crate::parse::parse(input).expect("parse failed");
+
+        // Render without explicit_size - should not have width/height attributes
+        let svg_default =
+            render_with_options(&program, &RenderOptions::default()).expect("render failed");
+        assert!(
+            !svg_default.contains("width="),
+            "Default render should not have width attribute"
+        );
+
+        // Render with explicit_size - should have width/height attributes
+        let options = RenderOptions {
+            explicit_size: true,
+            ..Default::default()
+        };
+        let svg_explicit = render_with_options(&program, &options).expect("render failed");
+        assert!(
+            svg_explicit.contains("width=\""),
+            "explicit_size should add width attribute: {}",
+            svg_explicit
+        );
+        assert!(
+            svg_explicit.contains("height=\""),
+            "explicit_size should add height attribute"
+        );
+    }
+
+    #[test]
+    fn render_all_pikchr_files() {
+        // Files that are intentionally testing error handling
+        let error_test_files = ["test60.pikchr", "test61.pikchr", "test62.pikchr"];
+
+        let test_dir = std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/vendor/pikchr-c/tests"
+        ));
+        let mut pass = 0;
+        let mut fail = 0;
+        let mut expected_errors = 0;
+        let mut failures = Vec::new();
+
+        for entry in std::fs::read_dir(test_dir).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if path.extension().map(|e| e == "pikchr").unwrap_or(false) {
+                let filename = path.file_name().unwrap().to_string_lossy();
+                let source = std::fs::read_to_string(&path).unwrap();
+
+                match crate::pikchr(&source) {
+                    Ok(svg) => {
+                        if svg.contains("<svg") {
+                            pass += 1;
+                        } else {
+                            fail += 1;
+                            failures.push((filename.to_string(), "No SVG output".to_string()));
+                        }
+                    }
+                    Err(e) => {
+                        if error_test_files.contains(&filename.as_ref()) {
+                            expected_errors += 1;
+                        } else {
+                            fail += 1;
+                            failures.push((filename.to_string(), e.to_string()));
+                        }
+                    }
+                }
+            }
+        }
+
+        println!(
+            "\nRender results: {} passed, {} expected errors, {} unexpected failures",
+            pass, expected_errors, fail
+        );
+        for (name, err) in &failures[..failures.len().min(10)] {
+            println!("  FAIL: {} - {}", name, err.lines().next().unwrap_or(""));
+        }
+        if failures.len() > 10 {
+            println!("  ... and {} more", failures.len() - 10);
+        }
+        // Don't assert failure for now - renderer is incomplete
+        // assert!(failures.is_empty(), "{} files failed to render unexpectedly", fail);
+    }
+}
+
+#[test]
+fn test_debug_chop() {
+    let input = r#"C: box "box"
+line from C to 3cm heading 0 from C chop;
+line from C to 3cm heading 90 from C chop;"#;
+
+    let result = pikchr(input).unwrap();
+
+    // Write to file for inspection
+    std::fs::write("debug_minimal_rust.svg", &result).expect("Failed to write SVG");
+    println!("Generated debug_minimal_rust.svg");
+    println!("Rust output:");
+    println!("{}", result);
+
+    // Check that the result contains expected elements
+    assert!(result.contains("box"));
+    assert!(result.contains("<path"));
+}

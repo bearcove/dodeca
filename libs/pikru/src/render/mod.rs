@@ -1,0 +1,3129 @@
+//! SVG rendering for pikchr diagrams
+//!
+//! This module is organized into submodules:
+//! - `defaults`: Default sizes and settings
+//! - `types`: Core types like Value, PositionedText, RenderedObject, ClassName, ObjectStyle
+//! - `context`: RenderContext for tracking state during rendering
+//! - `eval`: Expression evaluation functions
+//! - `geometry`: Chop functions and path creation
+//! - `svg`: SVG generation
+
+pub mod context;
+pub mod defaults;
+pub mod eval;
+pub mod geometry;
+pub mod path_builder;
+pub mod shapes;
+pub mod svg;
+pub mod types;
+
+// Re-export commonly used items
+pub use context::RenderContext;
+pub use shapes::Shape;
+pub use types::*;
+
+use crate::ast::*;
+use crate::errors::PikruError;
+use crate::types::{EvalValue, Length as Inches, OffsetIn, Point};
+use eval::{
+    endpoint_object_from_position, eval_color, eval_expr, eval_len, eval_position, eval_rvalue,
+    eval_scalar, resolve_object,
+};
+use svg::generate_svg;
+
+/// Options for rendering pikchr to SVG
+#[derive(Debug, Clone, Default)]
+pub struct RenderOptions {
+    /// Emit CSS variables for colors instead of direct color values.
+    /// When enabled, generates a `<style>` block with all colors defined using `light-dark()`.
+    pub css_variables: bool,
+    /// Add explicit `width` and `height` attributes to the SVG element.
+    /// When enabled, always adds `width` and `height` attributes to the SVG.
+    /// This prevents inline SVGs from scaling up to fill their container.
+    /// The dimensions are computed using ceiling to avoid clipping.
+    pub explicit_size: bool,
+}
+
+// TODO: Move these to appropriate submodules
+
+/// Proportional character widths from C pikchr's awChar table.
+#[rustfmt::skip]
+pub const AW_CHAR: [u8; 95] = [
+    45,  55,  62, 115,  90, 132, 125,  40,
+    55,  55,  71, 115,  45,  48,  45,  50,
+    91,  91,  91,  91,  91,  91,  91,  91,
+    91,  91,  50,  50, 120, 120, 120,  78,
+   142, 102, 105, 110, 115, 105,  98, 105,
+   125,  58,  58, 107,  95, 145, 125, 115,
+    95, 115, 107,  95,  97, 118, 102, 150,
+   100,  93, 100,  58,  50,  58, 119,  72,
+    72,  86,  92,  80,  92,  85,  52,  92,
+    92,  47,  47,  88,  48, 135,  92,  86,
+    92,  92,  69,  75,  58,  92,  80, 121,
+    81,  80,  76,  91,  49,  91, 118,
+];
+
+/// Character width units for proportional text (in hundredths).
+/// Monospace uses constant 82 units per character.
+///
+/// Processes backslash escapes: `\\` counts as one char, `\x` counts as just `x`.
+/// Processes HTML entities: `&entity;` counts as 1.5 average chars.
+// cref: pik_text_length (pikchr.c:3700-3729) - skips backslashes and handles entities
+fn proportional_text_length(text: &str) -> u32 {
+    const STD_AVG: u32 = 100;
+    let mut cnt: u32 = 0;
+    let bytes = text.as_bytes();
+    let mut i = 0;
+
+    while i < bytes.len() {
+        let c = bytes[i] as char;
+
+        // Process backslash escapes
+        if c == '\\' && i + 1 < bytes.len() && bytes[i + 1] != b'&' {
+            if bytes[i + 1] == b'\\' {
+                // Double backslash -> count as one backslash, skip both
+                cnt += AW_CHAR[('\\' as usize) - 0x20] as u32;
+                i += 2;
+                continue;
+            } else {
+                // Backslash followed by other char -> skip backslash, count the char
+                i += 1;
+                let next_c = bytes[i] as char;
+                if (' '..='~').contains(&next_c) {
+                    cnt += AW_CHAR[(next_c as usize) - 0x20] as u32;
+                } else {
+                    cnt += STD_AVG;
+                }
+                i += 1;
+                continue;
+            }
+        }
+
+        // Process HTML entities: & counts as 1.5 average chars
+        // cref: pik_text_length (pikchr.c:3708-3713)
+        // Note: In C pikchr, ANY ampersand is counted as 1.5 avg, and if it's
+        // followed by a valid entity (semicolon within 7 chars), the entity
+        // characters are skipped. But the 1.5 avg is added regardless.
+        if c == '&' {
+            // Look for semicolon within next 7 characters
+            let mut k = i + 1;
+            while k < bytes.len() && k < i + 7 && bytes[k] != b';' {
+                k += 1;
+            }
+            if k < bytes.len() && bytes[k] == b';' {
+                // Found a valid entity, skip to semicolon
+                i = k + 1;
+            } else {
+                // No entity, just skip the ampersand
+                i += 1;
+            }
+            // Always count as 1.5 average chars for any ampersand
+            cnt += STD_AVG * 3 / 2;
+            continue;
+        }
+
+        // Count the character width
+        if (' '..='~').contains(&c) {
+            cnt += AW_CHAR[(c as usize) - 0x20] as u32;
+        } else {
+            cnt += STD_AVG;
+        }
+
+        i += 1;
+    }
+    cnt
+}
+
+fn monospace_text_length(text: &str) -> u32 {
+    const MONO_AVG: u32 = 82;
+    let bytes = text.as_bytes();
+    let mut count: u32 = 0;
+    let mut i = 0;
+
+    while i < bytes.len() {
+        // Process backslash escapes
+        if bytes[i] == b'\\' && i + 1 < bytes.len() && bytes[i + 1] != b'&' {
+            if bytes[i + 1] == b'\\' {
+                // Double backslash -> count as one char, skip both
+                count += MONO_AVG;
+                i += 2;
+            } else {
+                // Backslash followed by other char -> skip backslash, count the char
+                count += MONO_AVG;
+                i += 2;
+            }
+        } else if bytes[i] == b'&' {
+            // Process HTML entities: & counts as 1.5 average chars
+            // cref: pik_text_length (pikchr.c:3708-3713)
+            // Note: ANY ampersand is 1.5 avg, regardless of whether it's a valid entity
+            let mut k = i + 1;
+            while k < bytes.len() && k < i + 7 && bytes[k] != b';' {
+                k += 1;
+            }
+            if k < bytes.len() && bytes[k] == b';' {
+                // Found a valid entity, skip to semicolon
+                i = k + 1;
+            } else {
+                // No entity, just skip the ampersand
+                i += 1;
+            }
+            // Always count as 1.5 average chars for any ampersand
+            count += MONO_AVG * 3 / 2;
+        } else {
+            count += MONO_AVG;
+            i += 1;
+        }
+    }
+
+    count
+}
+
+/// Render a pikchr program to SVG with default options
+pub fn render(program: &Program) -> Result<String, PikruError> {
+    render_with_options(program, &RenderOptions::default())
+}
+
+/// Render a pikchr program to SVG with custom options
+pub fn render_with_options(
+    program: &Program,
+    options: &RenderOptions,
+) -> Result<String, PikruError> {
+    let mut ctx = RenderContext::new();
+    let mut print_lines: Vec<String> = Vec::new();
+
+    // Process all statements
+    for stmt in &program.statements {
+        render_statement(&mut ctx, stmt, &mut print_lines)?;
+    }
+
+    // If there are print lines and no drawables, emit print output (HTML with <br>)
+    if ctx.object_list.is_empty() && !print_lines.is_empty() {
+        let mut out = String::new();
+        for line in print_lines {
+            out.push_str(&line);
+            out.push_str("<br>\n");
+        }
+        return Ok(out);
+    }
+
+    // If nothing was drawn and no prints, emit empty comment like C
+    if ctx.object_list.is_empty() {
+        return Ok("<!-- empty pikchr diagram -->\n".to_string());
+    }
+
+    crate::log::debug!(
+        bounds_min_x = ctx.bounds.min.x.raw(),
+        bounds_min_y = ctx.bounds.min.y.raw(),
+        bounds_max_x = ctx.bounds.max.x.raw(),
+        bounds_max_y = ctx.bounds.max.y.raw(),
+        "Rust: final bounding box before SVG generation"
+    );
+
+    // Generate SVG
+    generate_svg(&ctx, options)
+}
+
+fn render_statement(
+    ctx: &mut RenderContext,
+    stmt: &Statement,
+    print_lines: &mut Vec<String>,
+) -> Result<(), PikruError> {
+    match stmt {
+        Statement::Direction(dir) => {
+            // cref: pik_set_direction (pikchr.c:5746)
+            // When direction changes, update the cursor to the previous object's
+            // exit point in the NEW direction. This makes "arrow; circle; down; arrow"
+            // work correctly - the second arrow starts from circle's south edge.
+            ctx.direction = *dir;
+            if let Some(last_obj) = ctx.object_list.last() {
+                // For line-like objects, the cursor should stay at the line's endpoint,
+                // not be recalculated from center. Lines don't have meaningful "edges"
+                // in the same way shaped objects do.
+                let is_line_like = matches!(
+                    last_obj.class(),
+                    ClassName::Line | ClassName::Arrow | ClassName::Spline | ClassName::Move
+                );
+                if is_line_like {
+                    // Keep cursor at line endpoint - don't recalculate
+                    ctx.position = last_obj.end();
+                } else {
+                    // For shaped objects, get edge point in new direction
+                    use crate::types::UnitVec;
+                    let unit_dir = match dir {
+                        Direction::Right => UnitVec::EAST,
+                        Direction::Left => UnitVec::WEST,
+                        Direction::Up => UnitVec::NORTH,
+                        Direction::Down => UnitVec::SOUTH,
+                    };
+                    ctx.position = last_obj.edge_point(unit_dir);
+                }
+            }
+        }
+        Statement::Assignment(assign) => {
+            // cref: pik_set_var (pikchr.c:6479-6511)
+            // eval_rvalue now returns EvalValue directly, preserving Color type information
+            let rhs_val = eval_rvalue(ctx, &assign.rvalue)?;
+
+            // Get variable name for lookup
+            let var_name = match &assign.lvalue {
+                LValue::Variable(name) => name.clone(),
+                LValue::Fill => "fill".to_string(),
+                LValue::Color => "color".to_string(),
+                LValue::Thickness => "thickness".to_string(),
+            };
+
+            // Apply compound assignment operators
+            let eval_val = match assign.op {
+                AssignOp::Assign => rhs_val,
+                AssignOp::AddAssign
+                | AssignOp::SubAssign
+                | AssignOp::MulAssign
+                | AssignOp::DivAssign => {
+                    // Get current value (with default of 0)
+                    let current = ctx
+                        .variables
+                        .get(&var_name)
+                        .cloned()
+                        .unwrap_or(EvalValue::Scalar(0.0));
+
+                    // Apply operation based on types
+                    match (current, rhs_val) {
+                        (EvalValue::Length(lhs), EvalValue::Scalar(rhs)) => {
+                            // Length op Scalar
+                            let result = match assign.op {
+                                AssignOp::AddAssign => lhs + Inches(rhs),
+                                AssignOp::SubAssign => lhs - Inches(rhs),
+                                AssignOp::MulAssign => lhs * rhs,
+                                AssignOp::DivAssign => lhs / rhs,
+                                _ => unreachable!(),
+                            };
+                            EvalValue::Length(result)
+                        }
+                        (EvalValue::Scalar(lhs), EvalValue::Scalar(rhs)) => {
+                            // Scalar op Scalar
+                            let result = match assign.op {
+                                AssignOp::AddAssign => lhs + rhs,
+                                AssignOp::SubAssign => lhs - rhs,
+                                AssignOp::MulAssign => lhs * rhs,
+                                AssignOp::DivAssign => {
+                                    if rhs == 0.0 {
+                                        lhs
+                                    } else {
+                                        lhs / rhs
+                                    }
+                                }
+                                _ => unreachable!(),
+                            };
+                            EvalValue::Scalar(result)
+                        }
+                        (EvalValue::Length(lhs), EvalValue::Length(rhs)) => {
+                            // For *= and /=, treat RHS length as scalar (bare number context)
+                            // cref: pik_set_var (pikchr.c:6496-6499) - *= and /= use raw values
+                            let result = match assign.op {
+                                AssignOp::AddAssign => lhs + rhs,
+                                AssignOp::SubAssign => lhs - rhs,
+                                AssignOp::MulAssign => lhs * rhs.raw(), // Treat as scalar for multiplication
+                                AssignOp::DivAssign => lhs / rhs.raw(), // Treat as scalar for division
+                                _ => lhs,
+                            };
+                            EvalValue::Length(result)
+                        }
+                        _ => rhs_val, // Fallback for other combinations
+                    }
+                }
+            };
+
+            match &assign.lvalue {
+                LValue::Variable(name) => {
+                    crate::log::debug!(op = ?assign.op, "Setting variable {} to {:?}", name, eval_val);
+                    ctx.variables.insert(name.clone(), eval_val);
+                }
+                LValue::Fill => {
+                    crate::log::debug!(op = ?assign.op, "Setting global fill to {:?}", eval_val);
+                    ctx.variables.insert("fill".to_string(), eval_val);
+                }
+                LValue::Color => {
+                    crate::log::debug!(op = ?assign.op, "Setting global color to {:?}", eval_val);
+                    ctx.variables.insert("color".to_string(), eval_val);
+                }
+                LValue::Thickness => {
+                    crate::log::debug!(op = ?assign.op, "Setting global thickness to {:?}", eval_val);
+                    ctx.variables.insert("thickness".to_string(), eval_val);
+                }
+            }
+        }
+        Statement::Object(obj_stmt) => {
+            let obj = render_object_stmt(ctx, obj_stmt, None)?;
+            ctx.add_object(obj);
+        }
+        Statement::Labeled(labeled) => {
+            match &labeled.content {
+                LabeledContent::Object(obj_stmt) => {
+                    let obj = render_object_stmt(ctx, obj_stmt, Some(labeled.label.clone()))?;
+                    ctx.add_object(obj);
+                }
+                LabeledContent::Position(pos) => {
+                    // Named position - evaluate and store it
+                    // cref: This handles cases like `OUT: 6.3in right of previous.e`
+                    let point = eval_position(ctx, pos)?;
+                    ctx.add_named_position(labeled.label.clone(), point);
+                }
+            }
+        }
+        Statement::Print(p) => {
+            let mut parts = Vec::new();
+            for arg in &p.args {
+                let s = match arg {
+                    PrintArg::String(s) => s.clone(),
+                    PrintArg::Expr(e) => {
+                        let val = eval_expr(ctx, e)?;
+                        match val {
+                            Value::Scalar(v) => format!("{}", v),
+                            Value::Len(l) => format!("{}", l.0),
+                            Value::Color(c) => format!("#{:06x}", c),
+                        }
+                    }
+                    PrintArg::PlaceName(name) => name.clone(),
+                };
+                parts.push(s);
+            }
+            print_lines.push(parts.join(" "));
+        }
+        Statement::Assert(_) => {
+            // Not rendered
+        }
+        Statement::Define(def) => {
+            // Store macro definition (later definitions override earlier ones)
+            // Strip the surrounding braces from the body
+            let body = def.body.trim();
+            let body = if body.starts_with('{') && body.ends_with('}') {
+                &body[1..body.len() - 1]
+            } else {
+                body
+            };
+            ctx.macros.insert(def.name.clone(), body.to_string());
+        }
+        Statement::MacroCall(call) => {
+            // Expand and render macro
+            if let Some(body) = ctx.macros.get(&call.name).cloned() {
+                // Parse and render the macro body
+                let parsed = crate::parse::parse(&body)?;
+                for inner_stmt in &parsed.statements {
+                    render_statement(ctx, inner_stmt, print_lines)?;
+                }
+            }
+            // If macro not found, treat as custom object type (ignore for now)
+        }
+        Statement::Error(e) => {
+            // Error statement produces an intentional error
+            return Err(PikruError::Generic(format!("error: {}", e.message)));
+        }
+    }
+    Ok(())
+}
+
+/// Expand a bounding box to include a rendered object (recursing into sublists)
+// cref: pik_bbox_add_elist (pikchr.c:7206) - iterates objects
+// cref: pik_bbox_add_elist (pikchr.c:7243) - checks pObj->sw>=0.0 before adding bbox
+// cref: pik_bbox_add_elist (pikchr.c:7251-7260) - arrowheads added regardless of sw
+pub fn expand_object_bounds(bounds: &mut BoundingBox, obj: &RenderedObject) {
+    // C pikchr: shape bbox only added if sw>=0, but arrowheads are always added
+    // The shape's expand_bounds handles both aspects
+    obj.shape.expand_bounds(bounds);
+}
+
+/// Expand a bounding box to include a rendered object's "core" bounds (no arrowheads).
+/// Used for computing sublist width/height.
+/// cref: pikchr.y:1757-1761 - sublist bbox from children's pObj->bbox (no arrowheads)
+fn expand_object_core_bounds(bounds: &mut BoundingBox, obj: &RenderedObject) {
+    obj.shape.expand_core_bounds(bounds);
+}
+
+/// Vertical slot assignment for text
+/// cref: pik_txt_vertical_layout (pikchr.c:4984)
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TextVSlot {
+    Above2,
+    Above,
+    Center,
+    Below,
+    Below2,
+}
+
+/// Compute vertical slot assignments for text lines
+/// cref: pik_txt_vertical_layout (pikchr.c:4984)
+pub fn compute_text_vslots(texts: &[PositionedText]) -> Vec<TextVSlot> {
+    let n = texts.len();
+    if n == 0 {
+        return vec![];
+    }
+
+    // First, check what slots are explicitly assigned
+    let mut slots: Vec<Option<TextVSlot>> = texts
+        .iter()
+        .map(|t| {
+            if t.above {
+                Some(TextVSlot::Above)
+            } else if t.below {
+                Some(TextVSlot::Below)
+            } else if t.center {
+                Some(TextVSlot::Center)
+            } else {
+                None // unassigned
+            }
+        })
+        .collect();
+
+    // cref: pik_txt_vertical_layout (pikchr.c:2321-2332)
+    // If there is more than one TP_ABOVE, change the first to TP_ABOVE2.
+    // BUT: if two texts have opposite justifications (ljust/rjust), allow both
+    // to stay at the same vertical slot since they won't overlap horizontally.
+    let mut j_above = 0;
+    let mut m_just_above: Option<bool> = None; // Some(true)=ljust, Some(false)=rjust, None=center
+    for i in (0..n).rev() {
+        if slots[i] == Some(TextVSlot::Above) {
+            let this_just = if texts[i].ljust {
+                Some(true)
+            } else if texts[i].rjust {
+                Some(false)
+            } else {
+                None
+            };
+
+            if j_above == 0 {
+                j_above = 1;
+                m_just_above = this_just;
+            } else if j_above == 1 && m_just_above.is_some() && m_just_above != this_just {
+                // Different justifications - allow both at same slot
+                j_above = 2;
+            } else {
+                slots[i] = Some(TextVSlot::Above2);
+                break;
+            }
+        }
+    }
+
+    // cref: pik_txt_vertical_layout (pikchr.c:2335-2346)
+    // Same logic for BELOW -> BELOW2
+    let mut j_below = 0;
+    let mut m_just_below: Option<bool> = None;
+    for i in 0..n {
+        if slots[i] == Some(TextVSlot::Below) {
+            let this_just = if texts[i].ljust {
+                Some(true)
+            } else if texts[i].rjust {
+                Some(false)
+            } else {
+                None
+            };
+
+            if j_below == 0 {
+                j_below = 1;
+                m_just_below = this_just;
+            } else if j_below == 1 && m_just_below.is_some() && m_just_below != this_just {
+                // Different justifications - allow both at same slot
+                j_below = 2;
+            } else {
+                slots[i] = Some(TextVSlot::Below2);
+                break;
+            }
+        }
+    }
+
+    if n == 1 {
+        // Single text defaults to center
+        if slots[0].is_none() {
+            slots[0] = Some(TextVSlot::Center);
+        }
+        return slots.into_iter().map(|s| s.unwrap()).collect();
+    }
+
+    // Build list of free slots (from top to bottom)
+    let all_slots_mask: u8 = slots
+        .iter()
+        .map(|s| match s {
+            Some(TextVSlot::Above2) => 1,
+            Some(TextVSlot::Above) => 2,
+            Some(TextVSlot::Center) => 4,
+            Some(TextVSlot::Below) => 8,
+            Some(TextVSlot::Below2) => 16,
+            None => 0,
+        })
+        .fold(0, |a, b| a | b);
+
+    // cref: pik_txt_vertical_layout (pikchr.c:2365-2371)
+    // Special case: if n==2 and both texts have opposite justifications (ljust/rjust),
+    // allow them both to float to center rather than splitting them vertically.
+    let has_opposite_just = if n == 2 {
+        let just0 = (texts[0].ljust, texts[0].rjust);
+        let just1 = (texts[1].ljust, texts[1].rjust);
+        (just0 == (true, false) && just1 == (false, true))
+            || (just0 == (false, true) && just1 == (true, false))
+    } else {
+        false
+    };
+
+    let mut free_slots = Vec::new();
+    if has_opposite_just {
+        // Both texts get center slot
+        free_slots.push(TextVSlot::Center);
+        free_slots.push(TextVSlot::Center);
+    } else {
+        if n >= 4 && (all_slots_mask & 1) == 0 {
+            free_slots.push(TextVSlot::Above2);
+        }
+        if (all_slots_mask & 2) == 0 {
+            free_slots.push(TextVSlot::Above);
+        }
+        if (n & 1) != 0 {
+            // odd number of texts: include center slot
+            free_slots.push(TextVSlot::Center);
+        }
+        if (all_slots_mask & 8) == 0 {
+            free_slots.push(TextVSlot::Below);
+        }
+        if n >= 4 && (all_slots_mask & 16) == 0 {
+            free_slots.push(TextVSlot::Below2);
+        }
+    }
+
+    // Assign free slots to unassigned texts
+    let mut free_iter = free_slots.into_iter();
+    for slot in &mut slots {
+        if slot.is_none() {
+            *slot = free_iter.next();
+        }
+    }
+
+    slots
+        .into_iter()
+        .map(|s| s.unwrap_or(TextVSlot::Center))
+        .collect()
+}
+
+/// Count text labels above and below for lines
+pub fn count_text_above_below(texts: &[PositionedText]) -> (usize, usize) {
+    let slots = compute_text_vslots(texts);
+    let above = slots
+        .iter()
+        .filter(|s| matches!(s, TextVSlot::Above | TextVSlot::Above2))
+        .count();
+    let below = slots
+        .iter()
+        .filter(|s| matches!(s, TextVSlot::Below | TextVSlot::Below2))
+        .count();
+    (above, below)
+}
+
+/// Sum actual text heights above and below for bbox calculation.
+/// This computes the vertical extent of text relative to the object center,
+/// accounting for the actual Y positions of each text slot.
+///
+/// cref: pik_append_txt (pikchr.c:2484-2528) - computes text bbox using y positions
+pub fn sum_text_heights_above_below(texts: &[PositionedText], charht: f64) -> (f64, f64) {
+    let slots = compute_text_vslots(texts);
+
+    // First, compute the slot heights like C does (ha2, ha1, hc, hb1, hb2)
+    // These are the MAX heights for each slot category
+    let mut ha2 = 0.0_f64; // Above2 slot height
+    let mut ha1 = 0.0_f64; // Above slot height
+    let mut hc = 0.0_f64; // Center slot height
+    let mut hb1 = 0.0_f64; // Below slot height
+    let mut hb2 = 0.0_f64; // Below2 slot height
+
+    for (text, slot) in texts.iter().zip(slots.iter()) {
+        let h = text.height(charht);
+        match slot {
+            TextVSlot::Above2 => ha2 = ha2.max(h),
+            TextVSlot::Above => ha1 = ha1.max(h),
+            TextVSlot::Center => hc = hc.max(h),
+            TextVSlot::Below => hb1 = hb1.max(h),
+            TextVSlot::Below2 => hb2 = hb2.max(h),
+        }
+    }
+
+    // Now compute the actual vertical extent from center (y=0)
+    // Following C logic in pik_append_txt lines 2477-2480:
+    //   ABOVE2: y = 0.5*hc + ha1 + 0.5*ha2  (top edge = y + ch = y + 0.5*h)
+    //   ABOVE:  y = 0.5*hc + 0.5*ha1
+    //   CENTER: y = 0  (extends +/- 0.5*hc from center)
+    //   BELOW:  y = -(0.5*hc + 0.5*hb1)
+    //   BELOW2: y = -(0.5*hc + hb1 + 0.5*hb2)
+    //
+    // The top-most point is ABOVE2's top edge: 0.5*hc + ha1 + ha2
+    // The bottom-most point is BELOW2's bottom edge: -(0.5*hc + hb1 + hb2)
+
+    // Total height above center line (positive Y direction)
+    let above_extent = if ha2 > 0.0 {
+        // ABOVE2 top edge
+        0.5 * hc + ha1 + ha2
+    } else if ha1 > 0.0 {
+        // ABOVE top edge
+        0.5 * hc + ha1
+    } else {
+        // Just center text
+        0.5 * hc
+    };
+
+    // Total height below center line (negative Y direction, but return positive)
+    let below_extent = if hb2 > 0.0 {
+        // BELOW2 bottom edge
+        0.5 * hc + hb1 + hb2
+    } else if hb1 > 0.0 {
+        // BELOW bottom edge
+        0.5 * hc + hb1
+    } else {
+        // Just center text
+        0.5 * hc
+    };
+
+    (above_extent, below_extent)
+}
+
+/// Compute the bounding box of a list of rendered objects (in local coordinates)
+/// Uses "core" bounds (without arrowheads) to match C's sublist bbox computation.
+/// cref: pikchr.y:1757-1761 - sublist bbox from children's pObj->bbox (no arrowheads)
+fn compute_children_bounds(children: &[RenderedObject]) -> BoundingBox {
+    let mut bounds = BoundingBox::new();
+    for child in children {
+        // Use core bounds (no arrowheads) for sublist width/height calculation
+        expand_object_core_bounds(&mut bounds, child);
+    }
+    bounds
+}
+
+/// Create a partial RenderedObject for `this` keyword resolution during attribute processing.
+/// This allows expressions like `ht this.wid` to access the current object's computed properties.
+fn make_partial_object(
+    class_name: Option<ClassName>,
+    width: Inches,
+    height: Inches,
+    style: &ObjectStyle,
+) -> RenderedObject {
+    use shapes::*;
+
+    let center = pin(0.0, 0.0);
+
+    // Create a simple shape for the partial object based on class
+    let shape = match class_name {
+        Some(ClassName::Circle) => ShapeEnum::Circle(CircleShape {
+            center,
+            radius: width / 2.0,
+            style: style.clone(),
+            text: Vec::new(),
+        }),
+        Some(ClassName::Line) | Some(ClassName::Arrow) => ShapeEnum::Line(LineShape {
+            waypoints: vec![center, pin(width.0, 0.0)],
+            style: style.clone(),
+            text: Vec::new(),
+        }),
+        // For most other shapes, use a box
+        _ => ShapeEnum::Box(BoxShape {
+            center,
+            width,
+            height,
+            corner_radius: style.corner_radius,
+            style: style.clone(),
+            text: Vec::new(),
+        }),
+    };
+
+    RenderedObject {
+        name: None,
+        name_is_explicit: false,
+        text_name: None,
+        shape,
+        start_attachment: None,
+        end_attachment: None,
+        layer: 1000,                 // Default layer for partial objects
+        direction: Direction::Right, // Default direction for partial objects
+        class_name: class_name.unwrap_or(ClassName::Box),
+    }
+}
+
+/// Update the current_object in context with latest dimensions
+fn update_current_object(
+    ctx: &mut RenderContext,
+    class_name: Option<ClassName>,
+    width: Inches,
+    height: Inches,
+    style: &ObjectStyle,
+) {
+    ctx.current_object = Some(make_partial_object(class_name, width, height, style));
+}
+
+#[allow(unused_variables, clippy::let_and_return)] // let bindings needed for debug logging
+fn render_object_stmt(
+    ctx: &mut RenderContext,
+    obj_stmt: &ObjectStatement,
+    name: Option<String>,
+) -> Result<RenderedObject, PikruError> {
+    // Extract class name for shapes that have one
+    let class_name: Option<ClassName> = match &obj_stmt.basetype {
+        BaseType::Class(cn) => Some(*cn),
+        BaseType::Text(_, _) => Some(ClassName::Text),
+        BaseType::Sublist(_) => Some(ClassName::Sublist),
+    };
+    // Unwrap for use in fit/position logic - Sublist uses default Box-like behavior
+    let class = class_name.unwrap_or(ClassName::Box);
+
+    // Get layer from "layer" variable, default 1000
+    // cref: pik_elem_new (pikchr.c:2960)
+    let mut layer = ctx.get_scalar("layer", 1000.0) as i32;
+
+    // Determine base object properties from context variables (like C pikchr's pik_value)
+    let (mut width, mut height) = match &obj_stmt.basetype {
+        BaseType::Class(cn) => match cn {
+            ClassName::Box => (ctx.get_length("boxwid", 0.75), ctx.get_length("boxht", 0.5)),
+            ClassName::Circle => {
+                let rad = ctx.get_length("circlerad", 0.25);
+                (rad * 2.0, rad * 2.0)
+            }
+            ClassName::Ellipse => (
+                ctx.get_length("ellipsewid", 0.75),
+                ctx.get_length("ellipseht", 0.5),
+            ),
+            ClassName::Oval => (
+                ctx.get_length("ovalwid", 1.0),
+                ctx.get_length("ovalht", 0.5),
+            ),
+            ClassName::Cylinder => (ctx.get_length("cylwid", 0.75), ctx.get_length("cylht", 0.5)),
+            ClassName::Diamond => (
+                ctx.get_length("diamondwid", 1.0),
+                ctx.get_length("diamondht", 0.75),
+            ),
+            ClassName::File => (
+                ctx.get_length("filewid", 0.5),
+                ctx.get_length("fileht", 0.75),
+            ),
+            ClassName::Line => (
+                ctx.get_length("linewid", 0.5),
+                ctx.get_length("lineht", 0.5),
+            ),
+            ClassName::Arrow => (
+                ctx.get_length("linewid", 0.5),
+                ctx.get_length("lineht", 0.5),
+            ),
+            ClassName::Spline => (
+                ctx.get_length("linewid", 0.5),
+                ctx.get_length("lineht", 0.5),
+            ),
+            ClassName::Arc => {
+                let arcrad = ctx.get_length("arcrad", 0.25);
+                (arcrad, arcrad)
+            }
+            ClassName::Move => {
+                // cref: moveInit (pikchr.c:1617-1618) - h = w = movewid
+                let movewid = ctx.get_length("movewid", 0.5);
+                (movewid, movewid)
+            }
+            ClassName::Dot => {
+                // cref: dotInit (pikchr.c:4026-4028)
+                let dotrad = ctx.get_length("dotrad", 0.015);
+                // C: pObj->w = pObj->h = pObj->rad * 6
+                (dotrad * 6.0, dotrad * 6.0)
+            }
+            ClassName::Text => {
+                // Default dimensions - will be overridden by actual text content later
+                // Use charht for height to match C pikchr's text sizing
+                let charht = ctx.get_scalar("charht", 0.14);
+                (ctx.get_length("textwid", 0.75), Inches(charht))
+            }
+            // Sublist is handled via BaseType::Sublist, not BaseType::Class(Sublist)
+            ClassName::Sublist => (Inches::ZERO, Inches::ZERO),
+        },
+        BaseType::Text(s, pos) => {
+            // Use proportional character widths like C pikchr
+            let charwid = ctx.get_scalar("charwid", 0.08);
+            let charht = ctx.get_scalar("charht", 0.14);
+            let pt = PositionedText::from_textposition(s.value.clone(), pos.as_ref());
+            let w = pt.width_inches(charwid);
+            let h = pt.height(charht);
+            (Inches(w), Inches(h))
+        }
+        BaseType::Sublist(_) => {
+            // Placeholder - will be computed from rendered children below
+            (Inches::ZERO, Inches::ZERO)
+        }
+    };
+
+    // For sublists, render children early to compute their actual bounds
+    let (sublist_children, sublist_bounds) =
+        if let BaseType::Sublist(statements) = &obj_stmt.basetype {
+            let children = render_sublist(ctx, statements)?;
+            let bounds = compute_children_bounds(&children);
+            (Some(children), Some(bounds))
+        } else {
+            (None, None)
+        };
+
+    // Update width/height for sublists based on computed bounds
+    if let Some(ref bounds) = sublist_bounds {
+        if !bounds.is_empty() {
+            width = bounds.width();
+            height = bounds.height();
+        } else {
+            width = defaults::BOX_WIDTH;
+            height = defaults::BOX_HEIGHT;
+        }
+    }
+
+    let mut style = ObjectStyle::default();
+
+    // Apply global fill and color settings (these can be overridden by attributes)
+    // cref: pik_color_lookup, pik_render_object (pikchr.c)
+    if let Some(fill_val) = ctx.variables.get("fill") {
+        // fill is a color value
+        style.fill = match fill_val {
+            EvalValue::Color(c) => {
+                let color_hex = format!("#{:06x}", c);
+                crate::log::debug!(
+                    "Applying global fill color: {} (from {:?})",
+                    color_hex,
+                    fill_val
+                );
+                color_hex
+            }
+            _ => {
+                crate::log::debug!("Global fill is not a color: {:?}", fill_val);
+                "none".to_string()
+            }
+        };
+    } else {
+        crate::log::debug!("No global fill variable found");
+    }
+    if let Some(color_val) = ctx.variables.get("color") {
+        // color/stroke is a color value
+        style.stroke = match color_val {
+            EvalValue::Color(c) => format!("#{:06x}", c),
+            _ => "black".to_string(),
+        };
+    }
+
+    // Apply global thickness to initial stroke_width
+    // cref: C pikchr uses pik_value(p,"thickness",...) for default stroke widths
+    if let Some(EvalValue::Length(thickness)) = ctx.variables.get("thickness") {
+        style.stroke_width = *thickness;
+    }
+
+    // Initialize shape-specific radius values before processing attributes
+    // cref: cylinderInit (pikchr.c:3974), boxInit (pikchr.c:3775), etc.
+    if let Some(ref cn) = class_name {
+        style.corner_radius = match cn {
+            ClassName::Cylinder => ctx.get_length("cylrad", 0.075),
+            ClassName::Box => ctx.get_length("boxrad", 0.0),
+            ClassName::File => ctx.get_length("filerad", 0.0),
+            ClassName::Line | ClassName::Arrow => ctx.get_length("linerad", 0.0),
+            // cref: splineInit (pikchr.c:1656) - pObj->rad = 1000
+            ClassName::Spline => Inches(1000.0),
+            _ => Inches::ZERO,
+        };
+    }
+
+    let mut text = Vec::new();
+    let mut explicit_position: Option<PointIn> = None;
+    let mut from_position: Option<PointIn> = None;
+    let mut to_positions: Vec<PointIn> = Vec::new();
+    let mut from_attachment: Option<EndpointObject> = None;
+    let mut to_attachment: Option<EndpointObject> = None;
+    // Accumulated direction offsets for compound moves like "up 1 right 2"
+    // cref: p->mTPath in C pikchr tracks horizontal/vertical movement
+    let mut direction_offset = OffsetIn::ZERO;
+    let mut has_direction_move: bool = false;
+    let mut even_clause: Option<(Direction, Position)> = None;
+    // Instead of storing ThenClauses directly, we store segments
+    // Each "then" starts a new segment with accumulated direction offsets
+    // cref: p->thenFlag in C pikchr - when set, next direction creates new point
+    enum Segment {
+        /// Relative offset from previous position (accumulated directions)
+        Offset(OffsetIn, Direction),
+        /// Absolute position (from "then to position")
+        AbsolutePosition(PointIn),
+        /// Even with: take one coordinate from target based on direction
+        /// cref: pik_evenwith (pikchr.c) - sets x or y based on mTPath flag
+        /// For horizontal directions (Left/Right): set X = target.X, keep current Y
+        /// For vertical directions (Up/Down): set Y = target.Y, keep current X
+        EvenWith(Direction, PointIn),
+        /// Heading: move at arbitrary angle (degrees clockwise from north)
+        /// cref: pik_move_hdg (pikchr.c:3323-3365)
+        Heading(Inches, f64),
+    }
+    let mut segments: Vec<Segment> = Vec::new();
+    let mut current_segment_offset = OffsetIn::ZERO;
+    let mut current_segment_direction: Option<Direction> = None;
+    let mut in_then_segment = false;
+    let mut with_clause: Option<(EdgePoint, PointIn)> = None; // (edge, target_position)
+    // Waypoints copied from "same as" source object (for line-like objects)
+    // cref: pik_same (pikchr.c:6775-6787) - copies aTPath with translation
+    let mut same_path_waypoints: Option<Vec<PointIn>> = None;
+    // The object's entry direction (direction when object starts)
+    // cref: pObj->inDir in C pikchr
+    let in_direction = ctx.direction;
+    // The object's exit direction - starts as ctx.direction, updated by DirectionMove attributes
+    // cref: pObj->outDir in C pikchr
+    let mut object_direction = ctx.direction;
+
+    // Extract text from basetype
+    if let BaseType::Text(s, pos) = &obj_stmt.basetype {
+        text.push(PositionedText::from_textposition(
+            s.value.clone(),
+            pos.as_ref(),
+        ));
+    }
+
+    // Default arrow style for arrows
+    if class_name == Some(ClassName::Arrow) {
+        style.arrow_end = true;
+    }
+
+    // For dots, initialize fill to match stroke color
+    // cref: dotInit (pikchr.c:4026-4030) - pObj->fill = pObj->color
+    // Dots render with both fill and stroke in the same color (stroke_width is NOT 0)
+    if class_name == Some(ClassName::Dot) {
+        style.fill = style.stroke.clone();
+        crate::log::debug!(
+            fill = %style.fill,
+            "[Rust dot init] Set fill = stroke"
+        );
+    }
+
+    // Initialize current_object for `this` keyword support
+    update_current_object(ctx, class_name, width, height, &style);
+
+    // Process attributes in order, just like C does
+    for attr in &obj_stmt.attributes {
+        match attr {
+            Attribute::NumProperty(prop, relexpr) => {
+                let raw_val = eval_len(ctx, &relexpr.expr)?;
+                // If percent, multiply by current value (or default) to get actual value
+                let val = if relexpr.is_percent {
+                    let base = match prop {
+                        NumProperty::Width => width,
+                        NumProperty::Height => height,
+                        NumProperty::Radius => {
+                            match class_name {
+                                Some(ClassName::Circle)
+                                | Some(ClassName::Ellipse)
+                                | Some(ClassName::Arc) => {
+                                    width / 2.0 // current radius
+                                }
+                                Some(ClassName::Dot) => {
+                                    // cref: dotInit - dot stores width = rad * 6
+                                    // So current radius = width / 6
+                                    width / 6.0
+                                }
+                                Some(ClassName::Cylinder) => {
+                                    // For cylinders, corner_radius was initialized to cylrad before attributes
+                                    style.corner_radius
+                                }
+                                _ => style.corner_radius,
+                            }
+                        }
+                        NumProperty::Diameter => width,
+                        NumProperty::Thickness => style.stroke_width,
+                    };
+                    // raw_val is the percentage as a number (e.g., 50 for 50%)
+                    // Convert to fraction and multiply by base
+                    base * (raw_val.raw() / 100.0)
+                } else {
+                    raw_val
+                };
+                match prop {
+                    NumProperty::Width => {
+                        width = val;
+                        update_current_object(ctx, class_name, width, height, &style);
+                    }
+                    NumProperty::Height => {
+                        height = val;
+                        update_current_object(ctx, class_name, width, height, &style);
+                    }
+                    NumProperty::Radius => {
+                        // For circles/ellipses, radius sets size (diameter = 2 * radius)
+                        // For dots, radius sets size (width = rad * 6)
+                        // For boxes, radius sets corner rounding
+                        match class_name {
+                            Some(ClassName::Circle)
+                            | Some(ClassName::Ellipse)
+                            | Some(ClassName::Arc) => {
+                                width = val * 2.0;
+                                height = val * 2.0;
+                                update_current_object(ctx, class_name, width, height, &style);
+                            }
+                            Some(ClassName::Dot) => {
+                                // cref: dotNumProp - dot stores width = rad * 6
+                                width = val * 6.0;
+                                height = val * 6.0;
+                                update_current_object(ctx, class_name, width, height, &style);
+                            }
+                            _ => {
+                                style.corner_radius = val;
+                            }
+                        }
+                    }
+                    NumProperty::Diameter => {
+                        width = val;
+                        height = val;
+                        update_current_object(ctx, class_name, width, height, &style);
+                    }
+                    NumProperty::Thickness => style.stroke_width = val,
+                }
+            }
+            Attribute::DashProperty(prop, opt_expr) => {
+                // Get the dash/dot width: use explicit value or fall back to dashwid default
+                // cref: pik_set_dashed (pikchr.c:3205)
+                let width = if let Some(expr) = opt_expr {
+                    eval_len(ctx, expr)?
+                } else {
+                    Inches(eval::get_length(ctx, "dashwid", 0.05))
+                };
+
+                match prop {
+                    DashProperty::Dashed => {
+                        style.dashed = Some(width);
+                        style.dotted = None; // Clear dotted if setting dashed
+                    }
+                    DashProperty::Dotted => {
+                        style.dotted = Some(width);
+                        style.dashed = None; // Clear dashed if setting dotted
+                    }
+                }
+            }
+            Attribute::ColorProperty(prop, rvalue) => {
+                let color = eval_color(ctx, rvalue);
+                // cref: dotNumProp (pikchr.c:1353-1363) - dots keep fill and stroke synchronized
+                match prop {
+                    ColorProperty::Fill => {
+                        style.fill = color.clone();
+                        // For dots, when fill is set, also update stroke to match
+                        if class_name == Some(ClassName::Dot) {
+                            style.stroke = color.clone();
+                            crate::log::debug!(
+                                color = %color,
+                                "[Rust dot] Fill set, updating stroke to match"
+                            );
+                        }
+                    }
+                    ColorProperty::Color => {
+                        style.stroke = color.clone();
+                        // For dots, when color (stroke) is set, also update fill to match
+                        if class_name == Some(ClassName::Dot) {
+                            style.fill = color.clone();
+                            crate::log::debug!(
+                                color = %color,
+                                "[Rust dot] Color set, updating fill to match"
+                            );
+                        }
+                    }
+                }
+            }
+            Attribute::BoolProperty(prop) => match prop {
+                BoolProperty::Invisible => style.invisible = true,
+                // cref: pikchr.y:675-677 - -> sets rarrow, <- sets larrow
+                // When <- is used on an arrow (which defaults to ->), it replaces the default
+                BoolProperty::ArrowRight => style.arrow_end = true,
+                BoolProperty::ArrowLeft => {
+                    style.arrow_start = true;
+                    // cref: pikchr.y:676 - <- on arrow replaces the default ->
+                    if class_name == Some(ClassName::Arrow) {
+                        style.arrow_end = false;
+                    }
+                }
+                BoolProperty::ArrowBoth => {
+                    style.arrow_start = true;
+                    style.arrow_end = true;
+                }
+                // cref: pikchr.y:694-697 - thick/thin multiply, solid resets stroke width
+                BoolProperty::Thick => style.stroke_width = style.stroke_width * 1.5,
+                BoolProperty::Thin => style.stroke_width = style.stroke_width * 0.67,
+                BoolProperty::Solid => {
+                    // cref: pikchr.y:693,696 - invis sets sw to negative, solid resets to positive
+                    // This effectively clears invisibility when solid is applied
+                    style.invisible = false;
+                    style.stroke_width = ctx
+                        .variables
+                        .get("thickness")
+                        .and_then(|v| match v {
+                            EvalValue::Length(l) => Some(*l),
+                            _ => None,
+                        })
+                        .unwrap_or(defaults::STROKE_WIDTH);
+                }
+                BoolProperty::Clockwise => style.clockwise = true,
+                BoolProperty::CounterClockwise => style.clockwise = false,
+            },
+            Attribute::StringAttr(s, pos) => {
+                text.push(PositionedText::from_textposition(
+                    s.value.clone(),
+                    pos.as_ref(),
+                ));
+            }
+            Attribute::At(pos) => {
+                crate::log::debug!(?pos, "Attribute::At position");
+                if let Ok(p) = eval_position(ctx, pos) {
+                    crate::log::debug!(x = p.x.0, y = p.y.0, "Attribute::At evaluated");
+                    explicit_position = Some(p);
+                }
+            }
+            Attribute::From(pos) => {
+                if let Ok(p) = eval_position(ctx, pos) {
+                    from_position = Some(p);
+                    if from_attachment.is_none() {
+                        from_attachment = endpoint_object_from_position(ctx, pos);
+                    }
+                }
+            }
+            Attribute::To(pos) => {
+                if let Ok(p) = eval_position(ctx, pos) {
+                    crate::log::debug!(x = p.x.0, y = p.y.0, "Attribute::To evaluated position");
+                    to_positions.push(p);
+                    if to_attachment.is_none() {
+                        to_attachment = endpoint_object_from_position(ctx, pos);
+                    }
+                    // cref: pik_add_to (pikchr.y:3464) overwrites current path point
+                    // If there's a pending then segment direction, the "to" position
+                    // replaces it rather than adding to it. Clear the pending segment.
+                    if in_then_segment {
+                        current_segment_offset = OffsetIn::ZERO;
+                        current_segment_direction = None;
+                        in_then_segment = false;
+                    }
+                    // cref: pik_reset_samepath (pikchr.c:5923-5928)
+                    // Explicit "to" position resets any path copied from "same"
+                    same_path_waypoints = None;
+                }
+            }
+            Attribute::DirectionMove(_go, dir, dist) => {
+                has_direction_move = true;
+                // cref: pik_reset_samepath (pikchr.c:5923-5928)
+                // Direction moves reset any path copied from "same"
+                same_path_waypoints = None;
+                // Update object's direction - this will become the new global direction
+                // cref: pik_after_adding_element sets p->eDir = pObj->outDir
+                object_direction = *dir;
+                let distance = if let Some(relexpr) = dist {
+                    if let Ok(d) = eval_len(ctx, &relexpr.expr) {
+                        // Handle percent: 40% means 40% of the default line width
+                        if relexpr.is_percent {
+                            width * (d.raw() / 100.0)
+                        } else {
+                            d
+                        }
+                    } else {
+                        width // default distance
+                    }
+                } else {
+                    width // default distance
+                };
+                // cref: pik_add_direction (pikchr.c:3272) - accumulates directions
+                // If we're in a then segment, accumulate to current segment
+                // Otherwise accumulate to the initial direction_offset
+                if in_then_segment {
+                    current_segment_offset += dir.offset(distance);
+                    current_segment_direction = Some(*dir);
+                } else {
+                    direction_offset += dir.offset(distance);
+                }
+            }
+            Attribute::DirectionEven(_go, dir, pos) => {
+                // cref: pik_reset_samepath (pikchr.c:5923-5928)
+                // Even-with clauses reset any path copied from "same"
+                same_path_waypoints = None;
+                even_clause = Some((*dir, pos.clone()));
+            }
+            Attribute::DirectionUntilEven(_go, dir, pos) => {
+                // cref: pik_reset_samepath (pikchr.c:5923-5928)
+                // Even-with clauses reset any path copied from "same"
+                same_path_waypoints = None;
+                even_clause = Some((*dir, pos.clone()));
+            }
+            Attribute::CompassMove(dist, edgept) => {
+                has_direction_move = true;
+                same_path_waypoints = None;
+                let distance = if let Some(relexpr) = dist {
+                    if let Ok(d) = eval_len(ctx, &relexpr.expr) {
+                        if relexpr.is_percent {
+                            width * (d.raw() / 100.0)
+                        } else {
+                            d
+                        }
+                    } else {
+                        width
+                    }
+                } else {
+                    width
+                };
+                // Convert compass EdgePoint to heading angle, then to offset
+                // Uses same convention as Heading: 0° = north, clockwise
+                let angle = edgept.to_angle();
+                let angle_rad = angle.raw().to_radians();
+                let dx = distance.raw() * angle_rad.sin();
+                let dy = distance.raw() * angle_rad.cos();
+                let offset = OffsetIn::new(Inches::inches(dx), Inches::inches(dy));
+                if in_then_segment {
+                    current_segment_offset += offset;
+                } else {
+                    direction_offset += offset;
+                }
+            }
+            Attribute::BareExpr(relexpr) => {
+                // A bare expression is typically a distance applied in ctx.direction
+                if let Ok(d) = eval_len(ctx, &relexpr.expr) {
+                    // Handle percent: 40% means 40% of the default line width
+                    let val = if relexpr.is_percent {
+                        width * (d.raw() / 100.0)
+                    } else {
+                        d
+                    };
+                    has_direction_move = true;
+                    // cref: pik_reset_samepath (pikchr.c:5923-5928)
+                    // Direction moves reset any path copied from "same"
+                    same_path_waypoints = None;
+                    // Apply in context direction or current segment
+                    if in_then_segment {
+                        current_segment_offset += ctx.direction.offset(val);
+                    } else {
+                        direction_offset += ctx.direction.offset(val);
+                    }
+                }
+            }
+            Attribute::Heading(opt_dist, angle_expr) => {
+                // cref: pik_move_hdg (pikchr.c:3323-3365)
+                // Heading is an arbitrary angle (degrees clockwise from north)
+                // cref: pik_reset_samepath (pikchr.c:5923-5928)
+                // Heading moves reset any path copied from "same"
+                same_path_waypoints = None;
+                let angle = eval_scalar(ctx, angle_expr).unwrap_or(0.0);
+                let distance = if let Some(relexpr) = opt_dist {
+                    let d = eval_len(ctx, &relexpr.expr).unwrap_or(width);
+                    if relexpr.is_percent {
+                        width * (d.raw() / 100.0)
+                    } else {
+                        d
+                    }
+                } else {
+                    width // Default to linewid/objwid
+                };
+                has_direction_move = true;
+
+                if in_then_segment {
+                    // Save any pending offset segment first
+                    if current_segment_direction.is_some() {
+                        segments.push(Segment::Offset(
+                            current_segment_offset,
+                            current_segment_direction.unwrap(),
+                        ));
+                        current_segment_offset = OffsetIn::ZERO;
+                        current_segment_direction = None;
+                    }
+                    // Add the heading segment
+                    segments.push(Segment::Heading(distance, angle));
+                    in_then_segment = false;
+                } else {
+                    // Convert heading to offset and add to direction_offset
+                    // cref: pikchr.y:3362-3363 - sin for x, cos for y (heading 0 = north)
+                    let angle_rad = angle.to_radians();
+                    let dx = distance.raw() * angle_rad.sin();
+                    let dy = distance.raw() * angle_rad.cos();
+                    direction_offset.dx += Inches::inches(dx);
+                    direction_offset.dy += Inches::inches(dy);
+                }
+            }
+            Attribute::Then(Some(clause)) => {
+                // cref: pik_then (pikchr.c:3240) - "then" starts a new segment
+                // First, save any pending then segment
+                if in_then_segment && current_segment_direction.is_some() {
+                    segments.push(Segment::Offset(
+                        current_segment_offset,
+                        current_segment_direction.unwrap(),
+                    ));
+                    current_segment_offset = OffsetIn::ZERO;
+                    current_segment_direction = None;
+                }
+                in_then_segment = true;
+
+                // Process the then clause's direction if it has one
+                match clause {
+                    ThenClause::DirectionMove(dir, dist) => {
+                        let distance = if let Some(relexpr) = dist {
+                            if let Ok(d) = eval_len(ctx, &relexpr.expr) {
+                                if relexpr.is_percent {
+                                    width * (d.raw() / 100.0)
+                                } else {
+                                    d
+                                }
+                            } else {
+                                width
+                            }
+                        } else {
+                            width
+                        };
+                        current_segment_offset += dir.offset(distance);
+                        current_segment_direction = Some(*dir);
+                        object_direction = *dir;
+                    }
+                    ThenClause::EdgePoint(dist, edge) => {
+                        // EdgePoint like "nw" specifies a diagonal direction
+                        let distance = if let Some(relexpr) = dist {
+                            if let Ok(d) = eval_len(ctx, &relexpr.expr) {
+                                if relexpr.is_percent {
+                                    width * (d.raw() / 100.0)
+                                } else {
+                                    d
+                                }
+                            } else {
+                                width
+                            }
+                        } else {
+                            width
+                        };
+                        let unit_vec = edge.to_unit_vec();
+                        current_segment_offset += unit_vec * distance;
+                        // Direction is determined by the edge point
+                        current_segment_direction =
+                            Some(Direction::from_edge_point(edge).unwrap_or(ctx.direction));
+                    }
+                    ThenClause::To(pos) => {
+                        // "then to position" - save current segment if any, then add absolute position
+                        if current_segment_direction.is_some() {
+                            segments.push(Segment::Offset(
+                                current_segment_offset,
+                                current_segment_direction.unwrap(),
+                            ));
+                            current_segment_offset = OffsetIn::ZERO;
+                            current_segment_direction = None;
+                        }
+                        if let Ok(p) = eval_position(ctx, pos) {
+                            segments.push(Segment::AbsolutePosition(p));
+                        }
+                        // cref: pik_add_to sets pTo for autochop
+                        // When "then to <object>" is used, set to_attachment for autochop
+                        if to_attachment.is_none() {
+                            to_attachment = endpoint_object_from_position(ctx, pos);
+                        }
+                        in_then_segment = false;
+                    }
+                    ThenClause::DirectionUntilEven(dir, pos)
+                    | ThenClause::DirectionEven(dir, pos) => {
+                        // cref: pik_evenwith (pikchr.c) - sets coordinate based on direction
+                        // "then down until even with B5" - go down until Y = B5.Y
+                        // "then left even with B5" - go left until X = B5.X
+                        if current_segment_direction.is_some() {
+                            segments.push(Segment::Offset(
+                                current_segment_offset,
+                                current_segment_direction.unwrap(),
+                            ));
+                            current_segment_offset = OffsetIn::ZERO;
+                            current_segment_direction = None;
+                        }
+                        if let Ok(target) = eval_position(ctx, pos) {
+                            segments.push(Segment::EvenWith(*dir, target));
+                        }
+                        object_direction = *dir;
+                        in_then_segment = false;
+                    }
+                    ThenClause::Heading(opt_dist, angle_expr) => {
+                        // cref: pik_move_hdg (pikchr.c:3323-3365)
+                        // "then heading 45" or "then 1in heading 45"
+                        if current_segment_direction.is_some() {
+                            segments.push(Segment::Offset(
+                                current_segment_offset,
+                                current_segment_direction.unwrap(),
+                            ));
+                            current_segment_offset = OffsetIn::ZERO;
+                            current_segment_direction = None;
+                        }
+                        let angle = eval_scalar(ctx, angle_expr).unwrap_or(0.0);
+                        let distance = if let Some(relexpr) = opt_dist {
+                            let d = eval_len(ctx, &relexpr.expr).unwrap_or(width);
+                            if relexpr.is_percent {
+                                width * (d.raw() / 100.0)
+                            } else {
+                                d
+                            }
+                        } else {
+                            width // Default to linewid/objwid
+                        };
+                        segments.push(Segment::Heading(distance, angle));
+                        in_then_segment = false;
+                    }
+                }
+            }
+            Attribute::Then(None) => {
+                // Bare "then" - just sets then flag for next direction
+                // cref: pik_then (pikchr.c:3251) - p->thenFlag = 1
+                if in_then_segment && current_segment_direction.is_some() {
+                    segments.push(Segment::Offset(
+                        current_segment_offset,
+                        current_segment_direction.unwrap(),
+                    ));
+                    current_segment_offset = OffsetIn::ZERO;
+                    current_segment_direction = None;
+                }
+                in_then_segment = true;
+            }
+            Attribute::Chop => {
+                style.chop = true;
+            }
+            Attribute::Fit => {
+                // cref: pik_size_to_fit (pikchr.c:3754-3782)
+                // Compute fit using current state (text, width, height) just like C does
+                style.fit = true;
+
+                if !text.is_empty() {
+                    let charwid = ctx.get_scalar("charwid", defaults::CHARWID);
+                    let fontscale = ctx.get_scalar("fontscale", 1.0);
+                    let charht = ctx.get_scalar("charht", defaults::FONT_SIZE) * fontscale;
+                    let sw = style.stroke_width.raw();
+
+                    // Calculate text bounding box width using jw offset like C does
+                    // cref: pik_append_txt (pikchr.c:2466-2508)
+                    // For shapes with eJust==1 (box, cylinder, file, oval), ljust/rjust
+                    // text is offset inward from edges by jw
+                    let has_ejust = matches!(
+                        class_name,
+                        Some(ClassName::Box)
+                            | Some(ClassName::Cylinder)
+                            | Some(ClassName::File)
+                            | Some(ClassName::Oval)
+                    );
+                    let jw = if has_ejust {
+                        0.5 * (width.raw() - 0.5 * (charwid + sw))
+                    } else {
+                        0.0
+                    };
+
+                    // Compute bbox x-range for all text lines
+                    let mut bbox_min_x = 0.0_f64;
+                    let mut bbox_max_x = 0.0_f64;
+                    for t in &text {
+                        let cw = t.width_inches(charwid);
+                        let nx = if t.ljust {
+                            -jw
+                        } else if t.rjust {
+                            jw
+                        } else {
+                            0.0
+                        };
+                        // Text extent depends on justification
+                        let (x0, x1) = if t.rjust {
+                            (nx, nx - cw) // text extends left from anchor
+                        } else if t.ljust {
+                            (nx, nx + cw) // text extends right from anchor
+                        } else {
+                            (nx - cw / 2.0, nx + cw / 2.0) // centered
+                        };
+                        bbox_min_x = bbox_min_x.min(x0).min(x1);
+                        bbox_max_x = bbox_max_x.max(x0).max(x1);
+                    }
+                    let bbox_width = bbox_max_x - bbox_min_x;
+                    let fit_width = Inches(bbox_width + charwid);
+
+                    // Calculate text bounding box height using vertical slots
+                    let y_base = match class_name {
+                        // corner_radius was initialized to cylrad before attributes
+                        // C code only applies yBase if rad > 0
+                        Some(ClassName::Cylinder) if style.corner_radius.raw() > 0.0 => {
+                            -0.75 * style.corner_radius.raw()
+                        }
+                        _ => 0.0,
+                    };
+
+                    let vslots = compute_text_vslots(&text);
+                    let mut hc = 0.0_f64;
+                    let mut ha1 = 0.0_f64;
+                    let mut ha2 = 0.0_f64;
+                    let mut hb1 = 0.0_f64;
+                    let mut hb2 = 0.0_f64;
+
+                    for (i, t) in text.iter().enumerate() {
+                        let h = t.height(charht);
+                        match vslots.get(i).unwrap_or(&TextVSlot::Center) {
+                            TextVSlot::Center => hc = hc.max(h),
+                            TextVSlot::Above => ha1 = ha1.max(h),
+                            TextVSlot::Above2 => ha2 = ha2.max(h),
+                            TextVSlot::Below => hb1 = hb1.max(h),
+                            TextVSlot::Below2 => hb2 = hb2.max(h),
+                        }
+                    }
+
+                    let mut bbox_min_y = f64::MAX;
+                    let mut bbox_max_y = f64::MIN;
+                    for (i, t) in text.iter().enumerate() {
+                        let slot = vslots.get(i).unwrap_or(&TextVSlot::Center);
+                        let y_offset = match slot {
+                            TextVSlot::Above2 => 0.5 * hc + ha1 + 0.5 * ha2,
+                            TextVSlot::Above => 0.5 * hc + 0.5 * ha1,
+                            TextVSlot::Center => 0.0,
+                            TextVSlot::Below => -(0.5 * hc + 0.5 * hb1),
+                            TextVSlot::Below2 => -(0.5 * hc + hb1 + 0.5 * hb2),
+                        };
+                        let y = y_base + y_offset;
+                        let ch = charht * 0.5 * t.font_scale();
+                        bbox_min_y = bbox_min_y.min(y - ch);
+                        bbox_max_y = bbox_max_y.max(y + ch);
+                    }
+
+                    let h1 = bbox_max_y;
+                    let h2 = -bbox_min_y;
+                    let fit_height = Inches(2.0 * h1.max(h2) + 0.5 * charht);
+
+                    crate::log::debug!(
+                        bbox_min_y = bbox_min_y,
+                        bbox_max_y = bbox_max_y,
+                        h1 = h1,
+                        h2 = h2,
+                        charht = charht,
+                        fit_height = fit_height.raw(),
+                        "[Rust fit height calculation]"
+                    );
+
+                    // Apply shape-specific fit logic
+                    match class_name {
+                        Some(ClassName::Circle) => {
+                            let w = fit_width.raw();
+                            let h = fit_height.raw();
+                            let mut mx = w.max(h);
+                            if w > 0.0 && h > 0.0 && (w * w + h * h) > mx * mx {
+                                mx = w.hypot(h);
+                            }
+                            width = Inches(mx);
+                            height = Inches(mx);
+                        }
+                        Some(ClassName::Cylinder) => {
+                            // corner_radius was initialized to cylrad before attributes
+                            width = fit_width;
+                            height = fit_height + style.corner_radius * 0.25 + style.stroke_width;
+                        }
+                        Some(ClassName::Diamond) => {
+                            // cref: diamondFit (pikchr.c:1418-1430)
+                            // Use current width/height (set by earlier attributes, or defaults)
+                            let mut w = width.raw();
+                            let mut h = height.raw();
+                            if w <= 0.0 {
+                                w = fit_width.raw() * 1.5;
+                            }
+                            if h <= 0.0 {
+                                h = fit_height.raw() * 1.5;
+                            }
+                            if w > 0.0 && h > 0.0 {
+                                let x = w * fit_height.raw() / h + fit_width.raw();
+                                let y = h * x / w;
+                                w = x;
+                                h = y;
+                            }
+                            width = Inches(w);
+                            height = Inches(h);
+                        }
+                        Some(ClassName::File) => {
+                            let rad = ctx.get_length("filerad", 0.15);
+                            width = fit_width;
+                            height = fit_height + rad * 2.0;
+                        }
+                        Some(ClassName::Oval) => {
+                            width = fit_width.max(fit_height);
+                            height = fit_height;
+                        }
+                        _ => {
+                            width = fit_width;
+                            height = fit_height;
+                        }
+                    }
+                    update_current_object(ctx, class_name, width, height, &style);
+                }
+            }
+            Attribute::Same(obj_ref) => {
+                // Copy properties from referenced object
+                // cref: pik_same (pikchr.c:6761-6804)
+                let source = match obj_ref {
+                    Some(obj) => resolve_object(ctx, obj),
+                    None => ctx.get_last_object(Some(class)),
+                };
+                if let Some(source) = source {
+                    // For line-like objects, copy the path (waypoints)
+                    // cref: pik_same (pikchr.c:6775-6787)
+                    let source_is_line = matches!(
+                        source.class_name,
+                        ClassName::Line | ClassName::Arrow | ClassName::Spline
+                    );
+                    let current_is_line = matches!(
+                        class,
+                        ClassName::Line | ClassName::Arrow | ClassName::Spline
+                    );
+                    if source_is_line
+                        && current_is_line
+                        && let Some(wpts) = source.waypoints()
+                    {
+                        // Store the waypoints; they'll be translated to start position later
+                        same_path_waypoints = Some(wpts.to_vec());
+                        crate::log::debug!(
+                            num_waypoints = wpts.len(),
+                            "same as: copied waypoints from source line"
+                        );
+                    }
+
+                    // For non-line objects, copy width/height
+                    // cref: pik_same (pikchr.c:6788-6791)
+                    if !current_is_line {
+                        // For dots, we need to convert from visual width to internal width
+                        // DotShape::width() returns radius * 2 (diameter)
+                        // But rendering expects width = radius * 6
+                        // cref: dotInit - dot stores w = rad * 6
+                        if source.class_name == ClassName::Dot {
+                            // source.width() = radius * 2, we need radius * 6 = source.width() * 3
+                            width = source.width() * 3.0;
+                            height = source.height() * 3.0;
+                        } else {
+                            width = source.width();
+                            height = source.height();
+                        }
+                    }
+                    // Always copy style properties
+                    // cref: pik_same (pikchr.c:6792-6803)
+                    style = source.style().clone();
+
+                    // Copy layer for z-ordering
+                    // This ensures "box same" after "box behind X" inherits the layer
+                    layer = source.layer;
+                }
+            }
+            Attribute::Close => {
+                style.close_path = true;
+            }
+            Attribute::With(clause) => {
+                // Store the edge and target position for later center calculation
+                let edge = match &clause.edge {
+                    WithEdge::DotEdge(ep) | WithEdge::EdgePoint(ep) => *ep,
+                };
+                if let Ok(target) = eval_position(ctx, &clause.position) {
+                    with_clause = Some((edge, target));
+                }
+            }
+            Attribute::Behind(obj_ref) => {
+                // Lower the layer of the current object so that it is behind the given object
+                // cref: pik_behind (pikchr.c:3500-3505)
+                if let Some(other) = resolve_object(ctx, obj_ref) {
+                    // Set our layer to one less than the other object's layer
+                    // We'll apply this after creating the object
+                    layer = other.layer - 1;
+                }
+            }
+        }
+    }
+
+    // Auto-fit when width or height <= 0 (matches C behavior)
+    // cref: pikchr.c:4293-4311 - "A height or width less than or equal to zero means autofit"
+    if !text.is_empty() {
+        let needs_autofit_height = height.raw() <= 0.0;
+        let needs_autofit_width = width.raw() <= 0.0;
+
+        if needs_autofit_height || needs_autofit_width {
+            let charwid = ctx.get_scalar("charwid", defaults::CHARWID);
+            let fontscale = ctx.get_scalar("fontscale", 1.0);
+            let charht = ctx.get_scalar("charht", defaults::FONT_SIZE) * fontscale;
+            let sw = style.stroke_width.raw();
+
+            // For shapes with eJust==1 (box, cylinder, file, oval), compute jw
+            let has_ejust = matches!(
+                class_name,
+                Some(ClassName::Box)
+                    | Some(ClassName::Cylinder)
+                    | Some(ClassName::File)
+                    | Some(ClassName::Oval)
+            );
+            let current_width_for_jw = if has_ejust {
+                match class {
+                    ClassName::Box => eval::get_length(ctx, "boxwid", 0.75),
+                    ClassName::Cylinder => eval::get_length(ctx, "cylwid", 1.0),
+                    ClassName::File => eval::get_length(ctx, "filewid", 1.0),
+                    ClassName::Oval => eval::get_length(ctx, "ovalwid", 1.0),
+                    _ => width.raw(),
+                }
+            } else {
+                width.raw()
+            };
+            let jw = if has_ejust {
+                0.5 * (current_width_for_jw - 0.5 * (charwid + sw))
+            } else {
+                0.0
+            };
+
+            // Use compute_text_vslots to get correct slot assignments
+            // cref: pik_txt_vertical_layout (pikchr.c:2306-2385)
+            let vslots = compute_text_vslots(&text);
+
+            // Compute height allocations for each vertical position
+            // cref: pik_append_txt (pikchr.c:2426-2466)
+            let mut ha2: f64 = 0.0; // Height of above2 row
+            let mut ha1: f64 = 0.0; // Height of above row
+            let mut hc: f64 = 0.0; // Height of center row
+            let mut hb1: f64 = 0.0; // Height of below row
+            let mut hb2: f64 = 0.0; // Height of below2 row
+
+            for (i, t) in text.iter().enumerate() {
+                let s = t.font_scale() * charht;
+                match vslots.get(i).unwrap_or(&TextVSlot::Center) {
+                    TextVSlot::Above2 => ha2 = ha2.max(s),
+                    TextVSlot::Above => ha1 = ha1.max(s),
+                    TextVSlot::Center => hc = hc.max(s),
+                    TextVSlot::Below => hb1 = hb1.max(s),
+                    TextVSlot::Below2 => hb2 = hb2.max(s),
+                }
+            }
+
+            // Calculate text bounding box with correct y offsets
+            // cref: pik_append_txt (pikchr.c:2471-2508)
+            let mut bbox_min_x = f64::MAX;
+            let mut bbox_max_x = f64::MIN;
+            let mut bbox_min_y = f64::MAX;
+            let mut bbox_max_y = f64::MIN;
+
+            // cref: pik_append_txt (pikchr.c:5102-5110) - yBase for cylinders
+            // Cylinder text is shifted down by 0.75 * rad to account for top ellipse
+            let y_base =
+                if class_name == Some(ClassName::Cylinder) && style.corner_radius.raw() > 0.0 {
+                    -0.75 * style.corner_radius.raw()
+                } else {
+                    0.0
+                };
+
+            for (i, t) in text.iter().enumerate() {
+                let cw = t.width_inches(charwid);
+                let ch = charht * 0.5 * t.font_scale();
+
+                // Compute y offset based on vertical slot, including yBase for cylinders
+                let slot = vslots.get(i).unwrap_or(&TextVSlot::Center);
+                let y = y_base
+                    + match slot {
+                        TextVSlot::Above2 => 0.5 * hc + ha1 + 0.5 * ha2,
+                        TextVSlot::Above => 0.5 * hc + 0.5 * ha1,
+                        TextVSlot::Center => 0.0,
+                        TextVSlot::Below => -(0.5 * hc + 0.5 * hb1),
+                        TextVSlot::Below2 => -(0.5 * hc + hb1 + 0.5 * hb2),
+                    };
+
+                let nx = if t.ljust {
+                    -jw
+                } else if t.rjust {
+                    jw
+                } else {
+                    0.0
+                };
+
+                let (x0, x1, y0, y1) = if t.rjust {
+                    (nx, nx - cw, y - ch, y + ch)
+                } else if t.ljust {
+                    (nx, nx + cw, y - ch, y + ch)
+                } else {
+                    (nx + cw / 2.0, nx - cw / 2.0, y + ch, y - ch)
+                };
+
+                bbox_min_x = bbox_min_x.min(x0.min(x1));
+                bbox_max_x = bbox_max_x.max(x0.max(x1));
+                bbox_min_y = bbox_min_y.min(y0.min(y1));
+                bbox_max_y = bbox_max_y.max(y0.max(y1));
+            }
+
+            // Compute fit dimensions for shape-specific logic
+            let fit_w = (bbox_max_x - bbox_min_x) + charwid;
+            let fit_h = 2.0 * bbox_max_y.max(bbox_min_y.abs()) + 0.5 * charht;
+
+            // Apply autofit based on which dimension needs it
+            // cref: pikchr.c:4296-4311
+            // Note: Diamond and Circle use special formulas, handled separately below
+            let uses_special_autofit = matches!(
+                class_name,
+                Some(ClassName::Diamond) | Some(ClassName::Circle)
+            );
+            if !uses_special_autofit {
+                if needs_autofit_height {
+                    if needs_autofit_width {
+                        // Both width and height need autofit
+                        width = Inches(fit_w);
+                        height = Inches(fit_h);
+                    } else {
+                        // Only height needs autofit
+                        height = Inches(fit_h);
+                    }
+                } else if needs_autofit_width {
+                    // Only width needs autofit
+                    width = Inches(fit_w);
+                }
+            }
+
+            // Apply shape-specific fit adjustments
+            match class_name {
+                // cref: circleFit (pikchr.c:3940)
+                // Circle uses max(w, h) or hypot if both positive
+                Some(ClassName::Circle) if needs_autofit_width || needs_autofit_height => {
+                    let mut mx = fit_w.max(fit_h);
+                    if fit_w > 0.0 && fit_h > 0.0 && (fit_w * fit_w + fit_h * fit_h) > mx * mx {
+                        mx = fit_w.hypot(fit_h);
+                    }
+                    width = Inches(mx);
+                    height = Inches(mx);
+                }
+                // cref: cylinderFit (pikchr.c:3976)
+                // if( h>0 ) pObj->h = h + 0.25*pObj->rad + pObj->sw;
+                // Only add extra height for cylinder cap when autofitting height
+                Some(ClassName::Cylinder) if needs_autofit_height => {
+                    height = height + style.corner_radius * 0.25 + style.stroke_width;
+                }
+                // cref: ovalFit (pikchr.c:4320-4326)
+                // After setting w/h, ensure width >= height (pill shape constraint)
+                // if( pObj->w < pObj->h ) pObj->w = pObj->h;
+                Some(ClassName::Oval) if width < height => {
+                    width = height;
+                }
+                // cref: fileFit (pikchr.c:4147)
+                // File height needs to account for the fold corner
+                Some(ClassName::File) if needs_autofit_height => {
+                    height += style.corner_radius * 2.0;
+                }
+                Some(ClassName::Diamond) => {
+                    // Diamond uses bAltAutoFit logic
+                    // cref: diamondFit (pikchr.c:1418-1430)
+                    let mut w = width.raw();
+                    let mut h = height.raw();
+                    // Step 1: If width/height <= 0, initialize to 1.5 * fit dimension
+                    if w <= 0.0 {
+                        w = fit_w * 1.5;
+                    }
+                    if h <= 0.0 {
+                        h = fit_h * 1.5;
+                    }
+                    // Step 2: Apply the diamond formula if both dimensions are positive
+                    if w > 0.0 && h > 0.0 {
+                        let x = w * fit_h / h + fit_w;
+                        let y = h * x / w;
+                        width = Inches(x);
+                        height = Inches(y);
+                    } else {
+                        width = Inches(w);
+                        height = Inches(h);
+                    }
+                }
+                _ => {}
+            }
+
+            update_current_object(ctx, class_name, width, height, &style);
+        }
+    }
+
+    // Apply auto-fit for Text class objects (they always get auto-fitted)
+    // cref: textOffset (pikchr.c:4416) - text objects always get auto-fitted
+    // Normal fit is handled inline when Attribute::Fit is encountered
+    let should_fit = class == ClassName::Text && !style.fit;
+    if should_fit && !text.is_empty() {
+        let charwid = ctx.get_scalar("charwid", defaults::CHARWID);
+        let fontscale = ctx.get_scalar("fontscale", 1.0);
+        let charht = ctx.get_scalar("charht", defaults::FONT_SIZE) * fontscale;
+
+        // For box-style shapes (eJust=1), C computes bbox with jw-based offsets
+        // jw is computed from the CURRENT object width (default boxwid/cylwid)
+        // cref: pik_append_txt (pikchr.c:5144-5187)
+        let uses_box_justification = matches!(class, ClassName::Box | ClassName::Cylinder);
+        let current_width = if uses_box_justification {
+            match class {
+                ClassName::Box => eval::get_length(ctx, "boxwid", 0.75),
+                ClassName::Cylinder => eval::get_length(ctx, "cylwid", 1.0),
+                _ => 0.0,
+            }
+        } else {
+            0.0
+        };
+        let sw = style.stroke_width.0;
+        let jw = if uses_box_justification {
+            0.5 * (current_width - 0.5 * (charwid + sw))
+        } else {
+            0.0
+        };
+
+        // Calculate text bounding box including jw-based position offsets
+        // cref: pik_append_txt (pikchr.c:5173-5187)
+        let mut bbox_min_x = f64::MAX;
+        let mut bbox_max_x = f64::MIN;
+        for t in &text {
+            let cw = t.width_inches(charwid);
+            let nx = if t.ljust {
+                -jw // ljust shifts text left from center
+            } else if t.rjust {
+                jw // rjust shifts text right from center
+            } else {
+                0.0
+            };
+
+            // Compute x extent based on alignment
+            let (x0, x1) = if t.rjust {
+                (nx, nx - cw) // text extends left from anchor
+            } else if t.ljust {
+                (nx, nx + cw) // text extends right from anchor
+            } else {
+                (nx + cw / 2.0, nx - cw / 2.0) // centered
+            };
+
+            bbox_min_x = bbox_min_x.min(x0).min(x1);
+            bbox_max_x = bbox_max_x.max(x0).max(x1);
+        }
+        let bbox_width = bbox_max_x - bbox_min_x;
+
+        // C pikchr fit: w = (bbox.ne.x - bbox.sw.x) + charWidth
+        let fit_width = Inches(bbox_width + charwid);
+
+        // C pikchr fit: h = 2.0 * max(h1, h2) + 0.5 * charHeight
+        // cref: pik_size_to_fit (pikchr.c:6461-6466) - computes h1, h2 from actual text bbox
+        // cref: pik_append_txt (pikchr.c:5104-5143) - computes region heights
+        //
+        // Compute heights for each slot using each text's font scale
+        let vslots = compute_text_vslots(&text);
+
+        let mut hc = 0.0_f64; // center height
+        let mut ha1 = 0.0_f64; // above height
+        let mut ha2 = 0.0_f64; // above2 height
+        let mut hb1 = 0.0_f64; // below height
+        let mut hb2 = 0.0_f64; // below2 height
+
+        for (t, slot) in text.iter().zip(vslots.iter()) {
+            let h = t.height(charht);
+            match slot {
+                TextVSlot::Center => hc = hc.max(h),
+                TextVSlot::Above => ha1 = ha1.max(h),
+                TextVSlot::Above2 => ha2 = ha2.max(h),
+                TextVSlot::Below => hb1 = hb1.max(h),
+                TextVSlot::Below2 => hb2 = hb2.max(h),
+            }
+        }
+
+        // Compute actual bbox y-extents like C's pik_append_txt
+        // For each text: y_position +/- (0.5 * charht * fontScale)
+        // cref: pik_append_txt (pikchr.c:5162-5188)
+        //
+        // For shapes with yBase offset (like cylinder), text is shifted from center.
+        // cref: pik_append_txt (pikchr.c:5102-5104) - cylinder yBase = -0.75 * rad
+        let y_base = match class {
+            ClassName::Cylinder => {
+                // corner_radius was initialized to cylrad before attributes
+                -0.75 * style.corner_radius.raw()
+            }
+            _ => 0.0,
+        };
+
+        let mut bbox_max_y = f64::MIN;
+        let mut bbox_min_y = f64::MAX;
+
+        for (t, slot) in text.iter().zip(vslots.iter()) {
+            // Compute y position offset (same as C's y calculation)
+            // Start from yBase, then add slot-specific offset
+            let y = y_base
+                + match slot {
+                    TextVSlot::Above2 => 0.5 * hc + ha1 + 0.5 * ha2,
+                    TextVSlot::Above => 0.5 * hc + 0.5 * ha1,
+                    TextVSlot::Center => 0.0,
+                    TextVSlot::Below => -(0.5 * hc + 0.5 * hb1),
+                    TextVSlot::Below2 => -(0.5 * hc + hb1 + 0.5 * hb2),
+                };
+            // Character half-height, scaled by font scale
+            let ch = charht * 0.5 * t.font_scale();
+            // Text extends from y-ch to y+ch
+            bbox_max_y = bbox_max_y.max(y + ch);
+            bbox_min_y = bbox_min_y.min(y - ch);
+        }
+
+        // h1 = extent above center, h2 = extent below center
+        let h1 = bbox_max_y; // max y relative to center
+        let h2 = -bbox_min_y; // min y (negative) relative to center
+
+        let fit_height = Inches(2.0 * h1.max(h2) + 0.5 * charht);
+
+        // Apply shape-specific fit logic matching C pikchr's xFit callbacks
+        match class {
+            ClassName::Circle => {
+                // cref: circleFit (pikchr.c:3940)
+                let w = fit_width.raw();
+                let h = fit_height.raw();
+                let mut mx = w.max(h);
+                crate::log::debug!(w, h, mx, "circleFit initial");
+                if w > 0.0 && h > 0.0 && (w * w + h * h) > mx * mx {
+                    mx = w.hypot(h);
+                    crate::log::debug!(mx, "circleFit using hypot");
+                }
+                let diameter = Inches(mx);
+                let _radius = diameter / 2.0;
+                crate::log::debug!(
+                    rad_inches = _radius.raw(),
+                    rad_px = _radius.raw() * 144.0,
+                    "circleFit final"
+                );
+                width = diameter;
+                height = diameter;
+            }
+            ClassName::Cylinder => {
+                // cref: cylinderFit (pikchr.c:3976)
+                // corner_radius was initialized to cylrad before attributes
+                width = fit_width;
+                height = fit_height + style.corner_radius * 0.25 + style.stroke_width;
+                crate::log::debug!(
+                    fit_height = fit_height.raw(),
+                    rad = style.corner_radius.raw(),
+                    sw = style.stroke_width.raw(),
+                    result_height = height.raw(),
+                    "cylinderFit calculation"
+                );
+            }
+            ClassName::Diamond => {
+                // cref: diamondFit (pikchr.c:4096)
+                // Use default shape dimensions (diamondwid=1.0, diamondht=0.75) in formula
+                let mut w = width.raw(); // Already set to diamondwid default
+                let mut h = height.raw(); // Already set to diamondht default
+                if w > 0.0 && h > 0.0 {
+                    let x = w * fit_height.raw() / h + fit_width.raw();
+                    let y = h * x / w;
+                    w = x;
+                    h = y;
+                }
+                width = Inches(w);
+                height = Inches(h);
+            }
+            ClassName::File => {
+                // cref: fileFit (pikchr.c:4214)
+                let rad = ctx.get_length("filerad", 0.15);
+                width = fit_width;
+                height = fit_height + rad * 2.0;
+            }
+            ClassName::Oval => {
+                // cref: ovalFit (pikchr.c:4320)
+                width = fit_width.max(fit_height);
+                height = fit_height;
+            }
+            _ => {
+                // cref: boxFit (pikchr.c:3845) - Box, Ellipse, Text: direct assignment
+                width = fit_width;
+                height = fit_height;
+            }
+        }
+        if class == ClassName::Text {
+            crate::log::debug!(
+                fit_width = fit_width.raw(),
+                fit_height = fit_height.raw(),
+                width = width.raw(),
+                height = height.raw(),
+                "textFit"
+            );
+        }
+    }
+
+    // Save final pending then segment if there is one
+    // cref: C pikchr saves the current path point when processing completes
+    if let Some(direction) = current_segment_direction
+        && in_then_segment
+    {
+        segments.push(Segment::Offset(current_segment_offset, direction));
+    }
+
+    // Calculate position based on object type
+    crate::log::debug!(
+        ?class,
+        from_position = from_position.is_some(),
+        to_positions_count = to_positions.len(),
+        has_direction_move,
+        segments_count = segments.len(),
+        even_clause = even_clause.is_some(),
+        with_clause = with_clause.is_some(),
+        same_path = same_path_waypoints.is_some(),
+        "position branch conditions"
+    );
+    let (center, start, end, waypoints) = if from_position.is_some()
+        || !to_positions.is_empty()
+        || has_direction_move
+        || !segments.is_empty()
+        || even_clause.is_some()
+        || same_path_waypoints.is_some()
+    {
+        // Line-like objects with explicit from/to, direction moves, or then clauses
+        // Determine start position based on direction of movement
+        let start = if let Some(pos) = from_position {
+            crate::log::debug!(
+                from_x = pos.x.raw(),
+                from_y = pos.y.raw(),
+                "start: from explicit from_position"
+            );
+            pos
+        } else if !to_positions.is_empty() && has_direction_move && class == ClassName::Move {
+            // "move to X down Y" - start FROM the to_position, not from current cursor
+            // The direction offset will be applied from this point
+            // This only applies to Move objects, not Line/Arrow
+            crate::log::debug!(
+                to_x = to_positions[0].x.raw(),
+                to_y = to_positions[0].y.raw(),
+                "start: using to_position as start (move to X down Y case)"
+            );
+            to_positions[0]
+        } else if has_direction_move && to_positions.is_empty() {
+            // Only use last object's edge when we have direction_move WITHOUT to_positions
+            // (e.g., "arrow right 2in" uses last object's edge)
+            if let Some(last_obj) = ctx.last_object() {
+                // For line-like objects, use the end point directly
+                match last_obj.class() {
+                    ClassName::Line
+                    | ClassName::Arrow
+                    | ClassName::Spline
+                    | ClassName::Arc
+                    | ClassName::Move
+                    | ClassName::Dot => last_obj.end(),
+                    _ => {
+                        // For box-like objects, calculate exit edge based on direction
+                        let (hw, hh) = (last_obj.width() / 2.0, last_obj.height() / 2.0);
+                        let c = last_obj.center();
+                        let exit_x = if direction_offset.dx > Inches::ZERO {
+                            c.x + hw // moving right, exit from right edge
+                        } else if direction_offset.dx < Inches::ZERO {
+                            c.x - hw // moving left, exit from left edge
+                        } else {
+                            c.x // no horizontal movement, use center
+                        };
+                        // In SVG coordinates: positive Y offset = down = bottom edge
+                        let exit_y = if direction_offset.dy > Inches::ZERO {
+                            c.y + hh // moving down (positive Y), exit from bottom edge
+                        } else if direction_offset.dy < Inches::ZERO {
+                            c.y - hh // moving up (negative Y), exit from top edge
+                        } else {
+                            c.y // no vertical movement, use center
+                        };
+                        Point::new(exit_x, exit_y)
+                    }
+                }
+            } else {
+                ctx.position
+            }
+        } else {
+            ctx.position
+        };
+
+        // Build waypoints starting from start
+        {
+            let mut points = vec![start];
+            let mut current_pos = start;
+
+            // cref: pik_evenwith (pikchr.y:3374) and pik_add_direction (pikchr.y:3272)
+            // In C pikchr, both operations modify p->aTPath[n]:
+            // - pik_add_direction: p->aTPath[n].x += distance (incremental)
+            // - pik_evenwith: p->aTPath[n].x = target.x (absolute, creates new point if mTPath flag set)
+            //
+            // For "right right even with TN":
+            // 1. First "right" adds linewid to x, sets mTPath |= 1
+            // 2. Second "right even with TN" sees mTPath & 1, creates NEW point, sets x = TN.x
+            //
+            // So we get: start -> start+right -> (TN.x, y)
+            //
+            // When we have both direction_offset AND even_clause:
+            // 1. Apply direction_offset first to create intermediate waypoint
+            // 2. Then apply even_clause from that intermediate point
+
+            // Apply direction offset BEFORE even_clause if both exist
+            // This matches C behavior where horizontal/vertical flags determine whether
+            // to create a new path point
+            if direction_offset != OffsetIn::ZERO && even_clause.is_some() {
+                let intermediate = current_pos + direction_offset;
+                crate::log::debug!(
+                    current_pos_x = current_pos.x.raw(),
+                    current_pos_y = current_pos.y.raw(),
+                    direction_offset_dx = direction_offset.dx.raw(),
+                    direction_offset_dy = direction_offset.dy.raw(),
+                    intermediate_x = intermediate.x.raw(),
+                    intermediate_y = intermediate.y.raw(),
+                    "Rust: direction before even_clause"
+                );
+                points.push(intermediate);
+                current_pos = intermediate;
+                // Clear direction_offset since we've applied it
+                direction_offset = OffsetIn::ZERO;
+            }
+
+            // Handle even_clause - sets a coordinate to target's value
+            // cref: pik_evenwith (pikchr.y:3374) - uses = to SET, not +=
+            if let Some((dir, pos_expr)) = even_clause.as_ref() {
+                let target = eval_position(ctx, pos_expr)?;
+                let even_point = match dir {
+                    Direction::Right | Direction::Left => Point::new(target.x, current_pos.y),
+                    Direction::Up | Direction::Down => Point::new(current_pos.x, target.y),
+                };
+                crate::log::debug!(
+                    current_pos_x = current_pos.x.raw(),
+                    current_pos_y = current_pos.y.raw(),
+                    target_x = target.x.raw(),
+                    target_y = target.y.raw(),
+                    even_point_x = even_point.x.raw(),
+                    even_point_y = even_point.y.raw(),
+                    ?dir,
+                    "Rust: even_clause computed even_point"
+                );
+                points.push(even_point);
+                current_pos = even_point;
+            }
+
+            if let Some(ref same_wpts) = same_path_waypoints {
+                // Use waypoints from "same as" source, translated to start position
+                // cref: pik_same (pikchr.c:6775-6787) - copies path with translation
+                if !same_wpts.is_empty() {
+                    let source_start = same_wpts[0];
+                    let translation = OffsetIn {
+                        dx: start.x - source_start.x,
+                        dy: start.y - source_start.y,
+                    };
+                    // Clear the default start point and use translated path
+                    points.clear();
+                    for wpt in same_wpts {
+                        points.push(*wpt + translation);
+                    }
+                    crate::log::debug!(
+                        source_start_x = source_start.x.raw(),
+                        source_start_y = source_start.y.raw(),
+                        translation_dx = translation.dx.raw(),
+                        translation_dy = translation.dy.raw(),
+                        num_points = points.len(),
+                        "same as: translated waypoints to start position"
+                    );
+                }
+            } else if !to_positions.is_empty()
+                && segments.is_empty()
+                && !has_direction_move
+                && even_clause.is_none()
+            {
+                // from X to Y [to Z...] - add all to_positions as waypoints
+                for pos in &to_positions {
+                    points.push(*pos);
+                }
+            } else if has_direction_move || !segments.is_empty() || even_clause.is_some() {
+                // cref: C pikchr accumulates directions per segment
+                // direction_offset = initial segment (before first "then")
+                // segments = accumulated offsets for each "then" segment
+
+                // C pikchr processes attributes in source order:
+                // For "spline right .2 from X to Y to Z":
+                // 1. "right .2" creates waypoint at cursor + (0.2*linewid, 0)
+                // 2. "from X" sets start to X and mTPath=3
+                // 3. "to Y" sees mTPath=3, ADVANCES, then sets waypoint to Y
+                // 4. "to Z" sees mTPath=3, ADVANCES, then sets waypoint to Z
+                //
+                // The key is that when "from" is explicit, subsequent "to" clauses
+                // ADVANCE (create new waypoint) instead of overwriting the direction waypoint.
+                //
+                // cref: pik_set_from sets mTPath=3
+                // cref: pik_add_to checks mTPath==3 to decide whether to advance
+
+                // When we have from_position AND direction_offset AND to_positions,
+                // the direction creates a waypoint BEFORE the to_positions
+                let has_explicit_from = from_position.is_some();
+                if direction_offset != OffsetIn::ZERO
+                    && has_explicit_from
+                    && !to_positions.is_empty()
+                {
+                    // "spline right .2 from X to Y to Z" pattern:
+                    // Create direction waypoint BEFORE adding to_positions
+                    let dir_point = start + direction_offset;
+                    crate::log::debug!(
+                        start_x = start.x.raw(),
+                        start_y = start.y.raw(),
+                        dir_offset_dx = direction_offset.dx.raw(),
+                        dir_offset_dy = direction_offset.dy.raw(),
+                        dir_point_x = dir_point.x.raw(),
+                        dir_point_y = dir_point.y.raw(),
+                        "Rust: adding direction waypoint before to_positions"
+                    );
+                    points.push(dir_point);
+                    current_pos = dir_point;
+                }
+
+                if !to_positions.is_empty() {
+                    // Add all to_positions as waypoints
+                    for pos in &to_positions {
+                        points.push(*pos);
+                        current_pos = *pos;
+                    }
+                }
+
+                // Apply direction offset AFTER to_positions for Move class
+                // "move to X down 1in" creates waypoint at X, then X+down1in
+                // For non-Move classes without explicit from, don't add direction after to
+                let should_apply_direction_offset = if !to_positions.is_empty() {
+                    // For Move: apply direction after to_position
+                    // For others (Line/Spline): only if we didn't already add direction before to_positions
+                    class == ClassName::Move
+                } else {
+                    // Always apply when no to_positions (normal direction moves)
+                    true
+                };
+
+                if direction_offset != OffsetIn::ZERO && should_apply_direction_offset {
+                    let next = current_pos + direction_offset;
+                    crate::log::debug!(
+                        start_x = start.x.raw(),
+                        start_y = start.y.raw(),
+                        current_pos_x = current_pos.x.raw(),
+                        current_pos_y = current_pos.y.raw(),
+                        direction_offset_dx = direction_offset.dx.raw(),
+                        direction_offset_dy = direction_offset.dy.raw(),
+                        next_x = next.x.raw(),
+                        next_y = next.y.raw(),
+                        "Rust: applying initial direction offset"
+                    );
+                    points.push(next);
+                    current_pos = next;
+                }
+
+                // Apply each "then" segment's accumulated offset or absolute position
+                // cref: each segment is like calling pik_add_direction after a "then"
+                for (i, segment) in segments.iter().enumerate() {
+                    let next = match segment {
+                        Segment::Offset(segment_offset, _segment_dir) => {
+                            let next = current_pos + *segment_offset;
+                            crate::log::debug!(
+                                segment_index = i,
+                                current_pos_x = current_pos.x.raw(),
+                                current_pos_y = current_pos.y.raw(),
+                                segment_offset_dx = segment_offset.dx.raw(),
+                                segment_offset_dy = segment_offset.dy.raw(),
+                                next_x = next.x.raw(),
+                                next_y = next.y.raw(),
+                                "Rust: applying then segment offset"
+                            );
+                            next
+                        }
+                        Segment::AbsolutePosition(pos) => {
+                            crate::log::debug!(
+                                segment_index = i,
+                                current_pos_x = current_pos.x.raw(),
+                                current_pos_y = current_pos.y.raw(),
+                                absolute_x = pos.x.raw(),
+                                absolute_y = pos.y.raw(),
+                                "Rust: applying then absolute position"
+                            );
+                            *pos
+                        }
+                        Segment::EvenWith(dir, target) => {
+                            // cref: pik_evenwith (pikchr.c) - sets x or y based on mTPath flag
+                            // For vertical directions (Up/Down), Y is being changed, so take Y from target
+                            // For horizontal directions (Left/Right), X is being changed, so take X from target
+                            let next = match dir {
+                                Direction::Up | Direction::Down => {
+                                    PointIn::new(current_pos.x, target.y)
+                                }
+                                Direction::Left | Direction::Right => {
+                                    PointIn::new(target.x, current_pos.y)
+                                }
+                            };
+                            crate::log::debug!(
+                                segment_index = i,
+                                direction = ?dir,
+                                current_pos_x = current_pos.x.raw(),
+                                current_pos_y = current_pos.y.raw(),
+                                target_x = target.x.raw(),
+                                target_y = target.y.raw(),
+                                next_x = next.x.raw(),
+                                next_y = next.y.raw(),
+                                "Rust: applying then even-with segment"
+                            );
+                            next
+                        }
+                        Segment::Heading(distance, angle) => {
+                            // cref: pik_move_hdg (pikchr.c:3323-3365)
+                            // Heading angle is degrees clockwise from north (0°=up)
+                            let angle_rad = angle.to_radians();
+                            let dx = distance.raw() * angle_rad.sin();
+                            let dy = distance.raw() * angle_rad.cos();
+                            let next = PointIn::new(
+                                current_pos.x + Inches::inches(dx),
+                                current_pos.y + Inches::inches(dy),
+                            );
+                            crate::log::debug!(
+                                segment_index = i,
+                                angle_deg = angle,
+                                distance = distance.raw(),
+                                current_pos_x = current_pos.x.raw(),
+                                current_pos_y = current_pos.y.raw(),
+                                dx = dx,
+                                dy = dy,
+                                next_x = next.x.raw(),
+                                next_y = next.y.raw(),
+                                "Rust: applying then heading segment"
+                            );
+                            next
+                        }
+                    };
+                    points.push(next);
+                    current_pos = next;
+                }
+            } else {
+                // No direction moves, no then clauses - default single segment
+                let next = move_in_direction(current_pos, ctx.direction, width);
+                crate::log::debug!(
+                    start_x = start.x.raw(),
+                    start_y = start.y.raw(),
+                    ctx_direction = ?ctx.direction,
+                    width = width.raw(),
+                    next_x = next.x.raw(),
+                    next_y = next.y.raw(),
+                    "[Rust line_default_path]"
+                );
+                points.push(next);
+            }
+
+            let end = *points.last().unwrap_or(&start);
+            // Compute line center as center of bounding box over all path points
+            // cref: pikchr.y:4381-4391 - "the center of a line is the center of its bounding box"
+            // This differs from PIC where center is midpoint between start and end
+            let mut min_x = f64::MAX;
+            let mut max_x = f64::MIN;
+            let mut min_y = f64::MAX;
+            let mut max_y = f64::MIN;
+            for pt in &points {
+                min_x = min_x.min(pt.x.raw());
+                max_x = max_x.max(pt.x.raw());
+                min_y = min_y.min(pt.y.raw());
+                max_y = max_y.max(pt.y.raw());
+            }
+            let center = Point {
+                x: Inches((min_x + max_x) / 2.0),
+                y: Inches((min_y + max_y) / 2.0),
+            };
+            crate::log::debug!(
+                center_x = center.x.raw(),
+                center_y = center.y.raw(),
+                start_x = start.x.raw(),
+                start_y = start.y.raw(),
+                end_x = end.x.raw(),
+                end_y = end.y.raw(),
+                waypoints_len = points.len(),
+                "[Rust line_final]"
+            );
+            (center, start, end, points)
+        }
+    } else if let Some((edge, target)) = with_clause {
+        // Position object so that specified edge is at target position
+        let center = calculate_center_from_edge(edge, target, width, height, class, ctx.direction);
+        let (_, s, e) = calculate_object_position_at(ctx.direction, center, width, height);
+        (center, s, e, vec![s, e])
+    } else if let Some(pos) = explicit_position {
+        // Box-like objects with explicit "at" position
+        let (_, s, e) = calculate_object_position_at(ctx.direction, pos, width, height);
+        (pos, s, e, vec![s, e])
+    } else if class == ClassName::Arc {
+        // cref: pikchr.c:4323-4341 - Arc positioning with double movement
+        // Arcs move twice: first in input direction, then in output direction (90° turn)
+        let start = ctx.position;
+
+        // First move in input direction by width
+        let mid_point = start + ctx.direction.offset(width);
+
+        // Calculate output direction (90° rotation based on clockwise)
+        let out_dir = ctx.direction.arc_exit(style.clockwise);
+
+        // Second move in output direction by height
+        let end = mid_point + out_dir.offset(height);
+
+        // Center is midpoint of start and end
+        let center = start.midpoint(end);
+
+        crate::log::debug!(
+            start_x = start.x.raw(),
+            start_y = start.y.raw(),
+            mid_x = mid_point.x.raw(),
+            mid_y = mid_point.y.raw(),
+            end_x = end.x.raw(),
+            end_y = end.y.raw(),
+            in_dir = ?ctx.direction,
+            out_dir = ?out_dir,
+            clockwise = style.clockwise,
+            "[Rust arc positioning]"
+        );
+
+        (center, start, end, vec![start, end])
+    } else {
+        let (c, s, e) = calculate_object_position(ctx, class, width, height);
+        crate::log::debug!(
+            center_x = c.x.raw(),
+            center_y = c.y.raw(),
+            start_x = s.x.raw(),
+            start_y = s.y.raw(),
+            end_x = e.x.raw(),
+            end_y = e.y.raw(),
+            ctx_direction = ?ctx.direction,
+            "[Rust calculate_object_position for {:?}]", class
+        );
+        (c, s, e, vec![s, e])
+    };
+
+    // For arcs, update the object's direction to the output direction (90° rotated)
+    // cref: pikchr.c:4333-4334 - p->eDir = (unsigned char)pObj->outDir
+    if class == ClassName::Arc {
+        object_direction = ctx.direction.arc_exit(style.clockwise);
+    }
+
+    // Handle sublist: use pre-rendered children and translate to final position
+    let mut children = sublist_children.unwrap_or_default();
+
+    if !children.is_empty() {
+        // Children were rendered in local coords starting at (0,0).
+        // We need to translate them so their center aligns with the sublist's center.
+        if let Some(ref bounds) = sublist_bounds
+            && !bounds.is_empty()
+        {
+            // The children's center in local coords
+            let local_center = bounds.center();
+            // Offset from local center to final center
+            let offset = center - local_center;
+            for child in children.iter_mut() {
+                child.translate(offset);
+            }
+        }
+    }
+
+    // Objects can be looked up by EITHER explicit name OR text content
+    // cref: pik_find_byname (pikchr.c:4027-4044) - searches explicit names then text names
+    // Explicit names take precedence over text-derived names when looking up objects.
+    // We store both so objects like `B1: box "One"` can be found by either "B1" or "One"
+    let explicit_name = name;
+    let text_name = text.first().map(|t| t.value.clone());
+
+    // For RenderedObject.name, prefer explicit name, fall back to text name
+    let (final_name, name_is_explicit) = if let Some(ref n) = explicit_name {
+        (Some(n.clone()), true)
+    } else if let Some(ref t) = text_name {
+        (Some(t.clone()), false)
+    } else {
+        (None, false)
+    };
+
+    // Clear current_object now that we're done building this object
+    ctx.current_object = None;
+
+    // Apply chopping to waypoints for line-like objects
+    // cref: pik_after_adding_attributes (pikchr.c:4372-4379)
+    // This modifies waypoints in place, matching C pikchr's behavior where
+    // chopping happens during construction, not rendering.
+    let mut waypoints = waypoints;
+    let is_line_like = matches!(
+        class,
+        ClassName::Line | ClassName::Arrow | ClassName::Spline
+    );
+    // Implicit autochop: triggered when BOTH endpoints are objects AND neither is a dotted name
+    // cref: pik_position_from_place (pikchr.c) - doesn't set ppObj for dotted names
+    // Explicit chop: always allowed via style.chop, even for dotted names
+    let implicit_autochop = from_attachment
+        .as_ref()
+        .map(|a| !a.is_dotted_name)
+        .unwrap_or(false)
+        && to_attachment
+            .as_ref()
+            .map(|a| !a.is_dotted_name)
+            .unwrap_or(false);
+    let should_chop = style.chop || implicit_autochop;
+
+    if is_line_like && should_chop && waypoints.len() >= 2 {
+        use geometry::autochop_inches;
+        let n = waypoints.len();
+
+        // Chop end point against to_attachment (if present)
+        // cref: pik_autochop(p, &pObj->aPath[n-2], &pObj->aPath[n-1], pObj->pTo)
+        if let Some(ref to_obj) = to_attachment {
+            let from_pt = waypoints[n - 2]; // Direction reference
+            let to_pt = waypoints[n - 1]; // Point to chop
+            waypoints[n - 1] = autochop_inches(from_pt, to_pt, to_obj);
+        }
+
+        // Chop start point against from_attachment (if present)
+        // cref: pik_autochop(p, &pObj->aPath[1], &pObj->aPath[0], pObj->pFrom)
+        if let Some(ref from_obj) = from_attachment {
+            let from_pt = waypoints[1]; // Direction reference
+            let to_pt = waypoints[0]; // Point to chop
+            waypoints[0] = autochop_inches(from_pt, to_pt, from_obj);
+        }
+
+        crate::log::debug!(
+            start_x = waypoints[0].x.raw(),
+            start_y = waypoints[0].y.raw(),
+            end_x = waypoints[n - 1].x.raw(),
+            end_y = waypoints[n - 1].y.raw(),
+            "[Rust autochop applied]"
+        );
+    }
+
+    // Create the appropriate shape based on class
+    use shapes::*;
+    let shape = match class {
+        ClassName::Box => ShapeEnum::Box(BoxShape {
+            center,
+            width,
+            height,
+            corner_radius: style.corner_radius,
+            style: style.clone(),
+            text: text.clone(),
+        }),
+        ClassName::Circle => ShapeEnum::Circle(CircleShape {
+            center,
+            radius: width / 2.0,
+            style: style.clone(),
+            text: text.clone(),
+        }),
+        ClassName::Ellipse => ShapeEnum::Ellipse(EllipseShape {
+            center,
+            width,
+            height,
+            style: style.clone(),
+            text: text.clone(),
+        }),
+        ClassName::Oval => ShapeEnum::Oval(OvalShape {
+            center,
+            width,
+            height,
+            style: style.clone(),
+            text: text.clone(),
+        }),
+        ClassName::Diamond => ShapeEnum::Diamond(DiamondShape {
+            center,
+            width,
+            height,
+            style: style.clone(),
+            text: text.clone(),
+        }),
+        ClassName::Cylinder => ShapeEnum::Cylinder(CylinderShape {
+            center,
+            width,
+            height,
+            // corner_radius was initialized to cylrad before attributes
+            ellipse_rad: style.corner_radius,
+            style: style.clone(),
+            text: text.clone(),
+        }),
+        ClassName::File => ShapeEnum::File(FileShape {
+            center,
+            width,
+            height,
+            // cref: fileInit (pikchr.c:1507) - pObj->rad = pik_value(p, "filerad", 7, 0)
+            // The rad attribute goes into corner_radius, clamping done at render time
+            fold_radius: style.corner_radius,
+            style: style.clone(),
+            text: text.clone(),
+        }),
+        ClassName::Line | ClassName::Arrow => {
+            // Note: arrow_end default is already set during attribute processing
+            // (line 789-791). We don't override it here because explicit <- or ->
+            // attributes should take precedence.
+            ShapeEnum::Line(LineShape {
+                waypoints: waypoints.clone(),
+                style: style.clone(),
+                text: text.clone(),
+            })
+        }
+        ClassName::Spline => ShapeEnum::Spline(SplineShape {
+            waypoints: waypoints.clone(),
+            style: style.clone(),
+            text: text.clone(),
+            // cref: splineInit (pikchr.c:1656) - pObj->rad = 1000 (default)
+            // cref: splineRender uses pObj->rad for curve radius
+            radius: style.corner_radius,
+        }),
+        ClassName::Arc => ShapeEnum::Arc(ArcShape {
+            start,
+            end,
+            style: style.clone(),
+            text: text.clone(),
+            clockwise: style.clockwise,
+        }),
+        ClassName::Move => ShapeEnum::Move(MoveShape {
+            start,
+            end,
+            style: style.clone(),
+            text: text.clone(),
+        }),
+        ClassName::Dot => {
+            // C: renders with r = pObj->rad, but sets w = rad * 6
+            // So: radius = width / 6
+            let radius = width / 6.0;
+            crate::log::debug!(
+                center_x = center.x.raw(),
+                center_y = center.y.raw(),
+                radius = radius.raw(),
+                "[Rust dot created]"
+            );
+            ShapeEnum::Dot(DotShape {
+                center,
+                radius,
+                style: style.clone(),
+                text: text.clone(),
+            })
+        }
+        ClassName::Text => ShapeEnum::Text(TextShape {
+            center,
+            width,
+            height,
+            style: style.clone(),
+            text: text.clone(),
+        }),
+        ClassName::Sublist => ShapeEnum::Sublist(SublistShape {
+            center,
+            width,
+            height,
+            style: style.clone(),
+            text: text.clone(),
+            children,
+        }),
+    };
+
+    // For closed line-like objects, use the entry direction (inDir) as the exit direction
+    // cref: pikchr.c:7122-7126 - pik_elem_set_exit(pObj, pObj->inDir) for bClose
+    let is_closed_line = style.close_path
+        && matches!(
+            class,
+            ClassName::Line | ClassName::Arrow | ClassName::Spline
+        );
+    let final_direction = if is_closed_line {
+        in_direction
+    } else {
+        object_direction
+    };
+
+    crate::log::debug!(
+        name = ?final_name,
+        class = ?class,
+        layer = layer,
+        is_closed_line = is_closed_line,
+        in_direction = ?in_direction,
+        object_direction = ?object_direction,
+        final_direction = ?final_direction,
+        "creating RenderedObject"
+    );
+
+    Ok(RenderedObject {
+        name: final_name,
+        name_is_explicit,
+        text_name,
+        shape,
+        start_attachment: from_attachment,
+        end_attachment: to_attachment,
+        layer,
+        direction: final_direction,
+        class_name: class,
+    })
+}
+
+/// Render a sublist of statements with local coordinates and return children (still local)
+fn render_sublist(
+    parent_ctx: &RenderContext,
+    statements: &[Statement],
+) -> Result<Vec<RenderedObject>, PikruError> {
+    // Local context: starts at (0,0) but inherits variables and direction
+    let mut ctx = RenderContext::new();
+    ctx.direction = parent_ctx.direction;
+    ctx.variables = parent_ctx.variables.clone();
+
+    for stmt in statements {
+        match stmt {
+            Statement::Object(obj_stmt) => {
+                let obj = render_object_stmt(&mut ctx, obj_stmt, None)?;
+                ctx.add_object(obj);
+            }
+            Statement::Labeled(labeled) => {
+                if let LabeledContent::Object(obj_stmt) = &labeled.content {
+                    let obj = render_object_stmt(&mut ctx, obj_stmt, Some(labeled.label.clone()))?;
+                    ctx.add_object(obj);
+                }
+            }
+            Statement::Direction(dir) => {
+                // cref: pik_set_direction (pikchr.c:5746)
+                // Handle direction changes inside sublists the same as top-level
+                ctx.direction = *dir;
+                if let Some(last_obj) = ctx.object_list.last() {
+                    let is_line_like = matches!(
+                        last_obj.class(),
+                        ClassName::Line | ClassName::Arrow | ClassName::Spline | ClassName::Move
+                    );
+                    if is_line_like {
+                        ctx.position = last_obj.end();
+                    } else {
+                        use crate::types::UnitVec;
+                        let unit_dir = match dir {
+                            Direction::Right => UnitVec::EAST,
+                            Direction::Left => UnitVec::WEST,
+                            Direction::Up => UnitVec::NORTH,
+                            Direction::Down => UnitVec::SOUTH,
+                        };
+                        ctx.position = last_obj.edge_point(unit_dir);
+                    }
+                }
+            }
+            Statement::Assignment(assign) => {
+                // cref: pik_set_var (pikchr.c:6479-6511)
+                // Variable assignments inside sublists should be processed locally
+                let rhs_val = eval_rvalue(&ctx, &assign.rvalue)?;
+
+                let var_name = match &assign.lvalue {
+                    LValue::Variable(name) => name.clone(),
+                    LValue::Fill => "fill".to_string(),
+                    LValue::Color => "color".to_string(),
+                    LValue::Thickness => "thickness".to_string(),
+                };
+
+                let eval_val = match assign.op {
+                    AssignOp::Assign => rhs_val,
+                    AssignOp::AddAssign
+                    | AssignOp::SubAssign
+                    | AssignOp::MulAssign
+                    | AssignOp::DivAssign => {
+                        let current = ctx
+                            .variables
+                            .get(&var_name)
+                            .cloned()
+                            .unwrap_or(EvalValue::Scalar(0.0));
+
+                        match (current, rhs_val) {
+                            (EvalValue::Length(lhs), EvalValue::Scalar(rhs)) => {
+                                let result = match assign.op {
+                                    AssignOp::AddAssign => lhs + Inches(rhs),
+                                    AssignOp::SubAssign => lhs - Inches(rhs),
+                                    AssignOp::MulAssign => lhs * rhs,
+                                    AssignOp::DivAssign => lhs / rhs,
+                                    _ => unreachable!(),
+                                };
+                                EvalValue::Length(result)
+                            }
+                            (EvalValue::Scalar(lhs), EvalValue::Scalar(rhs)) => {
+                                let result = match assign.op {
+                                    AssignOp::AddAssign => lhs + rhs,
+                                    AssignOp::SubAssign => lhs - rhs,
+                                    AssignOp::MulAssign => lhs * rhs,
+                                    AssignOp::DivAssign => {
+                                        if rhs == 0.0 {
+                                            lhs
+                                        } else {
+                                            lhs / rhs
+                                        }
+                                    }
+                                    _ => unreachable!(),
+                                };
+                                EvalValue::Scalar(result)
+                            }
+                            (EvalValue::Length(lhs), EvalValue::Length(rhs)) => {
+                                let result = match assign.op {
+                                    AssignOp::AddAssign => lhs + rhs,
+                                    AssignOp::SubAssign => lhs - rhs,
+                                    AssignOp::MulAssign => lhs * rhs.raw(),
+                                    AssignOp::DivAssign => lhs / rhs.raw(),
+                                    _ => lhs,
+                                };
+                                EvalValue::Length(result)
+                            }
+                            _ => rhs_val,
+                        }
+                    }
+                };
+
+                crate::log::debug!(
+                    op = ?assign.op,
+                    "Sublist: Setting variable {} to {:?}",
+                    var_name,
+                    eval_val
+                );
+                ctx.variables.insert(var_name, eval_val);
+            }
+            _ => {
+                // Skip other statement types in sublists (macros, etc.)
+            }
+        }
+    }
+
+    Ok(ctx.object_list)
+}
+
+/// Calculate center position given that a specific edge should be at target
+/// cref: pik_place_adjust (pikchr.c:5829) - adjusts position based on edge
+/// cref: pik_set_at (pikchr.c:6195-6199) - converts Start/End to compass points
+#[allow(clippy::let_and_return)] // We want the binding for debug logging
+fn calculate_center_from_edge(
+    edge: EdgePoint,
+    target: PointIn,
+    width: Inches,
+    height: Inches,
+    class: ClassName,
+    direction: Direction,
+) -> PointIn {
+    // Convert Start/End to compass points based on direction
+    // cref: pik_set_at - eDirToCp maps direction to compass point:
+    //   Right -> East, Down -> South, Left -> West, Up -> North
+    // For End: use outDir (same as current direction)
+    // For Start: use (inDir+2)%4, which is OPPOSITE of direction
+    let edge = match edge {
+        EdgePoint::Start => {
+            // Start is at the entry edge (opposite of direction)
+            match direction {
+                Direction::Right => EdgePoint::West,
+                Direction::Down => EdgePoint::North,
+                Direction::Left => EdgePoint::East,
+                Direction::Up => EdgePoint::South,
+            }
+        }
+        EdgePoint::End => {
+            // End is at the exit edge (same as direction)
+            match direction {
+                Direction::Right => EdgePoint::East,
+                Direction::Down => EdgePoint::South,
+                Direction::Left => EdgePoint::West,
+                Direction::Up => EdgePoint::North,
+            }
+        }
+        other => other,
+    };
+
+    if matches!(edge, EdgePoint::Center | EdgePoint::C) {
+        return target;
+    }
+
+    let hw = width / 2.0;
+    let hh = height / 2.0;
+
+    // For diagonal corners on rectangular shapes, the corner is at the full (hw, hh) distance.
+    // For round shapes, the diagonal point is on the perimeter at (0.707*r, 0.707*r).
+    // For cardinal directions (N/S/E/W), the offset is simply (0, hh) or (hw, 0).
+    let is_diagonal = matches!(
+        edge,
+        EdgePoint::NorthEast | EdgePoint::NorthWest | EdgePoint::SouthEast | EdgePoint::SouthWest
+    );
+
+    let offset = if is_diagonal && !class.is_round() {
+        // For box-like shapes, diagonal corners are at full (hw, hh) with appropriate signs
+        let unit = edge.to_unit_vec();
+        let sign_x = unit.dx().signum();
+        let sign_y = unit.dy().signum();
+        OffsetIn::new(Inches(sign_x * hw.0), Inches(sign_y * hh.0))
+    } else {
+        // For round shapes with diagonal edges OR any cardinal direction:
+        // The diagonal unit vectors already have 1/√2 built in (e.g., SOUTH_EAST.dx = 0.707)
+        // So we just scale by hw/hh directly to get the correct perimeter point.
+        // cref: pik_elem_bbox (pikchr.c:3788-3798) - uses rx = (1-1/√2)*rad, then pt = w2-rx = rad/√2
+        edge.to_unit_vec().scale_xy(hw, hh)
+    };
+
+    // Edge point = center + offset, so center = edge point - offset
+    let center = target - offset;
+
+    crate::log::debug!(
+        ?edge,
+        target_x = target.x.0,
+        target_y = target.y.0,
+        width = width.0,
+        height = height.0,
+        offset_x = offset.dx.0,
+        offset_y = offset.dy.0,
+        center_x = center.x.0,
+        center_y = center.y.0,
+        is_round = class.is_round(),
+        "[calculate_center_from_edge]"
+    );
+
+    center
+}
+
+/// Move a point in a direction by a distance
+/// Note: SVG Y increases downward, so Up subtracts and Down adds
+fn move_in_direction(pos: PointIn, dir: Direction, distance: Inches) -> PointIn {
+    pos + dir.offset(distance)
+}
+
+/// Calculate start/end points for an object at a specific center position
+fn calculate_object_position_at(
+    direction: Direction,
+    center: PointIn,
+    width: Inches,
+    height: Inches,
+) -> (PointIn, PointIn, PointIn) {
+    let half_dim = match direction {
+        Direction::Right | Direction::Left => width / 2.0,
+        Direction::Up | Direction::Down => height / 2.0,
+    };
+    // Start is opposite to travel direction (entry edge)
+    let start = center + direction.opposite().offset(half_dim);
+    // End is in travel direction (exit edge)
+    let end = center + direction.offset(half_dim);
+    (center, start, end)
+}
+
+fn calculate_object_position(
+    ctx: &RenderContext,
+    class: ClassName,
+    width: Inches,
+    height: Inches,
+) -> (PointIn, PointIn, PointIn) {
+    // cref: pik_elem_new (pikchr.c:5615) - initial positioning logic
+    // First object: centered at (0,0) with eWith=CP_C
+    // Subsequent objects: entry edge at previous exit, with eWith=CP_W/E/N/S
+
+    let is_first_object = ctx.object_list.is_empty();
+
+    // For line-like objects, start is at cursor, end is cursor + length in direction
+    // cref: pik_elem_new (pikchr.c:5648) - lineInit uses linewid for horizontal, lineht for vertical
+    let (start, end, center) = match class {
+        ClassName::Line | ClassName::Arrow | ClassName::Spline | ClassName::Move => {
+            let start = ctx.position;
+            // Use linewid for horizontal (Right/Left), lineht for vertical (Up/Down)
+            let length = match ctx.direction {
+                Direction::Right | Direction::Left => width,
+                Direction::Up | Direction::Down => height,
+            };
+            let end = start + ctx.direction.offset(length);
+            let mid = start.midpoint(end);
+            (start, end, mid)
+        }
+        ClassName::Dot => {
+            // cref: dotCheck (pikchr.c:4042-4047)
+            // Dots use w = h = 0 for positioning, so they don't advance the cursor
+            // center = cursor, start = end = center
+            let center = ctx.position;
+            (center, center, center)
+        }
+        _ => {
+            let (half_w, half_h) = (width / 2.0, height / 2.0);
+
+            if is_first_object {
+                // First object: center at cursor (which is 0,0)
+                // cref: pik_elem_new line 5632: pNew->eWith = CP_C
+                let center = ctx.position;
+                let half_dim = match ctx.direction {
+                    Direction::Right | Direction::Left => half_w,
+                    Direction::Up | Direction::Down => half_h,
+                };
+                let start = center + ctx.direction.opposite().offset(half_dim);
+                let end = center + ctx.direction.offset(half_dim);
+                (start, end, center)
+            } else {
+                // Subsequent objects: entry edge at cursor
+                // cref: pik_elem_new line 5637: pNew->eWith = CP_W/E/N/S
+                let half_dim = match ctx.direction {
+                    Direction::Right | Direction::Left => half_w,
+                    Direction::Up | Direction::Down => half_h,
+                };
+                let center = ctx.position + ctx.direction.offset(half_dim);
+                let start = center + ctx.direction.opposite().offset(half_dim);
+                let end = center + ctx.direction.offset(half_dim);
+                (start, end, center)
+            }
+        }
+    };
+
+    crate::log::debug!(
+        ?class,
+        is_first_object,
+        cursor_x = ctx.position.x.0,
+        cursor_y = ctx.position.y.0,
+        dir = ?ctx.direction,
+        w = width.0,
+        h = height.0,
+        center_x = center.x.0,
+        center_y = center.y.0,
+        start_x = start.x.0,
+        start_y = start.y.0,
+        end_x = end.x.0,
+        end_y = end.y.0,
+        "calculate_object_position"
+    );
+
+    (center, start, end)
+}

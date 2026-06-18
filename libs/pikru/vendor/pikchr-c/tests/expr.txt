@@ -1,0 +1,402 @@
+# Test the "debug_label_color" feature
+#
+      linerad = 10px
+      linewid *= 0.5
+      $h = 0.21
+margin = 1cm
+debug_label_color = Red
+color = LightGray
+ 
+      circle radius 10%
+OUT:  6.3in right of previous.e  # FIX ME
+IN_X: linerad east of first circle.e
+
+      # The literal-value line
+      arrow
+LTV:  box "literal-value" fit
+      arrow right even with linerad+2*arrowht east of OUT
+      circle same
+
+      # The bind-parameter line
+      right
+BNDP: oval "bind-parameter" fit with .w at 1.25*$h below LTV.w
+      arrow right even with OUT; line right linerad then up linerad
+      arrow from first circle.e right linerad then down even with BNDP \
+        then to BNDP.w
+
+      # The table column reference line
+      right
+SN:   oval "schema-name" fit with .w at 2.0*$h below BNDP.w
+      arrow 2*arrowht
+      oval "." bold fit
+      arrow
+TN:   oval "table-name" fit
+      arrow right 2*arrowht
+      oval "." bold fit
+      arrow
+CN:   oval "column-name" fit
+      arrow right even with OUT; line right linerad then up linerad
+      arrow from (IN_X,SN.n) down even with SN then to SN.w
+TN_Y: 0.375*$h above TN.n
+      arrow from (IN_X,linerad above TN_Y) down linerad \
+         then right even with SN
+      arrow right right even with TN
+      line right even with linerad+arrowht west of CN.w \
+         then down even with CN then right linerad
+      line from (linerad+2*arrowht left of TN.w,TN_Y) right linerad \
+         then down even with TN then right linerad
+
+      # Unary operators
+      right
+UOP:  oval "unary-operator" fit with .w at 1.25*$h below SN.w
+      arrow right even with OUT; line right linerad then up linerad
+      arrow from (IN_X,UOP.n) down even with UOP then to UOP.w
+
+      # Binary operators
+      right
+BINY: box "expr" fit with .w at 1.25*$h below UOP.w
+      arrow 2*arrowht
+      oval "binary-operator" fit
+      arrow 2*arrowht
+      box "expr" fit
+      arrow right even with OUT; line right linerad then up linerad
+      arrow from (IN_X,BINY.n) down even with BINY then to BINY.w
+ 
+      # Function calls
+      right
+FUNC: oval "function-name" fit with .w at 2.0*$h below BINY.w
+      arrow 1.5*arrowht
+FLP:  oval "(" bold fit
+      arrow
+FDCT: oval "DISTINCT" fit
+      arrow
+FEXP: box "expr" fit
+      arrow 150%
+FRP:  oval ")" bold fit
+      arrow right linerad then down $h then right 2*arrowht
+FFC:  box "filter-clause" fit
+FA1:  arrow right linerad then up even with FUNC then right 2*arrowht
+      arrow right linerad then down $h then right 2*arrowht
+FOC:  box "over-clause" fit
+      arrow right even with OUT; line right linerad then up linerad
+      arrow from (IN_X,FUNC.n) down even with FUNC then to FUNC.w
+
+             # filter clause bypass
+             arrow from FRP.e right even with FFC
+             line to arrowht left of FA1.end
+
+             # over clause bypass
+             arrow from FA1.end right even with OUT
+             line right linerad then up linerad
+
+             # expr loop
+      FCMA:  oval "," bold fit at 1.25*$h above FEXP
+             arrow from FEXP.e right linerad then up even with FCMA \
+               then to FCMA.e
+             line from FCMA.w left even with 2*arrowht west of FEXP.w \
+               then down even with FEXP then right linerad
+
+             # "*" argument list
+      FSTR:  oval "*" bold fit with .w at 1.25*$h below FDCT.w
+             arrow from FLP.e right linerad then down even with FSTR \
+                then to FSTR.w
+      FA2:   arrow from FSTR.e right even with linerad+2*arrowht west of FRP.w
+             line right linerad then up even with FRP then right linerad
+
+             # empty argument list
+             arrow from (linerad east of FLP.e,FSTR.n) \
+                down even with $h below FSTR then right even with FDCT.w
+             arrow right even with FA2.end
+             line right linerad then up even with FSTR.n
+
+      # parenthesized and vector expressions
+      right
+PRN:  oval "(" bold fit with .w at 3.0*$h below FUNC.w
+      arrow
+PEXP: box "expr" fit
+      arrow
+      oval ")" bold fit
+      arrow right even with OUT; line right linerad then up linerad
+      arrow from (IN_X,PRN.n) down even with PRN then to PRN.w
+
+             # expr loop
+      PCMA:  oval "," bold fit at 1.25*$h above PEXP
+             arrow from PEXP.e right linerad then up even with PCMA \
+               then to PCMA.e
+             line from PCMA.w left even with 2*arrowht left of PEXP.w \
+               then down even with PEXP then right linerad
+
+      # CAST expression
+      right
+CAST: oval "CAST" fit with .w at 1.25*$h below PRN.w
+      arrow 2*arrowht
+      oval "(" bold fit
+      arrow 2*arrowht
+      box "expr" fit
+      arrow 2*arrowht
+      oval "AS" fit
+      arrow 2*arrowht
+      box "type-name" fit
+      arrow 2*arrowht
+      oval ")" bold fit
+      arrow right even with OUT; line right linerad then up linerad
+      arrow from (IN_X,CAST.n) down even with CAST then to CAST.w
+
+      # COLLATE expression
+      right
+COLL: box "expr" fit with .w at 1.25*$h below CAST.w
+      arrow 2*arrowht
+      oval "COLLATE" fit
+      arrow 2*arrowht
+      oval "collation-name" fit
+      arrow right even with OUT; line right linerad then up linerad
+      arrow from (IN_X,COLL.n) down even with COLL then to COLL.w
+
+      # LIKE expressions
+      right
+LIKE: box "expr" fit with .w at 1.25*$h below COLL.w
+      arrow
+LNOT: oval "NOT" fit
+      arrow 150%
+LOP1: oval "LIKE" fit
+LOP2: oval "GLOB" fit with .w at 1.25*$h below LOP1.w
+LOP3: oval "REGEXP" fit with .w at 1.25*$h below LOP2.w
+LOP4: oval "MATCH" fit with .w at 1.25*$h below LOP3.w
+LE2:  box "expr" fit with .w at (4*arrowht+linerad east of LOP3.e,LIKE)
+      arrow from LE2.e right linerad then down $h then right 2*arrowht
+LESC: oval "ESCAPE" fit
+      arrow 2*arrowht
+      box "expr" fit
+LA1:  arrow right linerad then up even with LIKE then right
+      arrow right even with OUT; line right linerad then up linerad
+      arrow from (IN_X,LIKE.n) down even with LIKE then to LIKE.w
+
+            # NOT bypass
+            line from linerad*2 west of LNOT.w \
+              right linerad then down $h \
+              then right even with arrowht east of LNOT.e \
+              then up even with LNOT then right linerad
+
+            # Inputs to the operators
+       LX1: 2*arrowht west of LOP1.w
+            arrow from linerad west of LX1 right linerad \
+               then down even with LOP4 then to LOP4.w
+            arrow from (LX1,LOP2.n) down even with LOP2 then to LOP2.w
+            arrow from (LX1,LOP3.n) down even with LOP3 then to LOP3.w
+
+            # Outputs from the operators
+       LX2: 2*arrowht east of LOP3.e
+            arrow from LOP4.e right even with LX2
+            arrow right linerad then up even with LE2 then to LE2.w
+            arrow from LOP3.e right even with LX2
+            line right linerad then up linerad
+            arrow from LOP2.e right even with LX2
+            line right linerad then up linerad
+            line from LOP1.e to arrowht west of LE2.w
+
+            # ESCAPE bypass
+            arrow from LE2.e right even with LESC
+            line to arrowht left of LA1.end
+
+      # ISNULL and NOTNULL operators
+      right
+NNUL: box "expr" fit with .w at 5.0*$h below LIKE.w
+      arrow
+NN1:  oval "ISNULL" fit
+      arrow right even with OUT; line right linerad then up linerad
+      arrow from (IN_X,NNUL.n) down even with NNUL then to NNUL.w
+NN2:  oval "NOTNULL" fit with .w at 1.25*$h below NN1.w
+      right
+NN3:  oval "NOT" fit with .w at 1.25*$h below NN2.w
+      arrow 2*arrowht
+NN3B: oval "NULL" fit
+NNA1: arrow 2*arrowht
+      arrow right linerad then up even with NN1 then right
+      arrow from NN2.e right even with NNA1.end
+      line right linerad then up linerad
+      arrow from NNUL.e right linerad then down even with NN3 then to NN3.w
+      arrow from NNUL.e right linerad then down even with NN2 then to NN2.w
+
+      # The IS operator
+      right
+IS:   box "expr" fit with .w at 3.75*$h below NNUL.w
+      arrow 2*arrowht
+      oval "IS" fit
+      arrow
+ISN:  oval "NOT" fit
+      arrow
+      box "expr" fit
+      arrow right even with OUT; line right linerad then up linerad
+      arrow from (IN_X,IS.n) down even with IS then to IS.w
+      # NOT bypass
+      line from 3*arrowht west of ISN.w right linerad \
+         then down 0.8*$h then right even with arrowht east of ISN.e \
+         then up even with ISN then right linerad
+
+      # The BETWEEN operator
+      right
+BTW:  box "expr" fit with .w at 1.5*$h below IS.w
+      arrow
+BTWN: oval "NOT" fit
+      arrow
+      oval "BETWEEN" fit
+      arrow 2*arrowht
+      box "expr" fit
+      arrow 2*arrowht
+      oval "AND" fit
+      arrow 2*arrowht
+      box "expr" fit
+      arrow right even with OUT; line right linerad then up linerad
+      arrow from (IN_X,BTW.n) down even with BTW then to BTW.w
+      # NOT bypass
+      line from 3*arrowht west of BTWN.w right linerad \
+         then down 0.8*$h then right even with arrowht east of BTWN.e \
+         then up even with BTWN then right linerad
+
+      # The IN operator
+      right
+IN:   box "expr" fit with .w at 1.75*$h below BTW.w
+      arrow
+INNT: oval "NOT" fit
+      arrow
+ININ: oval "IN" fit
+      arrow
+INLP: oval "(" bold fit
+      arrow
+INSS: box "select-stmt" fit
+      arrow
+      oval ")" bold fit
+      arrow right even with OUT; line right linerad then up linerad
+      arrow from (IN_X,IN.n) down even with IN then to IN.w
+
+             # NOT bypass
+             line from 3*arrowht west of INNT.w right linerad \
+             then down 0.8*$h then right even with arrowht east of INNT.e \
+             then up even with INNT then right linerad
+
+             # select-stmt bypass
+             line from 3*arrowht west of INSS.w right linerad \
+             then up 0.8*$h then right even with arrowht east of INSS.e \
+             then up even with INSS then right linerad
+
+             # expr list instead of select-stmt
+       INE1: box "expr" fit at 1.25*$h below INSS
+             arrow from 3*arrowht west of INSS.w right linerad \
+               then down even with INE1 then to INE1.w
+             line from INE1.e right even with arrowht east of INSS.e \
+               then up even with INSS then right linerad
+
+             # expr loop
+       INC1: oval "," bold fit at 1.25*$h below INE1
+             arrow from INE1.e right linerad then down even with INC1 \
+                then to INC1.e
+             line from INC1.w left even with 2*arrowht west of INE1.w \
+                then up even with INE1 then right linerad
+
+             # reference-to-table choice as RHS
+       INSN: oval "schema-name" fit with .w at 4.25*$h below INLP.w
+             arrow from INSN.e right 1.5*arrowht
+       INDT: oval "." bold fit
+             arrow 150%
+       INTF: oval "table-function" fit
+             arrow 1.5*arrowht
+       INL2: oval "(" bold fit
+             arrow 125%
+       INE2: box "expr" fit
+             arrow 125%
+       INR2: oval ")" bold fit
+             arrow right even with OUT; line right linerad then up linerad
+
+             # table reference branch
+             right
+       INTB: oval "table-name" fit with .w at 2*$h above INTF.w
+             arrow right even with OUT; line right linerad then up linerad
+             arrow from linerad+2*arrowht west of INTF.w right linerad \
+                then up even with INTB then to INTB.w
+
+             # expr-list no table-valued-functions
+       INC2: oval "," bold fit at 1.1*$h above INE2
+             arrow from INE2.e right linerad then up even with INC2 \
+               then to INC2.e
+             line from INC2.w right even with 2*arrowht west of INE2.w \
+               then down even with INE2 then right linerad
+
+             # expr-list bypass for table-valued functions
+             line from INL2.e right linerad then down .7*$h \
+                then right even with 2*arrowht left of INR2.w \
+                then up even with INR2 then right linerad
+
+             # links from IN operator to table references
+             arrow from ININ.e right linerad then down even with INSN \
+                then to INSN.w
+
+             # schema-name bypass
+       INY3: 0.45*$h above INSN.n
+             arrow from (linerad east of ININ.e,linerad above INY3) \
+                down linerad then right even with arrowht right of INSN.e
+             line right even with arrowht east of INDT.e \
+                then down even with INDT then right linerad
+
+      # NOT? EXISTS? (SELECT) clause
+      right
+NE:   oval "NOT" fit with .w at (IN.w,1.5*$h below INSN)
+      arrow
+NEE:  oval "EXISTS" fit
+      arrow
+NELP: oval "(" bold fit
+      arrow 2*arrowht
+      box "select-stmt" fit
+      arrow 2*arrowht
+      oval ")" bold fit
+      arrow right even with OUT; line right linerad then up linerad
+      arrow from (IN_X,NE.n) down even with NE then to NE.w
+NE_Y: 0.375*$h above NE.n
+      arrow from (IN_X,linerad above NE_Y) down linerad \
+         then right even with NE
+      line right even with linerad+arrowht west of NELP.w \
+         then down even with NELP then right linerad
+      line from (linerad+2*arrowht left of NEE.w,NE_Y) right linerad \
+         then down even with NEE then right linerad
+      
+      # CASE expressions
+      right
+CS:   oval "CASE" fit with .w at 1.25*$h below NE.w
+      arrow
+CSE1: box "expr" fit
+      arrow 150%
+CSW:  oval "WHEN" fit
+      arrow 2*arrowht
+CSE2: box "expr" fit
+      arrow 2*arrowht
+      oval "THEN" fit
+      arrow 2*arrowht
+CSE3: box "expr" fit
+      arrow 200%
+CSEL: oval "ELSE" fit
+      arrow 2*arrowht
+CSE4: box "expr" fit
+      arrow
+      oval "END" fit
+      arrow right even with OUT; line right linerad then up linerad
+      arrow from (IN_X,CS.n) down even with CS then to CS.w
+      # first expr bypass
+CSY:  0.9*$h below CS
+      line from CS.e right linerad then down even with CSY \
+         then right even with arrowht east of CSE1.e then up even with CSE1 \
+         then right linerad
+      # when clause loop
+      arrow from CSE3.e right linerad then down even with CSY \
+         then left even with CSE2
+      line left even with 2*arrowht west of CSW.w \
+         then up even with CSW then right linerad
+      # ELSE clause bypass
+      line from linerad+2*arrowht west of CSEL.w right linerad \
+         then down even with CSY then right even with arrowht east of CSE4.e \
+         then up even with CSE4 then right linerad
+
+      # The RAISE function
+      right
+RSE:  box "raise-function" fit with .w at 1.9*$h below CS.w
+      arrow right even with OUT; 
+      line right linerad then up even with first circle then right linerad
+      arrow from (IN_X,BNDP.n) down even with RSE then to RSE.w

@@ -1,0 +1,22 @@
+[package]
+name = "pikru-compare"
+version = "2.0.0-rc.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+[dependencies]
+facet-svg = { version = "0.50.0-rc.0" }
+rediff = { version = "0.50.0-rc.0" }
+camino = "1.2.1"
+
+# Visual comparison
+resvg = "0.45"
+usvg = "0.45"
+tiny-skia = "0.11"
+image = { version = "0.25", default-features = false, features = ["png"] }
+image-compare = "0.5"

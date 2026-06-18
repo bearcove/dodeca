@@ -1,0 +1,34 @@
+/* First generate the main graph */
+scale = 0.75
+Main: [
+  circle "C0"
+  arrow
+  circle "C1"
+  arrow
+  circle "C2"
+  arrow
+  circle "C4"
+  arrow
+  circle "C6"
+]
+Branch: [
+  circle "C3"
+  arrow
+  circle "C5"
+] with .sw at Main.C2.n + (0.35,0.35)
+arrow from Main.C2 to Branch.C3 chop
+
+/* Now generate the background colors */
+layer = 0
+$featurecolor = 0xfedbce
+$maincolor = 0xd9fece
+$divY = (Branch.y + Main.y)/2
+$divH = (Branch.y - Main.y)
+box fill $featurecolor color $featurecolor \
+    width Branch.width*1.5 height $divH \
+    at Branch
+box fill $maincolor color $maincolor \
+    width Main.width+0.1 height $divH \
+    at Main
+"main" ljust at 0.1 se of nw of 2nd box
+"feature" ljust at 0.1 se of nw of 1st box

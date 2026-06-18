@@ -1,0 +1,4 @@
+line right 5 dashed; move left 5 down .25; right
+line right 5 dashed 0.25; move left 5 down .25; right
+line right 5 dashed 0.5; move left 5 down .25; right
+line right 5 dashed 1;

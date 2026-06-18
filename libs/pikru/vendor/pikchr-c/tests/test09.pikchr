@@ -1,0 +1,3 @@
+HEAD: circle
+      circle radius 50% with .se at HEAD.nw
+      circle radius 50% with .sw at HEAD.ne

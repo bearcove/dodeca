@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>pikchr fiddle</title>
+    <link rel="shortcut icon" href="data:image/x-icon;," type="image/x-icon">
+    <link rel="stylesheet" href="emscripten.css"/>
+    <style>
+      /* The following styles are for app-level use. */
+      textarea {
+          font-family: monospace;
+          flex: 1 1 auto;
+      }
+      header {
+          font-size: 130%;
+          font-weight: bold;
+      }
+      #main-wrapper {
+          display: flex;
+          flex-direction: column-reverse;
+          flex: 1 1 auto;
+      }
+      #main-wrapper.side-by-side {
+          flex-direction: row-reverse;
+      }
+      #main-wrapper.swapio {
+          flex-direction: column;
+      }
+      #main-wrapper.side-by-side.swapio {
+          flex-direction: row;
+      }
+      .zone-wrapper{
+          display: flex;
+          flex-direction: column;
+          align-items: stretch;
+          margin: 0 0.25em;
+          flex: 1 1 auto;
+      }
+      .zone-wrapper.output {
+      }
+      #pikchr-output {
+          /*flex: 1 1 auto;*/
+          /*overflow: auto;*/
+          padding: 0;
+          margin: 0;
+      }
+      #pikchr-output-wrapper {
+          flex: 1 1 auto;
+          overflow: auto;
+      }
+      #pikchr-output-wrapper.text {
+          display: flex;
+          align-items: stretch;
+      }
+      #pikchr-output-wrapper.text > #pikchr-output {
+          display: flex;
+          align-items: stretch;
+          flex: 1 1 auto;
+      }
+      #pikchr-output-wrapper.text > #pikchr-output > textarea {
+          flex: 1 1 auto;
+      }
+      .zone-wrapper textarea {
+          font-size: 110%;
+          filter: invert(100%);
+          flex: 10 1 auto;
+          font-family: monospace;
+      }
+      .zone-wrapper.input {
+          /*min-height: 10em;*/
+          min-width: 20em;
+      }
+      .zone-wrapper.output {
+          overflow: auto;
+          justify-content: space-between;
+      }
+      .button-bar {
+          display: flex;
+          justify-content: center;
+          flex: 0 1 auto;
+          flex-wrap: wrap;
+      }
+      .button-bar button {
+          margin: 0.25em 1em;
+      }
+      label[for] {
+          cursor: pointer;
+      }
+      .error {
+          color: red;
+          background-color: yellow;
+      }
+      .hidden, .initially-hidden {
+          position: absolute !important;
+          opacity: 0 !important;
+          pointer-events: none !important;
+          display: none !important;
+      }
+      /* Safari supports neither styling of nor event handling on a
+         fieldset legend, so we emulate a fieldset-like widget. */
+      .fieldset {
+          border-radius: 0.5em;
+          border: 1px inset;
+          display: flex;
+          flex-direction: column;
+      }
+      .fieldset > .legend {
+          position: relative;
+          top: -1.5ex;
+          padding: 0 0.5em;
+          font-size: 85%;
+          margin-left: 0.5em;
+          flex: 0 1 auto;
+          align-self: self-start;
+          cursor: pointer;
+      }
+      .fieldset.options > div {
+          display: flex;
+          flex-wrap: wrap;
+          font-size: 70%;
+          margin: 0 0.5em 0.5em 0.5em;
+      }
+      .fieldset > .legend > span {
+          position: relative;
+      }
+      .fieldset > .legend::before {
+          /* Hide the parent element's top border where this
+             element intersects it. */
+          content: ' '; 
+          width: 100%; 
+          height: 100%; 
+          background-color: white
+           /* REALLY want to 'inherit' the color from the fieldset's
+              parent, but inherit leads to a transparent bg, which is
+              exactly what we're trying to avoid here. */;
+          opacity: 1;
+          position: absolute; 
+          top: 0; 
+          left: 0; 
+      }
+      .fieldset > .legend::after {
+          content: " [hide]";
+          position: relative;
+      }
+      .fieldset.collapsed > .legend::after {
+          content: " [show]";
+          position: relative;
+      }
+      span.labeled-input {
+          padding: 0.25em;
+          margin: 0.25em 0.5em;
+          border-radius: 0.25em;
+          white-space: nowrap;
+          background: #0002;
+      }
+      .center { text-align: center; }
+      .app-view {
+          flex: 20 1 auto;
+      }
+      #titlebar {
+          display: flex;
+          justify-content: space-between;
+          margin-bottom: 0.5em;
+      }
+      #view-split {
+          display: flex;
+          flex-direction: column-reverse;
+      }
+      #view-split > .fieldset.options {
+          margin-top: 0.5em;
+      }
+    </style>
+  </head>
+  <body>
+    <header id='titlebar'><span>pikchr fiddle</span></header>
+    <!-- emscripten bits -->
+    <figure id="module-spinner">
+      <div class="spinner"></div>
+      <div class='center'><strong>Initializing app...</strong></div>
+      <div class='center'>
+        On a slow internet connection this may take a moment.  If this
+        message displays for "a long time", intialization may have
+        failed and the JavaScript console may contain clues as to why.
+      </div>
+    </figure>
+    <div class="emscripten" id="module-status">Downloading...</div>
+    <div class="emscripten">
+      <progress value="0" max="100" id="module-progress" hidden='1'></progress>
+    </div><!-- /emscripten bits -->
+    <div id='view-split' class='app-view initially-hidden'>
+      <div class='fieldset options collapsible'>
+        <span class='legend'><span>Options</span></span>
+        <div>
+          <span class='labeled-input'>
+            <input type='checkbox' id='opt-cb-sbs'
+                   data-csstgt='#main-wrapper'
+                   data-cssclass='side-by-side'
+                   data-config='sideBySide'>
+            <label for='opt-cb-sbs'>Side-by-side</label>
+          </span>
+          <span class='labeled-input'>
+            <input type='checkbox' id='opt-cb-swapio'
+                   data-csstgt='#main-wrapper'
+                   data-cssclass='swapio'
+                   data-config='swapInOut'>
+            <label for='opt-cb-swapio'>Swap in/out</label>
+          </span>
+          <span class='labeled-input'>
+            <input type='checkbox' id='opt-cb-autoscale'
+                   data-config='renderAutoScale'>
+            <label for='opt-cb-autoscale'>Auto-scale SVG</label>
+          </span>
+          <span class='labeled-input'>
+            <input type='checkbox' id='opt-cb-autorender'
+                   data-config='renderWhileTyping'>
+            <label for='opt-cb-autorender'>Render while typing</label>
+          </span>
+          <!--span class='labeled-input'>
+            <input type='file' id='load-pikchr'/>
+            <label>Load pikchr</label>
+          </span-->
+          <!--span class='labeled-input'>
+            <select id='select-examples'></select>
+          </span-->
+        </div>
+      </div><!-- .fieldset -->
+      <div id='main-wrapper' class=''>
+        <div class='zone-wrapper input'>
+          <textarea id="input"
+                    placeholder="Shell input. Ctrl-enter/shift-enter runs it.">
+/**
+  Use ctrl-enter or shift-enter to execute
+  pikchr code. If only a subset is currently
+  selected, only that part is evaluated.
+
+  TODOs include, but are not limited to...:
+  - Solve various layout quirks, in particular
+    in auto-render mode.
+*/
+arrow right 200% "Markdown" "Source"
+box rad 10px "Markdown" "Formatter" "(markdown.c)" fit
+arrow right 200% "HTML+SVG" "Output"
+arrow <-> down from last box.s
+box same "Pikchr" "Formatter" "(pikchr.c)" fit
+</textarea>
+          <div class='button-bar'>
+            <button id='btn-render'>Render</button>
+            <button id='btn-clear'>Clear Input</button>
+          </div>
+        </div>
+        <div class='zone-wrapper output'>
+          <div id='pikchr-output-wrapper'>
+            <div id='pikchr-output'></div>
+          </div>
+          <div class='button-bar'>
+            <button id='btn-render-mode'>Toggle Render Mode</button>
+          </div>
+        </div>
+      </div>
+    </div> <!-- #view-split -->
+    <script src="fiddle.js"></script>
+  </body>
+</html>

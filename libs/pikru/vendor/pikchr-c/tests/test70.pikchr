@@ -1,0 +1,9 @@
+    fill = bisque
+B1: box "Pointy" "Diamond" width 150% invis
+    line from B1.w to B1.n to B1.e to B1.s close behind B1 rad 0px
+    move
+B2: box "Rounded" "Diamond" width 150% invis with .w at 1cm right of B1.e
+    line from B2.w to B2.n to B2.e to B2.s close behind B2 rad 20px
+
+    dot fill red at 1st line.start
+    dot fill red at last line.start

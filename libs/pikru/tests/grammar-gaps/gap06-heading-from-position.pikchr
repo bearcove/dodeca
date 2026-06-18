@@ -1,0 +1,16 @@
+# Grammar: which-way-from -> heading compass-angle from
+# Tests "distance heading N from position" as a positioning construct
+# Note: "heading N from" in PATH attributes is tested (test26, autochop01-10)
+# but as a which-way-from in position expressions it is NOT tested
+
+box "Origin"
+
+# Position using heading-from as which-way-from
+circle "NE" at 1in heading 45 from last box
+circle "E" at 1in heading 90 from 1st box
+circle "SE" at 1in heading 135 from 1st box
+circle "S" at 1in heading 180 from 1st box
+circle "SW" at 1in heading 225 from 1st box
+circle "W" at 1in heading 270 from 1st box
+circle "NW" at 1in heading 315 from 1st box
+circle "N" at 1in heading 0 from 1st box

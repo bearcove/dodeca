@@ -1,0 +1,6 @@
+{
+  "enabledMcpjsonServers": [
+    "pikru-test"
+  ],
+  "enableAllProjectMcpServers": true
+}

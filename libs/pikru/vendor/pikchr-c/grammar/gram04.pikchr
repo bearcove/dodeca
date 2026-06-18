@@ -1,0 +1,50 @@
+$r = 0.2in
+linerad = 0.75*$r
+linewid = 0.25
+
+# Start and end blocks
+#
+box "object-type-name" bold fit
+line down 50% from last box.sw
+START: dot rad 250% color black
+X0: last.e
+X1: X0+(linerad,0)
+X2: X1+(linerad+arrowht,0)
+move right 1.7in
+END: box wid 5% ht 25% fill black
+X9: last.w
+X8: linerad+arrowht west of X9
+X7: linerad west of X8
+
+# The choices
+#
+arrow from X0 to X2
+oval "\"arc\"" fit
+arrow to X7
+arrow to X9
+
+define keyword {
+  right
+  oval $1 fit with .w at 1.25*$r below last oval.w
+  arrow right even with X7
+  line right even with X8 then up linerad
+  arrow from (X1,last oval.n) down even with last oval then to last oval.w
+}
+keyword("\"arrow\"")
+keyword("\"box\"")
+keyword("\"circle\"")
+keyword("\"cylinder\"")
+keyword("\"dot\"")
+keyword("\"ellipse\"")
+keyword("\"file\"")
+keyword("\"line\"")
+keyword("\"move\"")
+keyword("\"oval\"")
+keyword("\"spline\"")
+
+right
+oval "\"text\"" fit with .w at 1.25*$r below last oval.w
+arrow right even with X7
+line right even with X8 then up even with X9 then right linerad
+arrow from X0 right even with X1 then down even with last oval \
+    then right to last oval.w

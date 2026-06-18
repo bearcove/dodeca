@@ -1,0 +1,23 @@
+box "red" fill red fit
+move
+box "orange" fill orange fit
+move
+box "yellow" fill yellow fit
+move
+box "green" fill green fit
+move
+box "blue" fill blue fit
+move
+box "violet" fill violet fit
+
+box "red" color red fit with .nw at 1cm below 1st box.sw
+move
+box "orange" color orange fit
+move
+box "yellow" color yellow fit
+move
+box "green" color green fit
+move
+box "blue" color blue fit
+move
+box "violet" color violet fit

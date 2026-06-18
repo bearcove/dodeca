@@ -1,0 +1,17 @@
+circle "C0" fit color blue
+C1: circle at C0 radius 2.5*C0.radius color red
+text "C1" with .n at C1.n color red
+circle "X1" at 8*C0.radius heading 60 from C0 fit color blue
+circle "X2" at 8*C0.radius heading 80 from C0 fit color red
+circle "X3" at 8*C0.radius heading 100 from C0 fit color blue
+circle "X4" at 8*C0.radius heading 120 from C0 fit color red
+arrow color blue from C0 to X1 chop
+arrow color red from C1 to X2 chop
+arrow color blue from X3 to C0 chop
+arrow color red from X4 to C1 chop
+
+text "chop bug 2021-07-17" \
+     "forum 1d46e3a0bc5c5631" \
+     "red lines to red circles" \
+     "blue lines to blue circle" \
+     at 2cm below C0

@@ -1,0 +1,32 @@
+/* Large radius on cylinders
+** Forum post 983b36dbcf  2021-01-31
+*/
+C1: cylinder "rad 0%" rad 0
+move
+cylinder "rad 50%" rad 50%
+move
+cylinder "rad 100%"
+
+C1b: cylinder "rad +1cm" rad +1cm with .n at 0.5cm below C1.s
+move
+cylinder "rad -1cm" rad -1cm
+move
+cylinder "rad -10px" rad -10px
+
+C2: cylinder "fit 0%" rad 0 fit with .n at 1cm below C1b.s
+move
+cylinder "fit 200%" rad 200% fit
+move
+cylinder "fit 300%" rad 300% fit
+
+C3: cylinder "fit 400%" rad 400% fit with .n at 0.5cm below C2.s
+move
+cylinder "fit +10px" rad +10px fit
+move
+cylinder "fit -10px" rad -10px fit
+
+C4: cylinder "fit 1000%" rad 1000% fit with .n at 0.5cm below C3.s
+move
+cylinder "fit +1cm" rad +1cm fit
+move
+cylinder "fit -1cm" rad -1cm fit

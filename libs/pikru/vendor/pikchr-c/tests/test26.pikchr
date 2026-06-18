@@ -1,0 +1,9 @@
+line from 0,0  right 1 then up 1 then right 1 then down 1.5 \
+   then left 0.6 dashed;
+spline from 0,0  right 1 then up 1 then right 1 then down 1.5 \
+   then left 0.6
+
+circle fill white \
+  at 1/2 between 4th vertex of previous and 5th vertex of previous
+spline -> from last circle.e go right then heading 30 then heading 45 \
+   then heading 60 then heading 75

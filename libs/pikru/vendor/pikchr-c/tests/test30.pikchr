@@ -1,0 +1,2 @@
+debug = 1
+down; box ht 0.2 wid 1.5; move down 0.15; box same; move same; box same

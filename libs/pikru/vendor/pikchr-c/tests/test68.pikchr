@@ -1,0 +1,4 @@
+# Nested macros
+define m00 {box $1 $2 $3 fit;}
+define m01 {m00("m01",$1,$2);}
+m01("one","two")
