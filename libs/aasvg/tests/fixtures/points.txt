@@ -1,0 +1,15 @@
+Points on lines:
+
+---*---o---
+
+Vertical points:
+
+    |
+    *
+    |
+    o
+    |
+
+Multiple point types:
+
+*--●--o--○--

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" height="64" width="176" viewBox="0 0 176 64" class="diagram" text-anchor="middle" font-family="monospace" font-size="13px" stroke-linecap="round">
+<path d="M 8,16 L 8,48" fill="none" stroke="black"/>
+<path d="M 64,16 L 64,48" fill="none" stroke="black"/>
+<path d="M 112,16 L 112,48" fill="none" stroke="black"/>
+<path d="M 168,16 L 168,48" fill="none" stroke="black"/>
+<path d="M 8,16 L 64,16" fill="none" stroke="black"/>
+<path d="M 112,16 L 168,16" fill="none" stroke="black"/>
+<path d="M 72,32 L 104,32" fill="none" stroke="black"/>
+<path d="M 8,48 L 64,48" fill="none" stroke="black"/>
+<path d="M 112,48 L 168,48" fill="none" stroke="black"/>
+<polygon class="arrowhead" points="112,32 100,26.4 100,37.6" fill="black" transform="rotate(0,104,32)"/>
+<g class="text">
+<text x="32" y="36" textLength="8" lengthAdjust="spacingAndGlyphs">A</text>
+<text x="136" y="36" textLength="8" lengthAdjust="spacingAndGlyphs">B</text>
+</g>
+</svg>
