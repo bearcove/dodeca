@@ -8,7 +8,6 @@ exclude = [
   "libs/hotmeal/hotmeal-server",
   "libs/hotmeal/hotmeal-wasm",
   "libs/marq",
-  "libs/picante/crates/picante",
   "libs/pikru",
   "libs/svag",
 ]
@@ -102,8 +101,7 @@ vox-stream = "0.10.0-rc.0"
 ur-taking-me-with-you = { version = "8", features = ["tokio"] }
 
 # Incremental computation
-# 2.0.1 carries the snapshot result-cache isolation fix the editor preview needs.
-picante = { path = "libs/picante/crates/picante" }
+picante = "3.0.0-rc.0"
 
 # File system
 fs-err = "3"

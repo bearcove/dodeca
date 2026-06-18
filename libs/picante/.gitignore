@@ -1,8 +1,0 @@
-/target
-.handoffs
-.claude
-.cache
-.dodeca.db
-docs/public
-lcov.info
-.tracey/

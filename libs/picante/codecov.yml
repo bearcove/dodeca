@@ -1,4 +1,0 @@
-# Configure Codecov reporting.
-ignore:
-  - "docs/**/*"
-
