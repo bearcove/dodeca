@@ -1,0 +1,7 @@
+# Error messages in a macro
+#
+define abc {box "should not see this" fit}
+define abc {box "don't see this either" fit}
+define xyz {box "should show #1" fit;}
+define abc {ellipse "should show #2" fit;}
+xyz abc

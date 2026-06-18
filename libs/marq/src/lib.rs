@@ -1,0 +1,89 @@
+//! # marq
+//!
+//! A markdown rendering library with pluggable code block handlers.
+//!
+//! marq parses markdown documents and renders them to HTML, with support for:
+//! - **Frontmatter**: TOML (`+++`) or YAML (`---`) frontmatter extraction
+//! - **Headings**: Automatic extraction with slug generation for TOC
+//! - **Requirement definitions**: req annotation syntax for specification traceability
+//! - **Code blocks**: Pluggable handlers for syntax highlighting, diagrams, etc.
+//! - **Link resolution**: `@/path` absolute links and relative link handling
+//!
+//! ## Example
+//!
+//! ```text
+//! use marq::{render, RenderOptions};
+//!
+//! let markdown = "# Hello World\n\nSome content.";
+//! let opts = RenderOptions::default();
+//! let doc = render(markdown, &opts).await?;
+//!
+//! println!("HTML: {}", doc.html);
+//! println!("Headings: {:?}", doc.headings);
+//! ```
+
+pub mod ast;
+pub mod diff;
+mod frontmatter;
+mod handler;
+mod handlers;
+mod headings;
+mod links;
+mod render;
+mod reqs;
+
+pub use frontmatter::{Frontmatter, FrontmatterFormat, parse_frontmatter, strip_frontmatter};
+pub use handler::{
+    BoxedHandler, BoxedInlineCodeHandler, BoxedLinkResolver, BoxedReqHandler,
+    BoxedWikiLinkResolver, CodeBlockHandler, CodeBlockOutput, DefaultReqHandler, HeadInjection,
+    InlineCodeHandler, LinkResolver, ReqHandler, WikiLink, WikiLinkOutput, WikiLinkResolver,
+};
+pub use headings::{Heading, slugify};
+pub use links::resolve_link;
+pub use render::{
+    DocElement, Document, Paragraph, RenderOptions, SourceId, SourceKind, SourceMap,
+    SourceMapEntry, render,
+};
+pub use reqs::{
+    ExtractedReqs, InlineCodeSpan, ReqDefinition, ReqLevel, ReqMetadata, ReqStatus, ReqWarning,
+    ReqWarningKind, Rfc2119Keyword, RuleId, SourceSpan, detect_rfc2119_keywords, parse_rule_id,
+};
+
+pub use ast::{Alignment, Block, Inline, parse as parse_ast, render_to_markdown};
+pub use diff::{diff_markdown, diff_markdown_inline};
+
+// Feature-gated handler exports
+#[cfg(feature = "highlight")]
+pub use handlers::ArboriumHandler;
+
+#[cfg(feature = "highlight")]
+pub use handlers::{CompareHandler, CompareSection};
+
+#[cfg(feature = "aasvg")]
+pub use handlers::AasvgHandler;
+
+#[cfg(feature = "pikru")]
+pub use handlers::PikruHandler;
+
+// Always-available handlers
+pub use handlers::MermaidHandler;
+pub use handlers::TermHandler;
+
+/// Error type for marq operations.
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    /// Frontmatter parsing failed
+    #[error("frontmatter parse error: {0}")]
+    FrontmatterParse(String),
+
+    /// Duplicate requirement ID found
+    #[error("duplicate requirement ID: {0}")]
+    DuplicateReq(String),
+
+    /// Code block handler failed
+    #[error("code block handler error for language '{language}': {message}")]
+    CodeBlockHandler { language: String, message: String },
+}
+
+/// Result type alias for marq operations.
+pub type Result<T> = std::result::Result<T, Error>;

@@ -17,7 +17,7 @@ use dodeca_protocol::{
     EditPreview, EditSave, EditSaveReq, EditTokenResponse,
 };
 use std::path::Path;
-use vox::FromVoxSession;
+use vox::FromVoxLane;
 use vox_websocket::WsLink;
 
 /// Local handler for the reverse-direction `BrowserService` (the server pushes
@@ -34,16 +34,16 @@ impl BrowserService for NoopBrowserService {
     }
 }
 
-/// A connected native editor client, holding the vox root alive for the
-/// session's lifetime (dropping `_root` tears the websocket down).
+/// A connected native editor client, holding the Vox connection alive for the
+/// session's lifetime (dropping `_connection` tears the websocket down).
 struct EditorClient {
     client: DevtoolsServiceClient,
-    _root: vox::NoopClient,
+    _connection: vox::ConnectionHandle,
 }
 
-/// Connect to `/_/ws` and open a `DevtoolsService` virtual connection, mirroring
-/// the browser's `connect_websocket` exactly: a bare initiator session with a
-/// `BrowserService` handler, then a service vconn carrying the
+/// Connect to `/_/ws` and open a `DevtoolsService` lane, mirroring the
+/// browser's `connect_websocket` exactly: a WebSocket-backed Vox connection with
+/// a `BrowserService` handler, then a service lane carrying the
 /// `vox-service = DevtoolsService` metadata, driven by a spawned `Driver`.
 async fn connect_editor(port: u16) -> EditorClient {
     let url = format!("ws://127.0.0.1:{port}/_/ws");
@@ -52,23 +52,19 @@ async fn connect_editor(port: u16) -> EditorClient {
         .unwrap_or_else(|e| panic!("websocket connect {url}: {e}"));
 
     let dispatcher = BrowserServiceDispatcher::new(NoopBrowserService);
-    let root = vox::initiator_on(link)
-        .on_connection(dispatcher)
-        .establish::<vox::NoopClient>()
+    let connection = vox::initiator_on(link)
+        .on_lane(dispatcher)
+        .establish_connection()
         .await
         .unwrap_or_else(|e| panic!("vox root handshake: {e:?}"));
 
-    let session = root
-        .session
-        .clone()
-        .expect("vox root session handle missing");
     let settings = vox::ConnectionSettings {
         parity: vox::Parity::Odd,
         max_concurrent_requests: 64,
         initial_channel_credit: 16,
     };
-    let handle = session
-        .open_connection(
+    let handle = connection
+        .open_lane_handle(
             settings,
             vox::metadata()
                 .str(
@@ -81,12 +77,15 @@ async fn connect_editor(port: u16) -> EditorClient {
         .unwrap_or_else(|e| panic!("open DevtoolsService connection: {e:?}"));
 
     let mut driver = vox::Driver::new(handle, BrowserServiceDispatcher::new(NoopBrowserService));
-    let client = DevtoolsServiceClient::from_vox_session(vox::Caller::new(driver.caller()), None);
+    let client = DevtoolsServiceClient::from_vox_lane(
+        vox::Caller::new(driver.caller()),
+        Some(connection.clone()),
+    );
     tokio::spawn(async move { driver.run().await });
 
     EditorClient {
         client,
-        _root: root,
+        _connection: connection,
     }
 }
 

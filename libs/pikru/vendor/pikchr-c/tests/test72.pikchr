@@ -1,0 +1,29 @@
+C1: cylinder "radius 0%" rad 0
+move
+cylinder "radius 50%" rad 50%
+move
+cylinder "radius 100%"
+
+C1B: cylinder "fit 0%" rad 0 fit with .n at 0.5cm below C1.s
+move
+cylinder "fit 50%" rad 50% fit
+move
+cylinder "fit 100%" fit
+
+C2: cylinder "radius 125%" rad 125% with .n at 0.5cm below C1B.s
+move
+cylinder "radius 150%" rad 150%
+move
+cylinder "radius 200%" rad 200%
+
+C3: cylinder "fit 125%" rad 125% with .n at 0.5cm below C2.s fit
+move
+cylinder "fit 150%" rad 150% fit
+move
+cylinder "fit 200%" rad 200% fit
+
+C4: cylinder "fit" "80%" rad 80% with .n at 0.5cm below C3.s fit
+move
+cylinder "fit" "120%" rad 120% fit
+move
+cylinder "fit" "150%" rad 150% fit

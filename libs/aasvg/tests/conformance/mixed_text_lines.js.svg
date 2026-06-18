@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" height="32" width="136" viewBox="0 0 136 32" class="diagram" text-anchor="middle" font-family="monospace" font-size="13px" stroke-linecap="round">
+<path d="M 56,16 L 96,16" fill="none" stroke="black"/>
+<polygon class="arrowhead" points="104,16 92,10.4 92,21.6" fill="black" transform="rotate(0,96,16)"/>
+<g class="text">
+<text x="24" y="20" textLength="40" lengthAdjust="spacingAndGlyphs">Start</text>
+<text x="120" y="20" textLength="24" lengthAdjust="spacingAndGlyphs">End</text>
+</g>
+</svg>

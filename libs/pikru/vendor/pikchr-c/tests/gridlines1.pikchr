@@ -1,0 +1,21 @@
+# Gridlines
+# (Copied, with modifications, from a post by Steve Nicolai.
+#
+thickness *= 0.5
+
+line color gray from -1.25, 1 to 1.25, 1
+line same from -1.25, .5 to 1.25, .5
+line same from -1.25, -0.5 to 1.25, -0.5
+line same from -1.25, -1 to 1.25, -1
+
+line same from -1.0, -1.25 to -1.0, 1.25
+line same from -0.5, -1.25 to -0.5, 1.25
+line same from 0.5, -1.25 to 0.5, 1.25
+line same from 1.0, -1.25 to 1.0, 1.25
+
+right
+arrow from -1.375, 0 to 1.375, 0 thick
+text "x" fit
+up
+arrow from 0, -1.375 to 0, 1.375 thick
+text "y" fit

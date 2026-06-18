@@ -1,0 +1,81 @@
+box "autofit" "width" width 0
+move
+box "autofit" "height" height 0
+move
+box "autofit" "both" width 0 height 0
+move
+box "manual" "fit" fit
+move
+box "none"
+
+move to 1in below first box.w
+right
+circle "autofit" "width" width 0
+move
+circle "autofit" "height" height 0
+move
+circle "autofit" "both" width 0 height 0
+move
+circle "manual" "fit" "test" fit
+move
+circle "none"
+
+move to 1in below first circle.w
+right
+ellipse "autofit" "width" width 0
+move
+ellipse "autofit" "height" height 0
+move
+ellipse "autofit" "both" width 0 height 0
+move
+ellipse "a new" "manual fit test" "experiment" fit
+move
+ellipse "none"
+
+move to 1in below first ellipse.w
+right
+cylinder "autofit" "width" width 0
+move
+cylinder "autofit" "height" height 0
+move
+cylinder "autofit" "both" width 0 height 0
+move
+cylinder "manual" "fit" fit
+move
+cylinder "none"
+
+move to 1in below first cylinder.w
+right
+file "autofit" "width" width 0
+move
+file "autofit" "height" height 0
+move
+file "autofit" "both" width 0 height 0
+move
+file "manual" "fit" fit
+move
+file "none"
+
+move to 1in below first file.w
+right
+oval "autofit" "width" width 0
+move
+oval "autofit" "height" height 0
+move
+oval "autofit" "both" width 0 height 0
+move
+oval "manual" "fit" fit
+move
+oval "none"
+
+move to 1in below first oval.w
+right
+diamond "diamond" "autofit" "width" width 0
+move 50%
+diamond "autofit height" height 0
+move same
+diamond  "both" width 0 height 0
+move same
+diamond "fit" fit
+move same
+diamond "diamond" "wihtout autofit"

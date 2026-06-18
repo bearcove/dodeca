@@ -1,0 +1,36 @@
+# Grammar: nth-object -> ORDINAL []
+# Grammar: nth-object -> ORDINAL last []
+# Grammar: nth-object -> ORDINAL previous []
+# Grammar: nth-object -> previous []
+# Tests ordinal subpicture (container) references
+# Note: "last []" IS tested in test31/test36, but these forms are not
+
+[
+  box "Block 1"
+  arrow
+  box "B1 end"
+]
+move
+[
+  box "Block 2"
+  arrow
+  box "B2 end"
+]
+move
+[
+  box "Block 3"
+  arrow
+  box "B3 end"
+]
+
+# ORDINAL [] - reference by position
+line dashed from 1st [].s down 0.3in
+line dashed from 2nd [].s down 0.3in
+line dashed from 3rd [].s down 0.3in
+
+# ORDINAL last [] - reference from end
+line dotted from 1st last [].n up 0.3in
+line dotted from 2nd last [].n up 0.3in
+
+# previous [] - most recent container
+line color red from previous [].e right 0.3in

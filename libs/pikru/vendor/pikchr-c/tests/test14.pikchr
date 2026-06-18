@@ -1,0 +1,20 @@
+print "1in=",1in
+print "1cm=",1cm
+print "1mm=",1mm
+print "1pt=",1pt
+print "1px=",1px
+print "1pc=",1pc
+scale = 0.25
+circle "in" radius 1in
+circle "cm" radius 2.54cm
+circle "mm" radius 25.4mm
+circle "pt" radius 72pt
+circle "px" radius 96px
+circle "pc" radius 6pc
+
+circle "in" radius 0.5*1in with .n at s of 1st circle
+circle "cm" radius 0.5*2.54cm
+circle "mm" radius 25.4mm * 0.5
+circle "pt" radius 72pt * 0.5
+circle "px" radius 96px * 0.5
+circle "pc" radius 6pc  * 0.5

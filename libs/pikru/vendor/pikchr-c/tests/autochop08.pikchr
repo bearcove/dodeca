@@ -1,0 +1,11 @@
+circle "C0"
+move
+circle "C1"
+box at C0.c width 11cm height 2.5cm
+arrow from C0 to C1 chop color red
+move
+text "bug report 2021-07-17" \
+     "forum 73eea815afda0715" \
+     "arrow C0 to C1 chopped" \
+     "C0 and box have same center" \
+     at 0.5 between last box.w and C0.w

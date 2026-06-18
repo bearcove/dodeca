@@ -1,0 +1,8 @@
+# Macro created within another macro
+define dodef {
+  define $1 {box "Hello"}
+}
+dodef(xyz)
+xyz
+rightmargin = 2in
+print "Should just say 'hello'"

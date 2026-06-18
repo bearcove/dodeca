@@ -1,0 +1,21 @@
+# Grammar: nth-object -> previous object-class
+# Grammar: nth-object -> ORDINAL previous object-class
+# Tests "previous box", "2nd previous box" etc.
+# Note: bare "previous" is tested, but "previous <class>" is not
+
+box "A"
+move
+box "B"
+move
+box "C"
+move
+circle "D"
+
+# "previous box" should refer to box "C" (skipping circle "D")
+arrow from previous box.e to last circle.w chop
+
+# "2nd previous box" should refer to box "B"
+line dashed from 2nd previous box.s down 0.5in
+
+# "3rd previous box" should refer to box "A"
+line dotted from 3rd previous box.s down 0.5in

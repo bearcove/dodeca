@@ -1,0 +1,56 @@
+# Test case for all production rule:
+#
+#     position ::= object edge
+#
+All: [
+
+B: line thick thick color blue go 0.8 heading 350 then go 0.4 heading 120 \
+    then go 0.5 heading 35 \
+    then go 1.2 heading 190  then go 0.4 heading 340 "+"
+
+   line thin dashed color gray from B.nw to B.ne to B.se to B.sw close
+
+circle ".n" fit at 1.5cm heading 0 from B.n
+    arrow thin from previous to B.n chop
+circle ".north" fit at 3cm heading 15 from B.north
+    arrow thin from previous to B.north chop
+circle ".t" fit at 1.5cm heading 30 from B.t
+    arrow thin from previous to B.t chop
+circle ".top" fit at 3cm heading -15 from B.top
+    arrow thin from previous to B.top chop
+circle ".ne" fit at 1cm ne of B.ne; arrow thin from previous to B.ne chop
+circle ".e" fit at 2cm heading 50 from B.e; arrow thin from previous to B.e chop
+circle ".right" fit at 3cm heading 75 from B.right
+    arrow thin from previous to B.right chop
+circle ".end" fit at 2cm heading 120 from B.end
+    arrow thin from previous to B.end chop
+circle ".se" fit at 1cm heading 170 from B.se
+    arrow thin from previous to B.se chop
+circle ".s" fit at 1.5cm heading 180 from B.s
+    arrow thin from previous to B.s chop
+circle ".south" fit at 3cm heading 195 from B.south
+    arrow thin from previous to B.south chop
+circle ".bot" fit at 1.8cm heading 215 from B.bot
+    arrow thin from previous to B.bot chop
+circle ".bottom" fit at 2.7cm heading 160 from B.bottom
+    arrow thin from previous to B.bottom chop
+circle ".sw" fit at 1cm sw of B.sw; arrow thin from previous to B.sw chop
+circle ".w" fit at 2cm heading 300 from B.w
+    arrow thin from previous to B.w chop
+circle ".left" fit at 3cm heading 280 from B.left
+    arrow thin from previous to B.left chop
+circle ".start" fit at 2.5cm heading 265 from B.start
+    arrow thin from previous to B.start chop
+circle ".nw" fit at 1cm nw of B.nw; arrow thin from previous to B.nw chop
+circle ".c" fit at 2.5cm heading -15 from B.c
+    line thin from previous to 0.5<previous,B.c> chop
+    arrow thin from previous.end to B.c
+circle ".center" fit at 3.3cm heading 110 from B.center
+    line thin from previous to 0.5<previous,B.center> chop
+    arrow thin from previous.end to B.center
+circle "&lambda;" fit at 1.7cm heading 250 from B
+    line from previous to 0.5<previous,B> chop
+    arrow thin from previous.end to B
+
+]
+"21 Names For 11 Boundary Points" big big with .s at .5cm above All.n

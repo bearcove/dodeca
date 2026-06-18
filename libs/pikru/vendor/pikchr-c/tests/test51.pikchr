@@ -1,0 +1,27 @@
+One: [
+CW: box "cwal"
+line <-
+S2: box "s2"
+line <-
+CL: box "client"
+down
+line ->
+line -> left until even with CW
+line -> color red go up to CW.s
+]
+text "Red line should be an arrow" "Pikchr forum 2020-09-14" \
+  with .s at 2mm above One.n
+
+Two: [
+right
+CW: box "cwal"
+line <-
+S2: box "s2"
+line <-
+CL: box "client"
+down
+line ->
+line -> left until even with CW
+up
+line -> to CW.s color red
+] with .n at 1cm below One.s

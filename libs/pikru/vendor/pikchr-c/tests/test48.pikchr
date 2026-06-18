@@ -1,0 +1,27 @@
+# Test case for all production rule:
+#
+#     position ::= object edge
+#
+All: [
+
+B: line thick color blue go 0.8 heading 350 then go 0.4 heading 120 \
+    then go 0.5 heading 35 \
+    then go 1.2 heading 190  then go 0.4 heading 340 "+"
+
+
+oval "1st vertex" fit at 2cm heading 250 from 1st vertex of B
+    arrow thin from previous to 1st vertex of B chop
+oval "2nd vertex" fit at 2cm west of 2nd vertex of B
+    arrow thin from previous to 2nd vertex of B chop
+oval "3rd vertex" fit at 2cm north of 3rd vertex of B
+    arrow thin from previous to 3rd vertex of B chop
+oval "4th vertex" fit at 2cm east of 4th vertex of B
+    arrow thin from previous to 4th vertex of B chop
+oval "5th vertex" fit at 2cm east of 5th vertex of B
+    arrow thin from previous to 5th vertex of B chop
+oval "6th vertex" fit at 2cm south of 6th vertex of B
+    arrow thin from previous to 6th vertex of B chop
+
+
+]
+"Names Of Vertexes" big big with .s at .5cm above All.n

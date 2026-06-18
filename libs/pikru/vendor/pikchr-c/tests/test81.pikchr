@@ -1,0 +1,5 @@
+text "Box B should full sized - not fit-to-text." \
+     "See forum post f9f5d90f33 on 2025-03-03."
+down
+text "A"
+box "B" with nw at A.e

@@ -1,0 +1,61 @@
+[workspace]
+members = ["xtask", "crates/pikru-mcp", "crates/pikru-compare"]
+
+[package]
+name = "pikru"
+version = "2.0.0-rc.0"
+edition = "2024"
+rust-version = "1.90"
+authors = ["Amos Wenger <amos@bearcove.eu>"]
+description = "A pure Rust implementation of pikchr, a PIC-like diagram markup language that generates SVG"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/bearcove/pikru"
+homepage = "https://github.com/bearcove/pikru"
+documentation = "https://docs.rs/pikru"
+keywords = ["pikchr", "diagram", "svg", "pic", "markdown"]
+categories = ["graphics", "text-processing", "visualization"]
+readme = "README.md"
+exclude = ["vendor/**"]
+
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+[features]
+default = []
+# Enable tracing instrumentation for debug logging
+tracing = ["dep:tracing"]
+
+[dependencies]
+# 2D vector math for coordinates and geometry
+glam = "0.29"
+# Error reporting with source snippets and fancy terminal output
+ariadne = "0.6"
+# PEG parser generator - core of the pikchr language parser
+pest = "2.8.4"
+pest_derive = "2.8.4"
+# SVG DOM generation and XML serialization
+facet-svg = { version = "0.50.0-rc.0" }
+# Debug logging (only emits when RUST_LOG is set) - optional
+tracing = { version = "0.1.43", optional = true }
+# Derive macro for custom error types
+thiserror = "2.0.17"
+# Efficient enum dispatch for shape rendering
+enum_dispatch = "0.3"
+
+[dev-dependencies]
+# Data-driven test harness for comparing against C pikchr
+datatest-stable = "0.3"
+# Comparison utilities for C vs Rust output
+pikru-compare = { path = "crates/pikru-compare" }
+# UTF-8 paths for test file handling
+camino = "1.2.1"
+# Tracing for debug output in examples (re-exported for examples that set up subscribers)
+tracing = "0.1.43"
+# Tracing subscriber for debug output in examples
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+
+[[test]]
+name = "pikchr_tests"
+harness = false

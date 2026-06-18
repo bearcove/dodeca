@@ -26,4 +26,4 @@ This builds everything and installs it to `~/.cargo/bin/`.
 
 ## Windows
 
-Not currently supported. [roam](https://github.com/bearcove/roam), the RPC framework dodeca uses for cell communication, does not work on Windows yet. There are no Windows binaries.
+Not currently supported. There are no Windows binaries yet.

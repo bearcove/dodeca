@@ -1,0 +1,10 @@
+A: ellipse
+   ellipse ht .2 wid .3 with .se at 1st ellipse.nw
+   ellipse ht .2 wid .3 with .sw at 1st ellipse.ne
+   circle rad .05 at 0.5 between A.nw and A.c
+   circle rad .05 at 0.5 between A.ne and A.c
+   arc from 0.25 between A.w and A.e to 0.75 between A.w and A.e
+
+// dot color red at A.nw
+// dot color orange at A.c
+// dot color purple at A.ne

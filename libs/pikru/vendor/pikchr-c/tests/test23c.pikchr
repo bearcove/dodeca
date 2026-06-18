@@ -1,0 +1,13 @@
+linewid *= 2
+arrow "Big" big "Small" small thin
+box invis "thin" "line" fit
+move
+arrow "Big Big" big big "Small Small" small small thick
+box invis "thick" "line" fit
+box thick "Thick" with .nw at .5 below start of 1st arrow
+move
+box thick thick "Thick" "Thick"
+move
+box thin "Thin"
+move
+box thin thin "Thin" "Thin"

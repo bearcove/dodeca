@@ -21,15 +21,15 @@ you the power of a real language (conditionals, loops, variable interpolation) w
 the complexity of learning a new syntax. The engine includes rich diagnostics with
 line/column information for template errors.
 
-**Plugin architecture.** Dodeca's plugin system (via the `plugcard` crate) allows extending
-the build pipeline without modifying the core. Image optimization, CSS processing, syntax
-highlighting, and more can be plugged in independently.
+**Processor architecture.** Dodeca's build pipeline is made of focused processor crates
+for image optimization, CSS processing, syntax highlighting, search indexing, and more.
+They are linked into the `ddc` binary and called directly through typed facades.
 
 ## Getting Started
 
 Install dodeca:
 
-The recommended way to install dodeca is the install script, which fetches prebuilt binaries from object storage. Releases ship the `ddc` binary plus a set of helper binaries (`ddc-cell-*`) used for things like image processing, Sass, search indexing, etc.
+The recommended way to install dodeca is the install script, which fetches prebuilt binaries from object storage. Releases ship a single `ddc` binary with the built-in processors linked in.
 
 ```bash
 curl --proto '=https' --tlsv1.2 -LsSf https://bearcove-dist.s3.fr-par.scw.cloud/dodeca/install.sh | sh
@@ -67,8 +67,7 @@ The dodeca workspace includes:
 
 - **dodeca**: Main SSG binary (`ddc` CLI)
 - **gingembre**: Template engine with rich diagnostics
-- **plugcard**: Plugin system for extending the build pipeline
-- **dodeca-\***: Individual plugins for various transformations
+- **cell-\***: Processor and protocol crates for transformations
 - **livereload-client**: WASM client for live reload in development
 
 ## Development

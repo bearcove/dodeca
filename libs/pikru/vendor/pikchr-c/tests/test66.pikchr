@@ -1,0 +1,4 @@
+boxwid = -1; boxht = -1;  /* Autofit boxes */
+box "Testing \\backslash\\ support" "Also \"autofit\""
+move
+box "\a\b\c\f\t\n"

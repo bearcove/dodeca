@@ -1,0 +1,138 @@
+CC = cl
+CFLAGS = /Os
+LIBS = 
+TESTS = \
+  examples\headings01.pikchr \
+  examples\objects.pikchr \
+  examples\swimlane.pikchr \
+  grammar\gram01.pikchr \
+  grammar\gram02.pikchr \
+  grammar\gram03.pikchr \
+  grammar\gram04.pikchr \
+  tests\autochop01.pikchr \
+  tests\autochop02.pikchr \
+  tests\autochop03.pikchr \
+  tests\autochop04.pikchr \
+  tests\autochop05.pikchr \
+  tests\autochop06.pikchr \
+  tests\autochop07.pikchr \
+  tests\autochop08.pikchr \
+  tests\autochop09.pikchr \
+  tests\autochop10.pikchr \
+  tests\colortest1.pikchr \
+  tests\diamond01.pikchr \
+  tests\empty.pikchr \
+  tests\expr.pikchr \
+  tests\fonts01.pikchr \
+  tests\gridlines1.pikchr \
+  tests\narrow.pikchr \
+  tests\test01.pikchr \
+  tests\test02.pikchr \
+  tests\test03.pikchr \
+  tests\test04.pikchr \
+  tests\test05.pikchr \
+  tests\test06.pikchr \
+  tests\test07.pikchr \
+  tests\test08.pikchr \
+  tests\test09.pikchr \
+  tests\test10.pikchr \
+  tests\test12.pikchr \
+  tests\test13.pikchr \
+  tests\test14.pikchr \
+  tests\test15.pikchr \
+  tests\test16.pikchr \
+  tests\test17.pikchr \
+  tests\test18.pikchr \
+  tests\test19.pikchr \
+  tests\test20.pikchr \
+  tests\test21.pikchr \
+  tests\test22.pikchr \
+  tests\test23b.pikchr \
+  tests\test23c.pikchr \
+  tests\test23.pikchr \
+  tests\test24.pikchr \
+  tests\test25.pikchr \
+  tests\test26.pikchr \
+  tests\test27.pikchr \
+  tests\test28.pikchr \
+  tests\test29.pikchr \
+  tests\test30.pikchr \
+  tests\test31.pikchr \
+  tests\test32.pikchr \
+  tests\test33.pikchr \
+  tests\test34.pikchr \
+  tests\test35.pikchr \
+  tests\test36.pikchr \
+  tests\test37.pikchr \
+  tests\test38b.pikchr \
+  tests\test38.pikchr \
+  tests\test40.pikchr \
+  tests\test41.pikchr \
+  tests\test42.pikchr \
+  tests\test43.pikchr \
+  tests\test44.pikchr \
+  tests\test45.pikchr \
+  tests\test46.pikchr \
+  tests\test47b.pikchr \
+  tests\test47.pikchr \
+  tests\test48.pikchr \
+  tests\test49.pikchr \
+  tests\test50.pikchr \
+  tests\test51.pikchr \
+  tests\test52.pikchr \
+  tests\test53.pikchr \
+  tests\test54.pikchr \
+  tests\test55.pikchr \
+  tests\test56.pikchr \
+  tests\test57a.pikchr \
+  tests\test57b.pikchr \
+  tests\test57c.pikchr \
+  tests\test58.pikchr \
+  tests\test59.pikchr \
+  tests\test60.pikchr \
+  tests\test61.pikchr \
+  tests\test62.pikchr \
+  tests\test63.pikchr \
+  tests\test64.pikchr \
+  tests\test65.pikchr \
+  tests\test66.pikchr \
+  tests\test67.pikchr \
+  tests\test68.pikchr \
+  tests\test69.pikchr \
+  tests\test70.pikchr \
+  tests\test71.pikchr \
+  tests\test72.pikchr \
+  tests\test73.pikchr \
+  tests\test74.pikchr \
+  tests\test75.pikchr \
+  tests\test76.pikchr \
+  tests\test77.pikchr \
+  tests\test78.pikchr \
+  tests\test79.pikchr
+
+
+all:	pikchr.exe
+
+pikchr.exe:	pikchr.c
+	$(CC) $(CFLAGS) -DPIKCHR_SHELL pikchr.c $(LIBS)
+
+
+pikchr.c:	pikchr.y pikchr.h.in lempar.c lemon.exe VERSION.h
+	.\lemon.exe pikchr.y
+	cat pikchr.h.in >pikchr.h
+
+VERSION.h:	VERSION manifest manifest.uuid mkversion.c
+	$(CC) mkversion.c
+	.\mkversion.exe manifest.uuid manifest VERSION >VERSION.h
+
+lemon.exe:	lemon.c
+	$(CC) $(CFLAGS) lemon.c
+
+test:	pikchr.exe
+	.\pikchr.exe --dont-stop $(TESTS) >out.html
+	start out.html
+	.\pikchr.exe --dont-stop --dark-mode $(TESTS) >darkmode.html
+	start darkmode.html
+
+clean:	
+	del pikchr.exe pikchr.c pikchr.h pikchr.out lemon.exe out.html

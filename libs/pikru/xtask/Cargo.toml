@@ -1,0 +1,16 @@
+[package]
+name = "xtask"
+version = "2.0.0-rc.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+[dependencies]
+pikru = { path = ".." }
+pikru-compare = { path = "../crates/pikru-compare" }
+rayon = "1.7"
+camino = "1.2.1"

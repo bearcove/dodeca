@@ -61,11 +61,11 @@ importers:
         specifier: 0.2.0-rc.0
         version: 0.2.0-rc.0
       '@bearcove/vox-core':
-        specifier: 0.9.0-rc.0
-        version: 0.9.0-rc.0
+        specifier: 0.10.0-rc.0
+        version: 0.10.0-rc.0
       '@bearcove/vox-ws':
-        specifier: 0.9.0-rc.0
-        version: 0.9.0-rc.0
+        specifier: 0.10.0-rc.0
+        version: 0.10.0-rc.0
       '@codingame/monaco-vscode-api':
         specifier: 31.0.1
         version: 31.0.1
@@ -112,8 +112,8 @@ importers:
         specifier: 31.0.1
         version: 31.0.1
       hotmeal-wasm:
-        specifier: file:../../../../hotmeal/hotmeal-wasm/pkg
-        version: file:../../../../hotmeal/hotmeal-wasm/pkg
+        specifier: file:../../../libs/hotmeal/hotmeal-wasm/pkg
+        version: file:../../../libs/hotmeal/hotmeal-wasm/pkg
       monaco-languageclient:
         specifier: ^10.7.0
         version: 10.7.0
@@ -148,17 +148,17 @@ packages:
   '@bearcove/phon-schema@0.2.0-rc.0':
     resolution: {integrity: sha512-YivXOWBa5X2Lo3EjYR0WFbvnjfMHSDmirGocjc00WTWw/QTKnpbgQAnYtXU5uV3SySl6O+SsXmmfMxqc2Apl9Q==}
 
-  '@bearcove/vox-core@0.9.0-rc.0':
-    resolution: {integrity: sha512-9G+tImXJF1hx0Du7FlBprdpI2cnFLy5LMin5dfG7wRCFkawC1BUTsCL3GxVYFtAf3UBk1tHv2rQL2fCsUG/vmQ==}
+  '@bearcove/vox-core@0.10.0-rc.0':
+    resolution: {integrity: sha512-GlVkvncEybot7jcbsfmERgqpmkg09rcQS4dNZgkfYr/Rzsg+1LclJekjoo14iuZy46QkGHEvOpvhRJtaZ+EX3w==}
 
-  '@bearcove/vox-tcp@0.9.0-rc.0':
-    resolution: {integrity: sha512-8p3wzvePOLB7rI9KaPF+/a5Q+U+adCzkoUA+nen6H0x/TiJuPpLviIyGULTOEnizZfurn10HwXlnTIWapVA7JA==}
+  '@bearcove/vox-tcp@0.10.0-rc.0':
+    resolution: {integrity: sha512-jbDDdt8lecdP7x+Y60nMVzNgGrsxpbFpftC7y1k15I+F/o23WmBT2Dd+rL5CajUvLvbVMkYtCBfEDQ6CJp780A==}
 
-  '@bearcove/vox-wire@0.9.0-rc.0':
-    resolution: {integrity: sha512-OxT0S1flH0yk3kQExqEtXAq6J7WeSfOmXRBU1qjVb05z8LF2s1kewOCnUIxDCzS4XOdD09Tikxev9nneX5klKw==}
+  '@bearcove/vox-wire@0.10.0-rc.0':
+    resolution: {integrity: sha512-uFy22GBrU6LAE5Ii0SKNoKHj2lX6sfnnom3wxsnSeuj6ut+LXeuHlAuhZqjwTjNMg511fe7YwBZhEzF2tuO38w==}
 
-  '@bearcove/vox-ws@0.9.0-rc.0':
-    resolution: {integrity: sha512-WcQTp0VUlUXgpbii95hMJE7CNE+COzCDraOrXKvKl+zbgZcawuO7EUY39/Cv7wpWhhFmU3VV+f+BbGnZ31W7/w==}
+  '@bearcove/vox-ws@0.10.0-rc.0':
+    resolution: {integrity: sha512-/8kcwDEkPJoDH51U+WKvimqFZ2RGEneSaKfb8vzQ+HodaA1deM1sB8NDWaLxhO01UBMctrsIlhc04xqu+VIPQw==}
 
   '@codingame/monaco-vscode-api@31.0.1':
     resolution: {integrity: sha512-ZvNruAV3e594knX+Q9ugoP5SnrwrFLKnvLSzZGuoRxrBWpnMn5AhWHWVFWlgfsVoATf87fFUZGLyS32xIsbhHw==}
@@ -624,8 +624,8 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
 
-  hotmeal-wasm@file:../../../../hotmeal/hotmeal-wasm/pkg:
-    resolution: {directory: ../../../../hotmeal/hotmeal-wasm/pkg, type: directory}
+  hotmeal-wasm@file:../../../libs/hotmeal/hotmeal-wasm/pkg:
+    resolution: {directory: ../../../libs/hotmeal/hotmeal-wasm/pkg, type: directory}
 
   jschardet@3.1.4:
     resolution: {integrity: sha512-/kmVISmrwVwtyYU40iQUOp3SUPk2dhNCMsZBQX0R1/jZ8maaXJ/oZIzUOiyOqcgtLnETFKYChbJ5iDC/eWmFHg==}
@@ -765,25 +765,25 @@ snapshots:
     dependencies:
       '@noble/hashes': 2.2.0
 
-  '@bearcove/vox-core@0.9.0-rc.0':
+  '@bearcove/vox-core@0.10.0-rc.0':
     dependencies:
       '@bearcove/phon-engine': 0.2.0-rc.0
       '@bearcove/phon-schema': 0.2.0-rc.0
-      '@bearcove/vox-wire': 0.9.0-rc.0
+      '@bearcove/vox-wire': 0.10.0-rc.0
 
-  '@bearcove/vox-tcp@0.9.0-rc.0':
+  '@bearcove/vox-tcp@0.10.0-rc.0':
     dependencies:
-      '@bearcove/vox-core': 0.9.0-rc.0
+      '@bearcove/vox-core': 0.10.0-rc.0
 
-  '@bearcove/vox-wire@0.9.0-rc.0':
+  '@bearcove/vox-wire@0.10.0-rc.0':
     dependencies:
       '@bearcove/phon-engine': 0.2.0-rc.0
       '@bearcove/phon-schema': 0.2.0-rc.0
 
-  '@bearcove/vox-ws@0.9.0-rc.0':
+  '@bearcove/vox-ws@0.10.0-rc.0':
     dependencies:
-      '@bearcove/vox-core': 0.9.0-rc.0
-      '@bearcove/vox-tcp': 0.9.0-rc.0
+      '@bearcove/vox-core': 0.10.0-rc.0
+      '@bearcove/vox-tcp': 0.10.0-rc.0
 
   '@codingame/monaco-vscode-api@31.0.1':
     dependencies:
@@ -1194,7 +1194,7 @@ snapshots:
   fsevents@2.3.3:
     optional: true
 
-  hotmeal-wasm@file:../../../../hotmeal/hotmeal-wasm/pkg: {}
+  hotmeal-wasm@file:../../../libs/hotmeal/hotmeal-wasm/pkg: {}
 
   jschardet@3.1.4: {}
 

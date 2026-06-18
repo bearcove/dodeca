@@ -1,0 +1,41 @@
+margin = 24pt;
+linewid *= 1.75
+charht = 0.14
+//thickness *= 8
+print charht, thickness
+arrow "on top of"; move
+arrow "above" "below"; move
+arrow "above" above; move
+arrow "below" below; move
+arrow "above" "on top of" "below"
+
+move to start of first arrow down 1in;
+right
+arrow "way a||bove" "ab||ove" "on t||he line" "below" "way below"
+move; arrow "way above" "above" "below" "way below"
+move; arrow "way above" above "above" above
+move; arrow "below" below "way below" below
+move; arrow "above-1" above "above-2" above "floating"
+
+move to start of first arrow down 2in;
+right
+arrow "above-1" above "above-2" above "below" below
+move; arrow "below-1" below "below-2" below "floating"
+move; arrow "below-1" below "below-2" below "above" above
+
+move to start of first arrow down 3in;
+right
+box "first line" "second line" "third line" "fourth  line" "fifth line" fit
+move
+box "first line" "second line" "third line" "fourth  line" fit
+move
+box "first line" "second line" "third line" fit
+move
+box "first line" "second line" fit
+move
+box "first line" fit
+
+move to start of first arrow down 4in;
+right
+box "first above" above "second above" above "third" fit
+dot color red at last box

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" height="144" width="96" viewBox="0 0 96 144" class="diagram" text-anchor="middle" font-family="monospace" font-size="13px" stroke-linecap="round">
+<path d="M 32,16 L 64,16" fill="none" stroke="black"/>
+<path d="M 32,112 L 64,112" fill="none" stroke="black"/>
+<path d="M 8,64 L 32,112" fill="none" stroke="black"/>
+<path d="M 64,16 L 88,64" fill="none" stroke="black"/>
+<path d="M 8,64 L 32,16" fill="none" stroke="black"/>
+<path d="M 64,112 L 88,64" fill="none" stroke="black"/>
+<circle cx="48" cy="64" r="6" class="closeddot" fill="black"/>
+<g class="text">
+</g>
+</svg>

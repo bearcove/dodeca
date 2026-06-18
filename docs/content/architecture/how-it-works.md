@@ -5,23 +5,24 @@ weight = 10
 
 This page gives a high-level view of dodeca's architecture for the curious.
 
-## Host + Cells
+## Host + Processors
 
-dodeca runs as a **host** process that coordinates a set of **cell** processes. Each cell handles a specialized task — image processing, markdown rendering, SASS compilation, template rendering, font subsetting, etc.
+dodeca runs as one `ddc` process. Its build pipeline is split into focused processor crates for image processing, markdown rendering, SASS compilation, template rendering, font subsetting, search indexing, and similar work.
 
-Cells communicate with the host via [roam](https://github.com/bearcove/roam) RPC over shared memory. This avoids serialization overhead for large payloads like images and rendered HTML.
+These crates still live under `cells/cell-*` paths for history and ownership, but production dispatch is in-process: `crates/dodeca/src/cells.rs` calls the processor implementations directly through typed protocol crates.
 
 ```mermaid
 graph TD
-    Host[ddc host] --- |SHM| img[cell-image]
-    Host --- |SHM| md[cell-markdown]
-    Host --- |SHM| tpl[cell-gingembre]
-    Host --- |SHM| sass[cell-lightningcss]
-    Host --- |SHM| font[cell-fontcull]
-    Host --- |SHM| etc[...]
+    Host[ddc binary] --> Facade[cells.rs facade]
+    Facade --> img[cell-image library]
+    Facade --> md[cell-markdown library]
+    Facade --> tpl[cell-gingembre library]
+    Facade --> sass[cell-sass library]
+    Facade --> font[cell-fonts library]
+    Facade --> etc[...]
 ```
 
-Cell binaries are named `ddc-cell-*` and are discovered on `PATH` at startup.
+Vox is still used for browser DevTools and editor communication, but not for host-to-processor dispatch.
 
 ## Incremental computation
 
@@ -39,19 +40,6 @@ The query cache persists across restarts, so even a cold start benefits from pre
 ## Content-addressable storage
 
 Large outputs (processed images, subsetted fonts) are stored in a content-addressable blob store (`.cache/blobs/`). Files are keyed by content hash — if two pages use the same image, it's processed once.
-
-## Shared memory layout
-
-Host-cell communication uses 4 size classes of shared memory slots:
-
-| Size | Count | Purpose |
-|------|-------|---------|
-| 1 KB | 1024 | Small RPC arguments |
-| 16 KB | 256 | Typical payloads |
-| 256 KB | 32 | Images, CSS |
-| 16 MB | 8 | Large blobs |
-
-This avoids dynamic allocation in the hot path.
 
 ## Live reload
 

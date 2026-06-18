@@ -1,0 +1,9 @@
+down
+text "Zero Thickness Objects"
+box "Box" fill lightblue thickness 0 fit
+circle "Circle" fill yellow thickness 0 fit
+file "File" fill lightgreen thickness 0 fit
+oval "Oval 1" fill pink thickness 0 fit
+oval "Oval 2" fill lightgrey width 1.1cm height 2cm thickness 0
+cylinder "Cylinder" fill orange fit thickness 0
+diamond "Diamond" fill lightblue fit thickness 0

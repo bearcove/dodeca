@@ -1,0 +1,20 @@
+stickwidth=.045
+box height 1 width stickwidth fill 0xC89DC7
+move width stickwidth
+box height 1 width stickwidth fill 0x9FAAD2
+move width stickwidth
+box height 1 width stickwidth fill 0x72B6C0
+move width stickwidth
+box height 1 width stickwidth fill 0x77B89D
+move width stickwidth
+box height 1 width stickwidth fill 0xA0B280
+move width stickwidth
+box height 1 width stickwidth fill 0xC5A685
+move width stickwidth
+box height 1 width stickwidth fill 0xD59CA7
+move same
+line <-
+move same
+box "Lines should all be" ljust \
+     "the same width." ljust \
+     "No round-off errors." ljust fit thickness 0

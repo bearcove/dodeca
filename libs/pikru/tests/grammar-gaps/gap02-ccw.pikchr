@@ -1,0 +1,17 @@
+# Grammar: attribute -> ccw
+# Tests counter-clockwise arc direction
+# The "cw" form is tested in test33/test34/test50 but "ccw" is never tested
+
+arc -> ccw from 0,0 to 1,0.5
+move to 0, -1
+arc -> ccw from 0,-1 to 1,-0.5
+
+# Explicit ccw with color
+move to 0,-2
+arc -> ccw color red from 0,-2 to 1,-1.5
+
+# ccw vs cw comparison
+move to 2,0
+arc -> cw from 2,0 to 3,0.5
+move to 2,-1
+arc -> ccw from 2,-1 to 3,-0.5

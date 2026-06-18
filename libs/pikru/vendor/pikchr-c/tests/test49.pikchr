@@ -1,0 +1,4 @@
+dot "A" above
+dot "B" above at 3 heading 130 from A
+dot "(A,B)" above at (A,B)
+dot "(B,A)" above at (B,A)

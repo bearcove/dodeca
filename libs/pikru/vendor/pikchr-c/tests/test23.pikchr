@@ -1,0 +1,31 @@
+margin = 24pt;
+linewid *= 1.75
+arrow "on top of"; move
+arrow "above" "below"; move
+arrow "above" above; move
+arrow "below" below; move
+arrow "above" "on top of" "below"
+
+move to start of first arrow down 1in;
+right
+arrow "way above" "above" "on the line" "below" "way below"
+move; arrow "way above" "above" "below" "way below"
+
+move to start of first arrow down 2in;
+right
+box "first line" "second line" "third line" "fourth  line" "fifth line" fit
+move
+box "first line" "second line" "third line" "fourth  line" fit
+move
+box "first line" "second line" "third line" fit
+move
+box "first line" "second line" fit
+move
+box "first line" fit
+
+move to start of first arrow down 3in;
+right
+box "first above" above "second above" above "third" fit
+dot color red at last box
+move 2cm
+box "    3 leading spaces" "&" "3 trailing spaces   " fit

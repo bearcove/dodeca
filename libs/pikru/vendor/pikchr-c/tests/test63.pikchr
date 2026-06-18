@@ -1,0 +1,15 @@
+# Nesting macros too deep
+define m00 {box "Hello, world!" fit}
+define m01 {m00}
+define m02 {m01}
+define m03 {m02}
+define m04 {m03}
+define m05 {m04}
+define m06 {m05}
+define m07 {m06}
+define m08 {m07}
+define m09 {m08}
+define m10 {m09}
+define m11 {m10}
+m09
+m10

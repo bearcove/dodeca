@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" height="144" width="72" viewBox="0 0 72 144" class="diagram" text-anchor="middle" font-family="monospace" font-size="13px" stroke-linecap="round">
+<path d="M 8,16 L 8,48" fill="none" stroke="black"/>
+<path d="M 8,96 L 8,128" fill="none" stroke="black"/>
+<path d="M 32,48 L 32,88" fill="none" stroke="black"/>
+<path d="M 64,16 L 64,48" fill="none" stroke="black"/>
+<path d="M 64,96 L 64,128" fill="none" stroke="black"/>
+<path d="M 8,16 L 64,16" fill="none" stroke="black"/>
+<path d="M 8,48 L 64,48" fill="none" stroke="black"/>
+<path d="M 8,96 L 64,96" fill="none" stroke="black"/>
+<path d="M 8,128 L 64,128" fill="none" stroke="black"/>
+<polygon class="arrowhead" points="40,88 28,82.4 28,93.6" fill="black" transform="rotate(90,32,88)"/>
+<g class="text">
+<text x="32" y="36" textLength="24" lengthAdjust="spacingAndGlyphs">Top</text>
+<text x="32" y="116" textLength="24" lengthAdjust="spacingAndGlyphs">Bot</text>
+</g>
+</svg>

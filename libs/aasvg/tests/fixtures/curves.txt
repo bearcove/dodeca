@@ -1,0 +1,21 @@
+Curved corners:
+
+.---.
+|   |
+'---'
+
+All four corners:
+
+.-.   .-.
+| |   | |
+'-'   '-'
+
+Connected curves:
+
+  .---.
+  |   |
+.-'   '-.
+|       |
+'--.--.-'
+   |   |
+   '---'

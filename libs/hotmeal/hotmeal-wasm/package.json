@@ -1,0 +1,21 @@
+{
+  "name": "hotmeal-wasm",
+  "version": "1.0.0",
+  "description": "Browser tests for hotmeal WASM patch application",
+  "type": "module",
+  "scripts": {
+    "build:wasm": "wasm-pack build --target web --dev",
+    "test": "pnpm build:wasm && playwright test",
+    "test:headed": "pnpm build:wasm && playwright test --headed"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "packageManager": "pnpm@10.28.1",
+  "devDependencies": {
+    "@playwright/test": "1.57.0",
+    "@types/node": "^25.0.10",
+    "playwright": "1.57.0",
+    "serve": "^14.2.5"
+  }
+}

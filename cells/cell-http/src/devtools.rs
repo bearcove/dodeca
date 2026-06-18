@@ -24,13 +24,13 @@ pub async fn ws_handler(
         tracing::debug!("devtools websocket upgraded");
         let link = AxumWsLink::new(socket);
         let result = vox::acceptor_on(link)
-            .on_connection(DevtoolsAcceptor { ctx })
-            .establish::<vox::NoopClient>()
+            .on_lane(DevtoolsAcceptor { ctx })
+            .establish_connection()
             .await;
 
         match result {
-            Ok(root) => {
-                root.caller.closed().await;
+            Ok(connection) => {
+                connection.closed().await;
             }
             Err(error) => {
                 tracing::warn!(?error, "devtools websocket vox session failed");
@@ -44,14 +44,13 @@ struct DevtoolsAcceptor {
     ctx: Arc<dyn RouterContext>,
 }
 
-impl vox::ConnectionAcceptor for DevtoolsAcceptor {
+impl vox::LaneAcceptor for DevtoolsAcceptor {
     fn accept(
         &self,
-        request: &vox::ConnectionRequest,
-        connection: vox::PendingConnection,
-    ) -> Result<(), vox::Metadata> {
-        self.ctx
-            .accept_devtools_connection(request.service(), connection)
+        request: &vox::LaneRequest,
+        lane: vox::PendingLane,
+    ) -> Result<(), vox::LaneRejection> {
+        self.ctx.accept_devtools_connection(request.service(), lane)
     }
 }
 

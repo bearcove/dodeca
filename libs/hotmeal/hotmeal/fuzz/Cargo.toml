@@ -1,0 +1,69 @@
+[package]
+name = "hotmeal-fuzz"
+version = "1.0.0"
+publish = false
+edition = "2024"
+
+[workspace]
+members = ["browser-proto", "browser-wasm", "thrall"]
+
+[package.metadata]
+cargo-fuzz = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+tendril = "0.5.0"
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["full", "sync", "rt-multi-thread"] }
+chromiumoxide = { version = "0.7", features = ["tokio-runtime"], default-features = false }
+futures-util = "0.3"
+browser-proto = { path = "browser-proto" }
+thrall = { path = "thrall" }
+libc = "0.2"
+similar = "2.7"
+facet-testhelpers = "0.50.0-rc.0"
+color-backtrace = { version = "0.7.2", default-features = false, features = ["use-btparse-crate"] }
+termcolor = "1.4.1"
+tracing-subscriber = "0.3.22"
+tracing = "0.1.44"
+
+[dependencies.hotmeal]
+path = ".."
+
+# Native diff+apply roundtrip (no browser)
+[[bin]]
+name = "apply"
+path = "fuzz_targets/apply.rs"
+test = false
+doc = false
+bench = false
+
+# Structured DOM generation + native diff+apply
+[[bin]]
+name = "apply_structured"
+path = "fuzz_targets/apply_structured.rs"
+test = false
+doc = false
+bench = false
+
+# html5ever vs browser DOMParser comparison
+[[bin]]
+name = "parse_parity"
+path = "fuzz_targets/parse_parity.rs"
+test = false
+doc = false
+bench = false
+
+# Native diff + browser apply, step-by-step DOM comparison
+[[bin]]
+name = "apply_parity"
+path = "fuzz_targets/apply_parity.rs"
+test = false
+doc = false
+bench = false
+
+[features]
+tracing = ["hotmeal/tracing"]

@@ -1,0 +1,9 @@
+B1: box "one" width 1 height 1 at 2,2;
+B2: box thickness 300% dotted 0.03 "two" at 1,3;
+print "B2.n: ",B2.n.x,",",B2.n.y
+print "B2.c: ",B2.c.x,",",B2.c.y
+print "B2.e: ",B2.e.x,",",B2.e.y
+scale = 1
+box "three" "four" ljust "five" with .n at 0.1 below B2.s width 50%
+
+#  Text demo: <text x="100" y="100" text-anchor="end" dominant-baseline="central">I love SVG!</text>

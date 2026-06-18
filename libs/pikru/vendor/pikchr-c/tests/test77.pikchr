@@ -1,0 +1,11 @@
+arrow right
+box width 2*boxht "Start"
+arrow
+box same "Right"
+move to 1st box.s
+down
+arrow
+box same "Down"
+arrow
+box same "Should continue down" "from \"Down\"" "not to the right!" \
+         "See forum post 75a2220c44" "on 2023-08-12" fit

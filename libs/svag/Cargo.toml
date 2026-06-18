@@ -1,0 +1,39 @@
+[workspace]
+members = ["xtask"]
+
+[package]
+name = "svag"
+version = "0.1.2"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "An SVG minifier"
+repository = "https://github.com/bearcove/svag"
+homepage = "https://github.com/bearcove/svag"
+documentation = "https://docs.rs/svag"
+readme = "README.md"
+keywords = ["svg", "minify", "optimize", "xml"]
+categories = ["command-line-utilities", "web-programming", "encoding"]
+rust-version = "1.88"
+exclude = ["xtask/", "tests/", ".github/", ".cargo/"]
+
+[dependencies]
+quick-xml = "0.37"
+clap = { version = "4", features = ["derive"] }
+thiserror = "2"
+ryu = "1"
+rayon = "1"
+ignore = "0.4"
+
+[dev-dependencies]
+chromiumoxide = { version = "0.7", features = ["tokio-runtime"], default-features = false }
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+image = "0.25"
+ssim = "0.1"
+tempfile = "3"
+base64 = "0.22"
+ignore = "0.4"
+
+[[bin]]
+name = "svag"
+path = "src/main.rs"

@@ -1,0 +1,28 @@
+Horizontal arrows:
+
+----->
+<-----
+<---->
+
+Vertical arrows:
+
+  |       |       ^
+  |       |       |
+  v       ^       |
+                  v
+
+Diagonal arrows:
+
+    /       \
+   /         \
+  v           v
+
+Double line arrows:
+
+=====>
+<======
+
+Squiggle arrows:
+
+~~~~>
+<~~~~

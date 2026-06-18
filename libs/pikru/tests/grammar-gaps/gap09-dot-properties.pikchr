@@ -1,0 +1,31 @@
+# Grammar: dot-property -> .color | .dashed | .diameter | .dotted | .fill
+# Tests reading dot-properties that are never read in existing tests
+# Note: .wid, .width, .ht, .height (set), .rad, .radius, .thickness are tested
+
+# Setup objects with known properties
+box "test" color red fill blue dashed 0.05
+
+# Read .color
+print "color:", last box.color
+
+# Read .fill
+print "fill:", last box.fill
+
+# Read .dashed
+print "dashed:", last box.dashed
+
+# Object with dotted
+box "dotted" dotted 0.1
+print "dotted:", last box.dotted
+
+# Circle for diameter
+circle "circ" radius 0.5in
+print "diameter:", last circle.diameter
+
+# Read .height (synonym for .ht which IS tested)
+box "htest"
+print "height:", last box.height
+
+# Use in expressions
+box "sized" color red
+circle radius last box.wid/2 at 1in right of last box

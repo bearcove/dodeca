@@ -1,0 +1,38 @@
+# Grammar: nth-object of|in object
+# Tests container-scoped ordinal access
+# Production: object -> nth-object "of"|"in" object
+
+# Basic "of" form
+A: [
+  box "First"
+  move
+  box "Second"
+  move
+  box "Third"
+]
+
+# Access by ordinal + "of"
+arrow from 1st box of A to 2nd box of A chop
+arrow from 2nd box of A to 3rd box of A chop
+
+# Access by ordinal + "in"
+B: [
+  circle "C1"
+  move
+  circle "C2"
+]
+arrow from 1st circle in B to 2nd circle in B chop
+
+# With edgename prefix (place: edgename of object)
+arrow from e of 1st box of A to w of 2nd box of A chop
+
+# "last" form
+arrow from last box of A to last circle of B chop
+
+# Nested: nth-object of labeled container with anchor
+C: [
+  oval "O1"
+  move
+  oval "O2"
+]
+line from s of 1st oval of C to n of 1st circle of B chop

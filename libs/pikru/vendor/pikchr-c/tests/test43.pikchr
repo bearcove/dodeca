@@ -1,0 +1,13 @@
+scale = 0.75
+box "One"
+arrow right 200% "Bold" bold above "Italic" italic below
+circle "Two"
+circle "Bold-Italic" bold italic aligned fit \
+   at 4cm heading 143 from Two
+arrow from Two to last circle "above" aligned above "below" aligned below chop
+circle "C2" fit at 4cm heading 50 from Two
+arrow from Two to last circle "above" aligned above "below "aligned below chop
+circle "C3" fit at 4cm heading 200 from Two
+arrow from last circle to Two <- \
+  "above-rjust" aligned rjust above \
+  "below-rjust" aligned rjust below chop

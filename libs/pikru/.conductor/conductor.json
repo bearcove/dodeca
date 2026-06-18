@@ -1,0 +1,22 @@
+{
+  "$schema": "https://raw.githubusercontent.com/bearcove/conductor/main/conductor.schema.json",
+  "tasks": {
+    "check": {
+      "command": "cargo check --workspace --all-targets",
+      "group": "build",
+      "problemMatcher": "$rustc",
+      "watchPatterns": ["**/*.rs", "**/Cargo.toml", "**/Cargo.lock"]
+    },
+    "clippy": {
+      "command": "cargo clippy --workspace --all-targets -- -D warnings",
+      "group": "build",
+      "problemMatcher": "$rustc",
+      "watchPatterns": ["**/*.rs", "**/Cargo.toml"]
+    },
+    "test": {
+      "command": "cargo nextest run",
+      "group": "test",
+      "watchPatterns": ["**/*.rs"]
+    }
+  }
+}

@@ -1,0 +1,12 @@
+ALL: [
+file "ljust" italic "*.md" ljust "*.txt" ljust "*.wiki" ljust rad 20%
+arrow
+box rad 10px "Markdown" mono ljust "Interpreter" monospace ljust \
+   "(monospace)" mono ljust italic fit
+arrow right 200% "above" above "rjust " rjust below " ljust" ljust below
+file "rjust" italic "*.htm" rjust "*.js" rjust
+arrow down from first box.s "rjust " rjust " ljust" ljust
+box "rjust" rjust above "center" center "ljust" ljust above \
+    "rjust" rjust below "ljust" ljust below big big
+]
+box invis "Text Justification Rules" big bold fit with .s at 0.2 above ALL.n

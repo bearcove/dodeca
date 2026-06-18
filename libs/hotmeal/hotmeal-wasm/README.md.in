@@ -1,0 +1,26 @@
+# hotmeal-wasm
+
+WebAssembly bindings for hotmeal HTML toolkit.
+
+Provides browser-side HTML parsing, DOM diffing, and patch application for use in JavaScript/TypeScript applications.
+
+## Features
+
+- Parse HTML strings into DOM trees
+- Compute minimal patches between two HTML documents
+- Apply patches to update the DOM efficiently
+- Works with any JavaScript framework or vanilla JS
+
+## Usage
+
+```javascript
+import init, { parse_html, diff_html, apply_patches } from 'hotmeal-wasm';
+
+await init();
+
+const old_html = '<div><p>Hello</p></div>';
+const new_html = '<div><p>World</p></div>';
+
+const patches = diff_html(old_html, new_html);
+// Apply patches to your DOM...
+```

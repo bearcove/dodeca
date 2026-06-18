@@ -1,0 +1,2 @@
+box "rjust" rjust above "center" center "ljust" ljust above \
+    "rjust" rjust below "ljust" ljust below big big

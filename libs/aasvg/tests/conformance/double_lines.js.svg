@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" height="32" width="88" viewBox="0 0 88 32" class="diagram" text-anchor="middle" font-family="monospace" font-size="13px" stroke-linecap="round">
+<path d="M 8,14 L 80,14" fill="none" stroke="black"/><path d="M 8,18 L 80,18" fill="none" stroke="black"/>
+<polygon class="arrowhead" points="88,16 76,10.4 76,21.6" fill="black" transform="rotate(0,80,16)"/>
+<g class="text">
+</g>
+</svg>
