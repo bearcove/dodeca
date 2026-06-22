@@ -3,7 +3,9 @@
 // Captain configuration
 // All options default to true. Set to false to disable.
 
-pre-commit {}
+pre-commit {
+  internal-dev-deps-release-plz false
+}
 
 pre-push {}
 
