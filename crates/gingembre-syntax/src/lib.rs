@@ -10,6 +10,12 @@
 mod lexer;
 pub use lexer::{Lexeme, lex};
 
+mod parser;
+pub use parser::{Parse, ParseError, parse, parse_expr_str};
+
+/// A node in the resolved (text-bearing) syntax tree.
+pub type ResolvedNode = cstree::syntax::ResolvedNode<SyntaxKind>;
+
 /// The kind of every token and node in a gingembre syntax tree.
 ///
 /// A single flat tag set: variants up to (and including) [`SyntaxKind::Error`] are
