@@ -91,8 +91,21 @@ reading-time, date formatting.)
 3. ✅ Recursive-descent + precedence parser → cstree, error-recovering — 9 tests
    (lossless roundtrip + the field-access-in-call-arg the old parser choked on).
 4. ✅ Typed views over the CST (`ast.rs`, no owned AST) — 15 tests.
-5. ⏳ **Port `eval`/`render` to consume the typed views**; delete `gingembre/src/{lexer,parser,
-   ast}.rs`. Bar = render output: the engine's output tests + showcase + ftl pages. This is
+5. 🏃 **Engine flipped onto the cstree parser via a CST→ast bridge** (`cst_lower.rs`):
+   `Template::parse` now parses with `gingembre_syntax` + lowers to `ast::{Expr,Node}`, so
+   eval/render are unchanged. **148/160 gingembre tests pass** (rendered-output bar).
+   Remaining 12, all well-defined:
+   - **`::` macro calls (6)** — engine convention uses `self::m()` / `macros::m()`; I dropped
+     `::` (ftl uses dotted `macros.m()`). Re-add: lexer `::`→ColonColon token, parser
+     `name::macro(args)` → a MacroCall node, typed view + lower → `ast::MacroCallExpr`.
+   - **break/continue (4)** — not in grammar (ftl doesn't use them). Add `break`/`continue`
+     keywords + statement nodes + lower → `ast::{Break,Continue}Node`.
+   - **unclosed-expr errors (2)** — parser recovers; `parse_to_template` swallows errors.
+     Surface `parse.errors` as a `TemplateError` (needs the source for the miette span).
+   Also deferred: whitespace-control trimming (`{%- -%}` text trim — output-affecting),
+   block-`set` (`{% set x %}…{% endset %}`), slices in eval. Then delete old front-end.
+   ORIGINAL plan was "port eval/render to typed views directly"; the bridge gets green
+   faster and the direct port can follow (it deletes `ast.rs` + `cst_lower.rs`). Bar = render output: the engine's output tests + showcase + ftl pages. This is
    the bulk — `eval.rs` (~1900 lines) + `render.rs` change from matching owned `Expr`/`Node`
    enums to matching `SyntaxKind` + typed accessors. Repoint `gingembre::parse`/`Template`.
 6. ⏳ Point the LSP at the CST; delete its ~9700-line separate template parsing.
