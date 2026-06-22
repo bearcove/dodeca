@@ -61,9 +61,9 @@ templating that runs SQL against home's content DB at render time:
 - `content/articles/i-won-free-load-testing/_index.md`
 - `content/articles/a-new-website-for-2020/_index.md`
 (The 3rd hit, `content/tests/shortcode.md`, is just a ```liquid code *sample*, not executed.)
-dodeca is static and has no query-the-DB-from-markdown feature. These 2 articles either get
-rewritten to plain content (the live tables become static snapshots) or left degraded.
-Tiny scope — only 2 real files.
+dodeca has no query-the-DB-from-markdown feature. Decision (Amos): don't rewrite — if these
+are a problem, just **redirect those 2 URLs to an archive.org snapshot**. Needs the redirect
+mechanism (workstream 3). Tiny scope — only 2 real files, and they're dispensable.
 
 ### 6. Search parity — LIKELY FINE (validate when running)
 home uses server-side Tantivy; dodeca has `cell-search`, which Amos says is actually very
