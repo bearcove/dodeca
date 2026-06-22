@@ -1084,5 +1084,41 @@ fn collect_tests() -> Vec<Test> {
             func: || boxed(editor::edit_button_hidden_from_anonymous()),
             ignored: false,
         },
+        // shortcode_invalidation tests
+        Test {
+            name: "page_edit_rerenders_that_page",
+            module: "shortcode_invalidation",
+            func: || boxed(shortcode_invalidation::page_edit_rerenders_that_page()),
+            ignored: false,
+        },
+        Test {
+            name: "shortcode_template_edit_rerenders_using_page",
+            module: "shortcode_invalidation",
+            func: || boxed(shortcode_invalidation::shortcode_template_edit_rerenders_using_page()),
+            ignored: false,
+        },
+        Test {
+            name: "shortcode_template_edit_does_not_corrupt_unrelated_page",
+            module: "shortcode_invalidation",
+            func: || {
+                boxed(
+                    shortcode_invalidation::shortcode_template_edit_does_not_corrupt_unrelated_page(
+                    ),
+                )
+            },
+            ignored: false,
+        },
+        Test {
+            name: "macros_edit_rerenders_shortcode_importing_it",
+            module: "shortcode_invalidation",
+            func: || boxed(shortcode_invalidation::macros_edit_rerenders_shortcode_importing_it()),
+            ignored: false,
+        },
+        Test {
+            name: "get_media_asset_rerenders_using_page",
+            module: "shortcode_invalidation",
+            func: || boxed(shortcode_invalidation::get_media_asset_rerenders_using_page()),
+            ignored: true,
+        },
     ]
 }

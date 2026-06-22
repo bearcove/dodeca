@@ -23,5 +23,6 @@ pub mod rendered_markdown;
 pub mod sass;
 pub mod search;
 pub mod section_pages;
+pub mod shortcode_invalidation;
 pub mod static_assets;
 pub mod templates;
