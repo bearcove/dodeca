@@ -2395,6 +2395,22 @@ mod tests {
         assert!(result.contains("include"));
     }
 
+    // r[verify filter.default.undefined]
+    #[tokio::test]
+    async fn default_filter_on_undefined_variable_returns_fallback() {
+        let t = Template::parse(
+            "test",
+            "{% set cap = title | default(value=\"\") %}[{{ cap }}]",
+        )
+        .unwrap();
+        let result = t.render(&Context::new()).await.unwrap();
+        assert_eq!(
+            result.trim(),
+            "[]",
+            "undefined var should give empty string via default"
+        );
+    }
+
     // r[verify inherit.extends.position]
     #[tokio::test]
     async fn test_extends_position() {

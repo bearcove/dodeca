@@ -2548,6 +2548,7 @@ dependencies = [
 name = "dodeca"
 version = "0.6.1"
 dependencies = [
+ "aho-corasick",
  "arboard",
  "arborium-theme",
  "ariadne 0.5.1",

@@ -757,8 +757,13 @@ impl<'a> Evaluator<'a> {
     }
 
     async fn eval_filter(&self, filter: &FilterExpr) -> Result<LazyValue, TemplateError> {
-        // Filters always work on concrete values
-        let value = self.eval_concrete(&filter.expr).await?;
+        // Filters always work on concrete values. The `default` filter is special:
+        // if the expression is undefined, treat it as NULL so `default(value=...)` works.
+        let value = match self.eval_concrete(&filter.expr).await {
+            Ok(v) => v,
+            Err(TemplateError::Undefined(_)) if filter.filter.name == "default" => Value::NULL,
+            Err(e) => return Err(e),
+        };
         let mut args = Vec::with_capacity(filter.args.len());
         for a in &filter.args {
             args.push(self.eval_concrete(a).await?);

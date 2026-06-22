@@ -1313,6 +1313,7 @@ pub async fn render_page<DB: Db>(
     can_edit: bool,
 ) -> PicanteResult<Result<RenderedHtml, SiteError>> {
     use crate::render::render_page_template;
+    use crate::shortcode::resolve_shortcodes;
 
     tracing::debug!(route = %route, can_edit, "Rendering page");
 
@@ -1325,7 +1326,8 @@ pub async fn render_page<DB: Db>(
     // Pre-load all templates, then narrow to the source serving this route so a
     // mounted source renders with its own chrome (`{% extends %}` resolves
     // within the source's own template set). Single-source sites are unchanged.
-    let templates = templates_for_route(load_all_templates(db).await?, route.as_str());
+    let all_templates = load_all_templates(db).await?;
+    let templates = templates_for_route(all_templates.clone(), route.as_str());
 
     // Find the page
     let page = site_tree
@@ -1335,7 +1337,10 @@ pub async fn render_page<DB: Db>(
 
     // Render via the statically linked gingembre renderer.
     match render_page_template(page, &site_tree, templates, can_edit).await {
-        Ok(html) => Ok(Ok(RenderedHtml(html))),
+        Ok(html) => {
+            let html = resolve_shortcodes(html, &all_templates, &site_tree).await;
+            Ok(Ok(RenderedHtml(html)))
+        }
         Err(error) => Ok(Err(RenderError {
             route: route.clone(),
             error,
@@ -1432,6 +1437,7 @@ pub async fn render_section<DB: Db>(
     can_edit: bool,
 ) -> PicanteResult<Result<RenderedHtml, SiteError>> {
     use crate::render::render_section_template;
+    use crate::shortcode::resolve_shortcodes;
 
     tracing::debug!(route = %route, can_edit, "Rendering section");
 
@@ -1443,7 +1449,8 @@ pub async fn render_section<DB: Db>(
 
     // Pre-load all templates, then narrow to the source serving this route so a
     // mounted source renders with its own chrome (see `render_page`).
-    let templates = templates_for_route(load_all_templates(db).await?, route.as_str());
+    let all_templates = load_all_templates(db).await?;
+    let templates = templates_for_route(all_templates.clone(), route.as_str());
 
     // Find the section
     let section = site_tree
@@ -1453,7 +1460,10 @@ pub async fn render_section<DB: Db>(
 
     // Render via the statically linked gingembre renderer.
     match render_section_template(section, &site_tree, templates, can_edit).await {
-        Ok(html) => Ok(Ok(RenderedHtml(html))),
+        Ok(html) => {
+            let html = resolve_shortcodes(html, &all_templates, &site_tree).await;
+            Ok(Ok(RenderedHtml(html)))
+        }
         Err(error) => Ok(Err(RenderError {
             route: route.clone(),
             error,
