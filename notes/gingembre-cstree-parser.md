@@ -84,7 +84,7 @@ reading-time, date formatting.)
 - `lower`: typed CST → existing `ast::Expr`/`Node` for the engine.
 - Typed AST layer over the CST for the LSP (accessor methods per node).
 
-## STATUS: engine fully on cstree, 161/161 tests, showcase renders correctly through the new engine (figure/youtube/tip/bearsays). 57/57 ftl templates parse clean. Remaining: step 6 (LSP onto CST + delete old front-end).
+## STATUS: COMPLETE — all 7 steps done. One cstree parser drives engine + LSP + REPL; old hand-written parser.rs/lexer.rs DELETED. gingembre 138/138; LSP+dodeca compile; 57/57 ftl templates parse; showcase renders end-to-end with the old front-end gone. ast.rs remains as the engine lowering IR (bridge); optional future cleanup = eval directly off typed views to drop it.
 
 ## Plan / phases (status)
 
