@@ -44,8 +44,15 @@ before it reaches the real site. First section (shortcodes) already surfaced 4 g
 ### 2. gingembre improvements — TODO
 So the existing `.jinja` templates port unchanged. Engine lives at `libs/gingembre`.
 Gaps found vs the templates fasterthanli.me uses (`~/fasterthanli.me/templates/`):
-- **`{%- -%}` whitespace control** — dashes not recognized by the lexer. Used heavily
-  (e.g. `figure.html.jinja`). HIGH priority — without it, whitespace is wrong everywhere.
+- ~~**`{%- -%}` whitespace control**~~ DONE (2a4cb19c): lexer consumes trim dashes on all
+  three delimiters; trims preceding/following text. 159 gingembre tests pass.
+- **Lenient (Jinja) undefined variables** — HIGH, NEXT. gingembre is strict: `{% if width %}`
+  on an undefined `width` raises `UndefinedError`. ftl templates use undefined vars as
+  optional args everywhere (figure.html: width/height/attr/attrlink all optional), assuming
+  Jinja semantics where undefined is falsy / renders empty. Need: undefined → falsy in
+  boolean/`if` contexts, undefined passable as a kwarg (→ null), and `{{ undefined }}` →
+  empty (or configurable). Watch the existing intentional `UndefinedError` tests — decide
+  targeted leniency vs a global lenient-undefined value. Found by the showcase (figure.html).
 - **`loop.*`** — `loop.index`, `loop.first`, `loop.last`, `loop.revindex` not exposed in
   for-loop context.
 - **`{% raw %}…{% endraw %}`** — token not in lexer.
