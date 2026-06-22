@@ -85,6 +85,29 @@ Evidence this is the house pattern:
   `basic_markdown`, `escape_for_attribute`. (Also feeds the gingembre-improvements
   workstream.) These resolve assets through the picante-tracked host, preserving tracking.
 
+### Layer 2/3 concrete wiring (verified against the codebase)
+
+marq calls the resolver *during* render, but the resolver must not need gingembre
+there (cell-markdown is lower-level than dodeca). So we split it like dodeca already
+splits link resolution (`crates/dodeca/src/url_rewrite.rs`: marq passes links through,
+dodeca rewrites the HTML string in its picante query):
+
+- **cell-markdown** (`cells/cell-markdown/src/main.rs`, `render_options()`): register a
+  placeholder-emitting `ShortcodeResolver`. It returns
+  `<dodeca-shortcode data-name="NAME" data-args="B64">BODY_HTML</dodeca-shortcode>` —
+  body as element content (so later link resolution still sees `@/` links in the body),
+  args as base64(facet-json) of a shared `ShortcodePlaceholderArgs` type in
+  `cell-markdown-proto`. No gingembre/dodeca dependency here.
+- **dodeca** (`crates/dodeca/src/queries.rs`, the page-render query ~2160-2200 where
+  `resolve_relative_links`/`resolve_internal_links`/`resolve_wiki_links` run): add
+  `resolve_shortcodes(html, …)` *before* the link passes, so links emitted by shortcode
+  templates get resolved too. It finds `<dodeca-shortcode>` tokens and renders
+  `templates/shortcodes/<name>.html` via the existing gingembre path
+  (`render.rs:try_render_template` / `gingembre::Engine` + `InMemoryLoader`), which reads
+  the picante `TemplateRegistry`/`TemplateFile` inputs — so tracking is inherited.
+- **filters/functions**: `get_media().markup()`, `basic_markdown`, `escape_for_attribute`
+  added to the gingembre context used for shortcode rendering (also feeds gingembre-improvements).
+
 ### Dependency-tracking guarantees (by construction)
 - Edit `tip.html.jinja` → only pages using `tip` re-render (TemplateFile input read).
 - Replace an image referenced via `get_media()` in a shortcode → using pages rebuild.
