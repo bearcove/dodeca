@@ -556,22 +556,27 @@ impl SiteServer {
         self.open_source_in_editor(&source_file, line).await
     }
 
-    /// Semantic search over the site's pages for the well-known knowledge
-    /// endpoint. Embeds the query and every page and returns the `k` closest.
-    /// On a parse error it yields an empty result rather than failing the request.
+    /// Semantic search over the site's heading-level chunks for the well-known
+    /// knowledge endpoint. Chunk embeddings are cached per source (picante), so
+    /// only changed pages re-embed; here we just embed the query and rank.
     pub async fn knowledge_search(
         &self,
         query: &str,
         k: usize,
     ) -> crate::knowledge::KnowledgeResponse {
         let snapshot = DatabaseSnapshot::from_database(&self.db).await;
-        match build_tree(&snapshot).await {
-            Ok(Ok(site_tree)) => crate::knowledge::search(&site_tree, query, k).await,
-            _ => crate::knowledge::KnowledgeResponse {
-                query: query.trim().to_string(),
-                hits: Vec::new(),
-            },
-        }
+        crate::knowledge::search(&snapshot, query, k).await
+    }
+
+    /// Pages most semantically related to `route` (nearest chunks from other
+    /// pages to this page's mean chunk vector).
+    pub async fn knowledge_related(
+        &self,
+        route: &str,
+        k: usize,
+    ) -> crate::knowledge::KnowledgeResponse {
+        let snapshot = DatabaseSnapshot::from_database(&self.db).await;
+        crate::knowledge::related(&snapshot, route, k).await
     }
 
     /// Attach an inline note to the markdown source backing `(route, sid)`.

@@ -92,6 +92,24 @@ impl ContentService for HostContentService {
             };
         }
 
+        // Pages related to a given one: `/_dodeca/knowledge/related?route=/x&k=…`.
+        if let Some(rest) = path.strip_prefix("/_dodeca/knowledge/related") {
+            let params = parse_query_string(rest);
+            let route = params.get("route").map(String::as_str).unwrap_or("");
+            let k = params
+                .get("k")
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or(8)
+                .clamp(1, 50);
+            let response = self.server.knowledge_related(route, k).await;
+            let body = facet_json::to_string(&response).unwrap_or_else(|_| "{}".to_string());
+            return ServeContent::StaticNoCache {
+                content: body.into_bytes(),
+                mime: "application/json; charset=utf-8".to_string(),
+                generation,
+            };
+        }
+
         // In-browser editor shell. Fail closed: mint a token only for a verified
         // editor; anyone else is treated as if the page doesn't exist (we don't
         // reveal that it's editable). Unauthenticated requests behind the proxy
