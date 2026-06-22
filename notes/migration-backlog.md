@@ -30,12 +30,16 @@ before it reaches the real site. First section (shortcodes) already surfaced 4 g
   dependency tracking (picante `TemplateRegistry` input) and template naming
   (`shortcodes/<name>.html`, matches `.jinja`-stripped convention) both correct; dodeca
   compiles, 159 gingembre tests pass.
-- **Follow-ups to finish shortcodes (block the highest-count ones, figure 191 / media 152):**
-  - **`get_media(src)` is stubbed (returns NULL)** in the template host — implement it so
-    figure/media render images. (Should resolve assets through the picante-tracked path.)
-  - **gingembre: method calls on call results** (`get_media(src).markup(...)`) — `eval_call`
-    only dispatches `obj.method()` when `obj` is a `Var`, not a function result. Extend
-    gingembre to allow method calls on arbitrary expression results. (Also a workstream-2 item.)
+- ~~**`get_media(src)` stub**~~ DONE (b5064e6a): returns the resolved src; new `markup`
+  host fn emits a safe `<img>` that the existing image post-pass upgrades to responsive
+  `<picture>` (and tracks the asset dep). Verified: tip/bearsays avatars emit.
+- ~~**gingembre method calls on call results**~~ DONE (b5064e6a): `eval_call` dispatches
+  `<expr>.method(args)` for any receiver, passing it as the first positional arg.
+- **Remaining for figure/media**: add a showcase section with a REAL image so the
+  `<img>→<picture>` post-pass + asset dependency are exercised end-to-end (also unblocks
+  the `#[ignore]` get_media dependency test). figure/media templates use the same
+  `get_media().markup()` pattern, now working — needs verification with a real asset +
+  `basic_markdown`/`escape_for_attribute` (those filters already exist).
 
 ### 2. gingembre improvements — TODO
 So the existing `.jinja` templates port unchanged. Engine lives at `libs/gingembre`.
