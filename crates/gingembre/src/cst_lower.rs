@@ -18,7 +18,15 @@ fn sp(node: &ResolvedNode) -> Span {
 }
 
 fn ident(name: &str, node: &ResolvedNode) -> Ident {
-    Ident { name: name.to_string(), span: sp(node) }
+    // Use the matching Ident token's own range (the semantic index / LSP keys references
+    // on ident spans), not the enclosing node's.
+    let span = node
+        .children_with_tokens()
+        .filter_map(|e| e.into_token())
+        .find(|t| t.kind() == gingembre_syntax::SyntaxKind::Ident && t.text() == name)
+        .map(|t| ast::span(usize::from(t.text_range().start()), t.text().len()))
+        .unwrap_or_else(|| sp(node));
+    Ident { name: name.to_string(), span }
 }
 
 /// Lower a typed-CST expression to an engine `Expr`.
@@ -195,6 +203,30 @@ pub fn parse_template(
         .into());
     }
     Ok(ast)
+}
+
+/// Parse a standalone expression (REPL / `eval_expression`) via the cstree parser.
+pub fn parse_expression(src: &str) -> Result<Expr, crate::error::TemplateError> {
+    use gingembre_syntax::ast::AstNode;
+    let p = gingembre_syntax::parse_expr_str(src);
+    let expr = cst::Template::cast(p.syntax().clone()).and_then(|t| {
+        t.items().into_iter().find_map(|i| match i {
+            cst::Item::Interpolation(interp) => interp.expr(),
+            _ => None,
+        })
+    });
+    match expr {
+        Some(e) => Ok(lower_expr(&e)),
+        None => {
+            let ts = crate::error::TemplateSource::new("<expr>", src);
+            Err(crate::error::SyntaxError {
+                found: "end of input".to_string(),
+                expected: "an expression".to_string(),
+                loc: crate::error::SourceLocation::new(ast::span(0, src.len()), ts.named_source()),
+            }
+            .into())
+        }
+    }
 }
 
 /// Parse leniently (recovery): always returns a (best-effort) template, ignoring parse

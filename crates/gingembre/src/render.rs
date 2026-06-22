@@ -9,7 +9,6 @@ use super::error::{
 };
 use super::eval::{Context, Evaluator, Value};
 use super::lazy::LazyValue;
-use super::parser::Parser;
 use camino::{Utf8Path, Utf8PathBuf};
 use facet_value::{DestructuredRef, VObject, VString};
 use futures::future::BoxFuture;

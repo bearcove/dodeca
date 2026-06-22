@@ -45,8 +45,6 @@ pub use cst_lower::{parse_template, parse_template_recovered};
 mod error;
 mod eval;
 mod lazy;
-pub mod lexer;
-pub mod parser;
 mod render;
 pub mod semantic;
 
@@ -69,10 +67,8 @@ pub use facet_value::{VArray, VObject, VSafeString, VString};
 pub async fn eval_expression(expr: &str, ctx: &Context) -> Result<Value, TemplateError> {
     use error::TemplateSource;
 
-    // Use expression parser (starts in code mode, not template mode)
-    let parser = parser::Parser::new_expression("<repl>", expr);
     let source = TemplateSource::new("<repl>", expr);
-    let ast = parser.parse_expression()?;
+    let ast = cst_lower::parse_expression(expr)?;
     let evaluator = eval::Evaluator::new(ctx, &source);
     evaluator.eval_concrete(&ast).await
 }
