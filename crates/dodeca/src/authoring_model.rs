@@ -135,7 +135,7 @@ impl AuthoringWorkspace {
         let output_dir = primary.parent().unwrap_or(&primary).join("public");
         let mut ctx = BuildContext::new(&primary, &output_dir);
         ctx.set_source_roots(sources.to_vec());
-        MarkdownRenderSettings::set(&*ctx.db, false)?;
+        MarkdownRenderSettings::set(&*ctx.db, false, false)?;
 
         ctx.load_sources()?;
         ctx.load_templates()?;

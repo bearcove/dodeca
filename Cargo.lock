@@ -4850,8 +4850,6 @@ dependencies = [
 [[package]]
 name = "marq"
 version = "5.0.0-rc.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35e304bb3d0aa8ce3cd0d0c389b9fda49a82ec48d4ebac317631d5d47eaae889"
 dependencies = [
  "aasvg",
  "arborium",

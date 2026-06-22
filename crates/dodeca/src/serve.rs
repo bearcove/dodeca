@@ -336,8 +336,12 @@ impl SiteServer {
         });
 
         let db = Arc::new(db);
-        MarkdownRenderSettings::set(&*db, render_options.source_maps)
-            .expect("failed to initialize markdown render settings");
+        MarkdownRenderSettings::set(
+            &*db,
+            render_options.source_maps,
+            render_options.render_notes,
+        )
+        .expect("failed to initialize markdown render settings");
 
         Self {
             db,
@@ -1092,7 +1096,11 @@ impl SiteServer {
                 tracing::warn!("Failed to load cache: {:?}", e);
             }
         }
-        MarkdownRenderSettings::set(&*self.db, self.render_options.source_maps)?;
+        MarkdownRenderSettings::set(
+            &*self.db,
+            self.render_options.source_maps,
+            self.render_options.render_notes,
+        )?;
         Ok(())
     }
 

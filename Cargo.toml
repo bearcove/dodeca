@@ -178,6 +178,9 @@ rust-version = "1.92"
 
 # Temporary until the next Vox rc contains the Tokio-free wasm runtime split.
 [patch.crates-io]
+# Local marq while inline-note rendering is in flight (pending absorption).
+marq = { path = "../marq" }
+
 cinereus = { git = "https://github.com/bearcove/hotmeal.git", rev = "bfea3312e768fff9b4cc1afd6d5d1dc4bf881ce8" }
 hotmeal = { git = "https://github.com/bearcove/hotmeal.git", rev = "bfea3312e768fff9b4cc1afd6d5d1dc4bf881ce8" }
 hotmeal-server = { git = "https://github.com/bearcove/hotmeal.git", rev = "bfea3312e768fff9b4cc1afd6d5d1dc4bf881ce8" }
@@ -302,7 +305,8 @@ debug = true
 
 # Release profile with reduced debug info for smaller binaries
 [profile.release]
-debug = "line-tables-only"
+# debug = "line-tables-only"
+debug = 1
 
 # The profile that 'dist' will build with
 [profile.dist]

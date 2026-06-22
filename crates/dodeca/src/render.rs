@@ -52,6 +52,9 @@ pub struct RenderOptions {
     pub dev_mode: bool,
     /// Whether markdown rendering should emit `data-sid` attributes and source maps.
     pub source_maps: bool,
+    /// Whether inline `<!-- note … -->` annotations are rendered (dev) or
+    /// stripped entirely (prod).
+    pub render_notes: bool,
 }
 
 /// CSS for dead link highlighting in dev mode (subtle overline)
