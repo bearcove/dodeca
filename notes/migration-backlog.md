@@ -13,6 +13,12 @@ Decisions already made (Amos):
   rather than a fully separate service. Not on the critical path.
 - Bend dodeca to fit the content, not the content to dodeca.
 
+## Showcase / oracle
+`examples/showcase/` — a runnable example site (`ddc build examples/showcase`) that
+exercises every migration feature, one section per workstream. Doubles as a dev target
+and golden-output oracle: a feature that isn't implemented shows up as broken output here
+before it reaches the real site. First section (shortcodes) already surfaced 4 gaps (below).
+
 ## Workstream status
 
 ### 1. Shortcodes — VERTICAL SLICE WORKING
@@ -46,6 +52,14 @@ Gaps found vs the templates fasterthanli.me uses (`~/fasterthanli.me/templates/`
 - **`super()`** inside blocks (unconfirmed — verify).
 - **Method calls on call results** (`get_media(src).markup(...)`): `eval_call` only handles
   `obj.method()` for `obj: Var`. Needed for figure/media shortcodes. (Found during Layer 2.)
+- **`is defined` / `is not defined` test throws on an undefined operand** instead of
+  evaluating to true/false. `{% if mood is not defined %}` raises `UndefinedError(mood)`.
+  The defined-test must short-circuit (that's its whole purpose). Found by the showcase
+  (`bearsays.html`). Every speech-bubble template that defaults an optional arg hits this.
+- **Namespaced macro call renders EMPTY** (`{% import "macros.html" as macros %}` then
+  `{{ macros.youtube_embed(...) }}`): produces nothing, no error. Inlining the macro body
+  works, so it's specifically the import-namespace call path. CRITICAL — every ftl shortcode
+  template opens with this import. Found by the showcase (`youtube.html`).
 - NOTE: the `default` filter was fixed during Layer 2 to match Jinja2 (was broken on
   undefined vars) — commit 443de305.
 - Custom filters the shortcodes/templates need: `basic_markdown`, `escape_for_attribute`,

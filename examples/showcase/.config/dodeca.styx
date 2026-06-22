@@ -1,0 +1,7 @@
+content content
+output public
+
+syntax_highlight {
+    light_theme github-light
+    dark_theme tokyo-night
+}

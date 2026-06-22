@@ -1,0 +1,11 @@
+{% if mood is not defined %}
+{% set mood = "neutral" %}
+{% endif %}
+<div class="dialog">
+  <div class="dialog-head bear-mark" title="Cool bear says:">
+    {{ get_media("/content/img/coolbear-" ~ mood ~ ".jxl").markup(width=42, height=42, alt="Cool bear") }}
+  </div>
+  <div class="dialog-text markup-container">
+    {{ body }}
+  </div>
+</div>
