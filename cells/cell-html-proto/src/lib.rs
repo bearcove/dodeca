@@ -110,6 +110,12 @@ pub struct HtmlProcessInput {
     #[facet(default)]
     pub wiki_to_route: Option<HashMap<String, String>>,
 
+    /// Wiki link key to target page title. A bare `[[slug]]` (whose display text
+    /// is the slug itself) is relabeled with the target's title on resolution;
+    /// an explicit `[[slug|label]]` keeps its label.
+    #[facet(default)]
+    pub wiki_to_title: Option<HashMap<String, String>>,
+
     /// Base route for resolving relative links (e.g., "/guide/intro/")
     #[facet(default)]
     pub base_route: Option<String>,

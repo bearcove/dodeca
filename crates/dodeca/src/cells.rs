@@ -247,6 +247,13 @@ pub async fn minify_html(html: String) -> MinifyResult {
     ddc_cell_minify::MinifierImpl.minify_html(html).await
 }
 
+/// Embed texts into unit vectors via the embed cell (Model2Vec; loads the model
+/// once on first use). Output order matches input order.
+pub async fn embed(texts: Vec<String>) -> cell_embed_proto::EmbedResult {
+    use cell_embed_proto::Embedder;
+    ddc_cell_embed::EmbedderImpl.embed(texts).await
+}
+
 pub async fn process_html(input: HtmlProcessInput) -> HtmlProcessResult {
     html_processor().process(input).await
 }

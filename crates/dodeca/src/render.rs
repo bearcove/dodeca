@@ -65,6 +65,17 @@ a[data-dead] {
 }
 </style>"#;
 
+/// Default styling for wiki auto-links: a dotted underline so a magic link reads
+/// distinctly from an explicit one. Theme-agnostic (inherits the link colour);
+/// a site can override `a.wiki-link[data-autolink]` in its own CSS.
+const WIKI_LINK_STYLES: &str = r#"<style>
+a.wiki-link[data-autolink] {
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 0.2em;
+}
+</style>"#;
+
 /// Generate syntax highlighting CSS with media queries for light/dark themes
 fn generate_syntax_highlight_css(light_theme_css: &str, dark_theme_css: &str) -> String {
     format!(
@@ -510,7 +521,7 @@ pub async fn inject_livereload_with_build_info(
     let head_injection_html = head_injections.join("");
     let search_assets = crate::search::search_head_injection();
     let scripts_to_inject = format!(
-        "{syntax_css}{term_css}{COPY_BUTTON_STYLES}{COPY_BUTTON_SCRIPT}{search_assets}{build_info_assets}{head_injection_html}"
+        "{syntax_css}{term_css}{WIKI_LINK_STYLES}{COPY_BUTTON_STYLES}{COPY_BUTTON_SCRIPT}{search_assets}{build_info_assets}{head_injection_html}"
     );
     result = hotmeal_server::inject_into_head(&result, &scripts_to_inject);
 

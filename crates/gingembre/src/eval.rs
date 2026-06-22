@@ -144,6 +144,16 @@ pub const BUILTIN_FILTERS: &[BuiltinItemInfo] = &[
         detail: "Gingembre filter",
         documentation: "Returns the final non-empty segment of a path.",
     },
+    BuiltinItemInfo {
+        name: "escape_for_attribute",
+        detail: "Gingembre filter",
+        documentation: "HTML-escapes a string for safe insertion into a quoted HTML attribute value.",
+    },
+    BuiltinItemInfo {
+        name: "basic_markdown",
+        detail: "Gingembre filter",
+        documentation: "Converts basic inline markdown (bold, italic, code, links) to HTML. Returns safe HTML.",
+    },
 ];
 
 pub const BUILTIN_TESTS: &[BuiltinItemInfo] = &[
@@ -584,6 +594,14 @@ impl<'a> Evaluator<'a> {
                     // Macro calls are evaluated during rendering, not expression evaluation
                     Ok(LazyValue::concrete(Value::NULL))
                 }
+                // r[impl expr.optional]
+                // `expr?` resolves the inner expression, yielding null instead of raising
+                // when it (or a field/index within it) is undefined.
+                Expr::Optional(opt) => match self.eval_concrete(&opt.expr).await {
+                    Ok(v) => Ok(LazyValue::concrete(v)),
+                    Err(TemplateError::Undefined(_)) => Ok(LazyValue::concrete(Value::NULL)),
+                    Err(e) => Err(e),
+                },
             }
         })
     }
@@ -747,8 +765,13 @@ impl<'a> Evaluator<'a> {
     }
 
     async fn eval_filter(&self, filter: &FilterExpr) -> Result<LazyValue, TemplateError> {
-        // Filters always work on concrete values
-        let value = self.eval_concrete(&filter.expr).await?;
+        // Filters always work on concrete values. The `default` filter is special:
+        // if the expression is undefined, treat it as NULL so `default(value=...)` works.
+        let value = match self.eval_concrete(&filter.expr).await {
+            Ok(v) => v,
+            Err(TemplateError::Undefined(_)) if filter.filter.name == "default" => Value::NULL,
+            Err(e) => return Err(e),
+        };
         let mut args = Vec::with_capacity(filter.args.len());
         for a in &filter.args {
             args.push(self.eval_concrete(a).await?);
@@ -891,7 +914,7 @@ impl<'a> Evaluator<'a> {
 
             // Prepend method name as first positional arg
             let mut full_args = vec![Value::from(method_name.as_str())];
-            full_args.extend(args);
+            full_args.extend(args.iter().cloned());
 
             if let Some(result_fut) = self.ctx.call_fn(func_name, &full_args, &kwargs) {
                 return result_fut
@@ -901,7 +924,25 @@ impl<'a> Evaluator<'a> {
             }
         }
 
-        // Method calls on values (like .items(), etc.) - not implemented yet
+        // Method call on an arbitrary value: `<expr>.method(args)` — e.g.
+        // `get_media(src).markup(...)`, where the receiver is itself a call result.
+        // Evaluate the receiver and dispatch to a host function named after the method,
+        // passing the receiver as the first positional argument.
+        if let Expr::Field(field) = &*call.func {
+            let receiver = self.eval_concrete(&field.base).await?;
+            let method_name = &field.field.name;
+            let mut full_args = Vec::with_capacity(args.len() + 1);
+            full_args.push(receiver);
+            full_args.extend(args);
+            if let Some(result_fut) = self.ctx.call_fn(method_name, &full_args, &kwargs) {
+                return result_fut
+                    .await
+                    .map(LazyValue::concrete)
+                    .map_err(|e| TemplateError::GlobalFn(e.to_string()));
+            }
+        }
+
+        // Unresolved method call.
         Ok(LazyValue::concrete(Value::NULL))
     }
 
@@ -915,8 +956,17 @@ impl<'a> Evaluator<'a> {
     }
 
     async fn eval_test(&self, test: &TestExpr) -> Result<LazyValue, TemplateError> {
-        // Tests require concrete values
-        let value = self.eval_concrete(&test.expr).await?;
+        // Tests require concrete values.
+        //
+        // `defined`/`undefined` must tolerate an undefined operand — checking whether a
+        // variable exists is the whole point of the test, so an undefined variable reads
+        // as `null` here rather than raising. (Jinja2 semantics.)
+        let lenient_undefined = matches!(test.test_name.name.as_str(), "defined" | "undefined");
+        let value = match self.eval_concrete(&test.expr).await {
+            Ok(v) => v,
+            Err(TemplateError::Undefined(_)) if lenient_undefined => Value::NULL,
+            Err(e) => return Err(e),
+        };
         let mut args = Vec::with_capacity(test.args.len());
         for a in &test.args {
             args.push(self.eval_concrete(a).await?);
@@ -1389,6 +1439,106 @@ fn filter_by_attr<'a>(
     }
 }
 
+/// Convert basic inline markdown to HTML.
+///
+/// Handles: **bold**, *italic*, `code`, and [text](url) links.
+/// All other characters are HTML-escaped. Returns a Value string with
+/// HTML-safe content (caller should mark it safe with `| safe` if needed,
+/// or use `basic_markdown | safe`).
+fn basic_markdown_to_html(s: &str) -> Value {
+    let mut out = String::with_capacity(s.len() + 16);
+    let mut chars = s.char_indices().peekable();
+    while let Some((i, c)) = chars.next() {
+        match c {
+            '*' if s[i..].starts_with("**") => {
+                // **bold**
+                chars.next(); // skip second *
+                let rest = &s[i + 2..];
+                if let Some(end) = rest.find("**") {
+                    let inner = html_escape_str(&rest[..end]);
+                    out.push_str("<strong>");
+                    out.push_str(&inner);
+                    out.push_str("</strong>");
+                    // advance past the bold span
+                    for _ in 0..(end + 2) {
+                        chars.next();
+                    }
+                } else {
+                    out.push_str("**");
+                }
+            }
+            '*' => {
+                // *italic*
+                let rest = &s[i + 1..];
+                if let Some(end) = rest.find('*') {
+                    let inner = html_escape_str(&rest[..end]);
+                    out.push_str("<em>");
+                    out.push_str(&inner);
+                    out.push_str("</em>");
+                    for _ in 0..end {
+                        chars.next();
+                    }
+                    chars.next(); // closing *
+                } else {
+                    out.push('*');
+                }
+            }
+            '`' => {
+                // `code`
+                let rest = &s[i + 1..];
+                if let Some(end) = rest.find('`') {
+                    let inner = html_escape_str(&rest[..end]);
+                    out.push_str("<code>");
+                    out.push_str(&inner);
+                    out.push_str("</code>");
+                    for _ in 0..end {
+                        chars.next();
+                    }
+                    chars.next(); // closing `
+                } else {
+                    out.push('`');
+                }
+            }
+            '[' => {
+                // [text](url)
+                let rest = &s[i + 1..];
+                if let Some(text_end) = rest.find("](") {
+                    let text = &rest[..text_end];
+                    let after = &rest[text_end + 2..];
+                    if let Some(url_end) = after.find(')') {
+                        let url = &after[..url_end];
+                        out.push_str("<a href=\"");
+                        out.push_str(&html_escape_str(url));
+                        out.push_str("\">");
+                        out.push_str(&html_escape_str(text));
+                        out.push_str("</a>");
+                        // advance past the link
+                        let skip = text_end + 2 + url_end + 1;
+                        for _ in 0..skip {
+                            chars.next();
+                        }
+                        continue;
+                    }
+                }
+                out.push('[');
+            }
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            _ => out.push(c),
+        }
+    }
+    Value::from(out.as_str())
+}
+
+fn html_escape_str(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
 /// Apply a built-in filter
 fn apply_filter(
     name: &str,
@@ -1727,6 +1877,29 @@ fn apply_filter(
                 .filter(|seg| !seg.is_empty())
                 .map(Value::from)
                 .unwrap_or(Value::NULL)
+        }
+        // r[impl filter.escape_for_attribute]
+        "escape_for_attribute" => {
+            let s = value.render_to_string();
+            let escaped = s
+                .replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;")
+                .replace('"', "&quot;")
+                .replace('\'', "&#x27;");
+            Value::from(escaped.as_str())
+        }
+        // r[impl filter.basic_markdown]
+        "basic_markdown" => {
+            // Minimal inline-only markdown pass: bold, italic, inline code, auto-links.
+            // Returns safe HTML so callers don't need `| safe`.
+            let s = value.render_to_string();
+            let html = basic_markdown_to_html(&s);
+            if let Some(sv) = html.as_string() {
+                sv.clone().into_safe().into_value()
+            } else {
+                html
+            }
         }
         _ => {
             return Err(UnknownFilterError {

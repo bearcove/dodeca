@@ -55,6 +55,22 @@ mod tests {
 }
 
 // ============================================================================
+// Shortcode types
+// ============================================================================
+
+/// Shortcode arguments in the form they were written, for use in HTML placeholder
+/// attributes. Serialised as facet-json then base64-encoded into `data-args`.
+#[derive(Debug, Clone, Facet)]
+#[repr(u8)]
+pub enum ShortcodeArgsProto {
+    /// Raw YAML mapping content of a fenced `+++ :name: <yaml> +++` shortcode
+    /// (the whole block text including the `:name:` line).
+    Yaml(String),
+    /// Parenthesised `key=value` pairs of an inline/blockquote `*:name(k=v)*`.
+    Pairs(Vec<(String, String)>),
+}
+
+// ============================================================================
 // Types
 // ============================================================================
 

@@ -1,12 +1,18 @@
 // Dodeca inline-note annotation overlay.
 //
-// Server-rendered structure (dev only, via marq's render_notes):
-//   <dodeca-mark data-note-id="ID">…the highlighted span…</dodeca-mark>
-//   <aside class="dodeca-note" data-note-id data-kind data-author data-created>
+// Server-rendered structure (dev only, via marq's render_notes) — note that the
+// markdown *prose* is never modified; a note is a sibling `<aside>` after its
+// block, carrying the anchor text as `data-quote`:
+//   <p>…the annotated block…</p>
+//   <aside class="dodeca-note" data-note-id data-quote data-kind data-author data-created>
 //     …rendered markdown body…
 //   </aside>
 //
 // This bundle turns that into an interactive review-comment layer:
+//   - it locates each note's `data-quote` within its block and wraps the match
+//     in `<dodeca-mark>` spans (the highlight is derived here, non-destructively;
+//     it never lived in the source). A quote that no longer matches degrades to
+//     a block-level note — still reachable, never lost,
 //   - highlights are the affordance; click one to open its note card,
 //   - a note index (top-right) lists every note and scrolls to it,
 //   - gutter markers by the scrollbar show where notes are,
@@ -223,30 +229,30 @@ interface NoteComment {
 }
 interface Note {
   id: string;
-  mark: HTMLElement | null;
+  quote: string;
+  // The highlight spans we wrapped in the DOM for this note (may be empty when
+  // the note is block-level or its quote no longer matches — graceful degrade).
+  marks: HTMLElement[];
+  // What the gutter/index/card anchor to: the first highlight span, else the
+  // annotated block element. Null only if the block itself vanished.
+  anchor: HTMLElement | null;
   comments: NoteComment[];
   resolved: boolean;
 }
 
 function collectNotes(): Note[] {
   const byId = new Map<string, Note>();
-  const note = (id: string): Note => {
-    let n = byId.get(id);
-    if (!n) {
-      n = {
-        id,
-        mark: document.querySelector<HTMLElement>(`dodeca-mark[data-note-id="${CSS.escape(id)}"]`),
-        comments: [],
-        resolved: false,
-      };
-      byId.set(id, n);
-    }
-    return n;
-  };
+  // The annotated block for each note: the element the root `<aside>` follows.
+  const block = new Map<string, HTMLElement | null>();
   for (const aside of document.querySelectorAll<HTMLElement>("aside.dodeca-note")) {
     const id = aside.dataset.noteId;
     if (!id) continue;
-    const n = note(id);
+    let n = byId.get(id);
+    if (!n) {
+      n = { id, quote: aside.dataset.quote ?? "", marks: [], anchor: null, comments: [], resolved: false };
+      byId.set(id, n);
+      block.set(id, annotatedBlock(aside));
+    }
     if (aside.dataset.resolved === "true") n.resolved = true;
     n.comments.push({
       author: aside.dataset.author ?? "",
@@ -255,14 +261,109 @@ function collectNotes(): Note[] {
       bodyHTML: aside.innerHTML,
     });
   }
-  // Stable order: by the mark's document position when present, else insertion.
-  return [...byId.values()].sort((a, b) => markTop(a) - markTop(b));
+  // Derive the highlight non-destructively: locate the quote within the note's
+  // block and wrap it. The source prose was never touched; this is the only
+  // place `<dodeca-mark>` elements come into existence.
+  for (const n of byId.values()) {
+    const b = block.get(n.id) ?? null;
+    if (n.quote && b) n.marks = highlightQuote(b, n.quote, n.id);
+    n.anchor = n.marks[0] ?? b;
+  }
+  return [...byId.values()].sort((a, b) => anchorTop(a) - anchorTop(b));
 }
 
-function markTop(n: Note): number {
-  if (!n.mark) return Number.MAX_SAFE_INTEGER;
-  const r = n.mark.getBoundingClientRect();
-  return r.top + window.scrollY;
+/// The block a note annotates: the nearest preceding sibling of its `<aside>`
+/// that is itself content, skipping any other note asides stacked on the block.
+function annotatedBlock(aside: HTMLElement): HTMLElement | null {
+  let el = aside.previousElementSibling;
+  while (el && el.matches("aside.dodeca-note")) el = el.previousElementSibling;
+  return el as HTMLElement | null;
+}
+
+function anchorTop(n: Note): number {
+  if (!n.anchor) return Number.MAX_SAFE_INTEGER;
+  return n.anchor.getBoundingClientRect().top + window.scrollY;
+}
+
+const collapseWs = (s: string): string => s.replace(/\s+/g, " ");
+
+/// Locate `quote` (rendered text) within `block` and wrap the matching run in
+/// `<dodeca-mark data-note-id>` spans — one per crossed text node, so it works
+/// across inline markup (bold, links) without ever touching the source. The
+/// match ignores whitespace differences (source soft-wraps render as a space).
+/// Returns the created spans, or `[]` if the quote can't be found (the note then
+/// degrades to block-level).
+function highlightQuote(block: HTMLElement, quote: string, id: string): HTMLElement[] {
+  const needle = collapseWs(quote).trim();
+  if (!needle) return [];
+
+  // Flatten descendant text into a char→(node, offset) list.
+  const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+  const at: { node: Text; offset: number }[] = [];
+  let raw = "";
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const text = n as Text;
+    for (let i = 0; i < text.data.length; i++) {
+      at.push({ node: text, offset: i });
+      raw += text.data[i];
+    }
+  }
+
+  // Whitespace-normalised haystack, with each char mapped back to `at`.
+  let hay = "";
+  const idx: number[] = [];
+  let prevWs = false;
+  for (let i = 0; i < raw.length; i++) {
+    if (/\s/.test(raw[i])) {
+      if (prevWs) continue;
+      prevWs = true;
+      hay += " ";
+    } else {
+      prevWs = false;
+      hay += raw[i];
+    }
+    idx.push(i);
+  }
+
+  const found = hay.indexOf(needle);
+  if (found < 0) return [];
+  const first = at[idx[found]];
+  const last = at[idx[found + needle.length - 1]];
+
+  const range = document.createRange();
+  range.setStart(first.node, first.offset);
+  range.setEnd(last.node, last.offset + 1);
+  return wrapRange(range, id);
+}
+
+/// Wrap every text-node run a `range` covers in its own `<dodeca-mark>`. Capture
+/// all boundaries before mutating, since `splitText` updates live ranges.
+function wrapRange(range: Range, id: string): HTMLElement[] {
+  const scope = range.commonAncestorContainer;
+  const root = scope.nodeType === Node.TEXT_NODE ? scope.parentNode! : scope;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: (n) => (range.intersectsNode(n) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT),
+  });
+  const targets: { node: Text; start: number; end: number }[] = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const node = n as Text;
+    const start = node === range.startContainer ? range.startOffset : 0;
+    const end = node === range.endContainer ? range.endOffset : node.data.length;
+    if (start < end) targets.push({ node, start, end });
+  }
+
+  const marks: HTMLElement[] = [];
+  for (const { node, start, end } of targets) {
+    let target = node;
+    if (start > 0) target = target.splitText(start);
+    if (end - start < target.data.length) target.splitText(end - start);
+    const mark = document.createElement("dodeca-mark");
+    mark.setAttribute("data-note-id", id);
+    target.parentNode!.insertBefore(mark, target);
+    mark.appendChild(target);
+    marks.push(mark);
+  }
+  return marks;
 }
 
 function fmtDate(rfc: string): string {
@@ -416,12 +517,12 @@ function main(): void {
     if (note !== openNoteRef) closeCard();
     openNoteRef = note;
     pinned = pinned || pin;
-    if (!note.mark) return;
+    if (!note.anchor) return;
     if (openCard) {
       // Already showing this note; just (maybe) pin it.
       return;
     }
-    note.mark.classList.add("dn-active");
+    for (const m of note.marks) m.classList.add("dn-active");
     const card = document.createElement("div");
     card.className = "dn-card";
     card.style.borderLeftColor = kindColor(note.comments[0]?.kind ?? "note");
@@ -459,29 +560,33 @@ function main(): void {
       pinned = true;
     });
     layer.appendChild(card);
-    // Anchor below the mark, clamped into the viewport horizontally.
-    const r = note.mark.getBoundingClientRect();
+    // Anchor below the highlight (or the block, for degraded notes), clamped
+    // into the viewport horizontally.
+    const r = note.anchor.getBoundingClientRect();
     card.style.top = `${window.scrollY + r.bottom + 6}px`;
     card.style.left = `${Math.max(8, window.scrollX + Math.min(r.left, window.innerWidth - 348))}px`;
     openCard = card;
   };
 
   const scrollToNote = (note: Note) => {
-    if (!note.mark) return;
-    note.mark.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (!note.anchor) return;
+    note.anchor.scrollIntoView({ behavior: "smooth", block: "center" });
     setTimeout(() => openNote(note, true), 320);
   };
 
-  // Hover previews a note; click pins it.
+  // Hover previews a note; click pins it. Block-level notes (no highlight spans)
+  // are reachable from the index and gutter instead.
   for (const note of notes) {
-    if (note.resolved) note.mark?.classList.add("dn-resolved");
-    note.mark?.addEventListener("mouseenter", () => openNote(note, false));
-    note.mark?.addEventListener("mouseleave", closeSoon);
-    note.mark?.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      openNote(note, true);
-    });
+    for (const m of note.marks) {
+      if (note.resolved) m.classList.add("dn-resolved");
+      m.addEventListener("mouseenter", () => openNote(note, false));
+      m.addEventListener("mouseleave", closeSoon);
+      m.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openNote(note, true);
+      });
+    }
   }
   // Click-away closes a pinned card.
   document.addEventListener("click", (e) => {
@@ -539,7 +644,7 @@ function buildIndex(layer: HTMLElement, notes: Note[], onPick: (n: Note) => void
     const item = document.createElement("button");
     item.className = note.resolved ? "dn-index-item dn-resolved" : "dn-index-item";
     item.style.borderLeftColor = kindColor(first?.kind ?? "note");
-    const snippet = (note.mark?.textContent ?? first?.bodyHTML ?? "").replace(/<[^>]*>/g, "").trim();
+    const snippet = (note.quote || first?.bodyHTML || "").replace(/<[^>]*>/g, "").trim();
     item.innerHTML =
       `<span class="dn-meta"><b>${first?.author || "anon"}</b><span>${first?.kind ?? ""}</span>` +
       `<span style="margin-left:auto;opacity:.7">${fmtDate(first?.created ?? "")}</span></span>` +
@@ -568,13 +673,13 @@ function buildGutter(layer: HTMLElement, notes: Note[], onPick: (n: Note) => voi
     gutter.innerHTML = "";
     const docH = Math.max(document.documentElement.scrollHeight, 1);
     for (const note of notes) {
-      if (!note.mark) continue;
-      const top = markTop(note);
+      if (!note.anchor) continue;
+      const top = anchorTop(note);
       const mark = document.createElement("div");
       mark.className = note.resolved ? "dn-gutter-mark dn-resolved" : "dn-gutter-mark";
       mark.style.top = `${(top / docH) * 100}vh`;
       mark.style.background = kindColor(note.comments[0]?.kind ?? "note");
-      mark.title = `${note.comments[0]?.author || "anon"}: ${(note.mark.textContent ?? "").slice(0, 40)}`;
+      mark.title = `${note.comments[0]?.author || "anon"}: ${(note.quote || note.comments[0]?.bodyHTML || "").replace(/<[^>]*>/g, "").slice(0, 40)}`;
       mark.addEventListener("click", () => onPick(note));
       gutter.appendChild(mark);
     }

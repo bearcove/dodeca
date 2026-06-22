@@ -1,0 +1,40 @@
+potion-base-8M — vendored static embedding model
+=================================================
+
+Source:  https://huggingface.co/minishlab/potion-base-8M
+Author:  MinishLab (Model2Vec)
+License: MIT
+
+A Model2Vec static embedding model, distilled from the BAAI/bge-base-en-v1.5
+Sentence Transformer. Static token embeddings (no transformer forward pass):
+a text is embedded by mean-pooling its token vectors and L2-normalizing.
+
+Vendored here as:
+  - potion-base-8m.pem.br            int8 per-row-quantized embedding matrix,
+                                     brotli-compressed. Format (little-endian):
+                                       magic "PEM1", u32 vocab, u32 dim,
+                                       f32[vocab] row scales, i8[vocab*dim] weights.
+                                     Dequantized to f32 at load (scale * weight).
+                                     int8 quantization is retrieval-lossless here
+                                     (vectors are re-normalized after pooling).
+  - potion-base-8m.tokenizer.json.br the aligned HF tokenizer, brotli-compressed.
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

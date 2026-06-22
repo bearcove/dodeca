@@ -235,6 +235,8 @@ impl<H> TemplateRendererImpl<H> {
             "build",
             "read",
             "highlight",
+            "get_media",
+            "markup",
         ];
         tracing::debug!(
             num_functions = function_names.len(),

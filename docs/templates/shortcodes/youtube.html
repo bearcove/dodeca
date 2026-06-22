@@ -1,0 +1,15 @@
+{% set video_url = url | default(value="") %}
+{% set caption = title | default(value="") %}
+<figure class="video-embed">
+  <iframe
+    width="560"
+    height="315"
+    src="https://www.youtube-nocookie.com/embed/{{ video_url | escape_for_attribute }}"
+    frameborder="0"
+    allow="autoplay; encrypted-media; picture-in-picture"
+    allowfullscreen
+  ></iframe>
+  {% if caption %}
+  <figcaption>{{ caption | basic_markdown }}</figcaption>
+  {% endif %}
+</figure>

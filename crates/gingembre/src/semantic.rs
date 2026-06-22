@@ -520,6 +520,7 @@ impl SemanticBuilder {
             Expr::Ternary(expr) => self.collect_ternary(expr, scope),
             Expr::Test(expr) => self.collect_test(expr, scope),
             Expr::MacroCall(expr) => self.collect_macro_call(expr, scope),
+            Expr::Optional(expr) => self.collect_expr(&expr.expr, scope),
         }
     }
 
@@ -720,12 +721,10 @@ fn field_expr_path(expr: &crate::ast::FieldExpr) -> Option<Vec<String>> {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::Parser;
-
     use super::*;
 
     fn semantic_index(source: &str) -> TemplateSemanticIndex {
-        let template = Parser::new("test.html", source).parse().expect("template");
+        let template = crate::parse_template("test.html", source).expect("template");
         TemplateSemanticIndex::build(&template, &["page", "section", "root"], &[])
     }
 

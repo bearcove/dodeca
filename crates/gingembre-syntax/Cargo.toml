@@ -1,0 +1,9 @@
+[package]
+name = "gingembre-syntax"
+version = "0.6.1"
+edition = "2024"
+description = "Lossless cstree syntax for gingembre templates, shared by the engine and the authoring LSP"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+cstree = { version = "0.14.0", features = ["derive"] }

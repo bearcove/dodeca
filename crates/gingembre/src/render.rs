@@ -9,7 +9,6 @@ use super::error::{
 };
 use super::eval::{Context, Evaluator, Value};
 use super::lazy::LazyValue;
-use super::parser::Parser;
 use camino::{Utf8Path, Utf8PathBuf};
 use facet_value::{DestructuredRef, VObject, VString};
 use futures::future::BoxFuture;
@@ -131,8 +130,21 @@ impl Template {
         let source_str: String = source.into();
         let template_source = TemplateSource::new(&name, &source_str);
 
-        let parser = Parser::new(name, source_str);
-        let ast = parser.parse()?;
+        // Parse with the cstree front-end and lower to the engine AST. The old
+        // hand-written parser stays only for the LSP until it's migrated.
+        let _ = &name;
+        let (ast, errors) = crate::cst_lower::parse_to_template(&source_str);
+        if let Some(e) = errors.first() {
+            return Err(crate::error::SyntaxError {
+                found: "end of input".to_string(),
+                expected: e.message.clone(),
+                loc: crate::error::SourceLocation::new(
+                    crate::ast::span(e.offset, 1),
+                    template_source.named_source(),
+                ),
+            }
+            .into());
+        }
 
         Ok(Self {
             ast,
@@ -432,6 +444,34 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
                             )
                             .await?;
                         // Macro output is already HTML, don't escape it
+                        self.output.push_str(&result);
+                    } else if let Expr::Call(call) = &print.expr
+                        && let Expr::Field(field) = &*call.func
+                        && let Expr::Var(ns_ident) = &*field.base
+                        && self
+                            .macros
+                            .get(&ns_ident.name)
+                            .is_some_and(|m| m.contains_key(&field.field.name))
+                    {
+                        // Jinja-style dotted namespaced macro call: `macros.youtube_embed(...)`.
+                        // The parser only treats `ns::macro(...)` as a MacroCall; the dotted
+                        // form arrives here as a Call on a Field. Route it to the macro
+                        // registry like the `::` form (both work only in Print context).
+                        let namespace = ns_ident.name.clone();
+                        let macro_name = field.field.name.clone();
+                        let span = call.span;
+                        let eval = Evaluator::new(&self.ctx, &self.source);
+                        let mut args = Vec::with_capacity(call.args.len());
+                        for a in &call.args {
+                            args.push(eval.eval_concrete(a).await?);
+                        }
+                        let mut kwargs = Vec::with_capacity(call.kwargs.len());
+                        for (ident, expr) in &call.kwargs {
+                            kwargs.push((ident.name.clone(), eval.eval_concrete(expr).await?));
+                        }
+                        let result = self
+                            .call_macro(&namespace, &macro_name, &args, &kwargs, span)
+                            .await?;
                         self.output.push_str(&result);
                     } else {
                         let eval = Evaluator::new(&self.ctx, &self.source);
@@ -2086,6 +2126,15 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn test_whitespace_control_trim() {
+        // `{{- … -}}` trims surrounding whitespace; `{%- … -%}` likewise.
+        let t = Template::parse("t", "a  {{- \"X\" -}}  b").unwrap();
+        assert_eq!(t.render(&Context::new()).await.unwrap(), "aXb");
+        let t2 = Template::parse("t", "x\n  {%- if true -%}  Y  {%- endif -%}  \nz").unwrap();
+        assert_eq!(t2.render(&Context::new()).await.unwrap(), "xYz");
+    }
+
     // r[verify test.none]
     #[tokio::test]
     async fn test_is_none() {
@@ -2393,6 +2442,22 @@ mod tests {
         let result = t.render(&Context::new()).await.unwrap();
         // Contains placeholder comment for unimplemented include
         assert!(result.contains("include"));
+    }
+
+    // r[verify filter.default.undefined]
+    #[tokio::test]
+    async fn default_filter_on_undefined_variable_returns_fallback() {
+        let t = Template::parse(
+            "test",
+            "{% set cap = title | default(value=\"\") %}[{{ cap }}]",
+        )
+        .unwrap();
+        let result = t.render(&Context::new()).await.unwrap();
+        assert_eq!(
+            result.trim(),
+            "[]",
+            "undefined var should give empty string via default"
+        );
     }
 
     // r[verify inherit.extends.position]

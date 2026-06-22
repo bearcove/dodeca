@@ -2,6 +2,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 
 const DODECA_HTML_SUFFIX: &str = ".ddc.html";
 const HTML_SUFFIX: &str = ".html";
+const JINJA_SUFFIX: &str = ".jinja";
 
 pub fn logical_template_path(relative: &Utf8Path) -> Option<String> {
     let path = relative.as_str();
@@ -9,6 +10,13 @@ pub fn logical_template_path(relative: &Utf8Path) -> Option<String> {
         Some(format!("{stem}{HTML_SUFFIX}"))
     } else if path.ends_with(HTML_SUFFIX) {
         Some(path.to_string())
+    } else if let Some(without_jinja) = path.strip_suffix(JINJA_SUFFIX) {
+        // foo.html.jinja → foo.html
+        if without_jinja.ends_with(HTML_SUFFIX) {
+            Some(without_jinja.to_string())
+        } else {
+            None
+        }
     } else {
         None
     }
@@ -24,6 +32,10 @@ pub fn physical_template_path(templates_dir: &Utf8Path, logical_path: &str) -> U
         let dodeca_html = templates_dir.join(format!("{stem}{DODECA_HTML_SUFFIX}"));
         if dodeca_html.exists() {
             return dodeca_html;
+        }
+        let jinja_html = templates_dir.join(format!("{stem}{HTML_SUFFIX}{JINJA_SUFFIX}"));
+        if jinja_html.exists() {
+            return jinja_html;
         }
     }
 

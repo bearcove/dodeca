@@ -3,7 +3,6 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use camino::{Utf8Path, Utf8PathBuf};
 use eyre::{Result, eyre};
 use gingembre::ast::{Node, Span};
-use gingembre::parser::Parser as TemplateParser;
 use gingembre::semantic::TemplateSemanticIndex;
 use hotmeal::{Document, NodeId, NodeKind, StrTendril, parse};
 use ignore::WalkBuilder;
@@ -682,9 +681,7 @@ pub async fn build_authoring_project_on_db<DB: crate::db::Db>(
     for (template_path, template) in inputs.templates {
         let path = template_path.as_str().to_string();
         let content = template.content(inputs.db)?.as_str().to_string();
-        let parsed_template = TemplateParser::new(&path, &content)
-            .parse_recovered()
-            .template;
+        let parsed_template = gingembre::parse_template_recovered(&content);
         template_semantics.insert(
             path.clone(),
             TemplateSemanticIndex::build(
@@ -996,9 +993,7 @@ fn static_template_href_origins(
 ) -> HashMap<String, Vec<RenderedHrefOrigin>> {
     let mut origins = HashMap::new();
     for (template_file, content) in template_contents {
-        let template = TemplateParser::new(template_file, content)
-            .parse_recovered()
-            .template;
+        let template = gingembre::parse_template_recovered(content);
         collect_template_href_origins(&template.body, template_file, &mut origins);
     }
     origins

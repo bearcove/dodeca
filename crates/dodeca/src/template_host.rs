@@ -17,7 +17,7 @@ use cell_gingembre_proto::{
     CallFunctionResult, ContextId, KeysAtResult, LoadTemplateResult, ResolveDataResult,
     TemplateHost,
 };
-use facet_value::{DestructuredRef, Value};
+use facet_value::{DestructuredRef, VString, Value};
 use futures_util::future::BoxFuture;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -34,7 +34,17 @@ pub const TEMPLATE_FUNCTION_NAMES: &[&str] = &[
     "build",
     "read",
     "highlight",
+    "get_media",
+    "markup",
 ];
+
+/// Escape a string for insertion into a double-quoted HTML attribute value.
+fn attr_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
 
 /// Convert a Value to a string representation (for template function args)
 fn value_to_string(value: &Value) -> String {
@@ -458,6 +468,40 @@ impl TemplateHost for TemplateHostImpl {
                         Err(e) => CallFunctionResult::Error {
                             message: format!("highlight error: {}", e),
                         },
+                    }
+                }
+
+                "get_media" => {
+                    // A media handle is just its resolved source path. `.markup(...)` (the
+                    // `markup` function below) turns it into an <img>, which the page-render
+                    // image post-pass then upgrades to a responsive <picture> and tracks as
+                    // a dependency — so get_media itself stays a thin path resolver.
+                    let src = args.first().map(value_to_string).unwrap_or_default();
+                    CallFunctionResult::Success {
+                        value: Value::from(src.as_str()),
+                    }
+                }
+
+                // Method on a media handle: `get_media(src).markup(alt=, width=, height=, class=)`.
+                // The receiver (the src) is passed as the first positional arg by gingembre's
+                // value-method dispatch. Emits a plain <img>; the image post-pass makes it
+                // responsive. Returned as safe HTML so `{{ ...markup(...) }}` isn't escaped.
+                "markup" => {
+                    let src = args.first().map(value_to_string).unwrap_or_default();
+                    let mut img = format!(r#"<img src="{}""#, attr_escape(&src));
+                    for attr in ["alt", "title", "width", "height", "class", "loading"] {
+                        match get_kwarg(attr) {
+                            // Skip empty/undefined (e.g. an optional `width=width?` that
+                            // resolved to null) so we don't emit `width=""`.
+                            Some(v) if !v.is_empty() => {
+                                img.push_str(&format!(r#" {}="{}""#, attr, attr_escape(&v)));
+                            }
+                            _ => {}
+                        }
+                    }
+                    img.push('>');
+                    CallFunctionResult::Success {
+                        value: VString::from(img.as_str()).into_safe().into_value(),
                     }
                 }
 

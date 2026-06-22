@@ -265,6 +265,8 @@ pub enum Expr {
     Test(TestExpr),
     /// Macro call: namespace::macro(args) or self::macro(args)
     MacroCall(MacroCallExpr),
+    /// Lenient access: `expr?` — yields null instead of raising if `expr` is undefined.
+    Optional(OptionalExpr),
 }
 
 impl Expr {
@@ -281,8 +283,16 @@ impl Expr {
             Expr::Ternary(t) => t.span,
             Expr::Test(t) => t.span,
             Expr::MacroCall(m) => m.span,
+            Expr::Optional(o) => o.span,
         }
     }
+}
+
+/// Lenient access expression: `expr?`
+#[derive(Debug, Clone)]
+pub struct OptionalExpr {
+    pub expr: Box<Expr>,
+    pub span: Span,
 }
 
 /// A literal value

@@ -200,6 +200,84 @@ pub trait WikiLinkResolver: Send + Sync {
 /// Type alias for a boxed wiki link resolver.
 pub type BoxedWikiLinkResolver = Arc<dyn WikiLinkResolver>;
 
+/// Arguments passed to a shortcode, in the form they were written.
+///
+/// marq deliberately does not normalize these into a single data model: it keeps
+/// no opinion (and no YAML dependency) about how arguments are typed. The resolver
+/// — which owns the real data model and template engine — parses them. This is the
+/// same passthrough discipline marq uses for links, and it is what keeps dependency
+/// tracking correct: the resolver runs inside the host's tracked query, so any
+/// template/asset it reads while interpreting these args is recorded as a dependency.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ShortcodeArgs {
+    /// The raw YAML mapping value of a fenced `+++ :name: <yaml> +++` shortcode,
+    /// i.e. everything nested under the `:name:` key (the key line itself removed).
+    Yaml(String),
+    /// Parenthesised `key=value` pairs of an inline/blockquote `*:name(k=v, ...)*`
+    /// shortcode, parsed positionally in source order. Empty when no parens are given.
+    Pairs(Vec<(String, String)>),
+}
+
+/// A shortcode invocation parsed from markdown.
+///
+/// Two grammars produce these, both detected in the event stream without lexer
+/// changes (pulldown-cmark already emits the underlying events):
+/// - fenced `+++ :name: <yaml> +++` → [`ShortcodeArgs::Yaml`], `body` is `None`;
+/// - blockquote/inline `*:name(args)*` (+ optional blockquote body) →
+///   [`ShortcodeArgs::Pairs`], `body` is the rendered HTML of the block body.
+#[derive(Debug, Clone)]
+pub struct Shortcode<'a> {
+    /// Shortcode name, without the leading `:`.
+    pub name: &'a str,
+    /// Arguments, in the form they were written.
+    pub args: &'a ShortcodeArgs,
+    /// Rendered HTML of the shortcode body, if the grammar carries one.
+    ///
+    /// `Some` for blockquote body shortcodes (`> *:name*` followed by content);
+    /// `None` for fenced shortcodes and bare inline `*:name*` with no body.
+    pub body: Option<&'a str>,
+}
+
+/// The output of a shortcode resolver.
+///
+/// Mirrors [`CodeBlockOutput`]: rendered HTML plus optional [`HeadInjection`]s so a
+/// shortcode can pull in a one-time script/stylesheet (e.g. a video embed loader).
+pub struct ShortcodeOutput {
+    /// HTML to splice in where the shortcode appeared.
+    pub html: String,
+    /// Additional page resources, deduplicated by key like code-block injections.
+    pub head_injections: Vec<HeadInjection>,
+}
+
+impl From<String> for ShortcodeOutput {
+    fn from(html: String) -> Self {
+        Self {
+            html,
+            head_injections: vec![],
+        }
+    }
+}
+
+/// A handler for rendering shortcodes.
+///
+/// marq stays dependency-agnostic: it detects shortcode syntax and renders the body
+/// markdown, then hands the invocation to this resolver. The default behavior (no
+/// resolver registered) leaves the source untouched, so marq bakes nothing on its own.
+pub trait ShortcodeResolver: Send + Sync {
+    /// Resolve a shortcode invocation to HTML.
+    ///
+    /// # Returns
+    /// * `Some(output)` — splice this HTML in place of the shortcode.
+    /// * `None` — the resolver declines; marq falls back to leaving the source.
+    fn resolve<'a>(
+        &'a self,
+        shortcode: Shortcode<'a>,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<ShortcodeOutput>>> + Send + 'a>>;
+}
+
+/// Type alias for a boxed shortcode resolver.
+pub type BoxedShortcodeResolver = Arc<dyn ShortcodeResolver>;
+
 /// Default req handler that renders simple anchor divs.
 ///
 /// This is used when no custom req handler is registered.

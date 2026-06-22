@@ -556,6 +556,24 @@ impl SiteServer {
         self.open_source_in_editor(&source_file, line).await
     }
 
+    /// Semantic search over the site's pages for the well-known knowledge
+    /// endpoint. Embeds the query and every page and returns the `k` closest.
+    /// On a parse error it yields an empty result rather than failing the request.
+    pub async fn knowledge_search(
+        &self,
+        query: &str,
+        k: usize,
+    ) -> crate::knowledge::KnowledgeResponse {
+        let snapshot = DatabaseSnapshot::from_database(&self.db).await;
+        match build_tree(&snapshot).await {
+            Ok(Ok(site_tree)) => crate::knowledge::search(&site_tree, query, k).await,
+            _ => crate::knowledge::KnowledgeResponse {
+                query: query.trim().to_string(),
+                hits: Vec::new(),
+            },
+        }
+    }
+
     /// Attach an inline note to the markdown source backing `(route, sid)`.
     ///
     /// Resolves the source span via the page's source map, inserts a
@@ -616,6 +634,7 @@ impl SiteServer {
                 id: Some(thread_id.to_string()),
                 created,
                 resolved: None,
+                quote: None, // replies join the thread; they don't anchor a span
             };
             let comment = marq::to_comment(&meta, &req.body)
                 .ok_or_else(|| eyre!("note body cannot contain the comment terminator `-->`"))?;
@@ -624,28 +643,28 @@ impl SiteServer {
             };
             insert_note_after_block(&content, end_line, &comment)
         } else {
-            // New note: resolve the source span via the sid, wrap the selection in
-            // a `<dodeca-mark>` linked to a fresh id, and insert the note after it.
+            // New note: resolve the block via the sid and insert the note comment
+            // right after it. The note carries the selected text as its `quote`;
+            // the highlight is derived non-destructively from that in the overlay,
+            // so the source prose is never modified.
             let Some(entry) = source_map.get_by_sid(&req.sid) else {
                 return Ok(None);
             };
             let id = new_note_id();
+            let quote = {
+                let q = req.selected_text.trim();
+                (!q.is_empty()).then(|| q.to_string())
+            };
             let meta = marq::NoteMeta {
                 author,
                 kind: req.kind.clone(),
                 id: Some(id.clone()),
                 created,
                 resolved: None,
+                quote,
             };
             let comment = marq::to_comment(&meta, &req.body)
                 .ok_or_else(|| eyre!("note body cannot contain the comment terminator `-->`"))?;
-            let content = wrap_note_selection(
-                content,
-                entry.byte_start as usize,
-                entry.byte_end as usize,
-                &req.selected_text,
-                &id,
-            );
             insert_note_after_block(&content, entry.line_end, &comment)
         };
 
@@ -2807,34 +2826,6 @@ fn internal_href_route(href: &str) -> Result<String> {
 /// markdown parser treats it as a standalone HTML block (so it renders as a note
 /// `<aside>`), and never splits the annotated block. Returns the new content and
 /// the 1-indexed line where the inserted note begins.
-/// Wrap the `selected` text in a `<dodeca-mark>` highlight where it occurs
-/// within the source block `[byte_start, byte_end)`. Returns `content`
-/// unchanged if the selection is empty, the range is invalid, or the text isn't
-/// found verbatim in the block (e.g. the selection spanned rendered formatting
-/// that differs from the markdown source — the note still attaches to the
-/// block, just without a precise highlight).
-fn wrap_note_selection(
-    content: String,
-    byte_start: usize,
-    byte_end: usize,
-    selected: &str,
-    id: &str,
-) -> String {
-    let selected = selected.trim();
-    if selected.is_empty() || byte_start > byte_end || byte_end > content.len() {
-        return content;
-    }
-    let Some(rel) = content[byte_start..byte_end].find(selected) else {
-        return content;
-    };
-    let open_at = byte_start + rel;
-    let close_at = open_at + selected.len();
-    let mut out = content;
-    let wrapped = marq::wrap_mark(&out[open_at..close_at], Some(id));
-    out.replace_range(open_at..close_at, &wrapped);
-    out
-}
-
 /// Find the 1-indexed line of the closing `-->` of the LAST `<!-- note … -->`
 /// block whose frontmatter id is `id` — i.e. the end of that thread, where a
 /// reply should be appended. Returns `None` if the thread isn't in `content`.
@@ -3914,23 +3905,15 @@ mod tests {
     }
 
     #[test]
-    fn wrap_note_selection_highlights_found_span() {
-        let content = "# Title\n\nFirst paragraph here.\n".to_string();
-        // "paragraph" lives in the block spanning bytes 9..30 ("First paragraph here.").
-        let out = wrap_note_selection(content, 9, 30, "paragraph", "n1");
-        assert_eq!(
-            out,
-            "# Title\n\nFirst <dodeca-mark data-note-id=\"n1\">paragraph</dodeca-mark> here.\n"
-        );
-    }
-
-    #[test]
     fn set_resolved_in_source_marks_root_note() {
         let content = "Para.\n\n<!-- note\n+++\nid = \"a\"\n+++\nthe note\n-->\n\nEnd.\n";
         let (out, line) = set_resolved_in_source(content, "a", true).expect("found");
         assert!(out.contains("resolved = true"));
         assert!(out.contains("the note"));
-        assert_eq!(content.split('\n').nth((line - 1) as usize), Some("<!-- note"));
+        assert_eq!(
+            content.split('\n').nth((line - 1) as usize),
+            Some("<!-- note")
+        );
         // Reopening clears it.
         let (reopened, _) = set_resolved_in_source(&out, "a", false).expect("found");
         assert!(!reopened.contains("resolved"));
@@ -3949,12 +3932,35 @@ mod tests {
         assert!(find_thread_end_line(content, "missing").is_none());
     }
 
-    #[test]
-    fn wrap_note_selection_noop_when_not_found() {
-        let content = "# Title\n\nFirst paragraph.\n".to_string();
-        // Text not present verbatim (spanned formatting) → unchanged.
-        let out = wrap_note_selection(content.clone(), 9, content.len(), "bold text", "n1");
-        assert_eq!(out, content);
+    /// A new annotation stores the selected text as the note's `quote` and
+    /// inserts the comment after its block — without ever touching the prose.
+    /// The rendered note `<aside>` carries the quote for the overlay to anchor.
+    #[tokio::test]
+    async fn annotation_stores_quote_and_leaves_prose_untouched() {
+        let content =
+            "# Title\n\nA claim enters here **only after we reproduced it ourselves**, yes.\n";
+        let meta = marq::NoteMeta {
+            id: Some("n1".into()),
+            quote: Some("only after we reproduced it ourselves".into()),
+            ..Default::default()
+        };
+        let comment = marq::to_comment(&meta, "testing").expect("serializable");
+        let (annotated, _) = insert_note_after_block(content, 3, &comment);
+
+        // Prose is byte-for-byte intact — no `<dodeca-mark>` injected.
+        assert!(annotated.contains("**only after we reproduced it ourselves**, yes."));
+        assert!(!annotated.contains("dodeca-mark"));
+
+        // The rendered aside carries the quote for the overlay to locate.
+        let opts = marq::RenderOptions::new().with_render_notes(true);
+        let doc = marq::render(&annotated, &opts).await.expect("render");
+        assert!(
+            doc.html
+                .contains("data-quote=\"only after we reproduced it ourselves\""),
+            "aside missing data-quote: {}",
+            doc.html
+        );
+        assert!(!doc.html.contains("dodeca-mark"));
     }
 
     #[test]

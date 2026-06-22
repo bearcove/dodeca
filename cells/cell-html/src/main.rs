@@ -153,7 +153,11 @@ where
 
             // 5. Resolve wiki links
             if let Some(wiki_to_route) = &input.wiki_to_route {
-                unresolved_wiki_links = resolve_wiki_links_in_doc(&mut doc, wiki_to_route);
+                unresolved_wiki_links = resolve_wiki_links_in_doc(
+                    &mut doc,
+                    wiki_to_route,
+                    input.wiki_to_title.as_ref(),
+                );
             }
 
             // 6. Resolve relative links
@@ -1223,6 +1227,7 @@ const WIKI_LINK_PREFIX: &str = "dodeca-wiki:";
 fn resolve_wiki_links_in_doc(
     doc: &mut Document,
     wiki_to_route: &HashMap<String, String>,
+    wiki_to_title: Option<&HashMap<String, String>>,
 ) -> Vec<WikiLinkRef> {
     let mut unresolved = Vec::new();
 
@@ -1235,6 +1240,15 @@ fn resolve_wiki_links_in_doc(
                 && let Some(key) = href.strip_prefix(WIKI_LINK_PREFIX)
             {
                 if let Some(route) = wiki_to_route.get(key) {
+                    // A bare `[[slug]]` renders its display text as the raw
+                    // target (== `data-wiki-target`); relabel it with the page
+                    // title. An explicit `[[slug|label]]` differs, so it's kept.
+                    if let Some(title) = wiki_to_title.and_then(|m| m.get(key))
+                        && let Some(target) = get_attr(doc, node_id, "data-wiki-target")
+                        && get_text_content(doc, node_id).trim() == target.trim()
+                    {
+                        replace_text_content(doc, node_id, title);
+                    }
                     set_attr(doc, node_id, "href", &ensure_trailing_slash(route));
                     remove_attr(doc, node_id, "data-wiki-target");
                 } else {
@@ -1804,5 +1818,33 @@ mod tests {
         let output = doc.to_html();
 
         assert!(output.contains(r#"href="/assets/main-XyZ.css""#));
+    }
+
+    #[test]
+    fn bare_wikilink_relabeled_with_title_explicit_label_kept() {
+        // What cell-markdown emits: bare `[[ledger]]` (text == target) and an
+        // explicit `[[ledger|the books]]` (text differs from target).
+        let html = r#"<html><head></head><body>
+            <a href="dodeca-wiki:ledger" data-wiki-target="ledger">ledger</a>
+            <a href="dodeca-wiki:ledger" data-wiki-target="ledger">the books</a>
+        </body></html>"#;
+        let route = HashMap::from([("ledger".to_string(), "/method/ledger".to_string())]);
+        let title = HashMap::from([("ledger".to_string(), "Verified facts".to_string())]);
+
+        let tendril = StrTendril::from(html);
+        let mut doc = hotmeal::parse(&tendril);
+        resolve_wiki_links_in_doc(&mut doc, &route, Some(&title));
+        let out = doc.to_html();
+
+        assert!(
+            out.contains(r#"href="/method/ledger/""#),
+            "href resolved: {out}"
+        );
+        assert!(
+            out.contains(">Verified facts</a>"),
+            "bare link relabeled: {out}"
+        );
+        assert!(out.contains(">the books</a>"), "explicit label kept: {out}");
+        assert!(!out.contains("data-wiki-target"), "marker stripped: {out}");
     }
 }
