@@ -36,8 +36,9 @@ mod reqs;
 pub use frontmatter::{Frontmatter, FrontmatterFormat, parse_frontmatter, strip_frontmatter};
 pub use handler::{
     BoxedHandler, BoxedInlineCodeHandler, BoxedLinkResolver, BoxedReqHandler,
-    BoxedWikiLinkResolver, CodeBlockHandler, CodeBlockOutput, DefaultReqHandler, HeadInjection,
-    InlineCodeHandler, LinkResolver, ReqHandler, WikiLink, WikiLinkOutput, WikiLinkResolver,
+    BoxedShortcodeResolver, BoxedWikiLinkResolver, CodeBlockHandler, CodeBlockOutput,
+    DefaultReqHandler, HeadInjection, InlineCodeHandler, LinkResolver, ReqHandler, Shortcode,
+    ShortcodeArgs, ShortcodeOutput, ShortcodeResolver, WikiLink, WikiLinkOutput, WikiLinkResolver,
 };
 pub use headings::{Heading, slugify};
 pub use links::resolve_link;

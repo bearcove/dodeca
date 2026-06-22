@@ -14,8 +14,9 @@ use crate::Result;
 use crate::frontmatter::{Frontmatter, FrontmatterFormat};
 use crate::handler::{
     BoxedHandler, BoxedInlineCodeHandler, BoxedLinkResolver, BoxedReqHandler,
-    BoxedWikiLinkResolver, CodeBlockHandler, CodeBlockOutput, DefaultReqHandler, InlineCodeHandler,
-    RawCodeHandler, ReqHandler, WikiLink, WikiLinkOutput, WikiLinkResolver, html_escape,
+    BoxedShortcodeResolver, BoxedWikiLinkResolver, CodeBlockHandler, CodeBlockOutput,
+    DefaultReqHandler, InlineCodeHandler, RawCodeHandler, ReqHandler, ShortcodeResolver, WikiLink,
+    WikiLinkOutput, WikiLinkResolver, html_escape,
 };
 use crate::headings::{Heading, slugify};
 use crate::links::resolve_link;
@@ -160,6 +161,13 @@ pub struct RenderOptions {
 
     /// Custom handler for resolving wiki-style links.
     pub wiki_link_resolver: Option<BoxedWikiLinkResolver>,
+
+    /// Custom resolver for shortcodes (`+++ :name: … +++` and `*:name(args)*`).
+    ///
+    /// When `None`, shortcode syntax is left as written — marq renders nothing on its
+    /// own, keeping it dependency-agnostic. The host registers a resolver that renders
+    /// via its template engine inside a tracked query, preserving dependency tracking.
+    pub shortcode_resolver: Option<BoxedShortcodeResolver>,
 }
 
 impl RenderOptions {
@@ -231,6 +239,12 @@ impl RenderOptions {
     /// Set a custom wiki-link resolver.
     pub fn with_wiki_link_resolver<R: WikiLinkResolver + 'static>(mut self, resolver: R) -> Self {
         self.wiki_link_resolver = Some(Arc::new(resolver));
+        self
+    }
+
+    /// Set a custom resolver for shortcodes.
+    pub fn with_shortcode_resolver<R: ShortcodeResolver + 'static>(mut self, resolver: R) -> Self {
+        self.shortcode_resolver = Some(Arc::new(resolver));
         self
     }
 }
