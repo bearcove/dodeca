@@ -44,6 +44,7 @@ pub mod tui_host;
 pub mod types;
 pub mod url_rewrite;
 pub mod vite;
+pub mod wiki;
 
 pub use build_context::{BuildContext, is_data_file_extension};
 

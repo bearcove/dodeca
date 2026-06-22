@@ -15,11 +15,21 @@ Decisions already made (Amos):
 
 ## Workstream status
 
-### 1. Shortcodes — IN PROGRESS
+### 1. Shortcodes — VERTICAL SLICE WORKING
 - Layer 1 (marq): DONE. 3 grammars (fenced `+++ :name: +++`, body `> *:name*`, inline
   `*:name*`), 149 tests green. Commits 5f54a2c8 / 61ce1b09 / 6e38e3da / d071b24d / c121636b.
-- Layer 2/3 (dodeca gingembre resolver + filters): delegated to a Paseo agent. Spec in
-  `notes/shortcode-port.md`. Usage counts there (~4500 invocations).
+- Layer 2/3 (dodeca): DONE for the vertical slice (commits 8097fbf5 / 443de305). `youtube`
+  renders end-to-end via gingembre (fenced + inline); args (YAML + pairs) spread as template
+  vars; body threaded; `escape_for_attribute`/`basic_markdown` filters work; reviewed —
+  dependency tracking (picante `TemplateRegistry` input) and template naming
+  (`shortcodes/<name>.html`, matches `.jinja`-stripped convention) both correct; dodeca
+  compiles, 159 gingembre tests pass.
+- **Follow-ups to finish shortcodes (block the highest-count ones, figure 191 / media 152):**
+  - **`get_media(src)` is stubbed (returns NULL)** in the template host — implement it so
+    figure/media render images. (Should resolve assets through the picante-tracked path.)
+  - **gingembre: method calls on call results** (`get_media(src).markup(...)`) — `eval_call`
+    only dispatches `obj.method()` when `obj` is a `Var`, not a function result. Extend
+    gingembre to allow method calls on arbitrary expression results. (Also a workstream-2 item.)
 
 ### 2. gingembre improvements — TODO
 So the existing `.jinja` templates port unchanged. Engine lives at `libs/gingembre`.
@@ -34,6 +44,10 @@ Gaps found vs the templates fasterthanli.me uses (`~/fasterthanli.me/templates/`
   `wordcount`, `striptags`, `indent`.
 - **Missing functions**: `int()`, `float()`, `string()`, `list()`, `range()`.
 - **`super()`** inside blocks (unconfirmed — verify).
+- **Method calls on call results** (`get_media(src).markup(...)`): `eval_call` only handles
+  `obj.method()` for `obj: Var`. Needed for figure/media shortcodes. (Found during Layer 2.)
+- NOTE: the `default` filter was fixed during Layer 2 to match Jinja2 (was broken on
+  undefined vars) — commit 443de305.
 - Custom filters the shortcodes/templates need: `basic_markdown`, `escape_for_attribute`,
   and `get_media(src).markup(...)` (these overlap with the shortcode Layer 3 work).
 
