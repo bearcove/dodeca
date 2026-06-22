@@ -8,6 +8,8 @@
 //! ranked by cosine similarity. [`page_chunks_embedded`] is a tracked query, so
 //! a chunk is only re-embedded when its source file changes.
 
+use std::collections::HashSet;
+
 use facet::Facet;
 use hotmeal::{NodeId, NodeKind, StrTendril, parse_body_fragment};
 use picante::PicanteResult;
@@ -52,6 +54,26 @@ pub struct EmbeddedChunk {
     /// Short display preview of the section.
     pub snippet: String,
     pub embedding: Embedding,
+}
+
+/// A node in a page's connection graph.
+#[derive(Debug, Clone, Facet)]
+pub struct GraphNode {
+    pub route: String,
+    pub title: String,
+}
+
+/// A page's neighborhood: explicit links out, pages linking in, and semantically
+/// related pages. Backs `/_dodeca/knowledge/graph`.
+#[derive(Debug, Clone, Facet)]
+pub struct GraphResponse {
+    pub center: GraphNode,
+    /// Pages this one links to.
+    pub outbound: Vec<GraphNode>,
+    /// Pages that link to this one.
+    pub backlinks: Vec<GraphNode>,
+    /// Semantically nearest pages (vector similarity).
+    pub related: Vec<KnowledgeHit>,
 }
 
 /// One search hit (the JSON shape returned to the agent).
@@ -176,6 +198,229 @@ pub async fn related<DB: Db>(db: &DB, route: &str, k: usize) -> KnowledgeRespons
         query,
         hits: top_k(&chunks, &centroid, k, Some(route)),
     }
+}
+
+/// A page's connection graph: explicit links out, pages linking in (from the
+/// site-wide rendered links), and semantically related pages. Returns `None`
+/// when `route` isn't a real page/section.
+pub async fn graph<DB: Db>(db: &DB, route: &str, k: usize) -> Option<GraphResponse> {
+    let tree = match crate::queries::build_tree(db).await {
+        Ok(Ok(tree)) => tree,
+        _ => return None,
+    };
+    let center = {
+        let trimmed = route.trim_end_matches('/');
+        if trimmed.is_empty() {
+            "/".to_string()
+        } else {
+            trimmed.to_string()
+        }
+    };
+    let routes: HashSet<String> = tree
+        .pages
+        .keys()
+        .chain(tree.sections.keys())
+        .map(|r| r.as_str().to_string())
+        .collect();
+    if !routes.contains(&center) {
+        return None;
+    }
+    let title_of = |r: &str| -> String {
+        let route = crate::types::Route::from(r);
+        tree.pages
+            .get(&route)
+            .map(|p| p.title.as_str().to_string())
+            .or_else(|| {
+                tree.sections
+                    .get(&route)
+                    .map(|s| s.title.as_str().to_string())
+            })
+            .unwrap_or_else(|| r.to_string())
+    };
+
+    // Walk every page's links from its cached body HTML (the rendered body still
+    // carries auto-link / plain `/route` hrefs, plus `data-wiki-target` for
+    // wikilinks which we resolve context-first via the #8 resolver). This avoids
+    // a full re-render and works straight off the site tree.
+    let resolver = crate::wikilink::Resolver::new(
+        routes.iter().cloned(),
+        tree.sections.keys().map(|r| r.as_str().to_string()),
+        crate::config::global_config()
+            .map(|c| {
+                c.sources
+                    .iter()
+                    .map(|s| (s.name.clone(), s.mount.clone()))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default(),
+    );
+    let bodies: Vec<(String, String)> = tree
+        .pages
+        .values()
+        .map(|p| {
+            (
+                p.route.as_str().to_string(),
+                p.body_html.as_str().to_string(),
+            )
+        })
+        .chain(tree.sections.values().map(|s| {
+            (
+                s.route.as_str().to_string(),
+                s.body_html.as_str().to_string(),
+            )
+        }))
+        .collect();
+
+    let mut outbound: Vec<String> = Vec::new();
+    let mut backlinks: Vec<String> = Vec::new();
+    for (source, body) in &bodies {
+        let mut targets: Vec<String> = Vec::new();
+        for href in scan_attr(body, "href") {
+            if let Some(t) = internal_route(&href, &routes) {
+                targets.push(t);
+            }
+        }
+        for raw in scan_attr(body, "data-wiki-target") {
+            if let crate::wikilink::Resolution::Resolved(t) = resolver.resolve(source, &raw) {
+                targets.push(t);
+            }
+        }
+        for target in targets {
+            if &target == source {
+                continue;
+            }
+            if source == &center {
+                outbound.push(target);
+            } else if target == center {
+                backlinks.push(source.clone());
+            }
+        }
+    }
+    outbound.sort();
+    outbound.dedup();
+    backlinks.sort();
+    backlinks.dedup();
+
+    let related = related(db, &center, k).await.hits;
+    Some(GraphResponse {
+        center: GraphNode {
+            route: center.clone(),
+            title: title_of(&center),
+        },
+        outbound: outbound
+            .iter()
+            .map(|r| GraphNode {
+                route: r.clone(),
+                title: title_of(r),
+            })
+            .collect(),
+        backlinks: backlinks
+            .iter()
+            .map(|r| GraphNode {
+                route: r.clone(),
+                title: title_of(r),
+            })
+            .collect(),
+        related,
+    })
+}
+
+/// A self-contained interactive SVG view of a page's connection graph. Fetches
+/// `?format=json` for the given route and renders a radial node-link diagram;
+/// clicking a node re-centers the graph, the ⇱ link opens the page.
+pub fn graph_view_html(route: &str) -> String {
+    let route_json = format!("\"{}\"", route.replace('\\', "\\\\").replace('"', "\\\""));
+    format!(
+        r##"<!doctype html><html><head><meta charset="utf-8">
+<title>Knowledge graph</title>
+<style>
+  html,body{{margin:0;height:100%;background:#11111b;color:#cdd6f4;font:14px system-ui,sans-serif}}
+  #t{{position:fixed;top:10px;left:14px;font-size:13px;opacity:.85}}
+  svg{{width:100vw;height:100vh;display:block}}
+  .lnk{{stroke:#45475a;stroke-width:1}}
+  .nd circle{{cursor:pointer}}
+  .nd text{{fill:#cdd6f4;font-size:12px;pointer-events:none}}
+  .center circle{{fill:#f9e2af}}
+  .out circle{{fill:#89b4fa}} .back circle{{fill:#a6e3a1}} .rel circle{{fill:#f38ba8}}
+  a.visit{{fill:#89b4fa;text-decoration:none}}
+  #legend{{position:fixed;bottom:12px;left:14px;font-size:12px;opacity:.85;line-height:1.6}}
+  #legend b{{font-weight:600}}
+  .sw{{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:middle}}
+</style></head><body>
+<div id="t">…</div><svg id="g"></svg>
+<div id="legend">
+  <div><span class="sw" style="background:#f9e2af"></span>this page</div>
+  <div><span class="sw" style="background:#89b4fa"></span>links out</div>
+  <div><span class="sw" style="background:#a6e3a1"></span>links in (backlinks)</div>
+  <div><span class="sw" style="background:#f38ba8"></span>related (semantic)</div>
+</div>
+<script>
+const ROUTE={route_json};
+const SVG="http://www.w3.org/2000/svg";
+function el(n,a){{const e=document.createElementNS(SVG,n);for(const k in a)e.setAttribute(k,a[k]);return e;}}
+async function draw(route){{
+  const r=await fetch(`/_dodeca/knowledge/graph?route=${{encodeURIComponent(route)}}&format=json`).then(r=>r.json());
+  if(!r.center){{document.getElementById('t').textContent='no graph for '+route;return;}}
+  document.getElementById('t').innerHTML=`<b>${{r.center.title}}</b> <span style="opacity:.6">${{r.center.route}}</span>`;
+  const g=document.getElementById('g');g.innerHTML='';
+  const W=g.clientWidth,H=g.clientHeight,cx=W/2,cy=H/2;
+  const groups=[['out',r.outbound],['back',r.backlinks],['rel',(r.related||[]).map(h=>({{route:h.route,title:h.title}}))]];
+  const seen=new Set([r.center.route]);
+  const nodes=[];
+  for(const [cls,arr] of groups) for(const n of arr){{ if(seen.has(n.route))continue; seen.add(n.route); nodes.push({{cls,...n}}); }}
+  const R=Math.min(W,H)/2-90;
+  nodes.forEach((n,i)=>{{const a=-Math.PI/2+2*Math.PI*i/Math.max(nodes.length,1);n.x=cx+R*Math.cos(a);n.y=cy+R*Math.sin(a);}});
+  for(const n of nodes) g.appendChild(el('line',{{class:'lnk',x1:cx,y1:cy,x2:n.x,y2:n.y}}));
+  function node(n,cls,big){{
+    const grp=el('g',{{class:'nd '+cls}});
+    const c=el('circle',{{cx:n.x,cy:n.y,r:big?13:8}});
+    c.addEventListener('click',()=>draw(n.route));
+    grp.appendChild(c);
+    const t=el('text',{{x:n.x+(n.x<cx?-12:12),y:n.y+4,'text-anchor':n.x<cx?'end':'start'}});
+    t.textContent=(n.title||n.route).slice(0,32);
+    grp.appendChild(t);
+    g.appendChild(grp);
+  }}
+  for(const n of nodes) node(n,n.cls,false);
+  r.center.x=cx;r.center.y=cy;
+  node(r.center,'center',true);
+}}
+draw(ROUTE);
+</script></body></html>"##
+    )
+}
+
+/// Extract every value of the `attr="…"` attribute in `html` (HTML-unescaped) —
+/// a cheap scan over the cached body, enough to read links and wiki targets.
+fn scan_attr(html: &str, attr: &str) -> Vec<String> {
+    let needle = format!("{attr}=\"");
+    let mut out = Vec::new();
+    let mut rest = html;
+    while let Some(i) = rest.find(&needle) {
+        rest = &rest[i + needle.len()..];
+        let Some(end) = rest.find('"') else { break };
+        out.push(
+            rest[..end]
+                .replace("&amp;", "&")
+                .replace("&quot;", "\"")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">"),
+        );
+        rest = &rest[end + 1..];
+    }
+    out
+}
+
+/// Normalize an internal href to a known route, or `None` for external /
+/// fragment-only / unknown links.
+fn internal_route(href: &str, routes: &HashSet<String>) -> Option<String> {
+    if !href.starts_with('/') || href.starts_with("//") {
+        return None;
+    }
+    let path = href.split(['?', '#']).next().unwrap_or(href);
+    let trimmed = path.trim_end_matches('/');
+    let candidate = if trimmed.is_empty() { "/" } else { trimmed };
+    routes.contains(candidate).then(|| candidate.to_string())
 }
 
 /// Rank `chunks` against `query_vec` and take the top `k`, optionally skipping a

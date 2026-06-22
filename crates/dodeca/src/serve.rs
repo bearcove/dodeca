@@ -579,6 +579,17 @@ impl SiteServer {
         crate::knowledge::related(&snapshot, route, k).await
     }
 
+    /// A page's connection graph: outbound links, backlinks, and related pages.
+    /// Uses the live db (not a snapshot) since it renders pages to read links,
+    /// and rendering must match the active `TASK_DB` scope.
+    pub async fn knowledge_graph(
+        &self,
+        route: &str,
+        k: usize,
+    ) -> Option<crate::knowledge::GraphResponse> {
+        crate::knowledge::graph(&*self.db, route, k).await
+    }
+
     /// Attach an inline note to the markdown source backing `(route, sid)`.
     ///
     /// Resolves the source span via the page's source map, inserts a
