@@ -1695,7 +1695,9 @@ dependencies = [
 name = "cell-markdown"
 version = "0.6.1"
 dependencies = [
+ "base64 0.22.1",
  "cell-markdown-proto",
+ "facet-json",
  "marq",
  "tracing",
 ]
@@ -2550,6 +2552,7 @@ dependencies = [
  "arborium-theme",
  "ariadne 0.5.1",
  "axum",
+ "base64 0.22.1",
  "camino",
  "cell-code-execution",
  "cell-code-execution-proto",
@@ -2606,6 +2609,7 @@ dependencies = [
  "facet-postcard",
  "facet-styx",
  "facet-value",
+ "facet-yaml",
  "figue",
  "futures-util",
  "getrandom 0.3.4",
