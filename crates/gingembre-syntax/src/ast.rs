@@ -66,6 +66,7 @@ ast_node!(VarRef = VarRef);
 ast_node!(FieldExpr = FieldExpr);
 ast_node!(IndexExpr = IndexExpr);
 ast_node!(CallExpr = CallExpr);
+ast_node!(MacroCall = MacroCallExpr);
 ast_node!(FilterExpr = FilterExpr);
 ast_node!(TestExpr = TestExpr);
 ast_node!(TernaryExpr = TernaryExpr);
@@ -87,6 +88,7 @@ pub enum Expr {
     Field(FieldExpr),
     Index(IndexExpr),
     Call(CallExpr),
+    MacroCall(MacroCall),
     Filter(FilterExpr),
     Test(TestExpr),
     Ternary(TernaryExpr),
@@ -106,6 +108,7 @@ impl Expr {
             SyntaxKind::FieldExpr => Expr::Field(self::FieldExpr(node)),
             SyntaxKind::IndexExpr => Expr::Index(self::IndexExpr(node)),
             SyntaxKind::CallExpr => Expr::Call(self::CallExpr(node)),
+            SyntaxKind::MacroCallExpr => Expr::MacroCall(self::MacroCall(node)),
             SyntaxKind::FilterExpr => Expr::Filter(self::FilterExpr(node)),
             SyntaxKind::TestExpr => Expr::Test(self::TestExpr(node)),
             SyntaxKind::TernaryExpr => Expr::Ternary(self::TernaryExpr(node)),
@@ -126,6 +129,7 @@ impl Expr {
             Expr::Field(n) => n.syntax(),
             Expr::Index(n) => n.syntax(),
             Expr::Call(n) => n.syntax(),
+            Expr::MacroCall(n) => n.syntax(),
             Expr::Filter(n) => n.syntax(),
             Expr::Test(n) => n.syntax(),
             Expr::Ternary(n) => n.syntax(),
@@ -205,6 +209,25 @@ impl IndexExpr {
 impl CallExpr {
     pub fn callee(&self) -> Option<Expr> {
         first_expr(&self.0)
+    }
+    pub fn args(&self) -> Option<ArgList> {
+        typed_child(&self.0)
+    }
+}
+
+impl MacroCall {
+    fn idents(&self) -> impl Iterator<Item = &str> + '_ {
+        self.0
+            .children_with_tokens()
+            .filter_map(|e| e.into_token())
+            .filter(|t| t.kind() == Ident)
+            .map(|t| t.text())
+    }
+    pub fn namespace(&self) -> Option<&str> {
+        self.idents().next()
+    }
+    pub fn name(&self) -> Option<&str> {
+        self.idents().nth(1)
     }
     pub fn args(&self) -> Option<ArgList> {
         typed_child(&self.0)

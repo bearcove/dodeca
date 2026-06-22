@@ -120,6 +120,8 @@ pub enum SyntaxKind {
     Comma,
     #[static_text(":")]
     Colon,
+    #[static_text("::")]
+    ColonColon,
     #[static_text("|")]
     Pipe,
     #[static_text("?")]
@@ -209,6 +211,8 @@ pub enum SyntaxKind {
     SliceExpr,
     /// `func(args)`
     CallExpr,
+    /// `namespace::macro(args)` — explicit macro call.
+    MacroCallExpr,
     /// Argument list of a call, and its positional / keyword args.
     ArgList,
     Arg,

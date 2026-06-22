@@ -621,6 +621,17 @@ impl<'src> Parser<'src> {
                 self.bump();
                 self.finish();
             }
+            Some(Ident) if self.nth(1) == Some(ColonColon) => {
+                // `namespace::macro(args)` explicit macro call.
+                self.start(MacroCallExpr);
+                self.bump(); // namespace
+                self.bump(); // ::
+                self.expect(Ident); // macro name
+                if self.at(LParen) {
+                    self.parse_arg_list();
+                }
+                self.finish();
+            }
             Some(Ident) => {
                 self.start(VarRef);
                 self.bump();

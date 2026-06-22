@@ -50,6 +50,16 @@ pub fn lower_expr(e: &cst::Expr) -> Expr {
                 span,
             })
         }
+        cst::Expr::MacroCall(m) => {
+            let (args, kwargs) = lower_args(m.args());
+            Expr::MacroCall(ast::MacroCallExpr {
+                namespace: ident(m.namespace().unwrap_or_default(), node),
+                macro_name: ident(m.name().unwrap_or_default(), node),
+                args,
+                kwargs,
+                span,
+            })
+        }
         cst::Expr::Filter(f) => {
             let (args, kwargs) = lower_args(f.args());
             Expr::Filter(ast::FilterExpr {

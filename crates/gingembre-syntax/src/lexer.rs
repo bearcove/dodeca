@@ -202,6 +202,7 @@ fn lex_code_token(src: &str, pos: usize) -> (SyntaxKind, usize) {
 }
 
 const MULTI_OPS: &[(&str, SyntaxKind)] = &[
+    ("::", SyntaxKind::ColonColon),
     ("**", SyntaxKind::StarStar),
     ("//", SyntaxKind::SlashSlash),
     ("==", SyntaxKind::EqEq),
