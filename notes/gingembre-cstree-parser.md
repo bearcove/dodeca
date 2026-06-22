@@ -21,10 +21,15 @@ re-implementing template parsing.
   `Start/Token/Finish/Error` event stream; a separate builder turns events into the cstree
   green tree. This decouples the parser from the tree lib (rowan↔cstree swap is localized)
   and is the rust-analyzer playbook.
-- **One parser, two consumers**: the engine **lowers the CST → the existing gingembre AST**
-  (so `eval`/`render` and their 159 tests are unchanged — we swap the front-end behind the
-  AST boundary and keep it green throughout). The LSP consumes the **CST** directly (lossless,
-  error-recovered, positions for every byte).
+- **One representation, no owned AST** (revised — Amos): the engine and the LSP both
+  evaluate directly off **typed views over the CST** (rust-analyzer's `ast` accessor
+  pattern). There is NO separate owned AST — `gingembre/src/ast.rs` gets deleted along with
+  the old lexer/parser. For gingembre there's no optimization need that an owned AST would
+  serve; a typed-CST layer gives typed access + decoded leaf values without the duplication.
+- **Correctness bar = rendered output, not AST parity.** We do NOT chase field-for-field /
+  span-for-span AST equality (that's the month-long trap). The oracle is "the same HTML comes
+  out": the engine's render/output tests, the showcase, and the 38 real ftl pages. AST-shape
+  snapshot tests are dropped; behaviour (output) tests stay.
 - Keep the `?` operator, `{%- -%}` whitespace control, and lenient `defined` semantics —
   they're requirements of the new grammar (branch is off `shortcodes`).
 
@@ -79,14 +84,27 @@ reading-time, date formatting.)
 - `lower`: typed CST → existing `ast::Expr`/`Node` for the engine.
 - Typed AST layer over the CST for the LSP (accessor methods per node).
 
-## Plan / phases
+## Plan / phases (status)
 
-1. Catalog ✅ (this note) + cstree dep + `SyntaxKind` + `Language` impl.
-2. Fixture suite FIRST: a corpus of template snippets covering every construct above;
-   parse-level (CST shape) snapshots + (later) render goldens. Drive the parser with it.
-3. Lexer adaptation → tokens.
-4. Event parser (structure → statements → expressions/Pratt) with recovery.
-5. cstree builder + typed AST.
-6. CST → gingembre AST lowering; flip the engine to it; keep all 159 engine tests green.
-7. Point the LSP at the CST; delete the LSP's separate template parsing.
-8. Validate against the real ftl templates (the build should parse all 38).
+1. ✅ Catalog + cstree dep + `SyntaxKind` (`c35688e5`).
+2. ✅ Lossless lexer (text/code modes, trim delimiters, nested comments) — 6 tests.
+3. ✅ Recursive-descent + precedence parser → cstree, error-recovering — 9 tests
+   (lossless roundtrip + the field-access-in-call-arg the old parser choked on).
+4. ✅ Typed views over the CST (`ast.rs`, no owned AST) — 15 tests.
+5. ⏳ **Port `eval`/`render` to consume the typed views**; delete `gingembre/src/{lexer,parser,
+   ast}.rs`. Bar = render output: the engine's output tests + showcase + ftl pages. This is
+   the bulk — `eval.rs` (~1900 lines) + `render.rs` change from matching owned `Expr`/`Node`
+   enums to matching `SyntaxKind` + typed accessors. Repoint `gingembre::parse`/`Template`.
+6. ⏳ Point the LSP at the CST; delete its ~9700-line separate template parsing.
+7. ⏳ Validate: parse + render all 38 ftl templates; showcase output unchanged.
+
+### Notes for the eval/render port (step 5)
+- `gingembre-syntax::ast::Expr` + `Stmt`-equivalents (template items) are the input. Need
+  to add typed views for the *statement/template* nodes too (IfStmt/ForStmt/SetStmt/BlockStmt/
+  MacroStmt/Interpolation/Body/etc.) — only expressions are done so far.
+- Whitespace-control trimming (`{%- -%}`) is applied when reading Text runs adjacent to trim
+  delimiters (the CST preserves them losslessly; trimming happens in the typed Text accessor
+  or the render walk).
+- `loop.*` is just field access on `loop`; the engine must expose `loop` in for-context.
+- Keep the engine's `LazyValue`/resolution/host-fn machinery; only the *source of the tree*
+  changes (typed CST instead of owned AST).
