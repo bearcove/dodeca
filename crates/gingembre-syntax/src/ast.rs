@@ -242,7 +242,11 @@ impl TestExpr {
         self.0.children_with_tokens().any(|e| e.into_token().is_some_and(|t| t.kind() == NotKw))
     }
     pub fn name(&self) -> Option<&str> {
-        token_text(&self.0, Ident)
+        // Test name is an Ident, or the `none` keyword.
+        self.0.children_with_tokens().find_map(|e| {
+            let t = e.into_token()?;
+            matches!(t.kind(), Ident | NoneKw).then(|| t.text())
+        })
     }
     pub fn args(&self) -> Option<ArgList> {
         typed_child(&self.0)

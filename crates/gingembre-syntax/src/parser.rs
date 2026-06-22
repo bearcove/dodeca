@@ -481,7 +481,10 @@ impl<'src> Parser<'src> {
                     self.start_at(cp, TestExpr);
                     self.bump(); // is
                     self.eat(NotKw); // optional `not`
-                    self.expect(Ident); // test name
+                    // Test name is usually an Ident, but `none` lexes as a keyword.
+                    if !self.eat(Ident) && !self.eat(NoneKw) {
+                        self.error("expected a test name".into());
+                    }
                     // optional test args `(...)`
                     if self.at(LParen) {
                         self.parse_arg_list();
