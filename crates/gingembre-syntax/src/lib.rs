@@ -7,6 +7,9 @@
 //!
 //! See `notes/gingembre-cstree-parser.md` for the design and the grammar catalogue.
 
+mod lexer;
+pub use lexer::{Lexeme, lex};
+
 /// The kind of every token and node in a gingembre syntax tree.
 ///
 /// A single flat tag set: variants up to (and including) [`SyntaxKind::Error`] are
