@@ -15,8 +15,8 @@ use crate::frontmatter::{Frontmatter, FrontmatterFormat};
 use crate::handler::{
     BoxedHandler, BoxedInlineCodeHandler, BoxedLinkResolver, BoxedReqHandler,
     BoxedShortcodeResolver, BoxedWikiLinkResolver, CodeBlockHandler, CodeBlockOutput,
-    DefaultReqHandler, InlineCodeHandler, RawCodeHandler, ReqHandler, ShortcodeResolver, WikiLink,
-    WikiLinkOutput, WikiLinkResolver, html_escape,
+    DefaultReqHandler, InlineCodeHandler, RawCodeHandler, ReqHandler, Shortcode, ShortcodeArgs,
+    ShortcodeResolver, WikiLink, WikiLinkOutput, WikiLinkResolver, html_escape,
 };
 use crate::headings::{Heading, slugify};
 use crate::links::resolve_link;
@@ -27,8 +27,12 @@ use crate::reqs::{InlineCodeSpan, ReqDefinition, RuleId, SourceSpan, parse_req_m
 #[derive(Debug)]
 #[allow(dead_code)] // Some fields are structural markers not yet used
 enum ParseContext<'a> {
-    /// Inside a metadata block (YAML/TOML frontmatter)
-    Metadata { kind: MetadataBlockKind },
+    /// Inside a metadata block (YAML/TOML frontmatter, or a `+++ :name: +++` shortcode)
+    Metadata {
+        kind: MetadataBlockKind,
+        /// Buffered block text; routed at End to frontmatter or a shortcode.
+        text: String,
+    },
 
     /// Inside a heading
     Heading {
@@ -735,6 +739,23 @@ fn stable_source_id(kind: SourceKind, source: &str) -> String {
 ///
 /// let doc = render(markdown, &RenderOptions::default()).await?;
 /// println!("{}", doc.html);
+/// Detect a fenced shortcode and return its name.
+///
+/// A `+++ … +++` (pluses) metadata block is a shortcode when its first non-empty
+/// line is a YAML key of the form `:name:` (the leading `:` is the shortcode marker).
+/// Returns the name (without colons) borrowed from `text`, or `None` for ordinary
+/// TOML frontmatter. The whole block is later handed to the resolver as YAML.
+fn parse_fenced_shortcode_name(text: &str) -> Option<&str> {
+    let first = text.lines().map(str::trim).find(|l| !l.is_empty())?;
+    let name = first.strip_prefix(':')?;
+    let name = name.strip_suffix(':').unwrap_or(name).trim();
+    let valid = !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '-');
+    valid.then_some(name)
+}
+
 /// ```
 pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document> {
     // Parse markdown with metadata block support, using offset iterator for line tracking
@@ -1179,15 +1200,61 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
             }
 
             // ===== Metadata blocks =====
+            // A metadata block is either document frontmatter (`---` YAML or leading
+            // `+++` TOML) or a fenced shortcode (`+++ :name: <yaml> +++`). The two are
+            // told apart by content at End: a pluses block whose first line is a
+            // `:name` key is a shortcode; anything else is frontmatter. `metadata_format`
+            // / `raw_metadata` are therefore set at End, only for real frontmatter.
             Event::Start(Tag::MetadataBlock(kind)) => {
-                metadata_format = Some(match kind {
-                    MetadataBlockKind::YamlStyle => FrontmatterFormat::Yaml,
-                    MetadataBlockKind::PlusesStyle => FrontmatterFormat::Toml,
+                context_stack.push(ParseContext::Metadata {
+                    kind: *kind,
+                    text: String::new(),
                 });
-                context_stack.push(ParseContext::Metadata { kind: *kind });
             }
             Event::End(TagEnd::MetadataBlock(_)) => {
-                context_stack.pop();
+                let Some(ParseContext::Metadata { kind, text }) = context_stack.pop() else {
+                    unreachable!("MetadataBlock end without matching Metadata context");
+                };
+
+                let shortcode = matches!(kind, MetadataBlockKind::PlusesStyle)
+                    .then(|| parse_fenced_shortcode_name(&text))
+                    .flatten();
+
+                if let Some(name) = shortcode {
+                    // Fenced shortcode: pass the whole block as YAML (a single
+                    // `:name` mapping), let the resolver parse + render it.
+                    let args = ShortcodeArgs::Yaml(text.clone());
+                    let rendered = match &options.shortcode_resolver {
+                        Some(resolver) => {
+                            resolver
+                                .resolve(Shortcode {
+                                    name,
+                                    args: &args,
+                                    body: None,
+                                })
+                                .await?
+                        }
+                        None => None,
+                    };
+                    match rendered {
+                        Some(output) => {
+                            html.push_str(&output.html);
+                            for inj in output.head_injections {
+                                head_injection_map.entry(inj.key).or_insert(inj.html);
+                            }
+                        }
+                        // Declined / no resolver: leave the source verbatim so nothing
+                        // is silently dropped.
+                        None => html.push_str(&markdown[range.clone()]),
+                    }
+                } else {
+                    // Real document frontmatter.
+                    metadata_format = Some(match kind {
+                        MetadataBlockKind::YamlStyle => FrontmatterFormat::Yaml,
+                        MetadataBlockKind::PlusesStyle => FrontmatterFormat::Toml,
+                    });
+                    raw_metadata = Some(text);
+                }
             }
 
             // ===== Text and content events =====
@@ -1204,8 +1271,8 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                 Some(ParseContext::CodeBlock { code, .. }) => {
                     code.push_str(text);
                 }
-                Some(ParseContext::Metadata { .. }) => {
-                    raw_metadata = Some(text.to_string());
+                Some(ParseContext::Metadata { text: buf, .. }) => {
+                    buf.push_str(text);
                 }
                 Some(ParseContext::BlockQuote { .. }) => {
                     unreachable!("BlockQuote text should be handled in blockquote branch");
@@ -2259,6 +2326,7 @@ fn parse_req_leading_marker(text: &str) -> Option<(&str, &str, usize)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ShortcodeOutput;
 
     struct TestWikiResolver;
 
@@ -2291,12 +2359,109 @@ mod tests {
         }
     }
 
+    /// Echoes each shortcode as a `<sc>` element so tests can assert on the name,
+    /// the args passed through, and whether a body was supplied.
+    struct TestShortcodeResolver;
+
+    impl ShortcodeResolver for TestShortcodeResolver {
+        fn resolve<'a>(
+            &'a self,
+            sc: Shortcode<'a>,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<Option<ShortcodeOutput>>> + Send + 'a>,
+        > {
+            let name = sc.name.to_string();
+            let args = format!("{:?}", sc.args);
+            let body = sc.body.map(str::to_string);
+            Box::pin(async move {
+                let body_attr = match &body {
+                    Some(b) => format!(" body=\"{}\"", html_escape(b)),
+                    None => String::new(),
+                };
+                Ok(Some(ShortcodeOutput::from(format!(
+                    "<sc name=\"{}\" args=\"{}\"{} />",
+                    html_escape(&name),
+                    html_escape(&args),
+                    body_attr,
+                ))))
+            })
+        }
+    }
+
     fn source_text<'a>(markdown: &'a str, entry: &SourceMapEntry) -> &'a str {
         &markdown[entry.byte_start..entry.byte_end]
     }
 
     fn sid_attr(entry: &SourceMapEntry) -> String {
         format!(r#"data-sid="{}""#, entry.id)
+    }
+
+    #[tokio::test]
+    async fn fenced_shortcode_is_resolved() {
+        let md = "# Heading\n\nintro\n\n+++\n:figure:\n  src: a.jxl\n  title: Hi\n+++\n\nafter\n";
+        let opts = RenderOptions::new().with_shortcode_resolver(TestShortcodeResolver);
+        let doc = render(md, &opts).await.unwrap();
+
+        // The shortcode is rendered in document order, between the paragraphs.
+        assert!(
+            doc.html.contains(r#"<sc name="figure""#),
+            "html: {}",
+            doc.html
+        );
+        // The whole block is passed through as YAML (single `:figure` mapping).
+        assert!(
+            doc.html.contains(":figure:"),
+            "args should carry the yaml: {}",
+            doc.html
+        );
+        assert!(
+            doc.html.contains("src: a.jxl"),
+            "args yaml body: {}",
+            doc.html
+        );
+        // No body for fenced shortcodes.
+        assert!(
+            !doc.html.contains(" body="),
+            "fenced has no body: {}",
+            doc.html
+        );
+        // Surrounding prose still renders.
+        assert!(doc.html.contains("intro") && doc.html.contains("after"));
+        // It was NOT mistaken for document frontmatter.
+        assert!(
+            doc.raw_metadata.is_none(),
+            "shortcode must not become frontmatter"
+        );
+    }
+
+    #[tokio::test]
+    async fn fenced_shortcode_without_resolver_keeps_source() {
+        // With no resolver registered, marq bakes nothing: the block is left verbatim
+        // rather than silently dropped or mis-parsed as frontmatter.
+        let md = "intro\n\n+++\n:figure:\n  src: a.jxl\n+++\n\nafter\n";
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+        assert!(doc.html.contains(":figure:"), "source kept: {}", doc.html);
+        assert!(doc.raw_metadata.is_none());
+    }
+
+    #[tokio::test]
+    async fn leading_toml_frontmatter_is_not_a_shortcode() {
+        // A leading `+++` block without a `:name` key is ordinary TOML frontmatter and
+        // must keep working unchanged, even with a resolver registered.
+        let md = "+++\ntitle = \"Hello\"\n+++\n\nbody\n";
+        let opts = RenderOptions::new().with_shortcode_resolver(TestShortcodeResolver);
+        let doc = render(md, &opts).await.unwrap();
+        assert_eq!(doc.metadata_format, Some(FrontmatterFormat::Toml));
+        assert!(
+            doc.raw_metadata
+                .as_deref()
+                .unwrap()
+                .contains("title = \"Hello\"")
+        );
+        assert!(
+            !doc.html.contains("<sc "),
+            "frontmatter must not resolve as shortcode"
+        );
     }
 
     #[tokio::test]
