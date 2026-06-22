@@ -285,6 +285,37 @@ impl DevtoolsService for HostDevtoolsService {
         result
     }
 
+    async fn list_sections(&self) -> Vec<dodeca_protocol::SectionInfo> {
+        self.server
+            .list_sections()
+            .await
+            .into_iter()
+            .map(|(path, title)| dodeca_protocol::SectionInfo { path, title })
+            .collect()
+    }
+
+    async fn create_page(
+        &self,
+        section: String,
+        title: String,
+    ) -> dodeca_protocol::CreatePageResult {
+        tracing::debug!(
+            browser_id = self.browser_id,
+            section = %section,
+            title = %title,
+            "devtools create_page RPC received"
+        );
+        match self.server.create_page_in_section(&section, &title).await {
+            Ok(route) => {
+                tracing::info!(browser_id = self.browser_id, route = %route, "created page");
+                dodeca_protocol::CreatePageResult::Ok { route }
+            }
+            Err(err) => dodeca_protocol::CreatePageResult::Error {
+                message: err.to_string(),
+            },
+        }
+    }
+
     async fn annotate(&self, req: AnnotateReq) -> AnnotateResult {
         tracing::debug!(
             browser_id = self.browser_id,

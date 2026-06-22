@@ -801,6 +801,45 @@ impl SiteServer {
         Ok(())
     }
 
+    /// The site's sections as `(route, title)`, sorted — for the create-page
+    /// picker.
+    pub async fn list_sections(&self) -> Vec<(String, String)> {
+        let snapshot = DatabaseSnapshot::from_database(&self.db).await;
+        let Ok(Ok(tree)) = build_tree(&snapshot).await else {
+            return Vec::new();
+        };
+        let mut out: Vec<(String, String)> = tree
+            .sections
+            .values()
+            .map(|s| (s.route.as_str().to_string(), s.title.as_str().to_string()))
+            .collect();
+        out.sort();
+        out
+    }
+
+    /// Create a new stub page titled `title` in the section at `section_route`
+    /// (filename = slugified title), open it in the editor, and return its route.
+    pub async fn create_page_in_section(&self, section_route: &str, title: &str) -> Result<String> {
+        let slug =
+            path_segment_slug(title).ok_or_else(|| eyre!("title has no usable slug: {title:?}"))?;
+        let section = normalize_route(section_route);
+        let section = section.trim_end_matches('/');
+        let new_route = if section.is_empty() {
+            format!("/{slug}")
+        } else {
+            format!("{section}/{slug}")
+        };
+        let source_path = source_path_for_route(&new_route)?;
+        let stub = DeadLinkStub {
+            source_file: Utf8PathBuf::from(source_path),
+            title: useful_title(title).unwrap_or_else(|| title.trim().to_string()),
+        };
+        self.create_dead_link_stub(&stub).await?;
+        self.open_source_in_editor(stub.source_file.as_str(), 1)
+            .await?;
+        Ok(new_route)
+    }
+
     /// Register a browser connection for receiving devtools events.
     ///
     /// The `conn_id` is the host-allocated browser ID, used as the key for

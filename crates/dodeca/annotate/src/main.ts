@@ -158,6 +158,22 @@ html.dn-show-resolved .dn-gutter-mark.dn-resolved { display: block; opacity: 0.5
 }
 .dn-create .dn-status { min-height: 1.2em; margin-top: 4px; opacity: 0.7; font-size: 12px; }
 
+/* create-page picker */
+.dn-pagepicker { width: 340px; }
+.dn-pp-head { font-size: 12px; opacity: 0.85; margin-bottom: 6px; }
+.dn-pp-filter {
+  width: 100%; box-sizing: border-box; background: #313244; color: #cdd6f4;
+  border: 1px solid #45475a; border-radius: 2px; padding: 5px 7px; font: inherit;
+}
+.dn-pp-list { max-height: 220px; overflow-y: auto; margin-top: 6px; }
+.dn-pp-item {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+  width: 100%; text-align: left; background: transparent; border: none;
+  color: inherit; font: inherit; padding: 5px 7px; cursor: pointer; border-radius: 2px;
+}
+.dn-pp-item:hover { background: #313244; }
+.dn-pp-path { opacity: 0.5; font-size: 11px; white-space: nowrap; }
+
 /* segmented kind picker */
 .dn-seg { display: flex; gap: 0; overflow: hidden; border: 1px solid #45475a; border-radius: 2px; }
 .dn-seg-btn {
@@ -730,6 +746,7 @@ function installCreateUI(layer: HTMLElement): void {
     </div>
     <textarea class="dn-body" placeholder="Write a note…"></textarea>
     <div class="dn-actions">
+      <button class="dn-btn dn-btn-ghost dn-newpage" title="Create a page titled with the selection">📄 New page</button>
       <button class="dn-btn dn-btn-ghost dn-cancel">Cancel <kbd class="dn-kbd">Esc</kbd></button>
       <button class="dn-btn dn-btn-save dn-save">Save <kbd class="dn-kbd">⌘↵</kbd></button>
     </div>
@@ -743,6 +760,26 @@ function installCreateUI(layer: HTMLElement): void {
   const segBtns = [...ui.querySelectorAll<HTMLButtonElement>(".dn-seg-btn")];
   authorEl.value = localStorage.getItem(AUTHOR_KEY) ?? "";
 
+  // Create-page picker: a separate affordance (not a note kind) that turns the
+  // selection into a new page in a fuzzy-chosen section. The backend mints the
+  // stub and opens it in the editor.
+  const picker = document.createElement("div");
+  picker.className = "dn-create dn-pagepicker";
+  picker.hidden = true;
+  picker.innerHTML = `
+    <div class="dn-pp-head"></div>
+    <input class="dn-pp-filter" type="text" placeholder="Find a section…" />
+    <div class="dn-pp-list"></div>
+    <div class="dn-status"></div>
+  `;
+  layer.appendChild(picker);
+  const ppHead = picker.querySelector(".dn-pp-head") as HTMLElement;
+  const ppFilter = picker.querySelector(".dn-pp-filter") as HTMLInputElement;
+  const ppList = picker.querySelector(".dn-pp-list") as HTMLElement;
+  const ppStatus = picker.querySelector(".dn-status") as HTMLElement;
+  let sections: { path: string; title: string }[] | null = null;
+  let ppTitle = "";
+
   let kind = "note";
   const setKind = (k: string) => {
     kind = k;
@@ -754,6 +791,7 @@ function installCreateUI(layer: HTMLElement): void {
   let pending: Target | null = null;
   const hide = () => {
     ui.hidden = true;
+    picker.hidden = true;
     pending = null;
   };
 
@@ -771,6 +809,7 @@ function installCreateUI(layer: HTMLElement): void {
     bodyEl.value = "";
     statusEl.textContent = "";
     setKind("note");
+    picker.hidden = true;
     ui.hidden = false;
     const r = sel!.getRangeAt(0).getBoundingClientRect();
     ui.style.top = `${window.scrollY + r.bottom + 8}px`;
@@ -834,6 +873,86 @@ function installCreateUI(layer: HTMLElement): void {
       }
     }
   });
+
+  // ── create-page picker behaviour ──
+  // Subsequence fuzzy match (chars of `q` appear in order in `s`).
+  const fuzzy = (q: string, s: string): boolean => {
+    const ql = q.toLowerCase();
+    const sl = s.toLowerCase();
+    let i = 0;
+    for (const ch of sl) {
+      if (ch === ql[i]) i++;
+      if (i === ql.length) return true;
+    }
+    return ql.length === 0;
+  };
+
+  const renderSections = () => {
+    const q = ppFilter.value.trim();
+    const items = (sections ?? []).filter((s) => fuzzy(q, s.path) || fuzzy(q, s.title));
+    ppList.innerHTML = "";
+    if (items.length === 0) {
+      ppList.innerHTML = `<div class="dn-empty">no matching section</div>`;
+      return;
+    }
+    for (const sec of items) {
+      const b = document.createElement("button");
+      b.className = "dn-pp-item";
+      b.innerHTML =
+        `<span class="dn-pp-title">${sec.title}</span>` +
+        `<span class="dn-pp-path">${sec.path || "/"}</span>`;
+      b.addEventListener("click", () => void createInto(sec.path));
+      ppList.appendChild(b);
+    }
+  };
+
+  const createInto = async (sectionPath: string) => {
+    ppStatus.textContent = "creating…";
+    try {
+      const res = await (await client()).createPage(sectionPath, ppTitle);
+      if (res.tag === "Ok") {
+        ppStatus.textContent = `created ${res.route} — opening in your editor…`;
+        setTimeout(hide, 800);
+      } else {
+        ppStatus.textContent = `error: ${res.message}`;
+      }
+    } catch (err) {
+      ppStatus.textContent = `failed: ${String(err)}`;
+    }
+  };
+
+  const openPagePicker = async () => {
+    if (!pending) return;
+    ppTitle = pending.text;
+    ui.hidden = true;
+    picker.hidden = false;
+    ppHead.textContent = `New page: “${ppTitle.length > 60 ? ppTitle.slice(0, 57) + "…" : ppTitle}”`;
+    ppStatus.textContent = "";
+    ppFilter.value = "";
+    picker.style.top = ui.style.top;
+    picker.style.left = ui.style.left;
+    ppFilter.focus();
+    if (!sections) {
+      ppList.innerHTML = `<div class="dn-empty">loading sections…</div>`;
+      try {
+        sections = await (await client()).listSections();
+      } catch {
+        sections = [];
+      }
+    }
+    renderSections();
+  };
+
+  ppFilter.addEventListener("input", renderSections);
+  picker.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      hide();
+    }
+  });
+  (ui.querySelector(".dn-newpage") as HTMLButtonElement).addEventListener("click", () =>
+    void openPagePicker(),
+  );
 }
 
 main();
