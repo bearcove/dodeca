@@ -13,6 +13,8 @@ pub use lexer::{Lexeme, lex};
 mod parser;
 pub use parser::{Parse, ParseError, parse, parse_expr_str};
 
+pub mod ast;
+
 /// A node in the resolved (text-bearing) syntax tree.
 pub type ResolvedNode = cstree::syntax::ResolvedNode<SyntaxKind>;
 
