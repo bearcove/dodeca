@@ -41,6 +41,7 @@
 
 pub mod ast;
 mod cst_lower;
+pub use cst_lower::{parse_template, parse_template_recovered};
 mod error;
 mod eval;
 mod lazy;

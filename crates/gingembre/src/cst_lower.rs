@@ -175,6 +175,34 @@ fn compute_trim(src: &str) -> HashMap<usize, (bool, bool)> {
     map
 }
 
+/// Parse a template via the cstree front-end, returning the engine AST or the first
+/// parse error as a `TemplateError`. This is the single parse entry shared by the engine
+/// (`Template::parse`) and the authoring LSP — there is no longer a separate hand-written
+/// parser doing the work.
+pub fn parse_template(
+    name: impl Into<String>,
+    src: impl AsRef<str>,
+) -> Result<crate::ast::Template, crate::error::TemplateError> {
+    let src = src.as_ref();
+    let (ast, errors) = parse_to_template(src);
+    if let Some(e) = errors.first() {
+        let ts = crate::error::TemplateSource::new(&name.into(), src);
+        return Err(crate::error::SyntaxError {
+            found: "end of input".to_string(),
+            expected: e.message.clone(),
+            loc: crate::error::SourceLocation::new(ast::span(e.offset, 1), ts.named_source()),
+        }
+        .into());
+    }
+    Ok(ast)
+}
+
+/// Parse leniently (recovery): always returns a (best-effort) template, ignoring parse
+/// errors. Replaces the old `Parser::parse_recovered().template`.
+pub fn parse_template_recovered(src: impl AsRef<str>) -> crate::ast::Template {
+    parse_to_template(src.as_ref()).0
+}
+
 /// Parse `src` with the cstree parser and lower it to the engine's template AST.
 ///
 /// The parser recovers (produces a usable tree even with errors); error *surfacing* to

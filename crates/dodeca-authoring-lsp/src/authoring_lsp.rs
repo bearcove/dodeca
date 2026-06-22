@@ -5,7 +5,6 @@ use camino::{Utf8Path, Utf8PathBuf};
 use eyre::{Result, eyre};
 use facet::{Facet, NumericType, PrimitiveType, Type, UserType};
 use gingembre::ast::{Expr, Ident, Node, StringLit};
-use gingembre::parser::Parser as TemplateParser;
 use gingembre::semantic::{
     TemplateReferenceAccess, TemplateReferenceKind, TemplateSemanticIndex,
     TemplateSemanticTokenKind, TemplateSymbol, TemplateSymbolKind, TemplateSymbolOrigin,
@@ -2031,7 +2030,7 @@ pub fn diagnostics_for_template(
     template_file: &str,
     content: &str,
 ) -> Vec<AuthoringDiagnostic> {
-    let Ok(template) = TemplateParser::new(template_file, content).parse() else {
+    let Ok(template) = gingembre::parse_template(template_file, content) else {
         return Vec::new();
     };
 
@@ -6093,8 +6092,7 @@ pub fn template_root_completion_items(
         }
     }
 
-    let import_aliases = TemplateParser::new(template_file, content)
-        .parse()
+    let import_aliases = gingembre::parse_template(template_file, content)
         .map(|template| template_import_aliases(project, &template.body))
         .unwrap_or_default();
     for alias in import_aliases.keys() {
@@ -6109,7 +6107,7 @@ pub fn template_root_completion_items(
         ));
     }
 
-    if let Ok(template) = TemplateParser::new(template_file, content).parse()
+    if let Ok(template) = gingembre::parse_template(template_file, content)
         && top_level_macro_names(&template.body).next().is_some()
     {
         items.push(template_completion_item(
@@ -6246,8 +6244,7 @@ pub fn template_macro_completion_items(
     let target_file = if namespace == "self" {
         Some(template_file.to_string())
     } else {
-        TemplateParser::new(template_file, content)
-            .parse()
+        gingembre::parse_template(template_file, content)
             .ok()
             .and_then(|template| {
                 template_import_aliases(project, &template.body)
@@ -6262,7 +6259,7 @@ pub fn template_macro_completion_items(
     else {
         return Vec::new();
     };
-    let Ok(template) = TemplateParser::new(target_file, target_content).parse() else {
+    let Ok(template) = gingembre::parse_template(target_file, target_content) else {
         return Vec::new();
     };
 
@@ -7281,7 +7278,7 @@ pub fn template_document_symbols(
     if !project.template_contents.contains_key(template_file) {
         return Ok(Vec::new());
     }
-    let Ok(template) = TemplateParser::new(template_file, content).parse() else {
+    let Ok(template) = gingembre::parse_template(template_file, content) else {
         return Ok(Vec::new());
     };
 
@@ -7423,7 +7420,7 @@ impl TemplateAuthoringIndex {
             let Some(content) = project.template_contents.get(template_file) else {
                 continue;
             };
-            let Ok(template) = TemplateParser::new(template_file, content).parse() else {
+            let Ok(template) = gingembre::parse_template(template_file, content) else {
                 continue;
             };
             let imports = template_import_aliases(project, &template.body);
@@ -8481,7 +8478,7 @@ pub fn template_definition_targets(
     if !project.template_contents.contains_key(template_file) {
         return Ok(Vec::new());
     }
-    let Ok(template) = TemplateParser::new(template_file, content).parse() else {
+    let Ok(template) = gingembre::parse_template(template_file, content) else {
         return Ok(Vec::new());
     };
 
@@ -9017,8 +9014,7 @@ pub fn template_block_definition(
     name: &str,
 ) -> Option<(String, String, Ident)> {
     let content = template_content(project, template_file, current_file, current_content)?;
-    let template = TemplateParser::new(template_file, content.as_str())
-        .parse()
+    let template = gingembre::parse_template(template_file, content.as_str())
         .ok()?;
     if let Some(ident) = top_level_block_ident(&template.body, name) {
         return Some((template_file.to_string(), content, ident));
@@ -9053,7 +9049,7 @@ pub fn template_extends_path(
     if !seen.insert(template_file.to_string()) {
         return None;
     }
-    let template = TemplateParser::new(template_file, content).parse().ok()?;
+    let template = gingembre::parse_template(template_file, content).ok()?;
     template_extends_path_from_nodes(&template.body)
 }
 
@@ -9082,8 +9078,7 @@ pub fn template_macro_definition_target(
         imports.get(&namespace.name)?.as_str()
     };
     let target_content = template_content(project, target_file, template_file, content)?;
-    let template = TemplateParser::new(target_file, target_content.as_str())
-        .parse()
+    let template = gingembre::parse_template(target_file, target_content.as_str())
         .ok()?;
     let target_ident = top_level_macro_ident(&template.body, &macro_name.name)?;
     Some(TemplateDefinitionTarget {
