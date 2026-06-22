@@ -40,6 +40,7 @@
 //! ```
 
 pub mod ast;
+mod cst_lower;
 mod error;
 mod eval;
 mod lazy;

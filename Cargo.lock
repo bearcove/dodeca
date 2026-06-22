@@ -2324,6 +2324,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "cstree"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "06cb7daab41fe0fd49e9482eb456fb6e49c2fb64843cd824721befeda0059264"
+dependencies = [
+ "cstree_derive",
+ "hashbrown 0.17.1",
+ "indexmap",
+ "parking_lot",
+ "rustc-hash 2.1.2",
+ "text-size",
+ "triomphe",
+]
+
+[[package]]
+name = "cstree_derive"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3ef4cfdc000ad5eaafb304c599ab87894258acb2a508d2a805213322b18e3be3"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.118",
+]
+
+[[package]]
 name = "daachorse"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3673,9 +3699,17 @@ dependencies = [
  "camino",
  "facet-value",
  "futures",
+ "gingembre-syntax",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "gingembre-syntax"
+version = "0.6.1"
+dependencies = [
+ "cstree",
 ]
 
 [[package]]
@@ -8553,6 +8587,15 @@ name = "tree-sitter-language"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "009994f150cc0cd50ff54917d5bc8bffe8cad10ca10d81c34da2ec421ae61782"
+
+[[package]]
+name = "triomphe"
+version = "0.1.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd69c5aa8f924c7519d6372789a74eac5b94fb0f8fcf0d4a97eb0bfc3e785f39"
+dependencies = [
+ "stable_deref_trait",
+]
 
 [[package]]
 name = "try-lock"
