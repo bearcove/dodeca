@@ -906,7 +906,7 @@ impl<'a> Evaluator<'a> {
 
             // Prepend method name as first positional arg
             let mut full_args = vec![Value::from(method_name.as_str())];
-            full_args.extend(args);
+            full_args.extend(args.iter().cloned());
 
             if let Some(result_fut) = self.ctx.call_fn(func_name, &full_args, &kwargs) {
                 return result_fut
@@ -916,7 +916,25 @@ impl<'a> Evaluator<'a> {
             }
         }
 
-        // Method calls on values (like .items(), etc.) - not implemented yet
+        // Method call on an arbitrary value: `<expr>.method(args)` — e.g.
+        // `get_media(src).markup(...)`, where the receiver is itself a call result.
+        // Evaluate the receiver and dispatch to a host function named after the method,
+        // passing the receiver as the first positional argument.
+        if let Expr::Field(field) = &*call.func {
+            let receiver = self.eval_concrete(&field.base).await?;
+            let method_name = &field.field.name;
+            let mut full_args = Vec::with_capacity(args.len() + 1);
+            full_args.push(receiver);
+            full_args.extend(args);
+            if let Some(result_fut) = self.ctx.call_fn(method_name, &full_args, &kwargs) {
+                return result_fut
+                    .await
+                    .map(LazyValue::concrete)
+                    .map_err(|e| TemplateError::GlobalFn(e.to_string()));
+            }
+        }
+
+        // Unresolved method call.
         Ok(LazyValue::concrete(Value::NULL))
     }
 

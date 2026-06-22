@@ -17,7 +17,7 @@ use cell_gingembre_proto::{
     CallFunctionResult, ContextId, KeysAtResult, LoadTemplateResult, ResolveDataResult,
     TemplateHost,
 };
-use facet_value::{DestructuredRef, Value};
+use facet_value::{DestructuredRef, VString, Value};
 use futures_util::future::BoxFuture;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -35,7 +35,16 @@ pub const TEMPLATE_FUNCTION_NAMES: &[&str] = &[
     "read",
     "highlight",
     "get_media",
+    "markup",
 ];
+
+/// Escape a string for insertion into a double-quoted HTML attribute value.
+fn attr_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
 
 /// Convert a Value to a string representation (for template function args)
 fn value_to_string(value: &Value) -> String {
@@ -463,13 +472,32 @@ impl TemplateHost for TemplateHostImpl {
                 }
 
                 "get_media" => {
-                    // Returns NULL for now; .markup() calls on the result also return NULL
-                    // via gingembre's "method calls on values not implemented" fallback.
-                    // TODO: return a proper media object when gingembre supports method calls
-                    // on arbitrary call results (not just `obj.method()` where obj is a Var).
+                    // A media handle is just its resolved source path. `.markup(...)` (the
+                    // `markup` function below) turns it into an <img>, which the page-render
+                    // image post-pass then upgrades to a responsive <picture> and tracks as
+                    // a dependency — so get_media itself stays a thin path resolver.
                     let src = args.first().map(value_to_string).unwrap_or_default();
-                    tracing::debug!(src, "get_media() called (stub — returns null)");
-                    CallFunctionResult::Success { value: Value::NULL }
+                    CallFunctionResult::Success {
+                        value: Value::from(src.as_str()),
+                    }
+                }
+
+                // Method on a media handle: `get_media(src).markup(alt=, width=, height=, class=)`.
+                // The receiver (the src) is passed as the first positional arg by gingembre's
+                // value-method dispatch. Emits a plain <img>; the image post-pass makes it
+                // responsive. Returned as safe HTML so `{{ ...markup(...) }}` isn't escaped.
+                "markup" => {
+                    let src = args.first().map(value_to_string).unwrap_or_default();
+                    let mut img = format!(r#"<img src="{}""#, attr_escape(&src));
+                    for attr in ["alt", "width", "height", "class", "loading"] {
+                        if let Some(v) = get_kwarg(attr) {
+                            img.push_str(&format!(r#" {}="{}""#, attr, attr_escape(&v)));
+                        }
+                    }
+                    img.push('>');
+                    CallFunctionResult::Success {
+                        value: VString::from(img.as_str()).into_safe().into_value(),
+                    }
                 }
 
                 _ => {
