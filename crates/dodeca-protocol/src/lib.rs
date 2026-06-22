@@ -77,6 +77,13 @@ pub trait DevtoolsService {
     /// Create a source stub for a dead link target, then open it in the editor.
     async fn open_dead_link(&self, route: String, target: DeadLinkTarget) -> OpenSourceResult;
 
+    /// Attach an inline note to the markdown source backing a rendered element.
+    ///
+    /// Resolves `(route, sid)` to a source span via the page's source map,
+    /// inserts a `<!-- note … -->` comment after that block, and writes it to
+    /// disk (not committed). Live reload then renders it as an `<aside>`.
+    async fn annotate(&self, req: AnnotateReq) -> AnnotateResult;
+
     /// Load the raw markdown of the page at `route` for in-browser editing.
     ///
     /// `token` is the editor session token embedded in the `/_dodeca/edit/<page>`
@@ -310,6 +317,40 @@ pub enum EditSave {
     Error {
         message: String,
     },
+}
+
+/// Request to attach an inline note to a rendered element. See
+/// [`DevtoolsService::annotate`].
+#[derive(Debug, Clone, PartialEq, Facet)]
+pub struct AnnotateReq {
+    /// Route of the page the selection is on.
+    pub route: String,
+    /// `data-sid` of the nearest mapped element covering the selection.
+    pub sid: String,
+    /// The exact text the user selected, used to refine the insertion line
+    /// within the resolved block. Empty falls back to the block's end.
+    pub selected_text: String,
+    /// The note body (markdown).
+    pub body: String,
+    /// Optional note author, written to the note's frontmatter.
+    pub author: Option<String>,
+    /// Optional note kind for styling (e.g. `question`, `todo`), written to
+    /// the note's frontmatter.
+    pub kind: Option<String>,
+}
+
+/// Result of [`DevtoolsService::annotate`].
+#[derive(Debug, Clone, PartialEq, Facet)]
+#[repr(u8)]
+pub enum AnnotateResult {
+    /// Note written. `source_file` is the source path it was inserted into and
+    /// `line` is the 1-indexed line of the inserted note.
+    Ok { source_file: String, line: u32 },
+    /// The `(route, sid)` did not resolve to a source span.
+    NotFound,
+    /// Writing failed, or the body could not be represented inside an HTML
+    /// comment. `message` is safe to show.
+    Error { message: String },
 }
 
 // ============================================================================

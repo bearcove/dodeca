@@ -556,6 +556,77 @@ impl SiteServer {
         self.open_source_in_editor(&source_file, line).await
     }
 
+    /// Attach an inline note to the markdown source backing `(route, sid)`.
+    ///
+    /// Resolves the source span via the page's source map, inserts a
+    /// `<!-- note … -->` comment as its own block right after that block, and
+    /// writes it to disk (no commit). Returns `(source_file, line)` of the
+    /// inserted note, or `None` if `(route, sid)` did not resolve.
+    pub async fn annotate_source(
+        &self,
+        req: &dodeca_protocol::AnnotateReq,
+    ) -> Result<Option<(String, u32)>> {
+        let snapshot = DatabaseSnapshot::from_database(&self.db).await;
+        let site_tree = build_tree(&snapshot)
+            .await?
+            .map_err(|errors| eyre!("source parse errors while annotating: {errors:?}"))?;
+        let route = Route::new(normalize_route(&req.route));
+
+        let source_map = if let Some(section) = site_tree.sections.get(&route) {
+            &section.source_map
+        } else if let Some(page) = site_tree.pages.get(&route) {
+            &page.source_map
+        } else {
+            return Ok(None);
+        };
+
+        let Some(entry) = source_map.get_by_sid(&req.sid) else {
+            return Ok(None);
+        };
+        let Some(source_file) = source_map.source_path.as_deref() else {
+            return Ok(None);
+        };
+
+        // Resolve to a safe disk path under the source root.
+        let source_root = self
+            .source_root
+            .as_ref()
+            .ok_or_else(|| eyre!("source root is not available in this server mode"))?;
+        let source_path = Utf8Path::new(source_file);
+        if source_path.is_absolute()
+            || source_path
+                .components()
+                .any(|component| matches!(component, Utf8Component::ParentDir))
+        {
+            bail!("refusing to annotate source path outside the content directory: {source_file}");
+        }
+        let disk_path = source_root.join(source_path);
+
+        // Build the note comment from the request's metadata + body.
+        let meta = marq::NoteMeta {
+            author: req.author.clone(),
+            kind: req.kind.clone(),
+        };
+        let comment = marq::to_comment(&meta, &req.body)
+            .ok_or_else(|| eyre!("note body cannot contain the comment terminator `-->`"))?;
+
+        let content = tokio::fs::read_to_string(&disk_path).await?;
+        let (new_content, line) = insert_note_after_block(&content, entry.line_end, &comment);
+        tokio::fs::write(&disk_path, new_content).await?;
+
+        tracing::info!(
+            route = %route,
+            sid = %req.sid,
+            source_file,
+            line,
+            byte_start = entry.byte_start,
+            byte_end = entry.byte_end,
+            "annotated source with inline note"
+        );
+
+        Ok(Some((source_file.to_string(), line)))
+    }
+
     pub async fn open_dead_link_in_editor(
         &self,
         route_path: &str,
@@ -2648,6 +2719,49 @@ fn internal_href_route(href: &str) -> Result<String> {
     Ok(route)
 }
 
+/// Insert `comment` as its own blank-line-delimited block immediately after the
+/// source block ending on `line_end` (1-indexed, inclusive).
+///
+/// Keeping the comment on its own lines with surrounding blank lines ensures the
+/// markdown parser treats it as a standalone HTML block (so it renders as a note
+/// `<aside>`), and never splits the annotated block. Returns the new content and
+/// the 1-indexed line where the inserted note begins.
+fn insert_note_after_block(content: &str, line_end: u32, comment: &str) -> (String, u32) {
+    // Byte offset of the start of the line after `line_end`.
+    let mut newlines = 0u32;
+    let mut offset = content.len();
+    for (i, b) in content.bytes().enumerate() {
+        if b == b'\n' {
+            newlines += 1;
+            if newlines == line_end {
+                offset = i + 1;
+                break;
+            }
+        }
+    }
+
+    let (head, tail) = content.split_at(offset);
+    // Collapse any blank line(s) the block already had after it; we re-add
+    // exactly one so the note is delimited without piling up blank lines.
+    let tail = tail.trim_start_matches('\n');
+
+    let mut out = String::with_capacity(content.len() + comment.len() + 4);
+    out.push_str(head);
+    // If the block was the final line with no trailing newline, add one.
+    if !head.is_empty() && !head.ends_with('\n') {
+        out.push('\n');
+    }
+    out.push('\n'); // blank line before the note
+    let note_line = out.bytes().filter(|&b| b == b'\n').count() as u32 + 1;
+    out.push_str(comment.trim_end());
+    out.push('\n');
+    if !tail.is_empty() {
+        out.push('\n'); // blank line after the note
+        out.push_str(tail);
+    }
+    (out, note_line)
+}
+
 fn source_path_for_route(route: &str) -> Result<String> {
     let mut parts = Vec::new();
     for segment in route.trim_matches('/').split('/') {
@@ -3582,6 +3696,45 @@ mod tests {
             "LIVE",
             "live db must NOT be mutated by a snapshot override"
         );
+    }
+
+    #[test]
+    fn insert_note_after_block_is_blank_line_delimited() {
+        let content = "# Title\n\nFirst paragraph.\n\nSecond paragraph.\n";
+        let comment = "<!-- note\nhello\n-->";
+        // "First paragraph." is line 3.
+        let (out, line) = insert_note_after_block(content, 3, comment);
+        assert_eq!(
+            out,
+            "# Title\n\nFirst paragraph.\n\n<!-- note\nhello\n-->\n\nSecond paragraph.\n"
+        );
+        assert_eq!(line, 5);
+    }
+
+    #[test]
+    fn insert_note_after_final_block_without_trailing_newline() {
+        let content = "# Title\n\nLast paragraph.";
+        let comment = "<!-- note\nbye\n-->";
+        let (out, line) = insert_note_after_block(content, 3, comment);
+        assert_eq!(out, "# Title\n\nLast paragraph.\n\n<!-- note\nbye\n-->\n");
+        assert_eq!(line, 5);
+    }
+
+    /// Inserting a note must not disturb the surrounding markdown: re-rendering
+    /// the annotated source yields the original blocks plus one note `<aside>`.
+    #[tokio::test]
+    async fn inserted_note_renders_without_disturbing_content() {
+        let content = "# Title\n\nFirst paragraph.\n\nSecond paragraph.\n";
+        let comment =
+            marq::to_comment(&marq::NoteMeta::default(), "a thought").expect("serializable");
+        let (annotated, _) = insert_note_after_block(content, 3, &comment);
+
+        let opts = marq::RenderOptions::new().with_render_notes(true);
+        let doc = marq::render(&annotated, &opts).await.expect("render");
+        assert!(doc.html.contains("<aside class=\"dodeca-note\""));
+        assert!(doc.html.contains("a thought"));
+        assert!(doc.html.contains("First paragraph."));
+        assert!(doc.html.contains("Second paragraph."));
     }
 
     #[test]

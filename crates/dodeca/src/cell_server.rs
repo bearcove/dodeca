@@ -90,7 +90,8 @@ impl ddc_cell_http::RouterContext for DodecaHttpContext {
 // ============================================================================
 
 use dodeca_protocol::{
-    DeadLinkTarget, DevtoolsEvent, DevtoolsService, EvalResult, OpenSourceResult, ScopeEntry,
+    AnnotateReq, AnnotateResult, DeadLinkTarget, DevtoolsEvent, DevtoolsService, EvalResult,
+    OpenSourceResult, ScopeEntry,
 };
 
 /// Host-side implementation of DevtoolsService for direct vox RPC.
@@ -283,6 +284,51 @@ impl DevtoolsService for HostDevtoolsService {
         }
 
         result
+    }
+
+    async fn annotate(&self, req: AnnotateReq) -> AnnotateResult {
+        tracing::debug!(
+            browser_id = self.browser_id,
+            route = %req.route,
+            sid = %req.sid,
+            kind = ?req.kind,
+            "devtools annotate RPC received"
+        );
+
+        match self.server.annotate_source(&req).await {
+            Ok(Some((source_file, line))) => {
+                tracing::info!(
+                    browser_id = self.browser_id,
+                    route = %req.route,
+                    sid = %req.sid,
+                    source_file = %source_file,
+                    line,
+                    "devtools annotate RPC succeeded"
+                );
+                AnnotateResult::Ok { source_file, line }
+            }
+            Ok(None) => {
+                tracing::debug!(
+                    browser_id = self.browser_id,
+                    route = %req.route,
+                    sid = %req.sid,
+                    "devtools annotate RPC: source span not found"
+                );
+                AnnotateResult::NotFound
+            }
+            Err(err) => {
+                tracing::warn!(
+                    browser_id = self.browser_id,
+                    route = %req.route,
+                    sid = %req.sid,
+                    error = %err,
+                    "devtools annotate RPC failed"
+                );
+                AnnotateResult::Error {
+                    message: err.to_string(),
+                }
+            }
+        }
     }
 
     async fn edit_load(&self, token: String, route: String) -> dodeca_protocol::EditLoad {
