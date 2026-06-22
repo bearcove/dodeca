@@ -151,6 +151,9 @@ pub struct Lexer {
     in_code: bool,
     /// Pending tokens (for lookahead/pushback)
     pending: Vec<Token>,
+    /// Set when the previous tag closed with a trim marker (`-%}`/`-}}`/`-#}`);
+    /// the next text run has its leading whitespace stripped.
+    trim_next_text: bool,
 }
 
 impl Lexer {
@@ -160,6 +163,7 @@ impl Lexer {
             pos: 0,
             in_code: false,
             pending: Vec::new(),
+            trim_next_text: false,
         }
     }
 
@@ -171,6 +175,7 @@ impl Lexer {
             pos: 0,
             in_code: true,
             pending: Vec::new(),
+            trim_next_text: false,
         }
     }
 
@@ -249,6 +254,16 @@ impl Lexer {
             text.push(self.advance().unwrap());
         }
 
+        // Whitespace control (r[impl whitespace.control]):
+        // - a preceding `-%}`/`-}}`/`-#}` trims this run's leading whitespace;
+        // - a following `{{-`/`{%-`/`{#-` trims this run's trailing whitespace.
+        if std::mem::take(&mut self.trim_next_text) {
+            text = text.trim_start().to_string();
+        }
+        if matches!(self.peek_n(3), Some("{{-" | "{%-" | "{#-")) {
+            text.truncate(text.trim_end().len());
+        }
+
         if text.is_empty() {
             // Must be at a delimiter or EOF
             self.lex_delimiter_or_eof()
@@ -261,22 +276,29 @@ impl Lexer {
     fn lex_delimiter_or_eof(&mut self) -> Token {
         let start = self.pos;
 
+        // A trim dash directly after the opener (`{{-`/`{%-`/`{#-`) is consumed here so
+        // it never reaches the parser as a `Minus`; the preceding text was already
+        // trimmed in `lex_text`.
+        let open_len = |dash: bool| if dash { 3 } else { 2 };
         match self.peek_n(2) {
             // r[impl delim.expression]
             Some("{{") => {
-                self.pos += 2;
+                let len = open_len(self.peek_n(3) == Some("{{-"));
+                self.pos += len;
                 self.in_code = true;
-                Token::new(TokenKind::ExprOpen, start, 2)
+                Token::new(TokenKind::ExprOpen, start, len)
             }
             // r[impl delim.statement]
             Some("{%") => {
-                self.pos += 2;
+                let len = open_len(self.peek_n(3) == Some("{%-"));
+                self.pos += len;
                 self.in_code = true;
-                Token::new(TokenKind::TagOpen, start, 2)
+                Token::new(TokenKind::TagOpen, start, len)
             }
             // r[impl delim.comment]
             Some("{#") => {
-                self.pos += 2;
+                let len = open_len(self.peek_n(3) == Some("{#-"));
+                self.pos += len;
                 // Skip comment content and continue lexing
                 self.skip_comment();
                 self.next_token()
@@ -323,6 +345,20 @@ impl Lexer {
         self.skip_whitespace();
 
         let start = self.pos;
+
+        // Whitespace-control close: `-%}` / `-}}` closes the tag AND trims the leading
+        // whitespace of the following text run. Checked before the `-` can be lexed as
+        // a `Minus` operator.
+        if let Some(kind) = match self.peek_n(3) {
+            Some("-}}") => Some(TokenKind::ExprClose),
+            Some("-%}") => Some(TokenKind::TagClose),
+            _ => None,
+        } {
+            self.pos += 3;
+            self.in_code = false;
+            self.trim_next_text = true;
+            return Token::new(kind, start, 3);
+        }
 
         // Check for closing delimiters and two-character operators
         if let Some(next2) = self.peek_n(2) {
