@@ -541,8 +541,15 @@ pub async fn inject_livereload_with_build_info(
 }})();
 </script>"##
         );
-        // Inject styles and script into <head>
-        hotmeal_server::inject_into_head(&result, &format!("{styles}{devtools_script}"))
+        // Standalone annotation overlay (own vox connection; select text to add
+        // an inline `<!-- note -->`). Independent of the WASM devtools above.
+        let annotate_script = r##"<script type="module" src="/_/annotate/annotate.js"></script>"##;
+
+        // Inject styles and scripts into <head>
+        hotmeal_server::inject_into_head(
+            &result,
+            &format!("{styles}{devtools_script}{annotate_script}"),
+        )
     } else {
         result
     }

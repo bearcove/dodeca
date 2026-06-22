@@ -3316,6 +3316,22 @@ pub fn get_editor_asset(path: &str) -> Option<(Vec<u8>, &'static str)> {
         .map(|(_, bytes)| (bytes.to_vec(), editor_asset_mime(rel)))
 }
 
+// Built annotation-overlay assets (vite bundle), generated at build time.
+// Empty when not built (no node/pnpm) — `/_/annotate/*` then 404s.
+include!(concat!(env!("OUT_DIR"), "/annotate_assets.rs"));
+
+/// Serve a built annotation-overlay asset for a `/_/annotate/<path>` request.
+/// Bare `/_/annotate/` resolves to the entry bundle.
+pub fn get_annotate_asset(path: &str) -> Option<(Vec<u8>, &'static str)> {
+    let rel = path.strip_prefix("/_/annotate/")?;
+    let rel = rel.split('?').next().unwrap_or(rel);
+    let rel = if rel.is_empty() { "annotate.js" } else { rel };
+    ANNOTATE_ASSETS
+        .iter()
+        .find(|(name, _)| *name == rel)
+        .map(|(_, bytes)| (bytes.to_vec(), editor_asset_mime(rel)))
+}
+
 fn editor_asset_mime(path: &str) -> &'static str {
     match path.rsplit('.').next() {
         Some("js") | Some("mjs") => "text/javascript; charset=utf-8",
