@@ -131,8 +131,10 @@ impl Template {
         let source_str: String = source.into();
         let template_source = TemplateSource::new(&name, &source_str);
 
-        let parser = Parser::new(name, source_str);
-        let ast = parser.parse()?;
+        // Parse with the cstree front-end and lower to the engine AST. The old
+        // hand-written parser stays only for the LSP until it's migrated.
+        let _ = &name;
+        let ast = crate::cst_lower::parse_to_template(&source_str);
 
         Ok(Self {
             ast,

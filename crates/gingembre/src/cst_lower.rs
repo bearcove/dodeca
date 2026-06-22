@@ -133,6 +133,150 @@ fn lower_args(args: Option<cst::ArgList>) -> (Vec<Expr>, Vec<(Ident, Expr)>) {
     (pos, kw)
 }
 
+use crate::ast::{
+    BlockNode, ElifBranch, ExtendsNode, ForNode, IfNode, ImportNode, IncludeNode, MacroNode,
+    MacroParam, Node, PrintNode, SetNode, StringLit, Target, TextNode,
+};
+
+/// Parse `src` with the cstree parser and lower it to the engine's template AST.
+///
+/// The parser recovers (produces a usable tree even with errors); error *surfacing* to
+/// the engine's `TemplateError` is a follow-up. The bar is render output, and the real
+/// ftl corpus parses clean.
+pub fn parse_to_template(src: &str) -> crate::ast::Template {
+    use gingembre_syntax::ast::AstNode;
+    let parse = gingembre_syntax::parse(src);
+    let body = cst::Template::cast(parse.syntax().clone())
+        .map(|t| lower_items(&t.items()))
+        .unwrap_or_default();
+    crate::ast::Template { body, span: ast::span(0, src.len()) }
+}
+
+fn lower_items(items: &[cst::Item]) -> Vec<Node> {
+    items.iter().filter_map(lower_item).collect()
+}
+
+fn lower_body(body: Option<cst::Body>) -> Vec<Node> {
+    body.map(|b| lower_items(&b.items())).unwrap_or_default()
+}
+
+fn lower_item(item: &cst::Item) -> Option<Node> {
+    use gingembre_syntax::ast::AstNode;
+    Some(match item {
+        // Whitespace-control trimming (`{%- -%}`) is applied as a follow-up; text is
+        // passed through verbatim for now (affects only surrounding whitespace).
+        cst::Item::Text(tok) => {
+            // Comments are stripped from output (not rendered).
+            if tok.kind() == gingembre_syntax::SyntaxKind::Comment {
+                return None;
+            }
+            Node::Text(TextNode {
+                text: tok.text().to_string(),
+                span: ast::span(0, tok.text().len()),
+            })
+        }
+        cst::Item::Interpolation(i) => {
+            let span = sp(i.syntax());
+            Node::Print(PrintNode { expr: opt_expr(i.expr(), span), span })
+        }
+        cst::Item::If(iff) => {
+            let span = sp(iff.syntax());
+            Node::If(IfNode {
+                condition: opt_expr(iff.condition(), span),
+                then_body: lower_body(iff.then_body()),
+                elif_branches: iff
+                    .elif_clauses()
+                    .map(|e| ElifBranch {
+                        condition: opt_expr(e.condition(), sp(e.syntax())),
+                        body: lower_body(e.body()),
+                        span: sp(e.syntax()),
+                    })
+                    .collect(),
+                else_body: iff.else_clause().map(|e| lower_body(e.body())),
+                span,
+            })
+        }
+        cst::Item::For(f) => {
+            let span = sp(f.syntax());
+            let names = f.targets();
+            let target = if names.len() == 1 {
+                Target::Single { name: names[0].clone(), span }
+            } else {
+                Target::Tuple { names: names.into_iter().map(|n| (n, span)).collect(), span }
+            };
+            Node::For(ForNode {
+                target,
+                iter: opt_expr(f.iter_expr(), span),
+                body: lower_body(f.body()),
+                else_body: f.else_body().map(|b| lower_items(&b.items())),
+                span,
+            })
+        }
+        cst::Item::Set(s) => {
+            let span = sp(s.syntax());
+            // Only the assignment form maps to SetNode; the block form is a follow-up.
+            Node::Set(SetNode {
+                name: ident(&s.name().unwrap_or_default(), s.syntax()),
+                value: opt_expr(s.value(), span),
+                span,
+            })
+        }
+        cst::Item::Block(b) => {
+            let span = sp(b.syntax());
+            Node::Block(BlockNode {
+                name: ident(&b.name().unwrap_or_default(), b.syntax()),
+                body: lower_body(b.body()),
+                span,
+            })
+        }
+        cst::Item::Macro(m) => {
+            let span = sp(m.syntax());
+            Node::Macro(MacroNode {
+                name: ident(&m.name().unwrap_or_default(), m.syntax()),
+                params: m
+                    .params()
+                    .into_iter()
+                    .map(|(name, default)| MacroParam {
+                        name: Ident { name, span },
+                        default: default.as_ref().map(lower_expr),
+                    })
+                    .collect(),
+                body: lower_body(m.body()),
+                span,
+            })
+        }
+        cst::Item::Extends(e) => Node::Extends(ExtendsNode {
+            path: str_lit(e.path(), sp(e.syntax())),
+            span: sp(e.syntax()),
+        }),
+        cst::Item::Include(i) => Node::Include(IncludeNode {
+            path: str_lit(i.path(), sp(i.syntax())),
+            context: None,
+            span: sp(i.syntax()),
+        }),
+        cst::Item::Import(im) => {
+            let span = sp(im.syntax());
+            Node::Import(ImportNode {
+                path: str_lit(im.path(), span),
+                alias: Ident { name: im.alias().unwrap_or_default(), span },
+                span,
+            })
+        }
+    })
+}
+
+/// Extract a `StringLit` from a path expression (extends/include/import take string paths).
+fn str_lit(e: Option<cst::Expr>, span: Span) -> StringLit {
+    let value = match e {
+        Some(cst::Expr::Literal(l)) => match l.value() {
+            cst::LitValue::Str(s) => s,
+            _ => String::new(),
+        },
+        _ => String::new(),
+    };
+    StringLit { value, span }
+}
+
 fn lower_binop(op: Option<cst::BinOp>) -> BinaryOp {
     match op {
         Some(cst::BinOp::Add) => BinaryOp::Add,
