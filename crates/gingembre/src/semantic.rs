@@ -520,6 +520,7 @@ impl SemanticBuilder {
             Expr::Ternary(expr) => self.collect_ternary(expr, scope),
             Expr::Test(expr) => self.collect_test(expr, scope),
             Expr::MacroCall(expr) => self.collect_macro_call(expr, scope),
+            Expr::Optional(expr) => self.collect_expr(&expr.expr, scope),
         }
     }
 

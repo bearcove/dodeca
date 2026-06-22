@@ -81,6 +81,7 @@ pub enum TokenKind {
     RBrace,      // }
     Plus,        // +
     Minus,       // -
+    Question,    // ? (postfix lenient-access: `expr?` yields null instead of raising on undefined)
     Star,        // *
     Slash,       // /
     Percent,     // %
@@ -443,6 +444,10 @@ impl Lexer {
                 ']' => {
                     self.advance();
                     Token::new(TokenKind::RBracket, start, 1)
+                }
+                '?' => {
+                    self.advance();
+                    Token::new(TokenKind::Question, start, 1)
                 }
                 '{' => {
                     self.advance();

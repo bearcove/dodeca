@@ -489,9 +489,14 @@ impl TemplateHost for TemplateHostImpl {
                 "markup" => {
                     let src = args.first().map(value_to_string).unwrap_or_default();
                     let mut img = format!(r#"<img src="{}""#, attr_escape(&src));
-                    for attr in ["alt", "width", "height", "class", "loading"] {
-                        if let Some(v) = get_kwarg(attr) {
-                            img.push_str(&format!(r#" {}="{}""#, attr, attr_escape(&v)));
+                    for attr in ["alt", "title", "width", "height", "class", "loading"] {
+                        match get_kwarg(attr) {
+                            // Skip empty/undefined (e.g. an optional `width=width?` that
+                            // resolved to null) so we don't emit `width=""`.
+                            Some(v) if !v.is_empty() => {
+                                img.push_str(&format!(r#" {}="{}""#, attr, attr_escape(&v)));
+                            }
+                            _ => {}
                         }
                     }
                     img.push('>');

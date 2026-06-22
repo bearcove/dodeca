@@ -1143,6 +1143,18 @@ impl Parser {
                     kwargs,
                     span,
                 });
+            } else if self.check(&TokenKind::Question) {
+                // Postfix `?`: lenient access — `expr?` yields null instead of raising
+                // if `expr` resolves to an undefined variable.
+                self.advance();
+                let span = span(
+                    expr.span().offset(),
+                    self.previous.span.offset() + self.previous.span.len() - expr.span().offset(),
+                );
+                expr = Expr::Optional(OptionalExpr {
+                    expr: Box::new(expr),
+                    span,
+                });
             } else {
                 break;
             }

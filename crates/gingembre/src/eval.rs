@@ -594,6 +594,14 @@ impl<'a> Evaluator<'a> {
                     // Macro calls are evaluated during rendering, not expression evaluation
                     Ok(LazyValue::concrete(Value::NULL))
                 }
+                // r[impl expr.optional]
+                // `expr?` resolves the inner expression, yielding null instead of raising
+                // when it (or a field/index within it) is undefined.
+                Expr::Optional(opt) => match self.eval_concrete(&opt.expr).await {
+                    Ok(v) => Ok(LazyValue::concrete(v)),
+                    Err(TemplateError::Undefined(_)) => Ok(LazyValue::concrete(Value::NULL)),
+                    Err(e) => Err(e),
+                },
             }
         })
     }

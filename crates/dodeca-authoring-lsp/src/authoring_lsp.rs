@@ -2617,6 +2617,14 @@ pub fn collect_template_expr_diagnostics(
     diagnostics: &mut Vec<AuthoringDiagnostic>,
 ) {
     match expr {
+        Expr::Optional(inner) => collect_template_expr_diagnostics(
+            project,
+            template_file,
+            content,
+            &inner.expr,
+            imports,
+            diagnostics,
+        ),
         Expr::Literal(literal) => collect_template_literal_diagnostics(
             project,
             template_file,
@@ -8214,6 +8222,13 @@ pub fn collect_expr_macro_call_occurrences(
     occurrences: &mut Vec<TemplateMacroCallOccurrence>,
 ) {
     match expr {
+        Expr::Optional(inner) => collect_expr_macro_call_occurrences(
+            template_file,
+            content,
+            imports,
+            &inner.expr,
+            occurrences,
+        ),
         Expr::MacroCall(expr) => {
             let target_file = if expr.namespace.name == "self" {
                 Some(template_file)
@@ -8640,6 +8655,14 @@ pub fn collect_expr_definition_targets(
     targets: &mut Vec<TemplateDefinitionTarget>,
 ) {
     match expr {
+        Expr::Optional(inner) => collect_expr_definition_targets(
+            project,
+            template_file,
+            content,
+            &inner.expr,
+            imports,
+            targets,
+        ),
         Expr::Literal(literal) => collect_literal_definition_targets(
             project,
             template_file,
