@@ -37,8 +37,7 @@ pub struct NoteMeta {
     #[facet(default)]
     pub kind: Option<String>,
 
-    /// Thread id linking this note to its highlight (`<dodeca-mark>`) and to any
-    /// replies (further notes sharing the same id).
+    /// Thread id linking this note's comments together (replies share the id).
     #[facet(default)]
     pub id: Option<String>,
 
@@ -50,6 +49,13 @@ pub struct NoteMeta {
     /// threads are hidden by default in the dev overlay.
     #[facet(default)]
     pub resolved: Option<bool>,
+
+    /// The rendered text the note anchors to within its block. The highlight is
+    /// derived non-destructively from this (the dev overlay locates the quote in
+    /// the rendered DOM and wraps it) — the source prose is never modified. A
+    /// note without a quote is a block-level note.
+    #[facet(default)]
+    pub quote: Option<String>,
 }
 
 /// A parsed inline note: its metadata plus the raw markdown body.
@@ -132,6 +138,9 @@ pub fn to_comment(meta: &NoteMeta, body: &str) -> Option<String> {
     if let Some(resolved) = meta.resolved {
         obj.insert("resolved", resolved);
     }
+    if let Some(quote) = &meta.quote {
+        obj.insert("quote", quote.as_str());
+    }
     if !obj.is_empty()
         && let Ok(fm) = facet_toml::to_string(&obj.into_value())
     {
@@ -204,6 +213,9 @@ pub fn render_aside(meta: &NoteMeta, body_html: &str) -> String {
     }
     if meta.resolved == Some(true) {
         out.push_str(" data-resolved=\"true\"");
+    }
+    if let Some(quote) = &meta.quote {
+        out.push_str(&format!(" data-quote=\"{}\"", attr_escape(quote)));
     }
     out.push('>');
     out.push_str(body_html);
@@ -306,6 +318,25 @@ mod tests {
         assert_eq!(parsed.meta.id.as_deref(), Some("t1"));
         assert_eq!(parsed.meta.resolved, Some(true));
         assert!(render_aside(&parsed.meta, "<p>x</p>").contains("data-resolved=\"true\""));
+    }
+
+    #[test]
+    fn to_comment_round_trips_quote_and_aside_emits_it() {
+        let meta = NoteMeta {
+            id: Some("t1".into()),
+            quote: Some("only after we reproduced it ourselves".into()),
+            ..Default::default()
+        };
+        let comment = to_comment(&meta, "body").expect("serializable");
+        let parsed = parse_note(&comment).expect("round-trips");
+        assert_eq!(
+            parsed.meta.quote.as_deref(),
+            Some("only after we reproduced it ourselves")
+        );
+        assert!(
+            render_aside(&parsed.meta, "<p>x</p>")
+                .contains("data-quote=\"only after we reproduced it ourselves\"")
+        );
     }
 
     #[test]

@@ -87,8 +87,12 @@ pub trait DevtoolsService {
     /// Mark a note thread resolved (or reopen it) by rewriting `resolved` on the
     /// thread's root note in `route`'s source. Resolved threads are hidden by
     /// default in the dev overlay.
-    async fn set_note_resolved(&self, route: String, note_id: String, resolved: bool)
-    -> AnnotateResult;
+    async fn set_note_resolved(
+        &self,
+        route: String,
+        note_id: String,
+        resolved: bool,
+    ) -> AnnotateResult;
 
     /// Load the raw markdown of the page at `route` for in-browser editing.
     ///
@@ -333,8 +337,10 @@ pub struct AnnotateReq {
     pub route: String,
     /// `data-sid` of the nearest mapped element covering the selection.
     pub sid: String,
-    /// The exact text the user selected, used to refine the insertion line
-    /// within the resolved block. Empty falls back to the block's end.
+    /// The exact rendered text the user selected. Stored as the note's `quote`
+    /// anchor; the overlay locates it within the block and highlights it
+    /// non-destructively (the source prose is never modified). Empty makes a
+    /// block-level note with no inline highlight.
     pub selected_text: String,
     /// The note body (markdown).
     pub body: String,
