@@ -21,3 +21,7 @@ indexmap.workspace = true
 eyre.workspace = true
 owo-colors.workspace = true
 structstruck.workspace = true
+# For `xtask codegen --typescript`: the same generator + protocol descriptors that
+# crates/dodeca/build.rs uses to emit the bundles' *.generated.ts vox bindings.
+dodeca-protocol = { path = "../crates/dodeca-protocol" }
+vox-codegen = "0.10.0-rc.0"

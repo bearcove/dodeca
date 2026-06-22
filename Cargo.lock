@@ -9791,6 +9791,7 @@ name = "xtask"
 version = "0.6.1"
 dependencies = [
  "camino",
+ "dodeca-protocol",
  "eyre",
  "facet",
  "facet-yaml",
@@ -9799,6 +9800,7 @@ dependencies = [
  "indexmap",
  "owo-colors",
  "structstruck",
+ "vox-codegen",
 ]
 
 [[package]]

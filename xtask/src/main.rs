@@ -73,6 +73,14 @@ struct IntegrationArgs {
     extra_args: Vec<String>,
 }
 
+/// Codegen command - regenerate generated source (TypeScript vox bindings)
+#[derive(Facet, Debug)]
+struct CodegenArgs {
+    /// Regenerate the TypeScript vox bindings (the only target today)
+    #[facet(args::named)]
+    typescript: bool,
+}
+
 #[derive(Facet, Debug)]
 #[repr(u8)]
 enum XtaskCommand {
@@ -90,6 +98,8 @@ enum XtaskCommand {
     GeneratePs1Installer(GeneratePs1InstallerArgs),
     /// Run integration tests
     Integration(IntegrationArgs),
+    /// Regenerate generated source (TypeScript vox bindings)
+    Codegen(CodegenArgs),
 }
 
 #[derive(Facet, Debug)]
@@ -182,7 +192,63 @@ fn main() -> ExitCode {
             }
             ExitCode::SUCCESS
         }
+        XtaskCommand::Codegen(args) => {
+            if !args.typescript {
+                eprintln!(
+                    "{}: nothing to do (try `--typescript`)",
+                    "warning".yellow().bold()
+                );
+                return ExitCode::SUCCESS;
+            }
+            match run_codegen_typescript() {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("{}: {e}", "error".red().bold());
+                    ExitCode::FAILURE
+                }
+            }
+        }
     }
+}
+
+/// The vite bundles whose vox bindings are generated. Mirror of `BUNDLES` in
+/// `crates/dodeca/build.rs` — keep the two in sync.
+const BUNDLE_DIRS: &[&str] = &["editor", "annotate"];
+
+/// Regenerate the bundles' TypeScript vox bindings — the real implementation of the
+/// "regenerate with `cargo xtask codegen --typescript`" line that vox-codegen emits atop
+/// each `*.generated.ts`. Runs the same generator + protocol descriptors that
+/// `crates/dodeca/build.rs` runs at build time, so the command and the build can't drift.
+fn run_codegen_typescript() -> Result<(), String> {
+    use vox_codegen::targets::typescript::generate_service;
+    for dir in BUNDLE_DIRS {
+        write_if_changed(
+            &format!("crates/dodeca/{dir}/src/devtools.generated.ts"),
+            &generate_service(dodeca_protocol::devtools_service_service_descriptor()),
+        )?;
+        write_if_changed(
+            &format!("crates/dodeca/{dir}/src/browser.generated.ts"),
+            &generate_service(dodeca_protocol::browser_service_service_descriptor()),
+        )?;
+    }
+    Ok(())
+}
+
+/// Write `contents` to `path` only if it differs (no spurious diffs / build retriggers),
+/// reporting what it did. Creates parent directories as needed.
+fn write_if_changed(path: &str, contents: &str) -> Result<(), String> {
+    let p = std::path::Path::new(path);
+    if let Some(parent) = p.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("create {}: {e}", parent.display()))?;
+    }
+    let changed = fs::read_to_string(p).map(|old| old != contents).unwrap_or(true);
+    if changed {
+        fs::write(p, contents).map_err(|e| format!("write {path}: {e}"))?;
+        eprintln!("{} {path}", "regenerated".green().bold());
+    } else {
+        eprintln!("{} {path}", "up-to-date".dimmed());
+    }
+    Ok(())
 }
 
 fn build_all(release: bool) -> bool {
