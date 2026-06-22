@@ -556,6 +556,24 @@ impl SiteServer {
         self.open_source_in_editor(&source_file, line).await
     }
 
+    /// Semantic search over the site's pages for the well-known knowledge
+    /// endpoint. Embeds the query and every page and returns the `k` closest.
+    /// On a parse error it yields an empty result rather than failing the request.
+    pub async fn knowledge_search(
+        &self,
+        query: &str,
+        k: usize,
+    ) -> crate::knowledge::KnowledgeResponse {
+        let snapshot = DatabaseSnapshot::from_database(&self.db).await;
+        match build_tree(&snapshot).await {
+            Ok(Ok(site_tree)) => crate::knowledge::search(&site_tree, query, k).await,
+            _ => crate::knowledge::KnowledgeResponse {
+                query: query.trim().to_string(),
+                hits: Vec::new(),
+            },
+        }
+    }
+
     /// Attach an inline note to the markdown source backing `(route, sid)`.
     ///
     /// Resolves the source span via the page's source map, inserts a

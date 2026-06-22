@@ -72,6 +72,26 @@ impl ContentService for HostContentService {
             };
         }
 
+        // Well-known semantic search endpoint (dev): an agent curls
+        // `/_dodeca/knowledge/search?q=…&k=…` and gets the most relevant pages as
+        // JSON. `path` carries the query string for this prefix (see cell-http).
+        if let Some(rest) = path.strip_prefix("/_dodeca/knowledge/search") {
+            let params = parse_query_string(rest);
+            let query = params.get("q").map(String::as_str).unwrap_or("");
+            let k = params
+                .get("k")
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or(8)
+                .clamp(1, 50);
+            let response = self.server.knowledge_search(query, k).await;
+            let body = facet_json::to_string(&response).unwrap_or_else(|_| "{}".to_string());
+            return ServeContent::StaticNoCache {
+                content: body.into_bytes(),
+                mime: "application/json; charset=utf-8".to_string(),
+                generation,
+            };
+        }
+
         // In-browser editor shell. Fail closed: mint a token only for a verified
         // editor; anyone else is treated as if the page doesn't exist (we don't
         // reveal that it's editable). Unauthenticated requests behind the proxy
@@ -190,5 +210,55 @@ impl ContentService for HostContentService {
             Ok(value) => EvalResult::Ok(value),
             Err(msg) => EvalResult::Err(msg),
         }
+    }
+}
+
+/// Parse a URL query string (`?q=foo+bar&k=5` or `q=…`) into decoded key/value
+/// pairs. Tiny and dependency-free; handles `+` and `%XX` escapes.
+fn parse_query_string(s: &str) -> std::collections::HashMap<String, String> {
+    let s = s.strip_prefix('?').unwrap_or(s);
+    let mut map = std::collections::HashMap::new();
+    for pair in s.split('&').filter(|p| !p.is_empty()) {
+        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+        map.insert(percent_decode(k), percent_decode(v));
+    }
+    map
+}
+
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'+' => {
+                out.push(b' ');
+                i += 1;
+            }
+            b'%' if i + 2 < bytes.len() => match (hex(bytes[i + 1]), hex(bytes[i + 2])) {
+                (Some(a), Some(b)) => {
+                    out.push(a * 16 + b);
+                    i += 3;
+                }
+                _ => {
+                    out.push(bytes[i]);
+                    i += 1;
+                }
+            },
+            c => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn hex(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
     }
 }

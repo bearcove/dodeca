@@ -25,6 +25,7 @@ pub mod frontmatter_schema;
 pub mod host;
 pub mod image;
 pub mod init;
+pub mod knowledge;
 pub mod link_checker;
 pub mod logging;
 pub mod queries;

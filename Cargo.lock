@@ -2625,6 +2625,8 @@ dependencies = [
  "cell-data-proto",
  "cell-dialoguer",
  "cell-dialoguer-proto",
+ "cell-embed",
+ "cell-embed-proto",
  "cell-fonts",
  "cell-fonts-proto",
  "cell-gingembre",

@@ -1315,36 +1315,31 @@ impl Parser {
 
         if !self.check(&TokenKind::RParen) {
             loop {
-                // Check for kwarg: name=value
-                if let TokenKind::Ident(name) = &self.current.kind {
-                    let name = name.clone();
+                // A kwarg is `name = value`. Detect it by peeking for `ident =` WITHOUT
+                // consuming, so a positional argument that merely starts with an identifier
+                // (e.g. `a.b`, `a[i]`, `a()`, `a | f`) is parsed as a full expression rather
+                // than truncated to a bare `Var`.
+                let is_kwarg = matches!(self.current.kind, TokenKind::Ident(_))
+                    && matches!(self.peek_next().kind, TokenKind::Assign);
+                if is_kwarg {
+                    let TokenKind::Ident(name) = self.current.kind.clone() else {
+                        unreachable!("is_kwarg guarantees Ident")
+                    };
                     let name_span = self.current.span;
-
-                    // Peek to see if this is a kwarg
-                    self.advance();
-                    if self.check(&TokenKind::Assign) {
-                        self.advance();
-                        let value = match self.parse_expr() {
-                            Ok(value) => value,
-                            Err(_err) if self.recovering && self.expression_boundary() => {
-                                return Ok((args, kwargs));
-                            }
-                            Err(err) => return Err(err),
-                        };
-                        kwargs.push((
+                    self.advance(); // name
+                    self.advance(); // =
+                    match self.parse_expr() {
+                        Ok(value) => kwargs.push((
                             Ident {
                                 name,
                                 span: name_span,
                             },
                             value,
-                        ));
-                    } else {
-                        // It's a positional arg that's a variable
-                        // We already consumed the identifier, need to create expr
-                        args.push(Expr::Var(Ident {
-                            name,
-                            span: name_span,
-                        }));
+                        )),
+                        Err(_err) if self.recovering && self.expression_boundary() => {
+                            return Ok((args, kwargs));
+                        }
+                        Err(err) => return Err(err),
                     }
                 } else {
                     match self.parse_expr() {
@@ -1430,6 +1425,15 @@ impl Parser {
             .take()
             .unwrap_or_else(|| self.lexer.next_token());
         self.previous = std::mem::replace(&mut self.current, next);
+    }
+
+    /// Peek the token *after* `current` (one-token lookahead) without consuming
+    /// `current`. Backed by `pending`, so a following `advance()` returns it.
+    fn peek_next(&mut self) -> &Token {
+        if self.pending.is_none() {
+            self.pending = Some(self.lexer.next_token());
+        }
+        self.pending.as_ref().expect("pending just set")
     }
 
     fn check(&self, kind: &TokenKind) -> bool {

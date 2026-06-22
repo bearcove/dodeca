@@ -99,7 +99,19 @@ pub fn build_router(ctx: Arc<dyn RouterContext>) -> axum::Router {
         State(ctx): State<Arc<dyn RouterContext>>,
         request: Request,
     ) -> Response {
-        let path = request.uri().path().to_string();
+        // Most routes match on the bare path (and page routes must not carry a
+        // `?…` into route lookup), but the knowledge endpoint needs its query
+        // string, so include it just for that prefix.
+        let path = {
+            let uri = request.uri();
+            if uri.path().starts_with("/_dodeca/knowledge/") {
+                uri.path_and_query()
+                    .map(|pq| pq.as_str().to_string())
+                    .unwrap_or_else(|| uri.path().to_string())
+            } else {
+                uri.path().to_string()
+            }
+        };
 
         // Check if this should be proxied to Vite
         if vite::is_vite_path(&path) || vite::is_vite_hmr_websocket(&request) {
