@@ -98,6 +98,23 @@ reading-time, date formatting.)
 6. ⏳ Point the LSP at the CST; delete its ~9700-line separate template parsing.
 7. ⏳ Validate: parse + render all 38 ftl templates; showcase output unchanged.
 
+### Step 6 — LSP migration (scoped; do AFTER the engine flip, BEFORE deleting old front-end)
+`crates/dodeca-authoring-lsp/src/authoring_lsp.rs` couples to the OLD owned front-end:
+- imports `gingembre::ast::{Expr, Ident, Node, StringLit, Literal}`,
+  `gingembre::parser::Parser as TemplateParser`, `gingembre::semantic::*`.
+- parses via `TemplateParser::new(file, content).parse()` (≈ lines 2034, 6096, 6112, 6249).
+- walks the owned AST: `collect_template_expr_diagnostics`, `collect_literal_*`,
+  `collect_expr_macro_call_occurrences`, `collect_expr_definition_targets`, etc.
+- consumes `project.template_semantics` (the `gingembre::semantic` index).
+
+So **deleting `gingembre/src/{ast,parser,lexer}.rs` breaks the LSP** → the engine flip must
+LEAVE them compiling (dead) until the LSP is migrated. Migration = repoint these onto
+`gingembre_syntax::{parse, ast::{Expr, Item, ...}}` (typed views are shape-compatible), and
+either port the `semantic` index to walk the CST or replace it. Only after the LSP builds on
+`gingembre-syntax` do we delete the old front-end (final part of step 6/7). The LSP gains
+shortcode/frontmatter awareness here too (see `notes/lsp-awareness.md`, workstream 7b) since
+it now shares the real parser.
+
 ### Notes for the eval/render port (step 5)
 - `gingembre-syntax::ast::Expr` + `Stmt`-equivalents (template items) are the input. Need
   to add typed views for the *statement/template* nodes too (IfStmt/ForStmt/SetStmt/BlockStmt/
