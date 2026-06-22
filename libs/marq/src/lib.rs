@@ -29,6 +29,7 @@ mod handler;
 mod handlers;
 mod headings;
 mod links;
+mod note;
 mod render;
 mod reqs;
 
@@ -40,6 +41,9 @@ pub use handler::{
 };
 pub use headings::{Heading, slugify};
 pub use links::resolve_link;
+pub use note::{
+    MARK_TAG, Note, NoteMeta, parse_note, render_aside, strip_marks, to_comment, wrap_mark,
+};
 pub use render::{
     DocElement, Document, Paragraph, RenderOptions, SourceId, SourceKind, SourceMap,
     SourceMapEntry, render,

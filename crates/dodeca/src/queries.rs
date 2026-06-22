@@ -340,10 +340,13 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
     tracing::debug!(path = %path, "Parsing markdown");
 
     let source_maps = MarkdownRenderSettings::source_maps(db)?.unwrap_or(false);
+    let render_notes = MarkdownRenderSettings::render_notes(db)?.unwrap_or(false);
 
     // Use the markdown cell to parse frontmatter and render markdown
     let parse_result =
-        match parse_and_render_markdown(path.as_str(), content.as_str(), source_maps).await {
+        match parse_and_render_markdown(path.as_str(), content.as_str(), source_maps, render_notes)
+            .await
+        {
             Ok(p) => p,
             Err(e) => return Ok(Err(e)),
         };

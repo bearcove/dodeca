@@ -134,6 +134,17 @@ impl ContentService for HostContentService {
             };
         }
 
+        // Annotation-overlay bundle at /_/annotate/* (dev-only inline notes).
+        if path.starts_with("/_/annotate/")
+            && let Some((content, mime)) = crate::serve::get_annotate_asset(&path)
+        {
+            return ServeContent::StaticNoCache {
+                content,
+                mime: mime.to_string(),
+                generation,
+            };
+        }
+
         // Check devtools assets first (/_/*.js, /_/*.wasm, /_/snippets/*)
         if path.starts_with("/_/")
             && let Some((content, mime)) = get_devtools_asset(&path)

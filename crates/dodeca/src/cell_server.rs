@@ -89,7 +89,8 @@ impl ddc_cell_http::RouterContext for DodecaHttpContext {
 // ============================================================================
 
 use dodeca_protocol::{
-    DeadLinkTarget, DevtoolsEvent, DevtoolsService, EvalResult, OpenSourceResult, ScopeEntry,
+    AnnotateReq, AnnotateResult, DeadLinkTarget, DevtoolsEvent, DevtoolsService, EvalResult,
+    OpenSourceResult, ScopeEntry,
 };
 
 /// Host-side implementation of DevtoolsService for direct vox RPC.
@@ -282,6 +283,64 @@ impl DevtoolsService for HostDevtoolsService {
         }
 
         result
+    }
+
+    async fn annotate(&self, req: AnnotateReq) -> AnnotateResult {
+        tracing::debug!(
+            browser_id = self.browser_id,
+            route = %req.route,
+            sid = %req.sid,
+            kind = ?req.kind,
+            "devtools annotate RPC received"
+        );
+
+        match self.server.annotate_source(&req).await {
+            Ok(Some((source_file, line))) => {
+                tracing::info!(
+                    browser_id = self.browser_id,
+                    route = %req.route,
+                    source_file = %source_file,
+                    line,
+                    "devtools annotate RPC succeeded"
+                );
+                AnnotateResult::Ok { source_file, line }
+            }
+            Ok(None) => AnnotateResult::NotFound,
+            Err(err) => {
+                tracing::warn!(
+                    browser_id = self.browser_id,
+                    route = %req.route,
+                    error = %err,
+                    "devtools annotate RPC failed"
+                );
+                AnnotateResult::Error {
+                    message: err.to_string(),
+                }
+            }
+        }
+    }
+
+    async fn set_note_resolved(
+        &self,
+        route: String,
+        note_id: String,
+        resolved: bool,
+    ) -> AnnotateResult {
+        tracing::debug!(browser_id = self.browser_id, route = %route, note_id = %note_id, resolved, "devtools set_note_resolved RPC");
+        match self
+            .server
+            .set_note_resolved_in_source(&route, &note_id, resolved)
+            .await
+        {
+            Ok(Some((source_file, line))) => AnnotateResult::Ok { source_file, line },
+            Ok(None) => AnnotateResult::NotFound,
+            Err(err) => {
+                tracing::warn!(browser_id = self.browser_id, route = %route, note_id = %note_id, error = %err, "set_note_resolved failed");
+                AnnotateResult::Error {
+                    message: err.to_string(),
+                }
+            }
+        }
     }
 
     async fn edit_load(&self, token: String, route: String) -> dodeca_protocol::EditLoad {

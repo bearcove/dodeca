@@ -111,7 +111,7 @@ impl Default for MarkdownProcessorImpl {
     }
 }
 
-fn render_options(source_path: &str, source_map: bool) -> RenderOptions {
+fn render_options(source_path: &str, source_map: bool, render_notes: bool) -> RenderOptions {
     RenderOptions::new()
         .with_handler(&["aa", "aasvg"], AasvgHandler::new())
         .with_handler(&["compare"], CompareHandler::new())
@@ -121,6 +121,7 @@ fn render_options(source_path: &str, source_map: bool) -> RenderOptions {
         .with_default_handler(ArboriumHandler::new())
         .with_source_path(source_path)
         .with_source_map(source_map)
+        .with_render_notes(render_notes)
         // Pass through @/ links unchanged - dodeca will resolve them with site tree
         .with_link_resolver(PassthroughLinkResolver)
         .with_wiki_link_resolver(DodecaWikiLinkResolver)
@@ -146,15 +147,17 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
         source_path: String,
         markdown: String,
         source_map: bool,
+        render_notes: bool,
     ) -> MarkdownResult {
         let started_at = Instant::now();
         tracing::debug!(
             source_path = %source_path,
             markdown_len = markdown.len(),
             source_map,
+            render_notes,
             "markdown cell render_markdown started"
         );
-        let opts = render_options(&source_path, source_map);
+        let opts = render_options(&source_path, source_map, render_notes);
 
         // Render markdown with all code blocks rendered inline
         match render(&markdown, &opts).await {
@@ -204,12 +207,14 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
         source_path: String,
         content: String,
         source_map: bool,
+        render_notes: bool,
     ) -> ParseResult {
         let started_at = Instant::now();
         tracing::debug!(
             source_path = %source_path,
             content_len = content.len(),
             source_map,
+            render_notes,
             "markdown cell parse_and_render started"
         );
         // Parse frontmatter
@@ -224,7 +229,10 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
 
         // Render the full document so source-map line and byte ranges refer to
         // the actual source file, including any frontmatter offset.
-        match self.render_markdown(source_path, content, source_map).await {
+        match self
+            .render_markdown(source_path, content, source_map, render_notes)
+            .await
+        {
             MarkdownResult::Success {
                 html,
                 headings,

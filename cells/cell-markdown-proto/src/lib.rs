@@ -230,11 +230,14 @@ pub trait MarkdownProcessor {
     /// - `source_path`: Path to the source file (e.g., "spec/_index.md") for resolving relative links
     /// - `markdown`: The markdown content to render
     /// - `source_map`: Whether to emit `data-sid` attributes and return a source map
+    /// - `render_notes`: Whether to render inline `<!-- note … -->` annotations
+    ///   (dev) or strip them entirely (prod)
     async fn render_markdown(
         &self,
         source_path: String,
         markdown: String,
         source_map: bool,
+        render_notes: bool,
     ) -> MarkdownResult;
 
     /// Parse frontmatter and render markdown in one call.
@@ -245,11 +248,14 @@ pub trait MarkdownProcessor {
     /// - `source_path`: Path to the source file (e.g., "spec/_index.md") for resolving relative links
     /// - `content`: The full content including frontmatter and markdown body
     /// - `source_map`: Whether to emit `data-sid` attributes and return a source map
+    /// - `render_notes`: Whether to render inline `<!-- note … -->` annotations
+    ///   (dev) or strip them entirely (prod)
     async fn parse_and_render(
         &self,
         source_path: String,
         content: String,
         source_map: bool,
+        render_notes: bool,
     ) -> ParseResult;
 
     /// Highlight a code snippet with syntax coloring.

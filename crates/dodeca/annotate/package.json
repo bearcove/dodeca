@@ -1,0 +1,18 @@
+{
+  "name": "dodeca-annotate",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@bearcove/phon-schema": "0.2.0-rc.0",
+    "@bearcove/vox-core": "0.10.0-rc.0",
+    "@bearcove/vox-ws": "0.10.0-rc.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7"
+  }
+}

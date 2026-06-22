@@ -2,8 +2,37 @@
 //!
 //! - Compiles WASM clients (devtools + search query core)
 //! - Generates Styx schema from DodecaConfig
+//! - Generates the vite bundles' TypeScript vox bindings and builds them
 
 use std::process::Command;
+
+/// The vite bundles that talk to the host over vox: the Monaco editor and the
+/// inline-note annotation overlay. Each gets generated bindings + an embedded
+/// asset table.
+const BUNDLES: &[Bundle] = &[
+    Bundle {
+        dir: "editor",
+        entry: "dist/edit.js",
+        static_name: "EDITOR_ASSETS",
+        out_file: "editor_assets.rs",
+        label: "/_/edit/* (browser editor)",
+    },
+    Bundle {
+        dir: "annotate",
+        entry: "dist/annotate.js",
+        static_name: "ANNOTATE_ASSETS",
+        out_file: "annotate_assets.rs",
+        label: "/_/annotate/* (annotation overlay)",
+    },
+];
+
+struct Bundle {
+    dir: &'static str,
+    entry: &'static str,
+    static_name: &'static str,
+    out_file: &'static str,
+    label: &'static str,
+}
 
 fn main() {
     println!("cargo::rerun-if-env-changed=DODECA_RELEASE_VERSION");
@@ -21,26 +50,26 @@ fn main() {
         .cli("ddc")
         .write("schema.styx");
 
-    // Generate the browser editor's TypeScript vox bindings + build the editor.
-    generate_editor_bindings();
-    build_editor();
+    // Generate each bundle's TypeScript vox bindings, then build it.
+    println!("cargo::rerun-if-changed=../dodeca-protocol/src/lib.rs");
+    for bundle in BUNDLES {
+        generate_bundle_bindings(bundle.dir);
+        build_bundle(bundle);
+    }
 }
 
-/// Generate the TypeScript vox bindings for the in-browser editor from the
-/// DevTools protocol descriptors — the same generator vox uses for its own
-/// clients. Written into the editor's source tree (write-if-changed, so we
-/// don't retrigger the build), then bundled by vite.
-fn generate_editor_bindings() {
-    println!("cargo::rerun-if-changed=../dodeca-protocol/src/lib.rs");
-
+/// Generate the TypeScript vox bindings (DevTools + Browser services) into a
+/// bundle's source tree from the protocol descriptors — the same generator vox
+/// uses for its own clients. Write-if-changed so we don't retrigger the build.
+fn generate_bundle_bindings(dir: &str) {
     write_generated_ts(
-        "editor/src/devtools.generated.ts",
+        &format!("{dir}/src/devtools.generated.ts"),
         vox_codegen::targets::typescript::generate_service(
             dodeca_protocol::devtools_service_service_descriptor(),
         ),
     );
     write_generated_ts(
-        "editor/src/browser.generated.ts",
+        &format!("{dir}/src/browser.generated.ts"),
         vox_codegen::targets::typescript::generate_service(
             dodeca_protocol::browser_service_service_descriptor(),
         ),
@@ -50,40 +79,41 @@ fn generate_editor_bindings() {
 fn write_generated_ts(path: &str, ts: String) {
     let path = std::path::Path::new(path);
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).expect("create editor/src");
+        std::fs::create_dir_all(parent).expect("create bundle src dir");
     }
     let changed = std::fs::read_to_string(path)
         .map(|old| old != ts)
         .unwrap_or(true);
     if changed {
-        std::fs::write(path, &ts).expect("write devtools.generated.ts");
+        std::fs::write(path, &ts).expect("write generated TypeScript bindings");
     }
 }
 
-/// Build the vite/Monaco editor (`pnpm install` + `vite build`) and emit an
-/// asset table (`OUT_DIR/editor_assets.rs`) that the http cell embeds and serves
-/// at `/_/edit/*`. Degrades to an empty table (with a warning) if node/pnpm are
-/// unavailable, so dodeca still compiles — the editor route is just absent.
-fn build_editor() {
-    let editor = std::path::Path::new("editor");
+/// Build a vite bundle (`pnpm install` + `pnpm run build`) and emit an asset
+/// table (`OUT_DIR/<out_file>`, a `&[(&str, &[u8])]` named `static_name`) that
+/// the http cell embeds and serves. Degrades to an empty table (with a warning)
+/// if node/pnpm are unavailable or the build fails, so dodeca still compiles —
+/// the corresponding route is just absent.
+fn build_bundle(bundle: &Bundle) {
+    let dir = std::path::Path::new(bundle.dir);
 
-    println!("cargo::rerun-if-changed=editor/src");
-    println!("cargo::rerun-if-changed=editor/package.json");
-    println!("cargo::rerun-if-changed=editor/vite.config.ts");
+    println!("cargo::rerun-if-changed={}/src", bundle.dir);
+    println!("cargo::rerun-if-changed={}/package.json", bundle.dir);
+    println!("cargo::rerun-if-changed={}/vite.config.ts", bundle.dir);
 
-    let assets = if run_editor_build(editor) {
-        collect_dist_assets(&editor.join("dist"))
+    let assets = if run_bundle_build(dir, bundle.entry, bundle.label) {
+        collect_dist_assets(&dir.join("dist"))
     } else {
         Vec::new()
     };
-    write_editor_assets(&assets);
+    write_assets_table(bundle.static_name, bundle.out_file, &assets);
 }
 
-/// `pnpm install` + `pnpm run build` in the editor dir. Returns whether
-/// `dist/edit.js` was produced. Runs *after* `generate_editor_bindings()` has
-/// written `src/devtools.generated.ts`, which the bundle imports.
-fn run_editor_build(editor: &std::path::Path) -> bool {
-    if !editor.join("package.json").exists() {
+/// `pnpm install` + `pnpm run build` in `dir`. Returns whether `entry` was
+/// produced. Runs *after* `generate_bundle_bindings()` has written the
+/// `*.generated.ts` files the bundle imports.
+fn run_bundle_build(dir: &std::path::Path, entry: &str, label: &str) -> bool {
+    if !dir.join("package.json").exists() {
         return false; // not scaffolded yet
     }
     let have_pnpm = Command::new("pnpm")
@@ -92,35 +122,35 @@ fn run_editor_build(editor: &std::path::Path) -> bool {
         .map(|o| o.status.success())
         .unwrap_or(false);
     if !have_pnpm {
-        println!("cargo::warning=pnpm not found; /_/edit/* (browser editor) will be unavailable");
+        println!("cargo::warning=pnpm not found; {label} will be unavailable");
         return false;
     }
     // In CI, nuke any cached node_modules first: a stale one (left in the
     // build cache) makes `pnpm install` a near-no-op that never wires up vite.
     // Locally we keep it for fast incremental builds.
     if std::env::var_os("CI").is_some() {
-        let _ = std::fs::remove_dir_all(editor.join("node_modules"));
+        let _ = std::fs::remove_dir_all(dir.join("node_modules"));
     }
-    // --no-frozen-lockfile: the `hotmeal-wasm` directory dep is wasm-pack-built
-    // fresh in CI and drifts from the committed lockfile, which a frozen (CI
-    // default) install rejects. Exit code is ignored — pnpm exits non-zero on
-    // the harmless ignored esbuild build script even though deps install fine.
+    // --no-frozen-lockfile: directory deps built fresh in CI drift from the
+    // committed lockfile, which a frozen (CI default) install rejects. Exit code
+    // is ignored — pnpm exits non-zero on the harmless ignored esbuild build
+    // script even though deps install fine.
     let _ = Command::new("pnpm")
-        .current_dir(editor)
+        .current_dir(dir)
         .args(["install", "--no-frozen-lockfile"])
         .status();
     // Build through `pnpm run build` (the package's `vite build` script) rather
     // than exec'ing node_modules/.bin/vite directly — pnpm resolves vite itself,
     // and the .bin shim layout varies across pnpm versions / CI.
     let build = Command::new("pnpm")
-        .current_dir(editor)
+        .current_dir(dir)
         .args(["run", "build"])
         .status();
     if !matches!(build, Ok(s) if s.success()) {
-        println!("cargo::warning=editor `pnpm run build` failed; /_/edit/* will be unavailable");
+        println!("cargo::warning={label}: `pnpm run build` failed; it will be unavailable");
         return false;
     }
-    editor.join("dist/edit.js").exists()
+    dir.join(entry).exists()
 }
 
 /// Collect `dist/**` as `(served_relative_path, absolute_path)` pairs.
@@ -148,11 +178,11 @@ fn collect_dist_assets(dist: &std::path::Path) -> Vec<(String, std::path::PathBu
     out
 }
 
-/// Write `OUT_DIR/editor_assets.rs`: a `&[(&str, &[u8])]` table the server
-/// `include!`s, mapping each `/_/edit/<path>` to its embedded bytes.
-fn write_editor_assets(assets: &[(String, std::path::PathBuf)]) {
+/// Write `OUT_DIR/<out_file>`: a `&[(&str, &[u8])]` table named `static_name`
+/// the server `include!`s, mapping each served path to its embedded bytes.
+fn write_assets_table(static_name: &str, out_file: &str, assets: &[(String, std::path::PathBuf)]) {
     let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR");
-    let mut src = String::from("pub static EDITOR_ASSETS: &[(&str, &[u8])] = &[\n");
+    let mut src = format!("pub static {static_name}: &[(&str, &[u8])] = &[\n");
     for (rel, abs) in assets {
         src.push_str(&format!(
             "    ({:?}, include_bytes!({:?})),\n",
@@ -161,8 +191,8 @@ fn write_editor_assets(assets: &[(String, std::path::PathBuf)]) {
         ));
     }
     src.push_str("];\n");
-    std::fs::write(std::path::Path::new(&out_dir).join("editor_assets.rs"), src)
-        .expect("write editor_assets.rs");
+    std::fs::write(std::path::Path::new(&out_dir).join(out_file), src)
+        .unwrap_or_else(|e| panic!("write {out_file}: {e}"));
 }
 
 fn build_wasm_crate(name: &str) {
@@ -179,12 +209,7 @@ fn build_wasm_crate(name: &str) {
     let output = pkg_dir.join(&wasm_file);
 
     // Skip the (slow) wasm-pack build only if the output exists AND is newer
-    // than every source file in this crate. The old "skip if pkg/ exists at
-    // all" check let a stale pkg/ ship: combined with CI caches that preserve
-    // pkg/ across builds, that's how v0.14.4 shipped an out-of-date search
-    // reader (index parse failed with "invalid UTF-8"). NOTE: this only sees
-    // *this* crate's sources, not shared deps like dodeca-search-format, so CI
-    // additionally `rm -rf`s pkg/ before a release build for a clean rebuild.
+    // than every source file in this crate.
     if output.exists() && !wasm_sources_newer_than(&crate_path, &output) {
         return;
     }

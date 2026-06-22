@@ -123,7 +123,7 @@ struct HtmlRenderState {
 }
 
 /// Options for rendering markdown.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct RenderOptions {
     /// Source file path for relative link resolution.
     pub source_path: Option<String>,
@@ -134,6 +134,14 @@ pub struct RenderOptions {
     /// back to markdown source, but production builds can leave it disabled to
     /// keep the rendered HTML clean.
     pub source_map: bool,
+
+    /// Whether to render inline `<!-- note … -->` annotations.
+    ///
+    /// When `true` (development), note comments are rendered to an
+    /// `<aside class="dodeca-note">` with their markdown body rendered inline.
+    /// When `false` (production), note comments are stripped entirely so they
+    /// never reach the served HTML.
+    pub render_notes: bool,
 
     /// Code block handlers keyed by language
     pub code_handlers: HashMap<String, BoxedHandler>,
@@ -195,6 +203,13 @@ impl RenderOptions {
     /// Configure whether rendered elements include source IDs and source-map entries.
     pub fn with_source_map(mut self, enabled: bool) -> Self {
         self.source_map = enabled;
+        self
+    }
+
+    /// Configure whether inline `<!-- note … -->` annotations are rendered
+    /// (development) or stripped (production).
+    pub fn with_render_notes(mut self, enabled: bool) -> Self {
+        self.render_notes = enabled;
         self
     }
 
@@ -747,6 +762,10 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
     let mut context_stack: Vec<ParseContext<'_>> = Vec::new();
     let mut inline_link_stack: Vec<ActiveLink> = Vec::new();
 
+    // True while we are skipping the inner `Event::Html` lines of an inline
+    // note comment (handled up-front at its `Start(HtmlBlock)`).
+    let mut in_note_block = false;
+
     // Default req handler
     let default_req_handler: Arc<dyn ReqHandler> = Arc::new(DefaultReqHandler);
     let req_handler = options.req_handler.as_ref().unwrap_or(&default_req_handler);
@@ -770,6 +789,33 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                     length: range.len(),
                 },
             });
+        }
+
+        // While inside an inline note comment, swallow its inner `Html` line
+        // events; the whole block was already handled at its `Start(HtmlBlock)`.
+        if in_note_block {
+            if matches!(event, Event::End(TagEnd::HtmlBlock)) {
+                in_note_block = false;
+            }
+            continue;
+        }
+
+        // Intercept inline note comments before they reach the generic raw-HTML
+        // path. `Start(HtmlBlock)` carries the full block range, so the entire
+        // comment is available in one shot.
+        if let Event::Start(Tag::HtmlBlock) = &event
+            && let Some(note) = crate::note::parse_note(&markdown[range.clone()])
+        {
+            in_note_block = true;
+            if options.render_notes {
+                let mut body_opts = options.clone();
+                body_opts.source_map = false; // note bodies don't pollute the page map
+                body_opts.render_notes = false; // notes don't nest
+                let rendered = Box::pin(render(&note.body, &body_opts)).await?;
+                html.push_str(&crate::note::render_aside(&note.meta, &rendered.html));
+            }
+            // Otherwise (production): strip the note entirely.
+            continue;
         }
 
         // If inside a blockquote, route events there
@@ -1247,6 +1293,12 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
     };
 
     let source_map = source_map.finish(&mut html);
+
+    // In production (notes off), strip note highlight wrappers so they leave no
+    // trace in the served HTML. Note comments are already stripped inline above.
+    if !options.render_notes {
+        html = crate::note::strip_marks(&html);
+    }
 
     Ok(Document {
         raw_metadata,

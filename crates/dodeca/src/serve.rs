@@ -336,8 +336,12 @@ impl SiteServer {
         });
 
         let db = Arc::new(db);
-        MarkdownRenderSettings::set(&*db, render_options.source_maps)
-            .expect("failed to initialize markdown render settings");
+        MarkdownRenderSettings::set(
+            &*db,
+            render_options.source_maps,
+            render_options.render_notes,
+        )
+        .expect("failed to initialize markdown render settings");
 
         Self {
             db,
@@ -552,6 +556,158 @@ impl SiteServer {
         self.open_source_in_editor(&source_file, line).await
     }
 
+    /// Attach an inline note to the markdown source backing `(route, sid)`.
+    ///
+    /// Resolves the source span via the page's source map, inserts a
+    /// `<!-- note … -->` comment as its own block right after that block, and
+    /// writes it to disk (no commit). Returns `(source_file, line)` of the
+    /// inserted note, or `None` if `(route, sid)` did not resolve.
+    pub async fn annotate_source(
+        &self,
+        req: &dodeca_protocol::AnnotateReq,
+    ) -> Result<Option<(String, u32)>> {
+        let snapshot = DatabaseSnapshot::from_database(&self.db).await;
+        let site_tree = build_tree(&snapshot)
+            .await?
+            .map_err(|errors| eyre!("source parse errors while annotating: {errors:?}"))?;
+        let route = Route::new(normalize_route(&req.route));
+
+        let source_map = if let Some(section) = site_tree.sections.get(&route) {
+            &section.source_map
+        } else if let Some(page) = site_tree.pages.get(&route) {
+            &page.source_map
+        } else {
+            return Ok(None);
+        };
+
+        let Some(source_file) = source_map.source_path.as_deref() else {
+            return Ok(None);
+        };
+
+        // Resolve to a safe disk path under the source root.
+        let source_root = self
+            .source_root
+            .as_ref()
+            .ok_or_else(|| eyre!("source root is not available in this server mode"))?;
+        let source_path = Utf8Path::new(source_file);
+        if source_path.is_absolute()
+            || source_path
+                .components()
+                .any(|component| matches!(component, Utf8Component::ParentDir))
+        {
+            bail!("refusing to annotate source path outside the content directory: {source_file}");
+        }
+        let disk_path = source_root.join(source_path);
+
+        // Shared metadata: author falls back to git's user.name; created is now.
+        let author = match req.author.as_deref().map(str::trim) {
+            Some(a) if !a.is_empty() => Some(a.to_string()),
+            _ => git_user_name(source_root).await,
+        };
+        let created = Some(chrono::Utc::now().to_rfc3339());
+        let content = tokio::fs::read_to_string(&disk_path).await?;
+
+        let (new_content, line) = if let Some(thread_id) = req.reply_to.as_deref() {
+            // Reply: append a comment with the existing thread id right after the
+            // thread's last note. No new highlight.
+            let meta = marq::NoteMeta {
+                author,
+                kind: req.kind.clone(),
+                id: Some(thread_id.to_string()),
+                created,
+                resolved: None,
+            };
+            let comment = marq::to_comment(&meta, &req.body)
+                .ok_or_else(|| eyre!("note body cannot contain the comment terminator `-->`"))?;
+            let Some(end_line) = find_thread_end_line(&content, thread_id) else {
+                return Ok(None); // thread id not found in this file
+            };
+            insert_note_after_block(&content, end_line, &comment)
+        } else {
+            // New note: resolve the source span via the sid, wrap the selection in
+            // a `<dodeca-mark>` linked to a fresh id, and insert the note after it.
+            let Some(entry) = source_map.get_by_sid(&req.sid) else {
+                return Ok(None);
+            };
+            let id = new_note_id();
+            let meta = marq::NoteMeta {
+                author,
+                kind: req.kind.clone(),
+                id: Some(id.clone()),
+                created,
+                resolved: None,
+            };
+            let comment = marq::to_comment(&meta, &req.body)
+                .ok_or_else(|| eyre!("note body cannot contain the comment terminator `-->`"))?;
+            let content = wrap_note_selection(
+                content,
+                entry.byte_start as usize,
+                entry.byte_end as usize,
+                &req.selected_text,
+                &id,
+            );
+            insert_note_after_block(&content, entry.line_end, &comment)
+        };
+
+        tokio::fs::write(&disk_path, new_content).await?;
+        tracing::info!(
+            route = %route,
+            sid = %req.sid,
+            reply_to = ?req.reply_to,
+            source_file,
+            line,
+            "annotated source"
+        );
+        Ok(Some((source_file.to_string(), line)))
+    }
+
+    /// Mark a note thread resolved/reopened by rewriting `resolved` on its root
+    /// note in `route`'s source. Returns `(source_file, line)` of the root note,
+    /// or `None` if the route/thread didn't resolve.
+    pub async fn set_note_resolved_in_source(
+        &self,
+        route_path: &str,
+        note_id: &str,
+        resolved: bool,
+    ) -> Result<Option<(String, u32)>> {
+        let snapshot = DatabaseSnapshot::from_database(&self.db).await;
+        let site_tree = build_tree(&snapshot)
+            .await?
+            .map_err(|errors| eyre!("source parse errors while resolving note: {errors:?}"))?;
+        let route = Route::new(normalize_route(route_path));
+        let source_map = if let Some(section) = site_tree.sections.get(&route) {
+            &section.source_map
+        } else if let Some(page) = site_tree.pages.get(&route) {
+            &page.source_map
+        } else {
+            return Ok(None);
+        };
+        let Some(source_file) = source_map.source_path.as_deref() else {
+            return Ok(None);
+        };
+        let source_root = self
+            .source_root
+            .as_ref()
+            .ok_or_else(|| eyre!("source root is not available in this server mode"))?;
+        let source_path = Utf8Path::new(source_file);
+        if source_path.is_absolute()
+            || source_path
+                .components()
+                .any(|component| matches!(component, Utf8Component::ParentDir))
+        {
+            bail!("refusing to edit source path outside the content directory: {source_file}");
+        }
+        let disk_path = source_root.join(source_path);
+
+        let content = tokio::fs::read_to_string(&disk_path).await?;
+        let Some((new_content, line)) = set_resolved_in_source(&content, note_id, resolved) else {
+            return Ok(None);
+        };
+        tokio::fs::write(&disk_path, new_content).await?;
+        tracing::info!(route = %route, note_id, resolved, source_file, line, "set note resolved");
+        Ok(Some((source_file.to_string(), line)))
+    }
+
     pub async fn open_dead_link_in_editor(
         &self,
         route_path: &str,
@@ -623,8 +779,8 @@ impl SiteServer {
 
     /// Register a browser connection for receiving devtools events.
     ///
-    /// The `conn_id` is the roam connection ID, which uniquely identifies this
-    /// browser's virtual connection. It's used as the key for routing events.
+    /// The `conn_id` is the host-allocated browser ID, used as the key for
+    /// routing events to the browser's DevTools lane.
     pub fn register_browser(&self, conn_id: u64, client: dodeca_protocol::BrowserServiceClient) {
         let mut registry = self.browsers.lock().unwrap();
         registry.browsers.insert(
@@ -1092,7 +1248,11 @@ impl SiteServer {
                 tracing::warn!("Failed to load cache: {:?}", e);
             }
         }
-        MarkdownRenderSettings::set(&*self.db, self.render_options.source_maps)?;
+        MarkdownRenderSettings::set(
+            &*self.db,
+            self.render_options.source_maps,
+            self.render_options.render_notes,
+        )?;
         Ok(())
     }
 
@@ -2640,6 +2800,154 @@ fn internal_href_route(href: &str) -> Result<String> {
     Ok(route)
 }
 
+/// Insert `comment` as its own blank-line-delimited block immediately after the
+/// source block ending on `line_end` (1-indexed, inclusive).
+///
+/// Keeping the comment on its own lines with surrounding blank lines ensures the
+/// markdown parser treats it as a standalone HTML block (so it renders as a note
+/// `<aside>`), and never splits the annotated block. Returns the new content and
+/// the 1-indexed line where the inserted note begins.
+/// Wrap the `selected` text in a `<dodeca-mark>` highlight where it occurs
+/// within the source block `[byte_start, byte_end)`. Returns `content`
+/// unchanged if the selection is empty, the range is invalid, or the text isn't
+/// found verbatim in the block (e.g. the selection spanned rendered formatting
+/// that differs from the markdown source — the note still attaches to the
+/// block, just without a precise highlight).
+fn wrap_note_selection(
+    content: String,
+    byte_start: usize,
+    byte_end: usize,
+    selected: &str,
+    id: &str,
+) -> String {
+    let selected = selected.trim();
+    if selected.is_empty() || byte_start > byte_end || byte_end > content.len() {
+        return content;
+    }
+    let Some(rel) = content[byte_start..byte_end].find(selected) else {
+        return content;
+    };
+    let open_at = byte_start + rel;
+    let close_at = open_at + selected.len();
+    let mut out = content;
+    let wrapped = marq::wrap_mark(&out[open_at..close_at], Some(id));
+    out.replace_range(open_at..close_at, &wrapped);
+    out
+}
+
+/// Find the 1-indexed line of the closing `-->` of the LAST `<!-- note … -->`
+/// block whose frontmatter id is `id` — i.e. the end of that thread, where a
+/// reply should be appended. Returns `None` if the thread isn't in `content`.
+fn find_thread_end_line(content: &str, id: &str) -> Option<u32> {
+    let mut from = 0usize;
+    let mut last_end: Option<usize> = None;
+    while let Some(rel) = content[from..].find("<!--") {
+        let start = from + rel;
+        let Some(close_rel) = content[start..].find("-->") else {
+            break;
+        };
+        let end = start + close_rel + 3; // just past "-->"
+        if let Some(note) = marq::parse_note(&content[start..end])
+            && note.meta.id.as_deref() == Some(id)
+        {
+            last_end = Some(end);
+        }
+        from = end;
+    }
+    last_end.map(|end| content[..end].matches('\n').count() as u32 + 1)
+}
+
+/// Rewrite `resolved` on the root (first) `<!-- note … -->` block with id `id`,
+/// regenerating that block in place. `resolved=false` clears the flag. Returns
+/// the new content and the root note's 1-indexed line, or `None` if not found.
+fn set_resolved_in_source(content: &str, id: &str, resolved: bool) -> Option<(String, u32)> {
+    let mut from = 0usize;
+    while let Some(rel) = content[from..].find("<!--") {
+        let start = from + rel;
+        let Some(close_rel) = content[start..].find("-->") else {
+            break;
+        };
+        let end = start + close_rel + 3;
+        if let Some(note) = marq::parse_note(&content[start..end])
+            && note.meta.id.as_deref() == Some(id)
+        {
+            let mut meta = note.meta.clone();
+            meta.resolved = resolved.then_some(true);
+            let regenerated = marq::to_comment(&meta, &note.body)?;
+            let line = content[..start].matches('\n').count() as u32 + 1;
+            let mut out = String::with_capacity(content.len() + regenerated.len());
+            out.push_str(&content[..start]);
+            out.push_str(&regenerated);
+            out.push_str(&content[end..]);
+            return Some((out, line));
+        }
+        from = end;
+    }
+    None
+}
+
+/// A short, unique-enough note thread id (hex of the current time in
+/// nanoseconds — monotonic per annotation in practice).
+fn new_note_id() -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("{nanos:x}")
+}
+
+/// Best-effort `git config user.name` in the source repo, for attributing notes
+/// when the client doesn't supply an author.
+async fn git_user_name(repo: &Utf8Path) -> Option<String> {
+    let out = tokio::process::Command::new("git")
+        .current_dir(repo)
+        .args(["config", "user.name"])
+        .output()
+        .await
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let name = String::from_utf8(out.stdout).ok()?.trim().to_string();
+    (!name.is_empty()).then_some(name)
+}
+
+fn insert_note_after_block(content: &str, line_end: u32, comment: &str) -> (String, u32) {
+    // Byte offset of the start of the line after `line_end`.
+    let mut newlines = 0u32;
+    let mut offset = content.len();
+    for (i, b) in content.bytes().enumerate() {
+        if b == b'\n' {
+            newlines += 1;
+            if newlines == line_end {
+                offset = i + 1;
+                break;
+            }
+        }
+    }
+
+    let (head, tail) = content.split_at(offset);
+    // Collapse any blank line(s) the block already had after it; we re-add
+    // exactly one so the note is delimited without piling up blank lines.
+    let tail = tail.trim_start_matches('\n');
+
+    let mut out = String::with_capacity(content.len() + comment.len() + 4);
+    out.push_str(head);
+    // If the block was the final line with no trailing newline, add one.
+    if !head.is_empty() && !head.ends_with('\n') {
+        out.push('\n');
+    }
+    out.push('\n'); // blank line before the note
+    let note_line = out.bytes().filter(|&b| b == b'\n').count() as u32 + 1;
+    out.push_str(comment.trim_end());
+    out.push('\n');
+    if !tail.is_empty() {
+        out.push('\n'); // blank line after the note
+        out.push_str(tail);
+    }
+    (out, note_line)
+}
+
 fn source_path_for_route(route: &str) -> Result<String> {
     let mut parts = Vec::new();
     for segment in route.trim_matches('/').split('/') {
@@ -3194,6 +3502,22 @@ pub fn get_editor_asset(path: &str) -> Option<(Vec<u8>, &'static str)> {
         .map(|(_, bytes)| (bytes.to_vec(), editor_asset_mime(rel)))
 }
 
+// Built annotation-overlay assets (vite bundle), generated at build time.
+// Empty when not built (no node/pnpm) — `/_/annotate/*` then 404s.
+include!(concat!(env!("OUT_DIR"), "/annotate_assets.rs"));
+
+/// Serve a built annotation-overlay asset for a `/_/annotate/<path>` request.
+/// Bare `/_/annotate/` resolves to the entry bundle.
+pub fn get_annotate_asset(path: &str) -> Option<(Vec<u8>, &'static str)> {
+    let rel = path.strip_prefix("/_/annotate/")?;
+    let rel = rel.split('?').next().unwrap_or(rel);
+    let rel = if rel.is_empty() { "annotate.js" } else { rel };
+    ANNOTATE_ASSETS
+        .iter()
+        .find(|(name, _)| *name == rel)
+        .map(|(_, bytes)| (bytes.to_vec(), editor_asset_mime(rel)))
+}
+
 fn editor_asset_mime(path: &str) -> &'static str {
     match path.rsplit('.').next() {
         Some("js") | Some("mjs") => "text/javascript; charset=utf-8",
@@ -3574,6 +3898,89 @@ mod tests {
             "LIVE",
             "live db must NOT be mutated by a snapshot override"
         );
+    }
+
+    #[test]
+    fn insert_note_after_block_is_blank_line_delimited() {
+        let content = "# Title\n\nFirst paragraph.\n\nSecond paragraph.\n";
+        let comment = "<!-- note\nhello\n-->";
+        // "First paragraph." is line 3.
+        let (out, line) = insert_note_after_block(content, 3, comment);
+        assert_eq!(
+            out,
+            "# Title\n\nFirst paragraph.\n\n<!-- note\nhello\n-->\n\nSecond paragraph.\n"
+        );
+        assert_eq!(line, 5);
+    }
+
+    #[test]
+    fn wrap_note_selection_highlights_found_span() {
+        let content = "# Title\n\nFirst paragraph here.\n".to_string();
+        // "paragraph" lives in the block spanning bytes 9..30 ("First paragraph here.").
+        let out = wrap_note_selection(content, 9, 30, "paragraph", "n1");
+        assert_eq!(
+            out,
+            "# Title\n\nFirst <dodeca-mark data-note-id=\"n1\">paragraph</dodeca-mark> here.\n"
+        );
+    }
+
+    #[test]
+    fn set_resolved_in_source_marks_root_note() {
+        let content = "Para.\n\n<!-- note\n+++\nid = \"a\"\n+++\nthe note\n-->\n\nEnd.\n";
+        let (out, line) = set_resolved_in_source(content, "a", true).expect("found");
+        assert!(out.contains("resolved = true"));
+        assert!(out.contains("the note"));
+        assert_eq!(content.split('\n').nth((line - 1) as usize), Some("<!-- note"));
+        // Reopening clears it.
+        let (reopened, _) = set_resolved_in_source(&out, "a", false).expect("found");
+        assert!(!reopened.contains("resolved"));
+        assert!(set_resolved_in_source(content, "missing", true).is_none());
+    }
+
+    #[test]
+    fn find_thread_end_line_locates_last_matching_note() {
+        let content = "# T\n\nPara.\n\n<!-- note\n+++\nid = \"a\"\n+++\nfirst\n-->\n\nMore.\n\n<!-- note\n+++\nid = \"a\"\n+++\nsecond\n-->\n\nEnd.\n";
+        // Two notes share id "a"; the reply anchors after the second's `-->`.
+        let line = find_thread_end_line(content, "a").expect("thread found");
+        let lines: Vec<&str> = content.split('\n').collect();
+        assert_eq!(lines[(line - 1) as usize], "-->");
+        // The matched `-->` is the second one (later in the file).
+        assert!(line > 10);
+        assert!(find_thread_end_line(content, "missing").is_none());
+    }
+
+    #[test]
+    fn wrap_note_selection_noop_when_not_found() {
+        let content = "# Title\n\nFirst paragraph.\n".to_string();
+        // Text not present verbatim (spanned formatting) → unchanged.
+        let out = wrap_note_selection(content.clone(), 9, content.len(), "bold text", "n1");
+        assert_eq!(out, content);
+    }
+
+    #[test]
+    fn insert_note_after_final_block_without_trailing_newline() {
+        let content = "# Title\n\nLast paragraph.";
+        let comment = "<!-- note\nbye\n-->";
+        let (out, line) = insert_note_after_block(content, 3, comment);
+        assert_eq!(out, "# Title\n\nLast paragraph.\n\n<!-- note\nbye\n-->\n");
+        assert_eq!(line, 5);
+    }
+
+    /// Inserting a note must not disturb the surrounding markdown: re-rendering
+    /// the annotated source yields the original blocks plus one note `<aside>`.
+    #[tokio::test]
+    async fn inserted_note_renders_without_disturbing_content() {
+        let content = "# Title\n\nFirst paragraph.\n\nSecond paragraph.\n";
+        let comment =
+            marq::to_comment(&marq::NoteMeta::default(), "a thought").expect("serializable");
+        let (annotated, _) = insert_note_after_block(content, 3, &comment);
+
+        let opts = marq::RenderOptions::new().with_render_notes(true);
+        let doc = marq::render(&annotated, &opts).await.expect("render");
+        assert!(doc.html.contains("<aside class=\"dodeca-note\""));
+        assert!(doc.html.contains("a thought"));
+        assert!(doc.html.contains("First paragraph."));
+        assert!(doc.html.contains("Second paragraph."));
     }
 
     #[test]

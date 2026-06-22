@@ -462,6 +462,7 @@ async fn async_main(command: Command) -> Result<()> {
                     livereload: false,
                     dev_mode: false,
                     source_maps: false,
+                    render_notes: false,
                 },
                 progress: None,
                 link_check,
@@ -1027,7 +1028,11 @@ pub async fn build(
     // Load picante cache from disk (for font subsetting, image processing, etc.)
     let picante_cache_path = cache_dir.join("dodeca.bin");
     load_picante_cache(&ctx.db, &picante_cache_path).await;
-    MarkdownRenderSettings::set(&*ctx.db, render_options.source_maps)?;
+    MarkdownRenderSettings::set(
+        &*ctx.db,
+        render_options.source_maps,
+        render_options.render_notes,
+    )?;
 
     // Phase 1: Load everything into picante
     ctx.load_sources()?;
@@ -2353,6 +2358,7 @@ async fn serve_plain(
         livereload: true, // Enable live reload in plain mode too
         dev_mode: true,
         source_maps: true,
+        render_notes: true,
     };
 
     // Create the site server
@@ -2723,6 +2729,7 @@ async fn serve_with_tui(
         livereload: true,
         dev_mode: true,
         source_maps: true,
+        render_notes: true,
     };
 
     // Create the site server - serves directly from picante, no disk I/O

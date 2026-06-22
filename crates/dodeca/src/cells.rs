@@ -299,6 +299,7 @@ pub async fn parse_and_render_markdown(
     source_path: &str,
     content: &str,
     source_map: bool,
+    render_notes: bool,
 ) -> Result<cell_markdown_proto::ParseResult, MarkdownParseError> {
     let call_id = next_direct_call_id();
     let started_at = Instant::now();
@@ -309,10 +310,16 @@ pub async fn parse_and_render_markdown(
         source_path,
         source_len = content.len(),
         source_map,
+        render_notes,
         "markdown render starting"
     );
     let result = ddc_cell_markdown::MarkdownProcessorImpl::new()
-        .parse_and_render(source_path.to_string(), content.to_string(), source_map)
+        .parse_and_render(
+            source_path.to_string(),
+            content.to_string(),
+            source_map,
+            render_notes,
+        )
         .await;
     match result {
         result @ cell_markdown_proto::ParseResult::Success { .. } => {
