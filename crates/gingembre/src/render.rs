@@ -134,7 +134,18 @@ impl Template {
         // Parse with the cstree front-end and lower to the engine AST. The old
         // hand-written parser stays only for the LSP until it's migrated.
         let _ = &name;
-        let ast = crate::cst_lower::parse_to_template(&source_str);
+        let (ast, errors) = crate::cst_lower::parse_to_template(&source_str);
+        if let Some(e) = errors.first() {
+            return Err(crate::error::SyntaxError {
+                found: "end of input".to_string(),
+                expected: e.message.clone(),
+                loc: crate::error::SourceLocation::new(
+                    crate::ast::span(e.offset, 1),
+                    template_source.named_source(),
+                ),
+            }
+            .into());
+        }
 
         Ok(Self {
             ast,

@@ -153,13 +153,13 @@ use crate::ast::{
 /// The parser recovers (produces a usable tree even with errors); error *surfacing* to
 /// the engine's `TemplateError` is a follow-up. The bar is render output, and the real
 /// ftl corpus parses clean.
-pub fn parse_to_template(src: &str) -> crate::ast::Template {
+pub fn parse_to_template(src: &str) -> (crate::ast::Template, Vec<gingembre_syntax::ParseError>) {
     use gingembre_syntax::ast::AstNode;
     let parse = gingembre_syntax::parse(src);
     let body = cst::Template::cast(parse.syntax().clone())
         .map(|t| lower_items(&t.items()))
         .unwrap_or_default();
-    crate::ast::Template { body, span: ast::span(0, src.len()) }
+    (crate::ast::Template { body, span: ast::span(0, src.len()) }, parse.errors)
 }
 
 fn lower_items(items: &[cst::Item]) -> Vec<Node> {
