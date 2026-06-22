@@ -9,7 +9,7 @@
 // This bundle is intentionally standalone: its own vox connection, no shared
 // state with the WASM devtools or the Monaco editor.
 
-import { session, voxServiceMetadata } from "@bearcove/vox-core";
+import { connectLane } from "@bearcove/vox-core";
 import { wsConnector } from "@bearcove/vox-ws";
 import { DevtoolsServiceClient, type AnnotateResult } from "./devtools.generated";
 
@@ -44,6 +44,18 @@ const STYLES = `
 }
 .dodeca-annotate-ui .da-status { min-height: 1.2em; margin-top: 4px; opacity: 0.7; font-size: 12px; }
 
+.dodeca-annotate-toggle {
+  position: fixed; right: 12px; bottom: 12px; z-index: 2147483646;
+  padding: 6px 10px; border: none; border-radius: 999px; cursor: pointer;
+  background: #89b4fa; color: #11111b;
+  font: 600 12px system-ui, sans-serif;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.25);
+}
+.dodeca-annotate-toggle:hover { filter: brightness(1.08); }
+
+/* Toggling this class on <html> hides every rendered note without a round-trip. */
+html.dodeca-notes-hidden aside.dodeca-note { display: none !important; }
+
 aside.dodeca-note {
   margin: 1em 0; padding: 0.6em 0.9em;
   border-left: 3px solid #89b4fa;
@@ -73,15 +85,11 @@ function wsUrl(): string {
   return `${proto}://${location.host}/_/ws`;
 }
 
-/** Open a dedicated DevtoolsService connection (Noop root + sub-connection). */
+/** Open a dedicated DevtoolsService connection over its own websocket lane.
+ *  `connectLane` establishes the connection and opens the lane to the service
+ *  identified by `DevtoolsServiceClient.descriptor` in one step. */
 async function connect(): Promise<DevtoolsServiceClient> {
-  const established = await session.initiator(wsConnector(wsUrl()), {
-    metadata: voxServiceMetadata("Noop"),
-  });
-  const devtools = await established
-    .handle()
-    .openConnection(undefined, voxServiceMetadata("DevtoolsService"));
-  return new DevtoolsServiceClient(devtools.caller());
+  return connectLane(wsConnector(wsUrl()), DevtoolsServiceClient);
 }
 
 interface Target {
@@ -141,8 +149,42 @@ function buildUi(): {
   };
 }
 
-function main(client: DevtoolsServiceClient): void {
+// Floating show/hide-notes toggle. Notes are hidden purely by a class on
+// <html>; the choice is remembered in localStorage so it survives reloads.
+const HIDDEN_KEY = "dodeca-notes-hidden";
+
+function installToggle(): void {
+  const apply = (hidden: boolean) =>
+    document.documentElement.classList.toggle("dodeca-notes-hidden", hidden);
+  let hidden = localStorage.getItem(HIDDEN_KEY) === "1";
+  apply(hidden);
+
+  const btn = document.createElement("button");
+  btn.className = "dodeca-annotate-toggle";
+  const label = () => (btn.textContent = hidden ? "Show notes" : "Hide notes");
+  label();
+  btn.addEventListener("click", () => {
+    hidden = !hidden;
+    apply(hidden);
+    localStorage.setItem(HIDDEN_KEY, hidden ? "1" : "0");
+    label();
+  });
+  document.body.appendChild(btn);
+}
+
+// The DevtoolsService connection is opened lazily and cached. It is deliberately
+// independent of the UI: styles, the toggle, and the popup all work even if the
+// connection is slow or fails — only saving a note needs it, and any failure
+// surfaces in the popup's status line.
+let clientPromise: Promise<DevtoolsServiceClient> | null = null;
+function client(): Promise<DevtoolsServiceClient> {
+  if (!clientPromise) clientPromise = connect();
+  return clientPromise;
+}
+
+function main(): void {
   injectStyles();
+  installToggle();
   const ui = buildUi();
   let pending: Target | null = null;
 
@@ -197,7 +239,8 @@ function main(client: DevtoolsServiceClient): void {
     if (!body) return;
     ui.status.textContent = "saving…";
     try {
-      const res: AnnotateResult = await client.annotate({
+      const c = await client();
+      const res: AnnotateResult = await c.annotate({
         route: location.pathname,
         sid: pending.sid,
         selected_text: pending.text,
@@ -226,6 +269,7 @@ function main(client: DevtoolsServiceClient): void {
   console.log("[dodeca-annotate] ready");
 }
 
-connect()
-  .then(main)
-  .catch((err) => console.error("[dodeca-annotate] failed to connect:", err));
+main();
+// Warm the connection in the background so the first save is fast; failures are
+// logged and (later) reported in the popup status rather than breaking the UI.
+void client().catch((err) => console.error("[dodeca-annotate] connect failed:", err));
