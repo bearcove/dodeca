@@ -433,6 +433,34 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
                             .await?;
                         // Macro output is already HTML, don't escape it
                         self.output.push_str(&result);
+                    } else if let Expr::Call(call) = &print.expr
+                        && let Expr::Field(field) = &*call.func
+                        && let Expr::Var(ns_ident) = &*field.base
+                        && self
+                            .macros
+                            .get(&ns_ident.name)
+                            .is_some_and(|m| m.contains_key(&field.field.name))
+                    {
+                        // Jinja-style dotted namespaced macro call: `macros.youtube_embed(...)`.
+                        // The parser only treats `ns::macro(...)` as a MacroCall; the dotted
+                        // form arrives here as a Call on a Field. Route it to the macro
+                        // registry like the `::` form (both work only in Print context).
+                        let namespace = ns_ident.name.clone();
+                        let macro_name = field.field.name.clone();
+                        let span = call.span;
+                        let eval = Evaluator::new(&self.ctx, &self.source);
+                        let mut args = Vec::with_capacity(call.args.len());
+                        for a in &call.args {
+                            args.push(eval.eval_concrete(a).await?);
+                        }
+                        let mut kwargs = Vec::with_capacity(call.kwargs.len());
+                        for (ident, expr) in &call.kwargs {
+                            kwargs.push((ident.name.clone(), eval.eval_concrete(expr).await?));
+                        }
+                        let result = self
+                            .call_macro(&namespace, &macro_name, &args, &kwargs, span)
+                            .await?;
+                        self.output.push_str(&result);
                     } else {
                         let eval = Evaluator::new(&self.ctx, &self.source);
                         let value = eval.eval(&print.expr).await?;

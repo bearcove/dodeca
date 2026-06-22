@@ -930,8 +930,17 @@ impl<'a> Evaluator<'a> {
     }
 
     async fn eval_test(&self, test: &TestExpr) -> Result<LazyValue, TemplateError> {
-        // Tests require concrete values
-        let value = self.eval_concrete(&test.expr).await?;
+        // Tests require concrete values.
+        //
+        // `defined`/`undefined` must tolerate an undefined operand — checking whether a
+        // variable exists is the whole point of the test, so an undefined variable reads
+        // as `null` here rather than raising. (Jinja2 semantics.)
+        let lenient_undefined = matches!(test.test_name.name.as_str(), "defined" | "undefined");
+        let value = match self.eval_concrete(&test.expr).await {
+            Ok(v) => v,
+            Err(TemplateError::Undefined(_)) if lenient_undefined => Value::NULL,
+            Err(e) => return Err(e),
+        };
         let mut args = Vec::with_capacity(test.args.len());
         for a in &test.args {
             args.push(self.eval_concrete(a).await?);
