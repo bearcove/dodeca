@@ -52,14 +52,12 @@ Gaps found vs the templates fasterthanli.me uses (`~/fasterthanli.me/templates/`
 - **`super()`** inside blocks (unconfirmed — verify).
 - **Method calls on call results** (`get_media(src).markup(...)`): `eval_call` only handles
   `obj.method()` for `obj: Var`. Needed for figure/media shortcodes. (Found during Layer 2.)
-- **`is defined` / `is not defined` test throws on an undefined operand** instead of
-  evaluating to true/false. `{% if mood is not defined %}` raises `UndefinedError(mood)`.
-  The defined-test must short-circuit (that's its whole purpose). Found by the showcase
-  (`bearsays.html`). Every speech-bubble template that defaults an optional arg hits this.
-- **Namespaced macro call renders EMPTY** (`{% import "macros.html" as macros %}` then
-  `{{ macros.youtube_embed(...) }}`): produces nothing, no error. Inlining the macro body
-  works, so it's specifically the import-namespace call path. CRITICAL — every ftl shortcode
-  template opens with this import. Found by the showcase (`youtube.html`).
+- ~~**`is defined` / `is not defined` throws on an undefined operand**~~ DONE (3e049131):
+  operand is now lenient (undefined → null) for these tests. Verified: bearsays default mood.
+- ~~**Namespaced macro call renders EMPTY** (`{{ macros.youtube_embed(...) }}`)~~ DONE
+  (3e049131): dotted `ns.macro(...)` now routes to the macro registry in the Print path,
+  like the `::` form. Verified: youtube embed renders. (Note: still Print-context only,
+  same as the `::` form — not yet in `{% set %}`/filter contexts.)
 - NOTE: the `default` filter was fixed during Layer 2 to match Jinja2 (was broken on
   undefined vars) — commit 443de305.
 - Custom filters the shortcodes/templates need: `basic_markdown`, `escape_for_attribute`,
