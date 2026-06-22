@@ -999,6 +999,31 @@ fn wiki_link_route(route: &Route) -> String {
     }
 }
 
+/// Collect the unique raw wikilink targets in `html` — the (unescaped) values of
+/// the `data-wiki-target` attributes the markdown cell emits — so they can be
+/// resolved context-first.
+fn extract_wiki_targets(html: &str) -> std::collections::HashSet<String> {
+    const ATTR: &str = "data-wiki-target=\"";
+    let mut out = std::collections::HashSet::new();
+    let mut rest = html;
+    while let Some(i) = rest.find(ATTR) {
+        rest = &rest[i + ATTR.len()..];
+        let Some(end) = rest.find('"') else { break };
+        out.insert(html_attr_unescape(&rest[..end]));
+        rest = &rest[end + 1..];
+    }
+    out
+}
+
+/// Undo the HTML attribute escaping the markdown cell applies, so the extracted
+/// target matches what the html cell reads back via the parsed DOM.
+fn html_attr_unescape(s: &str) -> String {
+    s.replace("&amp;", "&")
+        .replace("&quot;", "\"")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+}
+
 fn route_to_markdown_url(route: &str) -> String {
     let route = route.trim_end_matches('/');
     if route.is_empty() {
@@ -2821,25 +2846,56 @@ pub async fn serve_html<DB: Db>(
     // The link indexes are parse-derived: source_to_route_map (memoized) and a
     // per-page wiki map from WikiLinkIndex over the already-built site_tree.
     let source_to_route = source_to_route_map(db).await?;
-    let wiki_to_route = WikiLinkIndex::build(&site_tree).resolved_for(route.as_str());
-    // Bare `[[slug]]` links render with the slug as their text; pair each key
-    // with the target's title so the html pass can relabel them. Both maps key
-    // routes through `wiki_link_route` (trailing slash), so they line up.
-    let title_by_route: HashMap<String, String> = site_tree
+    // Context-first wikilink resolution (#8): resolve every raw target this page
+    // references against its own section first (then ancestors, then the source).
+    // Keyed by the *raw* target so the path / `./` / `@/` / `source:` forms
+    // survive — the flattened key can't express them. Bare `[[slug]]` links
+    // render with the slug as their text, so we pair each with the resolved
+    // page's title for the html pass to relabel.
+    let title_by_route: HashMap<&str, &str> = site_tree
         .pages
         .values()
-        .map(|p| (wiki_link_route(&p.route), p.title.as_str().to_string()))
+        .map(|p| (p.route.as_str(), p.title.as_str()))
         .chain(
             site_tree
                 .sections
                 .values()
-                .map(|s| (wiki_link_route(&s.route), s.title.as_str().to_string())),
+                .map(|s| (s.route.as_str(), s.title.as_str())),
         )
         .collect();
-    let wiki_to_title: HashMap<String, String> = wiki_to_route
-        .iter()
-        .filter_map(|(key, target)| Some((key.clone(), title_by_route.get(target)?.clone())))
-        .collect();
+    let resolver = crate::wikilink::Resolver::new(
+        site_tree
+            .pages
+            .keys()
+            .chain(site_tree.sections.keys())
+            .map(|r| r.as_str().to_string()),
+        site_tree.sections.keys().map(|r| r.as_str().to_string()),
+        crate::config::global_config()
+            .map(|c| {
+                c.sources
+                    .iter()
+                    .map(|s| (s.name.clone(), s.mount.clone()))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default(),
+    );
+    let mut wiki_to_route: HashMap<String, String> = HashMap::new();
+    let mut wiki_to_title: HashMap<String, String> = HashMap::new();
+    for raw in extract_wiki_targets(&raw_html) {
+        if let crate::wikilink::Resolution::Resolved(target) =
+            resolver.resolve(route.as_str(), &raw)
+        {
+            let lookup = if target.is_empty() {
+                "/"
+            } else {
+                target.as_str()
+            };
+            if let Some(title) = title_by_route.get(lookup) {
+                wiki_to_title.insert(raw.clone(), title.to_string());
+            }
+            wiki_to_route.insert(raw, target);
+        }
+    }
     let process_options = crate::url_rewrite::HtmlProcessOptions {
         path_map: Some(path_map),
         vite_css_map: Some(vite_css_map),

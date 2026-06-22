@@ -556,22 +556,38 @@ impl SiteServer {
         self.open_source_in_editor(&source_file, line).await
     }
 
-    /// Semantic search over the site's pages for the well-known knowledge
-    /// endpoint. Embeds the query and every page and returns the `k` closest.
-    /// On a parse error it yields an empty result rather than failing the request.
+    /// Semantic search over the site's heading-level chunks for the well-known
+    /// knowledge endpoint. Chunk embeddings are cached per source (picante), so
+    /// only changed pages re-embed; here we just embed the query and rank.
     pub async fn knowledge_search(
         &self,
         query: &str,
         k: usize,
     ) -> crate::knowledge::KnowledgeResponse {
         let snapshot = DatabaseSnapshot::from_database(&self.db).await;
-        match build_tree(&snapshot).await {
-            Ok(Ok(site_tree)) => crate::knowledge::search(&site_tree, query, k).await,
-            _ => crate::knowledge::KnowledgeResponse {
-                query: query.trim().to_string(),
-                hits: Vec::new(),
-            },
-        }
+        crate::knowledge::search(&snapshot, query, k).await
+    }
+
+    /// Pages most semantically related to `route` (nearest chunks from other
+    /// pages to this page's mean chunk vector).
+    pub async fn knowledge_related(
+        &self,
+        route: &str,
+        k: usize,
+    ) -> crate::knowledge::KnowledgeResponse {
+        let snapshot = DatabaseSnapshot::from_database(&self.db).await;
+        crate::knowledge::related(&snapshot, route, k).await
+    }
+
+    /// A page's connection graph: outbound links, backlinks, and related pages.
+    /// Uses the live db (not a snapshot) since it renders pages to read links,
+    /// and rendering must match the active `TASK_DB` scope.
+    pub async fn knowledge_graph(
+        &self,
+        route: &str,
+        k: usize,
+    ) -> Option<crate::knowledge::GraphResponse> {
+        crate::knowledge::graph(&*self.db, route, k).await
     }
 
     /// Attach an inline note to the markdown source backing `(route, sid)`.
@@ -794,6 +810,45 @@ impl SiteServer {
         }
 
         Ok(())
+    }
+
+    /// The site's sections as `(route, title)`, sorted — for the create-page
+    /// picker.
+    pub async fn list_sections(&self) -> Vec<(String, String)> {
+        let snapshot = DatabaseSnapshot::from_database(&self.db).await;
+        let Ok(Ok(tree)) = build_tree(&snapshot).await else {
+            return Vec::new();
+        };
+        let mut out: Vec<(String, String)> = tree
+            .sections
+            .values()
+            .map(|s| (s.route.as_str().to_string(), s.title.as_str().to_string()))
+            .collect();
+        out.sort();
+        out
+    }
+
+    /// Create a new stub page titled `title` in the section at `section_route`
+    /// (filename = slugified title), open it in the editor, and return its route.
+    pub async fn create_page_in_section(&self, section_route: &str, title: &str) -> Result<String> {
+        let slug =
+            path_segment_slug(title).ok_or_else(|| eyre!("title has no usable slug: {title:?}"))?;
+        let section = normalize_route(section_route);
+        let section = section.trim_end_matches('/');
+        let new_route = if section.is_empty() {
+            format!("/{slug}")
+        } else {
+            format!("{section}/{slug}")
+        };
+        let source_path = source_path_for_route(&new_route)?;
+        let stub = DeadLinkStub {
+            source_file: Utf8PathBuf::from(source_path),
+            title: useful_title(title).unwrap_or_else(|| title.trim().to_string()),
+        };
+        self.create_dead_link_stub(&stub).await?;
+        self.open_source_in_editor(stub.source_file.as_str(), 1)
+            .await?;
+        Ok(new_route)
     }
 
     /// Register a browser connection for receiving devtools events.

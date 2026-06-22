@@ -1239,12 +1239,15 @@ fn resolve_wiki_links_in_doc(
             if let Some(href) = get_attr(doc, node_id, "href")
                 && let Some(key) = href.strip_prefix(WIKI_LINK_PREFIX)
             {
-                if let Some(route) = wiki_to_route.get(key) {
+                // Resolution is keyed by the *raw* target (`data-wiki-target`),
+                // not the flattened href key — so path / `./` / `@/` / `source:`
+                // forms resolve correctly. dodeca pre-resolves them context-first.
+                let target = get_attr(doc, node_id, "data-wiki-target").unwrap_or_default();
+                if let Some(route) = wiki_to_route.get(&target) {
                     // A bare `[[slug]]` renders its display text as the raw
-                    // target (== `data-wiki-target`); relabel it with the page
-                    // title. An explicit `[[slug|label]]` differs, so it's kept.
-                    if let Some(title) = wiki_to_title.and_then(|m| m.get(key))
-                        && let Some(target) = get_attr(doc, node_id, "data-wiki-target")
+                    // target; relabel it with the page title. An explicit
+                    // `[[slug|label]]` differs, so it's kept.
+                    if let Some(title) = wiki_to_title.and_then(|m| m.get(&target))
                         && get_text_content(doc, node_id).trim() == target.trim()
                     {
                         replace_text_content(doc, node_id, title);
@@ -1255,8 +1258,11 @@ fn resolve_wiki_links_in_doc(
                     set_attr(doc, node_id, "data-dead", "true");
                     unresolved.push(WikiLinkRef {
                         key: key.to_string(),
-                        target: get_attr(doc, node_id, "data-wiki-target")
-                            .unwrap_or_else(|| key.to_string()),
+                        target: if target.is_empty() {
+                            key.to_string()
+                        } else {
+                            target
+                        },
                     });
                 }
             }

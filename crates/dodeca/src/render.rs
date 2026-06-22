@@ -581,13 +581,20 @@ impl<'a> Renderable<'a> {
     fn template_name(&self) -> &str {
         match self {
             Renderable::Page(page) => page.template.as_deref().unwrap_or("page.html"),
-            Renderable::Section(section) => section.template.as_deref().unwrap_or_else(|| {
-                if section.route.as_str() == "/" {
-                    "index.html"
-                } else {
-                    "section.html"
-                }
-            }),
+            Renderable::Section(section) => section
+                .template
+                .as_deref()
+                .unwrap_or_else(|| self.default_template_name()),
+        }
+    }
+
+    /// The built-in template for this kind, ignoring any custom `template` field.
+    /// Used as a fallback when a page names a template that doesn't exist.
+    fn default_template_name(&self) -> &'static str {
+        match self {
+            Renderable::Page(_) => "page.html",
+            Renderable::Section(section) if section.route.as_str() == "/" => "index.html",
+            Renderable::Section(_) => "section.html",
         }
     }
 
@@ -678,7 +685,24 @@ pub async fn try_render_template(
     templates: HashMap<String, String>,
     can_edit: bool,
 ) -> std::result::Result<String, cell_gingembre_proto::TemplateRenderError> {
-    let template_name = renderable.template_name();
+    // A page may name a template that doesn't exist (e.g. a work-in-progress
+    // page). Rather than hard-failing the whole build, warn and fall back to the
+    // kind's built-in template so the rest of the site still builds.
+    let template_name = {
+        let requested = renderable.template_name();
+        let fallback = renderable.default_template_name();
+        if !templates.contains_key(requested) && requested != fallback {
+            tracing::warn!(
+                route = %renderable.route(),
+                requested,
+                fallback,
+                "template not found; falling back to the default template"
+            );
+            fallback
+        } else {
+            requested
+        }
+    };
     let route = renderable.route().clone();
 
     // Get database from task-local

@@ -77,6 +77,13 @@ pub trait DevtoolsService {
     /// Create a source stub for a dead link target, then open it in the editor.
     async fn open_dead_link(&self, route: String, target: DeadLinkTarget) -> OpenSourceResult;
 
+    /// List the site's sections (route + title) for the create-page picker.
+    async fn list_sections(&self) -> Vec<SectionInfo>;
+
+    /// Create a new stub page titled `title` in the section at `section` (its
+    /// route), then open it in the editor. The filename is the slugified title.
+    async fn create_page(&self, section: String, title: String) -> CreatePageResult;
+
     /// Attach an inline note to the markdown source backing a rendered element.
     ///
     /// Resolves `(route, sid)` to a source span via the page's source map,
@@ -352,6 +359,25 @@ pub struct AnnotateReq {
     /// this note id (appended after it in source, no new highlight). `sid` and
     /// `selected_text` are then ignored.
     pub reply_to: Option<String>,
+}
+
+/// A section, for the create-page picker (see [`DevtoolsService::list_sections`]).
+#[derive(Debug, Clone, PartialEq, Facet)]
+pub struct SectionInfo {
+    /// The section's route (e.g. `/method`), used as the create target.
+    pub path: String,
+    /// Human-readable title for display.
+    pub title: String,
+}
+
+/// Result of [`DevtoolsService::create_page`].
+#[derive(Debug, Clone, PartialEq, Facet)]
+#[repr(u8)]
+pub enum CreatePageResult {
+    /// Created. `route` is the new page's route (it opens in the editor).
+    Ok { route: String },
+    /// Creation failed (bad title/section, page exists, or I/O). Safe to show.
+    Error { message: String },
 }
 
 /// Result of [`DevtoolsService::annotate`] / [`DevtoolsService::set_note_resolved`].

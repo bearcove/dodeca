@@ -47,6 +47,7 @@ pub mod types;
 pub mod url_rewrite;
 pub mod vite;
 pub mod wiki;
+pub mod wikilink;
 
 pub use build_context::{BuildContext, is_data_file_extension};
 
