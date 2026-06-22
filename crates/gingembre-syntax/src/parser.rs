@@ -205,6 +205,8 @@ impl<'src> Parser<'src> {
             Some(ExtendsKw) => self.parse_simple_stmt(ExtendsStmt),
             Some(IncludeKw) => self.parse_simple_stmt(IncludeStmt),
             Some(ImportKw) => self.parse_simple_stmt(ImportStmt),
+            Some(BreakKw) => self.parse_keyword_stmt(BreakStmt),
+            Some(ContinueKw) => self.parse_keyword_stmt(ContinueStmt),
             _ => {
                 // Unknown / stray statement — consume the tag so we make progress.
                 self.builder.start_node(Statement);
@@ -386,6 +388,14 @@ impl<'src> Parser<'src> {
 
     fn at_close_tag(&self) -> bool {
         self.at(CloseStmt) || self.at(CloseStmtTrim)
+    }
+
+    /// `{% break %}` / `{% continue %}` — keyword-only statements.
+    fn parse_keyword_stmt(&mut self, kind: SyntaxKind) {
+        self.start(kind);
+        self.open_tag();
+        self.close_tag();
+        self.finish();
     }
 
     /// `{% extends/include/import EXPR [as name] %}`

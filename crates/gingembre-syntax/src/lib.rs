@@ -98,6 +98,10 @@ pub enum SyntaxKind {
     MacroKw,
     #[static_text("endmacro")]
     EndmacroKw,
+    #[static_text("break")]
+    BreakKw,
+    #[static_text("continue")]
+    ContinueKw,
 
     // ===== Tokens: operator keywords =====
     #[static_text("as")]
@@ -191,6 +195,8 @@ pub enum SyntaxKind {
     IncludeStmt,
     ImportStmt,
     MacroStmt,
+    BreakStmt,
+    ContinueStmt,
     /// Body of a block-bearing statement (if/for/block/macro/set-block).
     Body,
     /// Macro parameter list `(a, b="x")` and a single parameter.

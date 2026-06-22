@@ -254,6 +254,8 @@ fn keyword_or_ident(word: &str) -> SyntaxKind {
         "import" => SyntaxKind::ImportKw,
         "macro" => SyntaxKind::MacroKw,
         "endmacro" => SyntaxKind::EndmacroKw,
+        "break" => SyntaxKind::BreakKw,
+        "continue" => SyntaxKind::ContinueKw,
         "as" => SyntaxKind::AsKw,
         "in" => SyntaxKind::InKw,
         "is" => SyntaxKind::IsKw,

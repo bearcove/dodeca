@@ -272,6 +272,8 @@ fn lower_item(item: &cst::Item) -> Option<Node> {
                 span,
             })
         }
+        cst::Item::Break(b) => Node::Break(crate::ast::BreakNode { span: sp(b.syntax()) }),
+        cst::Item::Continue(c) => Node::Continue(crate::ast::ContinueNode { span: sp(c.syntax()) }),
     })
 }
 

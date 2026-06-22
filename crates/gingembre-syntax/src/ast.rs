@@ -402,6 +402,8 @@ ast_node!(IncludeStmt = IncludeStmt);
 ast_node!(ImportStmt = ImportStmt);
 ast_node!(ParamList = ParamList);
 ast_node!(Param = Param);
+ast_node!(BreakStmt = BreakStmt);
+ast_node!(ContinueStmt = ContinueStmt);
 
 /// One item in a template body: literal text/trivia, an interpolation, or a statement.
 #[derive(Debug, Clone)]
@@ -418,6 +420,8 @@ pub enum Item {
     Extends(ExtendsStmt),
     Include(IncludeStmt),
     Import(ImportStmt),
+    Break(BreakStmt),
+    Continue(ContinueStmt),
 }
 
 /// Iterate the items of a `Template` or `Body` node in source order.
@@ -440,6 +444,8 @@ fn items_of(node: &ResolvedNode) -> Vec<Item> {
                     SyntaxKind::ExtendsStmt => Item::Extends(ExtendsStmt(n.clone())),
                     SyntaxKind::IncludeStmt => Item::Include(IncludeStmt(n.clone())),
                     SyntaxKind::ImportStmt => Item::Import(ImportStmt(n.clone())),
+                    SyntaxKind::BreakStmt => Item::Break(BreakStmt(n.clone())),
+                    SyntaxKind::ContinueStmt => Item::Continue(ContinueStmt(n.clone())),
                     // Error/other nodes are skipped by the typed walk.
                     _ => continue,
                 };
