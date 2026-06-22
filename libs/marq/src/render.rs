@@ -756,6 +756,106 @@ fn parse_fenced_shortcode_name(text: &str) -> Option<&str> {
     valid.then_some(name)
 }
 
+/// Parse an inline/blockquote shortcode marker `name(k=v, k2="v 2")`.
+///
+/// The leading `:` must already be stripped. Returns the name and the `key=value`
+/// pairs in source order. Values may be bare or double-quoted (quotes let a value
+/// contain commas/spaces). Unparenthesised markers (`name`) yield no pairs.
+fn parse_emphasis_shortcode(input: &str) -> (String, Vec<(String, String)>) {
+    let input = input.trim();
+    let Some((name, rest)) = input.split_once('(') else {
+        return (input.to_string(), Vec::new());
+    };
+    let args = rest.strip_suffix(')').unwrap_or(rest);
+
+    let mut pairs = Vec::new();
+    let mut chars = args.char_indices().peekable();
+    // Split into `key = value` items, honoring quotes so a quoted value can hold commas.
+    let mut item = String::new();
+    let mut in_quotes = false;
+    let flush = |item: &str, pairs: &mut Vec<(String, String)>| {
+        let item = item.trim();
+        if item.is_empty() {
+            return;
+        }
+        if let Some((k, v)) = item.split_once('=') {
+            let v = v.trim();
+            let v = v
+                .strip_prefix('"')
+                .and_then(|v| v.strip_suffix('"'))
+                .unwrap_or(v);
+            pairs.push((k.trim().to_string(), v.to_string()));
+        } else {
+            pairs.push((item.to_string(), String::new()));
+        }
+    };
+    while let Some((_, c)) = chars.next() {
+        match c {
+            '"' => {
+                in_quotes = !in_quotes;
+                item.push(c);
+            }
+            ',' if !in_quotes => {
+                flush(&item, &mut pairs);
+                item.clear();
+            }
+            _ => item.push(c),
+        }
+    }
+    flush(&item, &mut pairs);
+
+    (name.trim().to_string(), pairs)
+}
+
+/// Detect a body shortcode at the head of a buffered blockquote.
+///
+/// A body shortcode is a blockquote whose first paragraph is a single emphasis whose
+/// text starts with `:` (e.g. `> *:bearsays*`). On match, returns the marker text
+/// (with the leading `:` removed) and the remaining blockquote events as a body to be
+/// rendered — the marker paragraph itself is dropped. `events` is the full blockquote
+/// run, `[Start(BlockQuote), … , End(BlockQuote)]`.
+fn extract_body_shortcode<'a>(
+    events: &[(Event<'a>, Range<usize>)],
+) -> Option<(String, Vec<(Event<'a>, Range<usize>)>)> {
+    // events[0] is Start(BlockQuote); the first paragraph must open with an emphasis.
+    if !matches!(events.first(), Some((Event::Start(Tag::BlockQuote(_)), _))) {
+        return None;
+    }
+    if !matches!(events.get(1), Some((Event::Start(Tag::Paragraph), _)))
+        || !matches!(events.get(2), Some((Event::Start(Tag::Emphasis), _)))
+    {
+        return None;
+    }
+
+    // Collect the marker text inside that first emphasis.
+    let mut marker = String::new();
+    let mut idx = 3;
+    while let Some((ev, _)) = events.get(idx) {
+        match ev {
+            Event::Text(t) | Event::Code(t) => marker.push_str(t),
+            Event::End(TagEnd::Emphasis) => break,
+            // Anything else inside the marker emphasis means it isn't a shortcode.
+            _ => return None,
+        }
+        idx += 1;
+    }
+    let name_args = marker.trim().strip_prefix(':')?.to_string();
+    if name_args.is_empty() {
+        return None;
+    }
+
+    // The marker paragraph ends at the next End(Paragraph); the body is whatever
+    // follows, re-wrapped in a blockquote run for `render_blockquote_req_content`.
+    let para_end = events
+        .iter()
+        .position(|(ev, _)| matches!(ev, Event::End(TagEnd::Paragraph)))?;
+    let mut body = Vec::with_capacity(events.len() - para_end);
+    body.push(events[0].clone());
+    body.extend(events[para_end + 1..].iter().cloned());
+
+    Some((name_args, body))
+}
+
 /// ```
 pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document> {
     // Parse markdown with metadata block support, using offset iterator for line tracking
@@ -937,6 +1037,46 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                                     }
                                 }
                             }
+                        }
+
+                        // Check if this is a body shortcode (`> *:name*` + body).
+                        if let Some(resolver) = &options.shortcode_resolver
+                            && let Some((name_args, body_events)) = extract_body_shortcode(&events)
+                        {
+                            let body_html = render_blockquote_req_content(
+                                &body_events,
+                                options,
+                                &default_code_handler,
+                            )
+                            .await?;
+                            let (name, pairs) = parse_emphasis_shortcode(&name_args);
+                            let args = ShortcodeArgs::Pairs(pairs);
+                            let rendered = resolver
+                                .resolve(Shortcode {
+                                    name: &name,
+                                    args: &args,
+                                    body: Some(&body_html),
+                                })
+                                .await?;
+                            if let Some(output) = rendered {
+                                if is_inside_blockquote(&context_stack) {
+                                    if let Some(ParseContext::BlockQuote {
+                                        events: parent_events,
+                                        ..
+                                    }) = context_stack.last_mut()
+                                    {
+                                        parent_events
+                                            .push((Event::Html(output.html.into()), range));
+                                    }
+                                } else {
+                                    html.push_str(&output.html);
+                                }
+                                for inj in output.head_injections {
+                                    head_injection_map.entry(inj.key).or_insert(inj.html);
+                                }
+                                continue;
+                            }
+                            // Declined: fall through to render as a normal blockquote.
                         }
 
                         // Normal blockquote - render or add to parent
@@ -2442,6 +2582,68 @@ mod tests {
         let doc = render(md, &RenderOptions::default()).await.unwrap();
         assert!(doc.html.contains(":figure:"), "source kept: {}", doc.html);
         assert!(doc.raw_metadata.is_none());
+    }
+
+    #[tokio::test]
+    async fn body_shortcode_passes_rendered_body() {
+        // home's `shortblocks` oracle: `> *:bearsays*` + body.
+        let md = "> *:bearsays*\n>\n> I am not sure about that\n";
+        let opts = RenderOptions::new().with_shortcode_resolver(TestShortcodeResolver);
+        let doc = render(md, &opts).await.unwrap();
+
+        assert!(
+            doc.html.contains(r#"name="bearsays""#),
+            "html: {}",
+            doc.html
+        );
+        // The body markdown is rendered to HTML and handed to the resolver.
+        assert!(
+            doc.html.contains(" body="),
+            "should carry a body: {}",
+            doc.html
+        );
+        assert!(
+            doc.html.contains("I am not sure about that"),
+            "body text: {}",
+            doc.html
+        );
+        // The marker `*:bearsays*` itself is consumed, not rendered as <em>.
+        assert!(
+            !doc.html.contains("<em>:bearsays"),
+            "marker leaked: {}",
+            doc.html
+        );
+    }
+
+    #[tokio::test]
+    async fn body_shortcode_parses_parenthesised_args() {
+        let md = "> *:tip(title=Hot, kind=\"cool bear\")*\n>\n> watch out\n";
+        let opts = RenderOptions::new().with_shortcode_resolver(TestShortcodeResolver);
+        let doc = render(md, &opts).await.unwrap();
+
+        assert!(doc.html.contains(r#"name="tip""#), "html: {}", doc.html);
+        // Pairs preserved in source order; quoted value keeps its space.
+        assert!(
+            doc.html.contains("title") && doc.html.contains("Hot"),
+            "args: {}",
+            doc.html
+        );
+        assert!(
+            doc.html.contains("cool bear"),
+            "quoted arg with space: {}",
+            doc.html
+        );
+    }
+
+    #[tokio::test]
+    async fn plain_blockquote_is_untouched() {
+        // A blockquote that isn't a shortcode must still render as a blockquote,
+        // even with a resolver registered.
+        let md = "> just a quote\n";
+        let opts = RenderOptions::new().with_shortcode_resolver(TestShortcodeResolver);
+        let doc = render(md, &opts).await.unwrap();
+        assert!(doc.html.contains("<blockquote>"), "html: {}", doc.html);
+        assert!(!doc.html.contains("<sc "), "no shortcode: {}", doc.html);
     }
 
     #[tokio::test]
