@@ -837,6 +837,71 @@ fn extract_body_shortcode<'a>(
     Some((name_args, body))
 }
 
+/// Resolve inline `*:name(args)*` shortcodes (no body) within an inline event run.
+///
+/// Returns a new event list where each emphasis whose text starts with `:` is replaced
+/// by the resolver's HTML (as an `InlineHtml` event). Emphasis that is not a shortcode —
+/// or that the resolver declines — is left untouched, so ordinary `*emphasis*` still
+/// renders as `<em>`. With no resolver registered, the events are returned unchanged.
+///
+/// Head injections from inline shortcodes are dropped: these are speech-bubble style
+/// shortcodes that need none. Fenced shortcodes (handled in the main pass) collect theirs.
+async fn resolve_inline_shortcodes<'a>(
+    events: &[(Event<'a>, Range<usize>)],
+    options: &RenderOptions,
+) -> Result<Vec<(Event<'a>, Range<usize>)>> {
+    let Some(resolver) = &options.shortcode_resolver else {
+        return Ok(events.to_vec());
+    };
+
+    let mut out = Vec::with_capacity(events.len());
+    let mut i = 0;
+    while i < events.len() {
+        if matches!(events[i].0, Event::Start(Tag::Emphasis)) {
+            // A shortcode emphasis holds only text/code until its End(Emphasis).
+            let mut text = String::new();
+            let mut j = i + 1;
+            let mut text_only = true;
+            while j < events.len() {
+                match &events[j].0 {
+                    Event::Text(t) | Event::Code(t) => text.push_str(t),
+                    Event::End(TagEnd::Emphasis) => break,
+                    _ => {
+                        text_only = false;
+                        break;
+                    }
+                }
+                j += 1;
+            }
+            let closed = j < events.len() && matches!(events[j].0, Event::End(TagEnd::Emphasis));
+            if text_only
+                && closed
+                && let Some(name_args) = text.trim().strip_prefix(':')
+                && !name_args.is_empty()
+            {
+                let (name, pairs) = parse_emphasis_shortcode(name_args);
+                let args = ShortcodeArgs::Pairs(pairs);
+                if let Some(output) = resolver
+                    .resolve(Shortcode {
+                        name: &name,
+                        args: &args,
+                        body: None,
+                    })
+                    .await?
+                {
+                    let range = events[i].1.start..events[j].1.end;
+                    out.push((Event::InlineHtml(output.html.into()), range));
+                    i = j + 1;
+                    continue;
+                }
+            }
+        }
+        out.push(events[i].clone());
+        i += 1;
+    }
+    Ok(out)
+}
+
 /// Render markdown to HTML.
 ///
 /// # Example
@@ -1089,6 +1154,7 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                                 parent_events.append(&mut events);
                             }
                         } else {
+                            let events = resolve_inline_shortcodes(&events, options).await?;
                             render_events_to_html(
                                 &mut html,
                                 &events,
@@ -1283,6 +1349,7 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                         line,
                         offset: start_offset,
                     }));
+                    let events = resolve_inline_shortcodes(&events, options).await?;
                     render_events_to_html(&mut html, &events, options, markdown, &mut source_map)
                         .await;
                 }
@@ -2084,7 +2151,10 @@ async fn render_blockquote_req_content(
     let mut blockquote_depth: usize = 0;
     let mut link_stack: Vec<ActiveLink> = Vec::new();
 
-    for (event, _range) in events {
+    // Resolve inline `*:name*` shortcodes in this content before rendering.
+    let events = resolve_inline_shortcodes(events, options).await?;
+
+    for (event, _range) in &events {
         match event {
             Event::Start(Tag::BlockQuote(_)) => {
                 if blockquote_depth > 0 {
@@ -2633,6 +2703,47 @@ mod tests {
             "quoted arg with space: {}",
             doc.html
         );
+    }
+
+    #[tokio::test]
+    async fn inline_shortcode_in_paragraph_is_resolved() {
+        // The rarer inline form: `*:name*` mid-paragraph, no body.
+        let md = "before the marker *:bearsays* after the marker\n";
+        let opts = RenderOptions::new().with_shortcode_resolver(TestShortcodeResolver);
+        let doc = render(md, &opts).await.unwrap();
+
+        assert!(
+            doc.html.contains(r#"name="bearsays""#),
+            "html: {}",
+            doc.html
+        );
+        // No body for the inline form.
+        assert!(
+            !doc.html.contains(" body="),
+            "inline has no body: {}",
+            doc.html
+        );
+        // The marker is replaced, not rendered as <em>; surrounding prose stays.
+        assert!(
+            !doc.html.contains("<em>:bearsays"),
+            "marker leaked: {}",
+            doc.html
+        );
+        assert!(
+            doc.html.contains("before the marker") && doc.html.contains("after the marker"),
+            "prose preserved: {}",
+            doc.html
+        );
+    }
+
+    #[tokio::test]
+    async fn ordinary_emphasis_is_not_a_shortcode() {
+        // A normal `*word*` must still be <em>, even with a resolver registered.
+        let md = "some *italic* text\n";
+        let opts = RenderOptions::new().with_shortcode_resolver(TestShortcodeResolver);
+        let doc = render(md, &opts).await.unwrap();
+        assert!(doc.html.contains("<em>italic</em>"), "html: {}", doc.html);
+        assert!(!doc.html.contains("<sc "), "no shortcode: {}", doc.html);
     }
 
     #[tokio::test]
