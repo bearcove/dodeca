@@ -2127,6 +2127,15 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn test_whitespace_control_trim() {
+        // `{{- … -}}` trims surrounding whitespace; `{%- … -%}` likewise.
+        let t = Template::parse("t", "a  {{- \"X\" -}}  b").unwrap();
+        assert_eq!(t.render(&Context::new()).await.unwrap(), "aXb");
+        let t2 = Template::parse("t", "x\n  {%- if true -%}  Y  {%- endif -%}  \nz").unwrap();
+        assert_eq!(t2.render(&Context::new()).await.unwrap(), "xYz");
+    }
+
     // r[verify test.none]
     #[tokio::test]
     async fn test_is_none() {

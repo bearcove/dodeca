@@ -456,6 +456,42 @@ fn items_of(node: &ResolvedNode) -> Vec<Item> {
     out
 }
 
+impl Item {
+    /// The item's node, for non-text items.
+    fn node(&self) -> Option<&ResolvedNode> {
+        Some(match self {
+            Item::Text(_) => return None,
+            Item::Interpolation(n) => &n.0,
+            Item::If(n) => &n.0,
+            Item::For(n) => &n.0,
+            Item::Set(n) => &n.0,
+            Item::Block(n) => &n.0,
+            Item::Macro(n) => &n.0,
+            Item::Extends(n) => &n.0,
+            Item::Include(n) => &n.0,
+            Item::Import(n) => &n.0,
+            Item::Break(n) => &n.0,
+            Item::Continue(n) => &n.0,
+        })
+    }
+
+    /// Whether this item's leading delimiter is a trim variant (`{%-`/`{{-`) —
+    /// trims trailing whitespace of the text run before it.
+    pub fn opens_with_trim(&self) -> bool {
+        self.node()
+            .and_then(|n| n.first_token())
+            .is_some_and(|t| matches!(t.kind(), SyntaxKind::OpenStmtTrim | SyntaxKind::OpenExprTrim))
+    }
+
+    /// Whether this item's trailing delimiter is a trim variant (`-%}`/`-}}`) —
+    /// trims leading whitespace of the text run after it.
+    pub fn closes_with_trim(&self) -> bool {
+        self.node()
+            .and_then(|n| n.last_token())
+            .is_some_and(|t| matches!(t.kind(), SyntaxKind::CloseStmtTrim | SyntaxKind::CloseExprTrim))
+    }
+}
+
 impl Template {
     pub fn items(&self) -> Vec<Item> {
         items_of(&self.0)

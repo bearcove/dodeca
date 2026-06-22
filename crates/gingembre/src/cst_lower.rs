@@ -148,6 +148,33 @@ use crate::ast::{
     MacroParam, Node, PrintNode, SetNode, StringLit, Target, TextNode,
 };
 
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+thread_local! {
+    /// Per-parse map: byte offset of each Text run → (trim_leading, trim_trailing),
+    /// computed from flat token adjacency (whitespace control crosses tree boundaries).
+    static TRIM: RefCell<HashMap<usize, (bool, bool)>> = RefCell::new(HashMap::new());
+}
+
+/// Compute whitespace-control trim flags for every Text run from the flat lexeme stream.
+fn compute_trim(src: &str) -> HashMap<usize, (bool, bool)> {
+    use gingembre_syntax::SyntaxKind::*;
+    let lex = gingembre_syntax::lex(src);
+    let mut map = HashMap::new();
+    let mut offset = 0usize;
+    for (i, lx) in lex.iter().enumerate() {
+        if lx.kind == Text {
+            let lead = i > 0 && matches!(lex[i - 1].kind, CloseStmtTrim | CloseExprTrim);
+            let trail =
+                i + 1 < lex.len() && matches!(lex[i + 1].kind, OpenStmtTrim | OpenExprTrim);
+            map.insert(offset, (lead, trail));
+        }
+        offset += lx.text.len();
+    }
+    map
+}
+
 /// Parse `src` with the cstree parser and lower it to the engine's template AST.
 ///
 /// The parser recovers (produces a usable tree even with errors); error *surfacing* to
@@ -156,14 +183,46 @@ use crate::ast::{
 pub fn parse_to_template(src: &str) -> (crate::ast::Template, Vec<gingembre_syntax::ParseError>) {
     use gingembre_syntax::ast::AstNode;
     let parse = gingembre_syntax::parse(src);
+    TRIM.with(|t| *t.borrow_mut() = compute_trim(src));
     let body = cst::Template::cast(parse.syntax().clone())
         .map(|t| lower_items(&t.items()))
         .unwrap_or_default();
+    TRIM.with(|t| t.borrow_mut().clear());
     (crate::ast::Template { body, span: ast::span(0, src.len()) }, parse.errors)
 }
 
 fn lower_items(items: &[cst::Item]) -> Vec<Node> {
-    items.iter().filter_map(lower_item).collect()
+    let mut out = Vec::new();
+    for (i, item) in items.iter().enumerate() {
+        match item {
+            cst::Item::Text(tok) => {
+                if tok.kind() == gingembre_syntax::SyntaxKind::Comment {
+                    continue; // comments stripped from output
+                }
+                // Whitespace control via flat-adjacency trim flags (keyed by offset).
+                let off = usize::from(tok.text_range().start());
+                let (lead, trail) = TRIM.with(|t| t.borrow().get(&off).copied().unwrap_or((false, false)));
+                let mut text = tok.text();
+                if lead {
+                    text = text.trim_start();
+                }
+                if trail {
+                    text = text.trim_end();
+                }
+                let _ = i;
+                if text.is_empty() {
+                    continue;
+                }
+                out.push(Node::Text(TextNode { text: text.to_string(), span: ast::span(0, text.len()) }));
+            }
+            other => {
+                if let Some(node) = lower_item(other) {
+                    out.push(node);
+                }
+            }
+        }
+    }
+    out
 }
 
 fn lower_body(body: Option<cst::Body>) -> Vec<Node> {
