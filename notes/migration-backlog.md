@@ -46,13 +46,19 @@ So the existing `.jinja` templates port unchanged. Engine lives at `libs/gingemb
 Gaps found vs the templates fasterthanli.me uses (`~/fasterthanli.me/templates/`):
 - ~~**`{%- -%}` whitespace control**~~ DONE (2a4cb19c): lexer consumes trim dashes on all
   three delimiters; trims preceding/following text. 159 gingembre tests pass.
-- **Lenient (Jinja) undefined variables** — HIGH, NEXT. gingembre is strict: `{% if width %}`
-  on an undefined `width` raises `UndefinedError`. ftl templates use undefined vars as
-  optional args everywhere (figure.html: width/height/attr/attrlink all optional), assuming
-  Jinja semantics where undefined is falsy / renders empty. Need: undefined → falsy in
-  boolean/`if` contexts, undefined passable as a kwarg (→ null), and `{{ undefined }}` →
-  empty (or configurable). Watch the existing intentional `UndefinedError` tests — decide
-  targeted leniency vs a global lenient-undefined value. Found by the showcase (figure.html).
+- ~~**Lenient undefined variables**~~ DONE (e6fe5571), via **opt-in postfix `?`** (Amos's
+  call — keep strict default so typos still error). `expr?` yields null instead of raising
+  on undefined. Wired lexer→ast→parser→eval→semantic→LSP; `markup()` skips empty kwargs.
+  showcase figure.html ported to `?`; figure now renders (159 gingembre tests pass).
+  REMAINING: **port the real ftl templates** (`~/fasterthanli.me/templates/`, ~26 shortcodes
+  + macros + page templates) to `?` — large mechanical job, good for an agent.
+- **Shortcode images aren't responsive `<picture>`** (follow-up): figure renders an optimized
+  cache-busted `<img>` (WebP) but NOT the responsive `<picture>` w/ srcset+jxl+thumbhash.
+  `serve_html`'s `<img>→<picture>` transform (queries.rs ~2820) rewrites the URL but skips
+  the upgrade for the shortcode img (likely because it's already inside `<figure>`, or a
+  match condition). Fix: either teach the transform to handle figure-wrapped imgs, or have
+  `get_media().markup()` emit the responsive markup directly (as home did). Asset dependency
+  IS tracked (the image gets processed). Verify with the `#[ignore]` get_media dep test.
 - **`loop.*`** — `loop.index`, `loop.first`, `loop.last`, `loop.revindex` not exposed in
   for-loop context.
 - **`{% raw %}…{% endraw %}`** — token not in lexer.
