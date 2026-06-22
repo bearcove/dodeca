@@ -84,6 +84,8 @@ reading-time, date formatting.)
 - `lower`: typed CST → existing `ast::Expr`/`Node` for the engine.
 - Typed AST layer over the CST for the LSP (accessor methods per node).
 
+## STATUS: engine fully on cstree, 161/161 tests, showcase renders correctly through the new engine (figure/youtube/tip/bearsays). 57/57 ftl templates parse clean. Remaining: step 6 (LSP onto CST + delete old front-end).
+
 ## Plan / phases (status)
 
 1. ✅ Catalog + cstree dep + `SyntaxKind` (`c35688e5`).
