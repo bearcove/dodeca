@@ -720,25 +720,6 @@ fn stable_source_id(kind: SourceKind, source: &str) -> String {
     format!("s{hash:016x}")
 }
 
-/// Render markdown to HTML.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// use marq::{render, RenderOptions};
-///
-/// let markdown = r#"
-/// +++
-/// title = "Hello"
-/// +++
-///
-/// # World
-///
-/// Some content.
-/// "#;
-///
-/// let doc = render(markdown, &RenderOptions::default()).await?;
-/// println!("{}", doc.html);
 /// Detect a fenced shortcode and return its name.
 ///
 /// A `+++ … +++` (pluses) metadata block is a shortcode when its first non-empty
@@ -856,6 +837,25 @@ fn extract_body_shortcode<'a>(
     Some((name_args, body))
 }
 
+/// Render markdown to HTML.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use marq::{render, RenderOptions};
+///
+/// let markdown = r#"
+/// +++
+/// title = "Hello"
+/// +++
+///
+/// # World
+///
+/// Some content.
+/// "#;
+///
+/// let doc = render(markdown, &RenderOptions::default()).await?;
+/// println!("{}", doc.html);
 /// ```
 pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document> {
     // Parse markdown with metadata block support, using offset iterator for line tracking
