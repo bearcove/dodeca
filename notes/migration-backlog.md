@@ -97,6 +97,19 @@ mechanism (workstream 3). Tiny scope — only 2 real files, and they're dispensa
 home uses server-side Tantivy; dodeca has `cell-search`, which Amos says is actually very
 good. Not a real concern — just confirm it covers the corpus once the site is rendering.
 
+### 7b. Authoring LSP awareness — TODO (don't forget)
+The in-editor authoring LSP (`crates/dodeca-authoring-lsp`, + `authoring_model.rs`) is
+blind to everything this migration adds, so editing content gives stale/wrong assistance:
+- **Shortcodes**: it doesn't know the grammars (`+++ :name: +++`, `> *:name*`, inline
+  `*:name*`), the available shortcode names (from `templates/shortcodes/*.html`), or their
+  args. Wants: completion of shortcode names + args, hover/validation, and NOT flagging
+  shortcode syntax as errors.
+- **Frontmatter**: `+++` is now overloaded — leading `+++` is TOML frontmatter, but a
+  `+++ :name:` block mid/anywhere is a shortcode. The LSP must distinguish them and
+  understand both `---` (YAML) and `+++` (TOML) frontmatter.
+- Later: new content-model fields (date/draft/tags/series) once workstream 3 lands.
+Amos flagged this from opening a file in the editor. Not blocking, but keep it on the list.
+
 ### 7. Identity → Discord — PROXY on dodeca server-mode identity
 Since dodeca deploys as a server (see top) and already has an identity concept, this need
 not be a separate service — it can be a proxy/extension on top of the running dodeca server,
