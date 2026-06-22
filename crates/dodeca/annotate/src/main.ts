@@ -795,15 +795,18 @@ function installCreateUI(layer: HTMLElement): void {
     pending = null;
   };
 
-  document.addEventListener("mouseup", (e) => {
-    const t = e.target as Element | null;
-    if (t?.closest?.(".dodeca-annotate-ui")) return;
+  const isCoarse = () =>
+    typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+
+  // Open (or reposition) the create-popup for the current selection. Returns whether a
+  // valid annotation target was found. Never hides — callers decide when to clear, so the
+  // mobile triggers below can't dismiss the popup when focusing it collapses the selection.
+  const openForSelection = (evtTarget: EventTarget | null): boolean => {
+    const t = evtTarget as Element | null;
+    if (t?.closest?.(".dodeca-annotate-ui")) return false;
     const sel = window.getSelection();
     const target = sel && targetForSelection(sel);
-    if (!target) {
-      if (pending) hide();
-      return;
-    }
+    if (!target) return false;
     pending = target;
     quoteEl.textContent = target.text.length > 80 ? `${target.text.slice(0, 77)}…` : target.text;
     bodyEl.value = "";
@@ -814,7 +817,27 @@ function installCreateUI(layer: HTMLElement): void {
     const r = sel!.getRangeAt(0).getBoundingClientRect();
     ui.style.top = `${window.scrollY + r.bottom + 8}px`;
     ui.style.left = `${Math.max(8, window.scrollX + Math.min(r.left, window.innerWidth - 360))}px`;
-    bodyEl.focus();
+    // On touch, stealing focus pops the on-screen keyboard and collapses the native
+    // selection handles mid-gesture — let the user tap the field when they're ready.
+    if (!isCoarse()) bodyEl.focus();
+    return true;
+  };
+
+  // Desktop: a finished mouse selection fires `mouseup` — open, or clear on empty.
+  document.addEventListener("mouseup", (e) => {
+    const t = e.target as Element | null;
+    if (t?.closest?.(".dodeca-annotate-ui")) return;
+    if (!openForSelection(e.target) && pending) hide();
+  });
+
+  // Mobile: long-press text selection never fires `mouseup`. Re-check when a touch ends
+  // and on a debounced `selectionchange` (which also catches dragging the selection
+  // handles). These only ever OPEN, so they never fight the popup.
+  document.addEventListener("touchend", (e) => void openForSelection(e.target));
+  let selTimer: number | undefined;
+  document.addEventListener("selectionchange", () => {
+    window.clearTimeout(selTimer);
+    selTimer = window.setTimeout(() => void openForSelection(document.activeElement), 350);
   });
 
   const save = async () => {
