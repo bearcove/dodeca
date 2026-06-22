@@ -90,6 +90,7 @@ pub async fn process_html(
         minify: None,
         source_to_route: options.source_to_route,
         wiki_to_route: options.wiki_to_route,
+        wiki_to_title: options.wiki_to_title,
         base_route: options.base_route,
         image_variants: options.image_variants,
         vite_css_map: options.vite_css_map,
@@ -150,6 +151,8 @@ pub struct HtmlProcessOptions {
     pub source_to_route: Option<HashMap<String, String>>,
     /// Wiki link key to route mapping for dodeca-wiki: links
     pub wiki_to_route: Option<HashMap<String, String>>,
+    /// Wiki link key to target page title (relabels bare `[[slug]]` links)
+    pub wiki_to_title: Option<HashMap<String, String>>,
     /// Base route for relative link resolution
     pub base_route: Option<String>,
     /// Image variants for picture element transformation

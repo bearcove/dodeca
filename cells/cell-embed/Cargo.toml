@@ -1,0 +1,23 @@
+[package]
+autobins = false
+name = "cell-embed"
+version = "0.6.1"
+edition = "2024"
+
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+[lib]
+name = "ddc_cell_embed"
+crate-type = ["rlib"]
+path = "src/main.rs"
+
+[dependencies]
+cell-embed-proto = { path = "../cell-embed-proto" }
+brotli.workspace = true
+tokenizers.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

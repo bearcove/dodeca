@@ -16,6 +16,7 @@ pub mod config;
 pub mod content_service;
 pub mod data;
 pub mod db;
+pub mod dictionary;
 pub mod edit_session;
 pub mod edit_shell;
 pub mod error_pages;

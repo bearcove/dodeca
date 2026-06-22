@@ -761,7 +761,13 @@ pub async fn build_tree<DB: Db>(db: &DB) -> PicanteResult<BuildTreeResult> {
         );
     }
 
-    Ok(Ok(SiteTree { sections, pages }))
+    // Wiki auto-linking: rewrite wiki page/section bodies to link bare mentions
+    // of other wiki pages. Runs here because it needs every title; the markdown
+    // source is never modified (only the rendered `body_html`).
+    let mut tree = SiteTree { sections, pages };
+    crate::wiki::apply_auto_links(&mut tree);
+
+    Ok(Ok(tree))
 }
 
 /// Build a mapping from source paths to routes.
@@ -2816,12 +2822,31 @@ pub async fn serve_html<DB: Db>(
     // per-page wiki map from WikiLinkIndex over the already-built site_tree.
     let source_to_route = source_to_route_map(db).await?;
     let wiki_to_route = WikiLinkIndex::build(&site_tree).resolved_for(route.as_str());
+    // Bare `[[slug]]` links render with the slug as their text; pair each key
+    // with the target's title so the html pass can relabel them. Both maps key
+    // routes through `wiki_link_route` (trailing slash), so they line up.
+    let title_by_route: HashMap<String, String> = site_tree
+        .pages
+        .values()
+        .map(|p| (wiki_link_route(&p.route), p.title.as_str().to_string()))
+        .chain(
+            site_tree
+                .sections
+                .values()
+                .map(|s| (wiki_link_route(&s.route), s.title.as_str().to_string())),
+        )
+        .collect();
+    let wiki_to_title: HashMap<String, String> = wiki_to_route
+        .iter()
+        .filter_map(|(key, target)| Some((key.clone(), title_by_route.get(target)?.clone())))
+        .collect();
     let process_options = crate::url_rewrite::HtmlProcessOptions {
         path_map: Some(path_map),
         vite_css_map: Some(vite_css_map),
         image_variants: Some(image_variants),
         source_to_route: Some(source_to_route),
         wiki_to_route: Some(wiki_to_route),
+        wiki_to_title: Some(wiki_to_title),
         base_route: Some(base_route),
         mount,
         ..Default::default()

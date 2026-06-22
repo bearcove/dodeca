@@ -23,7 +23,9 @@ ignored = ["getrandom", "facet-default"]
 [workspace.dependencies]
 # Core utilities
 aho-corasick = "1.1"
+brotli = "8"
 camino = "1.2"
+tokenizers = "0.23"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 dashmap = "6"
 indexmap = "2"
