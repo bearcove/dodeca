@@ -17,6 +17,8 @@ pub mod ast;
 
 /// A node in the resolved (text-bearing) syntax tree.
 pub type ResolvedNode = cstree::syntax::ResolvedNode<SyntaxKind>;
+/// A token in the resolved syntax tree.
+pub type ResolvedToken = cstree::syntax::ResolvedToken<SyntaxKind>;
 
 /// The kind of every token and node in a gingembre syntax tree.
 ///

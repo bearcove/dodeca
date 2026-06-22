@@ -358,6 +358,215 @@ impl ParenExpr {
     }
 }
 
+// ===== statements / template structure =====
+
+ast_node!(Template = Template);
+ast_node!(Interpolation = Interpolation);
+ast_node!(Body = Body);
+ast_node!(IfStmt = IfStmt);
+ast_node!(ElifClause = ElifClause);
+ast_node!(ElseClause = ElseClause);
+ast_node!(ForStmt = ForStmt);
+ast_node!(SetStmt = SetStmt);
+ast_node!(BlockStmt = BlockStmt);
+ast_node!(MacroStmt = MacroStmt);
+ast_node!(ExtendsStmt = ExtendsStmt);
+ast_node!(IncludeStmt = IncludeStmt);
+ast_node!(ImportStmt = ImportStmt);
+ast_node!(ParamList = ParamList);
+ast_node!(Param = Param);
+
+/// One item in a template body: literal text/trivia, an interpolation, or a statement.
+#[derive(Debug, Clone)]
+pub enum Item {
+    /// A run of literal text or trivia token (kept for lossless output; render trims it
+    /// per adjacent `{%- -%}` markers).
+    Text(crate::ResolvedToken),
+    Interpolation(Interpolation),
+    If(IfStmt),
+    For(ForStmt),
+    Set(SetStmt),
+    Block(BlockStmt),
+    Macro(MacroStmt),
+    Extends(ExtendsStmt),
+    Include(IncludeStmt),
+    Import(ImportStmt),
+}
+
+/// Iterate the items of a `Template` or `Body` node in source order.
+fn items_of(node: &ResolvedNode) -> Vec<Item> {
+    let mut out = Vec::new();
+    for el in node.children_with_tokens() {
+        match el {
+            cstree::syntax::ResolvedElementRef::Token(t) => {
+                // Text / Whitespace / Comment tokens become Text items (lossless).
+                out.push(Item::Text(t.clone()));
+            }
+            cstree::syntax::ResolvedElementRef::Node(n) => {
+                let item = match n.kind() {
+                    SyntaxKind::Interpolation => Item::Interpolation(Interpolation(n.clone())),
+                    SyntaxKind::IfStmt => Item::If(IfStmt(n.clone())),
+                    SyntaxKind::ForStmt => Item::For(ForStmt(n.clone())),
+                    SyntaxKind::SetStmt => Item::Set(SetStmt(n.clone())),
+                    SyntaxKind::BlockStmt => Item::Block(BlockStmt(n.clone())),
+                    SyntaxKind::MacroStmt => Item::Macro(MacroStmt(n.clone())),
+                    SyntaxKind::ExtendsStmt => Item::Extends(ExtendsStmt(n.clone())),
+                    SyntaxKind::IncludeStmt => Item::Include(IncludeStmt(n.clone())),
+                    SyntaxKind::ImportStmt => Item::Import(ImportStmt(n.clone())),
+                    // Error/other nodes are skipped by the typed walk.
+                    _ => continue,
+                };
+                out.push(item);
+            }
+        }
+    }
+    out
+}
+
+impl Template {
+    pub fn items(&self) -> Vec<Item> {
+        items_of(&self.0)
+    }
+}
+
+impl Body {
+    pub fn items(&self) -> Vec<Item> {
+        items_of(&self.0)
+    }
+}
+
+impl Interpolation {
+    pub fn expr(&self) -> Option<Expr> {
+        first_expr(&self.0)
+    }
+}
+
+impl IfStmt {
+    pub fn condition(&self) -> Option<Expr> {
+        first_expr(&self.0)
+    }
+    /// The `then` body is the first direct `Body` child.
+    pub fn then_body(&self) -> Option<Body> {
+        typed_child(&self.0)
+    }
+    pub fn elif_clauses(&self) -> impl Iterator<Item = ElifClause> + '_ {
+        typed_children(&self.0)
+    }
+    pub fn else_clause(&self) -> Option<ElseClause> {
+        typed_child(&self.0)
+    }
+}
+
+impl ElifClause {
+    pub fn condition(&self) -> Option<Expr> {
+        first_expr(&self.0)
+    }
+    pub fn body(&self) -> Option<Body> {
+        typed_child(&self.0)
+    }
+}
+
+impl ElseClause {
+    pub fn body(&self) -> Option<Body> {
+        typed_child(&self.0)
+    }
+}
+
+impl ForStmt {
+    /// Loop target names (one, or several for tuple unpacking).
+    pub fn targets(&self) -> Vec<String> {
+        // The Ident tokens before `in` are the targets; the iterator is an Expr child.
+        let mut names = Vec::new();
+        for el in self.0.children_with_tokens() {
+            if let Some(t) = el.into_token() {
+                match t.kind() {
+                    SyntaxKind::Ident => names.push(t.text().to_owned()),
+                    SyntaxKind::InKw => break,
+                    _ => {}
+                }
+            } else {
+                break;
+            }
+        }
+        names
+    }
+    pub fn iter_expr(&self) -> Option<Expr> {
+        first_expr(&self.0)
+    }
+    pub fn body(&self) -> Option<Body> {
+        typed_child(&self.0)
+    }
+    pub fn else_body(&self) -> Option<Body> {
+        // The for-else body lives inside an ElseClause child.
+        typed_child::<ElseClause>(&self.0).and_then(|e| e.body())
+    }
+}
+
+impl SetStmt {
+    pub fn name(&self) -> Option<String> {
+        token_text(&self.0, Ident).map(str::to_owned)
+    }
+    /// `{% set x = EXPR %}` — present for the assignment form.
+    pub fn value(&self) -> Option<Expr> {
+        first_expr(&self.0)
+    }
+    /// `{% set x %}…{% endset %}` — present for the block form.
+    pub fn body(&self) -> Option<Body> {
+        typed_child(&self.0)
+    }
+}
+
+impl BlockStmt {
+    pub fn name(&self) -> Option<String> {
+        token_text(&self.0, Ident).map(str::to_owned)
+    }
+    pub fn body(&self) -> Option<Body> {
+        typed_child(&self.0)
+    }
+}
+
+impl MacroStmt {
+    pub fn name(&self) -> Option<String> {
+        token_text(&self.0, Ident).map(str::to_owned)
+    }
+    pub fn params(&self) -> Vec<(String, Option<Expr>)> {
+        let Some(list) = typed_child::<ParamList>(&self.0) else { return Vec::new() };
+        typed_children::<Param>(list.syntax())
+            .filter_map(|p| Some((token_text(p.syntax(), Ident)?.to_owned(), first_expr(p.syntax()))))
+            .collect()
+    }
+    pub fn body(&self) -> Option<Body> {
+        typed_child(&self.0)
+    }
+}
+
+impl ExtendsStmt {
+    pub fn path(&self) -> Option<Expr> {
+        first_expr(&self.0)
+    }
+}
+
+impl IncludeStmt {
+    pub fn path(&self) -> Option<Expr> {
+        first_expr(&self.0)
+    }
+}
+
+impl ImportStmt {
+    pub fn path(&self) -> Option<Expr> {
+        first_expr(&self.0)
+    }
+    pub fn alias(&self) -> Option<String> {
+        // `import "p" as NAME` — the trailing Ident.
+        self.0
+            .children_with_tokens()
+            .filter_map(|e| e.into_token())
+            .filter(|t| t.kind() == Ident)
+            .last()
+            .map(|t| t.text().to_owned())
+    }
+}
+
 /// Resolve a quoted string literal to its value (strip quotes, process `\` escapes).
 fn unquote(raw: &str) -> String {
     let bytes = raw.as_bytes();
@@ -399,7 +608,7 @@ mod tests {
         let p = parse_expr_str(src);
         assert!(p.errors.is_empty(), "errors: {:?}", p.errors);
         // Template → Interpolation → Expr
-        let interp = p.syntax().children().find(|n| n.kind() == Interpolation).unwrap();
+        let interp = p.syntax().children().find(|n| n.kind() == SyntaxKind::Interpolation).unwrap();
         first_expr(interp).expect("an expression")
     }
 
@@ -446,5 +655,56 @@ mod tests {
     fn slice_detected() {
         let Expr::Index(i) = expr_of("xs[:3]") else { panic!() };
         assert!(i.is_slice());
+    }
+
+    fn template(src: &str) -> Template {
+        let p = crate::parse(src);
+        assert!(p.errors.is_empty(), "errors: {:?}", p.errors);
+        Template::cast(p.syntax().clone()).expect("root is a Template")
+    }
+
+    #[test]
+    fn if_elif_else_structure() {
+        let t = template("{% if a %}x{% elif b %}y{% else %}z{% endif %}");
+        let Item::If(iff) = &t.items()[0] else { panic!("{:?}", t.items()) };
+        assert!(matches!(iff.condition(), Some(Expr::Var(_))));
+        assert!(iff.then_body().is_some());
+        assert_eq!(iff.elif_clauses().count(), 1);
+        assert!(iff.else_clause().is_some());
+    }
+
+    #[test]
+    fn for_targets_and_iter() {
+        let t = template("{% for a, b in items %}{{ a }}{% endfor %}");
+        let Item::For(f) = &t.items()[0] else { panic!() };
+        assert_eq!(f.targets(), vec!["a".to_string(), "b".to_string()]);
+        assert!(matches!(f.iter_expr(), Some(Expr::Var(_))));
+        assert!(f.body().is_some());
+    }
+
+    #[test]
+    fn macro_params() {
+        let t = template("{% macro m(a, b=1) %}{{ a }}{% endmacro %}");
+        let Item::Macro(m) = &t.items()[0] else { panic!() };
+        assert_eq!(m.name().as_deref(), Some("m"));
+        let params = m.params();
+        assert_eq!(params.len(), 2);
+        assert_eq!(params[0].0, "a");
+        assert!(params[0].1.is_none());
+        assert_eq!(params[1].0, "b");
+        assert!(params[1].1.is_some());
+    }
+
+    #[test]
+    fn set_assign_vs_block() {
+        let t = template("{% set x = 1 %}");
+        let Item::Set(s) = &t.items()[0] else { panic!() };
+        assert_eq!(s.name().as_deref(), Some("x"));
+        assert!(s.value().is_some());
+
+        let t2 = template("{% set y %}hi{% endset %}");
+        let Item::Set(s2) = &t2.items()[0] else { panic!() };
+        assert!(s2.value().is_none());
+        assert!(s2.body().is_some());
     }
 }
