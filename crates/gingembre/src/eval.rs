@@ -144,6 +144,16 @@ pub const BUILTIN_FILTERS: &[BuiltinItemInfo] = &[
         detail: "Gingembre filter",
         documentation: "Returns the final non-empty segment of a path.",
     },
+    BuiltinItemInfo {
+        name: "escape_for_attribute",
+        detail: "Gingembre filter",
+        documentation: "HTML-escapes a string for safe insertion into a quoted HTML attribute value.",
+    },
+    BuiltinItemInfo {
+        name: "basic_markdown",
+        detail: "Gingembre filter",
+        documentation: "Converts basic inline markdown (bold, italic, code, links) to HTML. Returns safe HTML.",
+    },
 ];
 
 pub const BUILTIN_TESTS: &[BuiltinItemInfo] = &[
@@ -1389,6 +1399,106 @@ fn filter_by_attr<'a>(
     }
 }
 
+/// Convert basic inline markdown to HTML.
+///
+/// Handles: **bold**, *italic*, `code`, and [text](url) links.
+/// All other characters are HTML-escaped. Returns a Value string with
+/// HTML-safe content (caller should mark it safe with `| safe` if needed,
+/// or use `basic_markdown | safe`).
+fn basic_markdown_to_html(s: &str) -> Value {
+    let mut out = String::with_capacity(s.len() + 16);
+    let mut chars = s.char_indices().peekable();
+    while let Some((i, c)) = chars.next() {
+        match c {
+            '*' if s[i..].starts_with("**") => {
+                // **bold**
+                chars.next(); // skip second *
+                let rest = &s[i + 2..];
+                if let Some(end) = rest.find("**") {
+                    let inner = html_escape_str(&rest[..end]);
+                    out.push_str("<strong>");
+                    out.push_str(&inner);
+                    out.push_str("</strong>");
+                    // advance past the bold span
+                    for _ in 0..(end + 2) {
+                        chars.next();
+                    }
+                } else {
+                    out.push_str("**");
+                }
+            }
+            '*' => {
+                // *italic*
+                let rest = &s[i + 1..];
+                if let Some(end) = rest.find('*') {
+                    let inner = html_escape_str(&rest[..end]);
+                    out.push_str("<em>");
+                    out.push_str(&inner);
+                    out.push_str("</em>");
+                    for _ in 0..end {
+                        chars.next();
+                    }
+                    chars.next(); // closing *
+                } else {
+                    out.push('*');
+                }
+            }
+            '`' => {
+                // `code`
+                let rest = &s[i + 1..];
+                if let Some(end) = rest.find('`') {
+                    let inner = html_escape_str(&rest[..end]);
+                    out.push_str("<code>");
+                    out.push_str(&inner);
+                    out.push_str("</code>");
+                    for _ in 0..end {
+                        chars.next();
+                    }
+                    chars.next(); // closing `
+                } else {
+                    out.push('`');
+                }
+            }
+            '[' => {
+                // [text](url)
+                let rest = &s[i + 1..];
+                if let Some(text_end) = rest.find("](") {
+                    let text = &rest[..text_end];
+                    let after = &rest[text_end + 2..];
+                    if let Some(url_end) = after.find(')') {
+                        let url = &after[..url_end];
+                        out.push_str("<a href=\"");
+                        out.push_str(&html_escape_str(url));
+                        out.push_str("\">");
+                        out.push_str(&html_escape_str(text));
+                        out.push_str("</a>");
+                        // advance past the link
+                        let skip = text_end + 2 + url_end + 1;
+                        for _ in 0..skip {
+                            chars.next();
+                        }
+                        continue;
+                    }
+                }
+                out.push('[');
+            }
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            _ => out.push(c),
+        }
+    }
+    Value::from(out.as_str())
+}
+
+fn html_escape_str(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
 /// Apply a built-in filter
 fn apply_filter(
     name: &str,
@@ -1727,6 +1837,29 @@ fn apply_filter(
                 .filter(|seg| !seg.is_empty())
                 .map(Value::from)
                 .unwrap_or(Value::NULL)
+        }
+        // r[impl filter.escape_for_attribute]
+        "escape_for_attribute" => {
+            let s = value.render_to_string();
+            let escaped = s
+                .replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;")
+                .replace('"', "&quot;")
+                .replace('\'', "&#x27;");
+            Value::from(escaped.as_str())
+        }
+        // r[impl filter.basic_markdown]
+        "basic_markdown" => {
+            // Minimal inline-only markdown pass: bold, italic, inline code, auto-links.
+            // Returns safe HTML so callers don't need `| safe`.
+            let s = value.render_to_string();
+            let html = basic_markdown_to_html(&s);
+            if let Some(sv) = html.as_string() {
+                sv.clone().into_safe().into_value()
+            } else {
+                html
+            }
         }
         _ => {
             return Err(UnknownFilterError {

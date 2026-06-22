@@ -21,4 +21,6 @@ marq = { workspace = true, features = [
   "highlight",
   "pikru",
 ] }
+base64.workspace = true
+facet-json.workspace = true
 tracing.workspace = true

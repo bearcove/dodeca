@@ -3,10 +3,12 @@
 //! This processor uses marq for markdown rendering with direct code block rendering.
 //! Mermaid diagrams are rendered via callback to Dodeca.
 
+use base64::Engine as _;
 use cell_markdown_proto::*;
 use marq::{
     AasvgHandler, ArboriumHandler, CompareHandler, InlineCodeHandler, LinkResolver, MermaidHandler,
-    PikruHandler, RenderOptions, TermHandler, WikiLink, WikiLinkOutput, WikiLinkResolver, render,
+    PikruHandler, RenderOptions, Shortcode, ShortcodeArgs, ShortcodeOutput, ShortcodeResolver,
+    TermHandler, WikiLink, WikiLinkOutput, WikiLinkResolver, render,
 };
 use std::future::Future;
 use std::pin::Pin;
@@ -78,6 +80,34 @@ impl LinkResolver for PassthroughLinkResolver {
     }
 }
 
+/// Emits `<dodeca-shortcode>` placeholder elements so dodeca can resolve them
+/// inside its picante-tracked render pass, inheriting dependency tracking.
+struct PlaceholderShortcodeResolver;
+
+impl ShortcodeResolver for PlaceholderShortcodeResolver {
+    fn resolve<'a>(
+        &'a self,
+        shortcode: Shortcode<'a>,
+    ) -> Pin<Box<dyn Future<Output = marq::Result<Option<ShortcodeOutput>>> + Send + 'a>> {
+        Box::pin(async move {
+            let proto_args = match shortcode.args {
+                ShortcodeArgs::Yaml(y) => ShortcodeArgsProto::Yaml(y.clone()),
+                ShortcodeArgs::Pairs(p) => ShortcodeArgsProto::Pairs(p.clone()),
+            };
+            let json = facet_json::to_string(&proto_args).unwrap_or_default();
+            let data_args = base64::engine::general_purpose::STANDARD.encode(json.as_bytes());
+            let body = shortcode.body.unwrap_or("");
+            let html = format!(
+                r#"<dodeca-shortcode data-name="{}" data-args="{}">{}</dodeca-shortcode>"#,
+                html_escape(shortcode.name),
+                html_escape(&data_args),
+                body,
+            );
+            Ok(Some(ShortcodeOutput::from(html)))
+        })
+    }
+}
+
 struct DodecaWikiLinkResolver;
 
 impl WikiLinkResolver for DodecaWikiLinkResolver {
@@ -127,6 +157,8 @@ fn render_options(source_path: &str, source_map: bool, render_notes: bool) -> Re
         .with_wiki_link_resolver(DodecaWikiLinkResolver)
         // Convert rule marker inline code to links
         .with_inline_code_handler(RuleRefHandler)
+        // Emit <dodeca-shortcode> placeholders; dodeca resolves them with gingembre
+        .with_shortcode_resolver(PlaceholderShortcodeResolver)
 }
 
 impl MarkdownProcessor for MarkdownProcessorImpl {

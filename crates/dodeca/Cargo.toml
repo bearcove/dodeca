@@ -76,9 +76,11 @@ eyre.workspace = true
 facet.workspace = true
 figue.workspace = true
 
+base64.workspace = true
 facet-json.workspace = true
 facet-postcard.workspace = true
 facet-styx.workspace = true
+facet-yaml.workspace = true
 styx-embed.workspace = true
 styx-tree.workspace = true
 facet-value.workspace = true

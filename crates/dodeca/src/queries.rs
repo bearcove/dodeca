@@ -2129,6 +2129,7 @@ pub async fn all_rendered_html<DB: Db>(
     db: &DB,
 ) -> PicanteResult<Result<AllRenderedHtml, SiteError>> {
     use crate::render::{render_page_template, render_section_template};
+    use crate::shortcode::resolve_shortcodes;
     use crate::url_rewrite::{resolve_internal_links, resolve_relative_links, resolve_wiki_links};
 
     let site_tree = match build_tree(db).await? {
@@ -2161,6 +2162,8 @@ pub async fn all_rendered_html<DB: Db>(
                 .into()));
             }
         };
+        // Resolve shortcodes first so links emitted by shortcode templates get resolved too.
+        let html = resolve_shortcodes(html, &template_map, &site_tree).await;
         // Resolve relative links based on section route, then @/ links
         let html = resolve_relative_links(&html, route.as_str()).await;
         let html = resolve_internal_links(&html, &source_route_map).await;
@@ -2190,6 +2193,8 @@ pub async fn all_rendered_html<DB: Db>(
                 .into()));
             }
         };
+        // Resolve shortcodes first so links emitted by shortcode templates get resolved too.
+        let html = resolve_shortcodes(html, &template_map, &site_tree).await;
         // Resolve relative links based on the page's section route, then @/ links
         let html = resolve_relative_links(&html, page.section_route.as_str()).await;
         let html = resolve_internal_links(&html, &source_route_map).await;

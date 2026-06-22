@@ -34,6 +34,7 @@ pub const TEMPLATE_FUNCTION_NAMES: &[&str] = &[
     "build",
     "read",
     "highlight",
+    "get_media",
 ];
 
 /// Convert a Value to a string representation (for template function args)
@@ -459,6 +460,16 @@ impl TemplateHost for TemplateHostImpl {
                             message: format!("highlight error: {}", e),
                         },
                     }
+                }
+
+                "get_media" => {
+                    // Returns NULL for now; .markup() calls on the result also return NULL
+                    // via gingembre's "method calls on values not implemented" fallback.
+                    // TODO: return a proper media object when gingembre supports method calls
+                    // on arbitrary call results (not just `obj.method()` where obj is a Var).
+                    let src = args.first().map(value_to_string).unwrap_or_default();
+                    tracing::debug!(src, "get_media() called (stub — returns null)");
+                    CallFunctionResult::Success { value: Value::NULL }
                 }
 
                 _ => {

@@ -31,6 +31,7 @@ pub mod render;
 pub mod revision;
 pub mod search;
 pub mod serve;
+pub mod shortcode;
 pub mod spawn;
 pub mod status;
 pub mod svg;
