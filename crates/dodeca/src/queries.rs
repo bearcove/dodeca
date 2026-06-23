@@ -262,7 +262,20 @@ pub struct CompiledCss(pub String);
 #[tracing::instrument(skip_all, name = "compile_sass")]
 pub async fn compile_sass<DB: Db>(db: &DB) -> PicanteResult<Option<CompiledCss>> {
     // Load all sass files - creates dependency on each
-    let sass_map = load_all_sass(db).await?;
+    let mut sass_map = load_all_sass(db).await?;
+
+    // Drop every non-primary source's sass (keyed `<segment>/…`): those compile
+    // their own bundles in `source_css_outputs`. The primary's input is then
+    // exactly its own `sass/`, as before per-source sass existed.
+    if let Some(cfg) = crate::config::global_config() {
+        for source in cfg.sources.iter() {
+            let seg = source.mount.trim_matches('/');
+            if !seg.is_empty() {
+                let prefix = format!("{seg}/");
+                sass_map.retain(|k, _| !k.starts_with(&prefix));
+            }
+        }
+    }
 
     // Skip compilation if no main.scss entry point exists
     if !sass_map.contains_key("main.scss") {
@@ -2061,6 +2074,13 @@ pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<Result<SiteOutput, Sit
             content: css.content,
         });
     }
+    // Per-source CSS bundles (`<mount>/main.css`), one per non-primary source.
+    for (_seg, css) in source_css_outputs(db).await? {
+        files.push(OutputFile::Css {
+            path: StaticPath::new(css.cache_busted_path),
+            content: css.content,
+        });
+    }
 
     // --- Phase 3: Process static files ---
     let static_files = StaticRegistry::files(db)?.unwrap_or_default();
@@ -2573,6 +2593,87 @@ pub async fn css_output<DB: Db>(db: &DB) -> PicanteResult<Option<CssOutput>> {
     }))
 }
 
+/// Per-source CSS bundles. Every NON-primary source that ships its own
+/// `sass/main.scss` compiles an independent stylesheet, emitted (cache-busted)
+/// at `<mount>/main.css` — e.g. styx's `styx-docs/sass/main.scss` →
+/// `/styx/main.css`. The primary's `/main.css` stays `css_output`. A mounted
+/// page authored `/main.css` resolves to its own bundle through the mount-aware
+/// asset aliasing in `serve_html`. Returns `(mount_segment, output)` pairs.
+#[picante::tracked]
+#[tracing::instrument(skip_all, name = "source_css_outputs")]
+pub async fn source_css_outputs<DB: Db>(db: &DB) -> PicanteResult<Vec<(String, CssOutput)>> {
+    use crate::cache_bust::{cache_busted_path, content_hash};
+    use crate::url_rewrite::rewrite_urls_in_css;
+
+    let Some(cfg) = crate::config::global_config() else {
+        return Ok(Vec::new());
+    };
+
+    // Dependency on every sass file; the primary's keys are ignored here.
+    let sass_map = load_all_sass(db).await?;
+    let base_path_map = static_path_map(db).await?;
+
+    let mut outputs = Vec::new();
+    for source in cfg.sources.iter() {
+        let seg = source.mount.trim_matches('/');
+        if seg.is_empty() {
+            continue; // primary → css_output
+        }
+        let prefix = format!("{seg}/");
+
+        // This source's sass, re-keyed source-relative so `@use "vars"` resolves
+        // within it and `main.scss` is the entry point.
+        let mut source_map: HashMap<String, String> = HashMap::new();
+        for (k, v) in sass_map.iter() {
+            if let Some(rest) = k.strip_prefix(&prefix) {
+                source_map.insert(rest.to_string(), v.clone());
+            }
+        }
+        if !source_map.contains_key("main.scss") {
+            continue;
+        }
+
+        let content_parent = source.content_dir.parent().unwrap_or(&source.content_dir);
+        let load_paths = vec![content_parent.join("node_modules").to_string()];
+
+        let css = match crate::cells::compile_sass(&source_map, &load_paths).await {
+            Ok(cell_sass_proto::SassResult::Success { css }) => css,
+            Ok(cell_sass_proto::SassResult::Error { message }) => {
+                tracing::error!(source = %seg, "per-source SASS failed: {message}");
+                continue;
+            }
+            Err(e) => {
+                tracing::error!(source = %seg, "per-source SASS error: {e}");
+                continue;
+            }
+        };
+
+        // `url(/x)` refs inside this source's css are authored source-relative;
+        // alias the source's mounted asset entries to bare form so they resolve
+        // (mirrors the page-level mount-aware aliasing in serve_html).
+        let mut path_map = base_path_map.clone();
+        let mounted_prefix = format!("/{prefix}");
+        for (k, v) in base_path_map.iter() {
+            if let Some(rest) = k.strip_prefix(&mounted_prefix) {
+                path_map.insert(format!("/{rest}"), v.clone());
+            }
+        }
+        let rewritten = rewrite_urls_in_css(&css, &path_map).await;
+
+        let hash = content_hash(rewritten.as_bytes());
+        let cache_busted = cache_busted_path(&format!("{seg}/main.css"), &hash);
+        outputs.push((
+            seg.to_string(),
+            CssOutput {
+                cache_busted_path: cache_busted,
+                content: rewritten,
+            },
+        ));
+    }
+
+    Ok(outputs)
+}
+
 /// Build a map of original static file paths to their cache-busted URLs
 /// This is used by the `get_static_url` template function
 #[picante::tracked]
@@ -2583,6 +2684,13 @@ pub async fn static_url_map<DB: Db>(db: &DB) -> PicanteResult<HashMap<String, St
     if let Some(css) = css_output(db).await? {
         path_map.insert(
             "/main.css".to_string(),
+            format!("/{}", css.cache_busted_path),
+        );
+    }
+    // Per-source CSS: `/<mount>/main.css` → cache-busted bundle.
+    for (seg, css) in source_css_outputs(db).await? {
+        path_map.insert(
+            format!("/{seg}/main.css"),
             format!("/{}", css.cache_busted_path),
         );
     }
@@ -2699,6 +2807,14 @@ pub async fn serve_html<DB: Db>(
     if let Some(css) = css_output(db).await? {
         path_map.insert(
             "/main.css".to_string(),
+            format!("/{}", css.cache_busted_path),
+        );
+    }
+    // Per-source CSS: `/<mount>/main.css`. The mount-aware aliasing below then
+    // makes a mounted page's bare `/main.css` resolve to its own bundle.
+    for (seg, css) in source_css_outputs(db).await? {
+        path_map.insert(
+            format!("/{seg}/main.css"),
             format!("/{}", css.cache_busted_path),
         );
     }

@@ -264,6 +264,54 @@ pub fn load_source_static_files(
     Ok(out)
 }
 
+/// Load Sass/SCSS from every NON-primary source's `sass/` dir (sibling of its
+/// content dir), with mount-prefixed keys (`styx/main.scss`). The primary
+/// (mount `/`) sass is loaded by `BuildContext::load_sass`; this adds the
+/// mounted sources' sass so each source compiles its *own* bundle, emitted at
+/// `<mount>/main.css` (see `source_css_outputs`). Mirrors
+/// `load_source_static_files` / `load_template_files`.
+pub fn load_source_sass_files(
+    db: &Database,
+    roots: &[ResolvedSource],
+) -> Result<Vec<(SassPath, SassFile)>> {
+    let mut out = Vec::new();
+    for root in roots.iter().skip(1) {
+        let source_sass = root
+            .content_dir
+            .parent()
+            .unwrap_or(&root.content_dir)
+            .join("sass");
+        if !source_sass.exists() {
+            continue;
+        }
+        let files: Vec<Utf8PathBuf> = WalkBuilder::new(&source_sass)
+            .build()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
+            .filter(|e| {
+                e.path()
+                    .extension()
+                    .map(|ext| ext == "scss" || ext == "sass")
+                    .unwrap_or(false)
+            })
+            .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
+            .collect();
+        for path in files {
+            let content = fs::read_to_string(&path)?;
+            let relative = path
+                .strip_prefix(&source_sass)
+                .map(|p| p.to_string())
+                .unwrap_or_else(|_| path.to_string());
+            let key = mounted_key(&root.mount, &relative);
+            let sass_path = SassPath::new(key);
+            let sass_content = SassContent::new(content);
+            let sass_file = SassFile::new(db, sass_path.clone(), sass_content)?;
+            out.push((sass_path, sass_file));
+        }
+    }
+    Ok(out)
+}
+
 /// The build context with picante database.
 pub struct BuildContext {
     pub db: Arc<Database>,
@@ -403,37 +451,45 @@ impl BuildContext {
         Ok(())
     }
 
-    /// Load all Sass/SCSS files into the database.
+    /// Load all Sass/SCSS files into the database. The primary (mount `/`)
+    /// source's `sass/` keeps bare keys (`main.scss`); each non-primary source's
+    /// `sass/` is loaded with mount-prefixed keys (`styx/main.scss`) so every
+    /// source compiles its own `<mount>/main.css` bundle (see
+    /// `source_css_outputs`).
     pub fn load_sass(&mut self) -> Result<()> {
         let sass_dir = self.sass_dir();
-        if !sass_dir.exists() {
-            return Ok(());
+        if sass_dir.exists() {
+            let sass_files: Vec<Utf8PathBuf> = WalkBuilder::new(&sass_dir)
+                .build()
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
+                .filter(|e| {
+                    e.path()
+                        .extension()
+                        .map(|ext| ext == "scss" || ext == "sass")
+                        .unwrap_or(false)
+                })
+                .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
+                .collect();
+
+            for path in sass_files {
+                let content = fs::read_to_string(&path)?;
+                let relative = path
+                    .strip_prefix(&sass_dir)
+                    .map(|p| p.to_string())
+                    .unwrap_or_else(|_| path.to_string());
+
+                let sass_path = SassPath::new(relative);
+                let sass_content = SassContent::new(content);
+                let sass_file = SassFile::new(&*self.db, sass_path.clone(), sass_content)?;
+                self.sass_files.insert(sass_path, sass_file);
+            }
         }
 
-        let sass_files: Vec<Utf8PathBuf> = WalkBuilder::new(&sass_dir)
-            .build()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
-            .filter(|e| {
-                e.path()
-                    .extension()
-                    .map(|ext| ext == "scss" || ext == "sass")
-                    .unwrap_or(false)
-            })
-            .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
-            .collect();
-
-        for path in sass_files {
-            let content = fs::read_to_string(&path)?;
-            let relative = path
-                .strip_prefix(&sass_dir)
-                .map(|p| p.to_string())
-                .unwrap_or_else(|_| path.to_string());
-
-            let sass_path = SassPath::new(relative);
-            let sass_content = SassContent::new(content);
-            let sass_file = SassFile::new(&*self.db, sass_path.clone(), sass_content)?;
-            self.sass_files.insert(sass_path, sass_file);
+        // Per-source sass: each non-primary source's `sass/` dir, mount-prefixed.
+        let roots = self.source_roots.clone();
+        for (path, file) in load_source_sass_files(&self.db, &roots)? {
+            self.sass_files.insert(path, file);
         }
 
         Ok(())
