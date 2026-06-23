@@ -63,6 +63,16 @@ fn source_static_dir(source: &crate::config::ResolvedSource) -> Option<Utf8PathB
     source.content_dir.parent().map(|p| p.join("static"))
 }
 
+/// The templates dir of a source — sibling of its content dir.
+fn source_templates_dir(source: &crate::config::ResolvedSource) -> Option<Utf8PathBuf> {
+    source.content_dir.parent().map(|p| p.join("templates"))
+}
+
+/// The sass dir of a source — sibling of its content dir.
+fn source_sass_dir(source: &crate::config::ResolvedSource) -> Option<Utf8PathBuf> {
+    source.content_dir.parent().map(|p| p.join("sass"))
+}
+
 /// Processed file event ready for the server to handle
 #[derive(Debug, Clone)]
 pub enum FileEvent {
@@ -138,13 +148,39 @@ impl WatcherConfig {
             .map(|(s, rel)| (s.mount.clone(), rel))
     }
 
+    /// The source-relative `(mount, rel)` for a template-tree path — primary or
+    /// any mounted source's own `templates/` dir.
+    fn template_match(&self, path: &Utf8Path) -> Option<(String, Utf8PathBuf)> {
+        if self.sources.is_empty() {
+            return path
+                .strip_prefix(&self.templates_dir)
+                .ok()
+                .map(|rel| ("/".to_string(), rel.to_owned()));
+        }
+        longest_source_match(&self.sources, path, source_templates_dir)
+            .map(|(s, rel)| (s.mount.clone(), rel))
+    }
+
+    /// The source-relative `(mount, rel)` for a sass-tree path — primary or any
+    /// mounted source's own `sass/` dir.
+    fn sass_match(&self, path: &Utf8Path) -> Option<(String, Utf8PathBuf)> {
+        if self.sources.is_empty() {
+            return path
+                .strip_prefix(&self.sass_dir)
+                .ok()
+                .map(|rel| ("/".to_string(), rel.to_owned()));
+        }
+        longest_source_match(&self.sources, path, source_sass_dir)
+            .map(|(s, rel)| (s.mount.clone(), rel))
+    }
+
     /// Categorize a path by which watched directory it belongs to.
     pub fn categorize(&self, path: &Utf8Path) -> PathCategory {
         if self.content_match(path).is_some() {
             PathCategory::Content
-        } else if path.starts_with(&self.templates_dir) {
+        } else if self.template_match(path).is_some() {
             PathCategory::Template
-        } else if path.starts_with(&self.sass_dir) {
+        } else if self.sass_match(path).is_some() {
             PathCategory::Sass
         } else if path.starts_with(&self.dist_dir) {
             PathCategory::Dist
@@ -167,11 +203,12 @@ impl WatcherConfig {
             PathCategory::Static => self
                 .static_match(path)
                 .map(|(mount, rel)| crate::build_context::mounted_key(&mount, rel.as_str()).into()),
-            PathCategory::Template => path
-                .strip_prefix(&self.templates_dir)
-                .ok()
-                .map(|p| p.to_owned()),
-            PathCategory::Sass => path.strip_prefix(&self.sass_dir).ok().map(|p| p.to_owned()),
+            PathCategory::Template => self
+                .template_match(path)
+                .map(|(mount, rel)| crate::build_context::mounted_key(&mount, rel.as_str()).into()),
+            PathCategory::Sass => self
+                .sass_match(path)
+                .map(|(mount, rel)| crate::build_context::mounted_key(&mount, rel.as_str()).into()),
             PathCategory::Dist => path.strip_prefix(&self.dist_dir).ok().map(|p| p.to_owned()),
             PathCategory::Data => path.strip_prefix(&self.data_dir).ok().map(|p| p.to_owned()),
             PathCategory::Unknown => None,
@@ -179,8 +216,9 @@ impl WatcherConfig {
     }
 
     /// Every directory the watcher should recursively watch: the primary
-    /// templates/sass/static/dist/data, plus every source's content and static
-    /// dirs. De-duplicated; non-existent dirs are fine (watching is best-effort).
+    /// templates/sass/static/dist/data, plus every source's content, static,
+    /// templates, sass and dist dirs (so edits to a mounted source's own chrome
+    /// hot-reload). De-duplicated; non-existent dirs are fine (best-effort).
     pub fn all_watch_dirs(&self) -> Vec<Utf8PathBuf> {
         let mut dirs = vec![
             self.content_dir.clone(),
@@ -192,8 +230,16 @@ impl WatcherConfig {
         ];
         for source in &self.sources {
             dirs.push(source.content_dir.clone());
-            if let Some(static_dir) = source_static_dir(source) {
-                dirs.push(static_dir);
+            for dir in [
+                source_static_dir(source),
+                source_templates_dir(source),
+                source_sass_dir(source),
+                source.content_dir.parent().map(|p| p.join("dist")),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                dirs.push(dir);
             }
         }
         dirs.sort();
