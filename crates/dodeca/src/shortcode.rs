@@ -170,14 +170,12 @@ async fn render_include(args: Option<&ShortcodeArgsProto>) -> String {
     let Some(cfg) = crate::config::global_config() else {
         return "<!-- include: config not initialized -->".to_string();
     };
-    let abs = cfg._root.join(&path);
 
-    let raw = match std::fs::read_to_string(&abs) {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::warn!(path = %abs, error = %e, "include: failed to read file");
-            return format!("<!-- include: cannot read '{path}' -->");
-        }
+    // Read through the tracked include registry (falls back to a direct read,
+    // and records a dependency so an edited file hot-reloads this page).
+    let Some(raw) = crate::includes::read(&path, &cfg._root) else {
+        tracing::warn!(path = %path, root = %cfg._root, "include: failed to read file");
+        return format!("<!-- include: cannot read '{path}' -->");
     };
 
     let content = if strip {
@@ -189,7 +187,7 @@ async fn render_include(args: Option<&ShortcodeArgsProto>) -> String {
     match crate::cells::parse_and_render_markdown(&path, &content, false, false).await {
         Ok(cell_markdown_proto::ParseResult::Success { html, .. }) => html,
         other => {
-            tracing::warn!(path = %abs, ?other, "include: markdown render failed");
+            tracing::warn!(path = %path, ?other, "include: markdown render failed");
             format!("<!-- include: render failed for '{path}' -->")
         }
     }

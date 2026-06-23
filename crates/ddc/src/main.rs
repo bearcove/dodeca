@@ -2232,6 +2232,23 @@ async fn start_file_watcher_from_receiver(
         }
     });
 
+    // Load + watch files referenced by `include` shortcodes as they're first
+    // seen (the first render of an include happens on a request, not a
+    // file-change batch, so we react to a signal instead).
+    {
+        let server = server.clone();
+        let watcher = watcher_for_reload.clone();
+        dodeca::spawn::spawn(async move {
+            loop {
+                dodeca::includes::wait_dirty().await;
+                if let Some(cfg) = dodeca::config::global_config() {
+                    let paths = dodeca::includes::refresh(&server.db, &cfg._root);
+                    file_watcher::watch_dirs(&watcher, &paths);
+                }
+            }
+        });
+    }
+
     dodeca::spawn::spawn(async move {
         use tokio::time::{Duration, Instant};
 
@@ -2316,6 +2333,14 @@ async fn start_file_watcher_from_receiver(
                     Ok(Err(e)) => tracing::error!(error = %e, "config reload failed"),
                     Err(e) => tracing::error!(error = %e, "config reload task panicked"),
                 }
+            }
+
+            // Pick up edits to files pulled in by `include` shortcodes — re-read
+            // and republish the registry only if their contents changed (which
+            // invalidates exactly the pages that embed them).
+            if let Some(cfg) = dodeca::config::global_config() {
+                let paths = dodeca::includes::refresh(&server.db, &cfg._root);
+                file_watcher::watch_dirs(&watcher_for_reload, &paths);
             }
 
             match apply_result {

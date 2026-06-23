@@ -126,6 +126,25 @@ pub struct SourceRegistry {
     pub sources: Vec<SourceFile>,
 }
 
+/// One file pulled in by an `include` shortcode (e.g. a crate README), by its
+/// project-root-relative path.
+#[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
+pub struct IncludedFileEntry {
+    pub path: String,
+    pub content: String,
+}
+
+/// Input registry of files referenced by `include` shortcodes (singleton).
+///
+/// The `include` shortcode reads this registry (recording a dependency on it),
+/// so re-publishing it after an included file changes invalidates exactly the
+/// pages that embed that file — that's how an edited README hot-reloads its
+/// host page without the shortcode doing an untracked disk read on every render.
+#[picante::input]
+pub struct IncludedFileRegistry {
+    pub files: Vec<IncludedFileEntry>,
+}
+
 /// Input: the resolved site configuration (singleton).
 ///
 /// Making the config a picante input is what lets a config change (e.g. adding
@@ -539,6 +558,7 @@ pub struct AllRenderedHtml {
         StaticRegistry,
         DataRegistry,
         SourceRegistry,
+        IncludedFileRegistry,
         ConfigRegistry,
         MarkdownRenderSettings,
     ),
