@@ -1,5 +1,8 @@
 /dist
-/target
+# Rust build dirs at any depth. Vendored crates (libs/*/vendored/*) ship their
+# own target/, which a root-anchored `/target` missed — #276 committed a stray
+# fontcull-read-fonts/target/package/*.crate that way.
+target/
 .dodeca.db
 /docs/public/
 public/
