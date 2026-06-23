@@ -877,10 +877,30 @@ function installCreateUI(layer: HTMLElement): void {
   // and on a debounced `selectionchange` (which also catches dragging the selection
   // handles). These only ever OPEN, so they never fight the popup.
   document.addEventListener("touchend", (e) => void openForSelection(e.target));
+  // On iOS *every* browser (Chrome included) is WebKit, and WebKit makes typing
+  // in a <textarea>/<input> lag — by hundreds of ms — whenever a `selectionchange`
+  // listener is attached to `document`, however trivial the handler. (This is the
+  // iOS tax ProseMirror/CodeMirror/Draft.js all work around.) The early bail in
+  // `openForSelection` does NOT mitigate it: the cost is the listener's presence,
+  // not its body. The watcher only exists to catch mobile prose-selection, which
+  // never happens while the caret is in a field — so detach it on field focus and
+  // re-attach on blur.
   let selTimer: number | undefined;
-  document.addEventListener("selectionchange", () => {
+  const onSelectionChange = () => {
     window.clearTimeout(selTimer);
     selTimer = window.setTimeout(() => void openForSelection(document.activeElement), 350);
+  };
+  const armSelectionWatch = () => document.addEventListener("selectionchange", onSelectionChange);
+  const disarmSelectionWatch = () =>
+    document.removeEventListener("selectionchange", onSelectionChange);
+  armSelectionWatch();
+  const isField = (t: EventTarget | null) =>
+    t instanceof Element && (t.tagName === "TEXTAREA" || t.tagName === "INPUT");
+  document.addEventListener("focusin", (e) => {
+    if (isField(e.target)) disarmSelectionWatch();
+  });
+  document.addEventListener("focusout", (e) => {
+    if (isField(e.target)) armSelectionWatch();
   });
 
   const save = async () => {
