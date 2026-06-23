@@ -22,7 +22,8 @@ use crate::db::{
 };
 use crate::image::{InputFormat, OutputFormat, add_width_suffix};
 use crate::queries::{
-    build_tree, css_output, process_image, render_page_markdown, serve_html, static_file_output,
+    build_tree, css_output, process_image, render_page_markdown, serve_html, source_css_outputs,
+    static_file_output,
 };
 use crate::render::{RenderOptions, inject_livereload_with_build_info};
 use crate::types::Route;
@@ -2259,6 +2260,12 @@ impl SiteServer {
         if let Some(css) = css_output(&snapshot).await.ok().flatten() {
             let css_url = format!("/{}", css.cache_busted_path);
             if path == css_url {
+                return Some(ServeContent::Css(css.content));
+            }
+        }
+        // 2b. Per-source CSS bundles (`/<mount>/main.<hash>.css`).
+        for (_seg, css) in source_css_outputs(&snapshot).await.ok().unwrap_or_default() {
+            if path == format!("/{}", css.cache_busted_path) {
                 return Some(ServeContent::Css(css.content));
             }
         }
