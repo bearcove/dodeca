@@ -579,6 +579,50 @@ mod tests {
         }
     }
 
+    /// A minimal `ResolvedConfig` distinguished only by its `base_url`.
+    fn resolved(base_url: &str) -> ResolvedConfig {
+        ResolvedConfig {
+            _root: Utf8PathBuf::from("/proj"),
+            base_url: base_url.to_string(),
+            sources: vec![],
+            content_dir: Utf8PathBuf::from("/proj/content"),
+            output_dir: Utf8PathBuf::from("/proj/public"),
+            skip_domains: vec![],
+            rate_limit_ms: None,
+            link_check_mode: LinkCheckMode::default(),
+            stable_assets: vec![],
+            code_execution: Default::default(),
+            light_theme_css: String::new(),
+            dark_theme_css: String::new(),
+            build_steps: None,
+            page_types: None,
+            auth: None,
+        }
+    }
+
+    /// `global_config()` reads through the `ConfigRegistry` picante input when a
+    /// `TASK_DB` is in scope (the render/request path) and observes input
+    /// updates — the wiring that lets a config reload invalidate renders. Reads
+    /// outside a scope fall back to the ambient snapshot.
+    #[test]
+    fn global_config_reads_through_config_input_in_task_scope() {
+        use crate::db::{ConfigRegistry, Database};
+        use std::sync::Arc;
+
+        let db = Arc::new(Database::new(None));
+        ConfigRegistry::set(&*db, Arc::new(resolved("https://a/"))).unwrap();
+
+        let a = crate::db::TASK_DB
+            .sync_scope(db.clone(), || global_config().map(|c| c.base_url.clone()));
+        assert_eq!(a.as_deref(), Some("https://a/"));
+
+        // Updating the input is observed by a fresh in-scope read.
+        ConfigRegistry::set(&*db, Arc::new(resolved("https://b/"))).unwrap();
+        let b = crate::db::TASK_DB
+            .sync_scope(db.clone(), || global_config().map(|c| c.base_url.clone()));
+        assert_eq!(b.as_deref(), Some("https://b/"));
+    }
+
     #[test]
     fn normalize_mount_canonicalizes() {
         assert_eq!(normalize_mount("/"), "/");
