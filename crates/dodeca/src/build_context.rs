@@ -231,31 +231,48 @@ pub fn load_source_static_files(
 ) -> Result<Vec<(StaticPath, StaticFile)>> {
     let mut out = Vec::new();
     for root in roots.iter().skip(1) {
-        let source_static = root
-            .content_dir
-            .parent()
-            .unwrap_or(&root.content_dir)
-            .join("static");
-        if !source_static.exists() {
-            continue;
-        }
-        let files: Vec<Utf8PathBuf> = WalkBuilder::new(&source_static)
-            .build()
-            .filter_map(|e| e.ok())
-            .filter(|e| {
-                e.file_type()
-                    .map(|ft| ft.is_file() || (ft.is_symlink() && e.path().is_file()))
-                    .unwrap_or(false)
-            })
-            .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
-            .collect();
-        for path in files {
-            let content = fs::read(&path)?;
-            let relative = path
-                .strip_prefix(&source_static)
-                .map(|p| p.to_string())
-                .unwrap_or_else(|_| path.to_string());
-            let key = mounted_key(&root.mount, &relative);
+        let parent = root.content_dir.parent().unwrap_or(&root.content_dir);
+
+        // Load every file under `dir` with mount-prefixed keys.
+        let mut load_dir = |dir: &Utf8Path| -> Result<()> {
+            if !dir.exists() {
+                return Ok(());
+            }
+            let files: Vec<Utf8PathBuf> = WalkBuilder::new(dir)
+                .build()
+                .filter_map(|e| e.ok())
+                .filter(|e| {
+                    e.file_type()
+                        .map(|ft| ft.is_file() || (ft.is_symlink() && e.path().is_file()))
+                        .unwrap_or(false)
+                })
+                .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
+                .collect();
+            for path in files {
+                let content = fs::read(&path)?;
+                let relative = path
+                    .strip_prefix(dir)
+                    .map(|p| p.to_string())
+                    .unwrap_or_else(|_| path.to_string());
+                let key = mounted_key(&root.mount, &relative);
+                let static_path = StaticPath::new(key);
+                let static_file = StaticFile::new(db, static_path.clone(), content)?;
+                out.push((static_path, static_file));
+            }
+            Ok(())
+        };
+
+        // `static/` assets, then the vite `dist/` output (built JS/CSS), each
+        // under the source's mount so a mounted page's `/quiz.js` / `/style.css`
+        // alias resolves and per-source vite bundles work (see vite_manifest_map).
+        load_dir(&parent.join("static"))?;
+        let dist = parent.join("dist");
+        load_dir(&dist)?;
+        // WalkBuilder skips dotfiles, so add the vite manifest explicitly.
+        let manifest = dist.join(".vite/manifest.json");
+        if manifest.exists() {
+            let content = fs::read(&manifest)?;
+            let key = mounted_key(&root.mount, ".vite/manifest.json");
             let static_path = StaticPath::new(key);
             let static_file = StaticFile::new(db, static_path.clone(), content)?;
             out.push((static_path, static_file));

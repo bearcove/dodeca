@@ -1562,71 +1562,83 @@ struct ViteManifestEntry {
 pub async fn vite_manifest_map<DB: Db>(db: &DB) -> PicanteResult<HashMap<String, String>> {
     let mut result = HashMap::new();
 
-    // Look for .vite/manifest.json in static files
     let static_files = StaticRegistry::files(db)?.unwrap_or_default();
-    let manifest_file = static_files.iter().find(|f| {
-        f.path(db)
-            .ok()
-            .map(|p| p.as_str() == ".vite/manifest.json")
-            .unwrap_or(false)
-    });
 
-    let Some(manifest_file) = manifest_file else {
-        return Ok(result);
-    };
-
-    let content = manifest_file.content(db)?;
-    let Ok(manifest_str) = std::str::from_utf8(&content) else {
-        tracing::warn!("Vite manifest is not valid UTF-8");
-        return Ok(result);
-    };
-
-    // Parse as JSON - the manifest is { "src/file.ts": { "file": "assets/out.js", ... }, ... }
-    let manifest: HashMap<String, ViteManifestEntry> = match facet_json::from_str(manifest_str) {
-        Ok(m) => m,
-        Err(e) => {
-            tracing::warn!("Failed to parse Vite manifest: {}", e);
-            return Ok(result);
-        }
-    };
-
-    // Build a map of vite output path → static file for cache-bust lookups
+    // Map of static file key → file, for cache-bust lookups.
     let static_file_map: HashMap<String, StaticFile> = static_files
         .iter()
-        .filter_map(|f| {
-            let path = f.path(db).ok()?.as_str().to_string();
-            Some((path, *f))
-        })
+        .filter_map(|f| Some((f.path(db).ok()?.as_str().to_string(), *f)))
         .collect();
 
-    for (src, entry) in manifest {
-        let vite_output = &entry.file;
+    // Each source may ship its own vite project, so each has its own
+    // `<mount>/dist/.vite/manifest.json` (the primary's keys are bare). Map
+    // entries mount-prefixed (`/styx/src/quiz/main.ts`); the mount-aware aliasing
+    // in serve_html then resolves a styx page's bare `/src/quiz/main.ts`.
+    let mut segments = vec![String::new()];
+    if let Some(cfg) = crate::config::global_config() {
+        for s in cfg.sources.iter() {
+            let seg = s.mount.trim_matches('/').to_string();
+            if !seg.is_empty() {
+                segments.push(seg);
+            }
+        }
+    }
 
-        // Look up the static file to get its cache-busted path
-        let final_path = if let Some(static_file) = static_file_map.get(vite_output) {
-            // Get the cache-busted output path
-            let output = static_file_output(db, *static_file).await?;
-            format!("/{}", output.cache_busted_path)
+    for seg in segments {
+        let prefix = if seg.is_empty() {
+            String::new()
         } else {
-            // File not found in static files, use raw vite output
-            tracing::warn!(vite_output = %vite_output, "Vite output file not found in static files");
-            format!("/{vite_output}")
+            format!("{seg}/")
+        };
+        let manifest_key = format!("{prefix}.vite/manifest.json");
+        let Some(manifest_file) = static_file_map.get(&manifest_key) else {
+            continue;
         };
 
-        let from = format!("/{src}");
-        tracing::trace!(from = %from, to = %final_path, "vite manifest mapping");
-        result.insert(from, final_path);
+        let content = manifest_file.content(db)?;
+        let Ok(manifest_str) = std::str::from_utf8(&content) else {
+            tracing::warn!(%manifest_key, "Vite manifest is not valid UTF-8");
+            continue;
+        };
 
-        // Also map any CSS files this entry imports
-        if let Some(css_files) = entry.css {
-            for css in css_files {
-                let css_final = if let Some(static_file) = static_file_map.get(&css) {
-                    let output = static_file_output(db, *static_file).await?;
-                    format!("/{}", output.cache_busted_path)
-                } else {
-                    format!("/{css}")
-                };
-                result.insert(format!("/{css}"), css_final);
+        // The manifest is { "src/file.ts": { "file": "assets/out.js", ... }, ... }
+        let manifest: HashMap<String, ViteManifestEntry> = match facet_json::from_str(manifest_str)
+        {
+            Ok(m) => m,
+            Err(e) => {
+                tracing::warn!(%manifest_key, "Failed to parse Vite manifest: {e}");
+                continue;
+            }
+        };
+
+        for (src, entry) in manifest {
+            // The manifest's output path is relative to this source's dist, so
+            // its static-file key is mount-prefixed too.
+            let vite_output_key = format!("{prefix}{}", entry.file);
+            let final_path = if let Some(static_file) = static_file_map.get(&vite_output_key) {
+                let output = static_file_output(db, *static_file).await?;
+                format!("/{}", output.cache_busted_path)
+            } else {
+                tracing::warn!(vite_output = %vite_output_key, "Vite output not found in static files");
+                format!("/{vite_output_key}")
+            };
+
+            let from = format!("/{prefix}{src}");
+            tracing::trace!(from = %from, to = %final_path, "vite manifest mapping");
+            result.insert(from, final_path);
+
+            // Also map any CSS files this entry imports.
+            if let Some(css_files) = entry.css {
+                for css in css_files {
+                    let css_key = format!("{prefix}{css}");
+                    let css_final = if let Some(static_file) = static_file_map.get(&css_key) {
+                        let output = static_file_output(db, *static_file).await?;
+                        format!("/{}", output.cache_busted_path)
+                    } else {
+                        format!("/{css_key}")
+                    };
+                    result.insert(format!("/{prefix}{css}"), css_final);
+                }
             }
         }
     }

@@ -442,9 +442,27 @@ async fn async_main(command: Command) -> Result<()> {
             let cli_mode = args.link_check;
             let cfg = resolve_dirs(args.path, args.content, args.output)?;
 
-            // Run Vite build if configured (before dodeca build so assets are available)
-            let project_dir = cfg.content_dir.parent().unwrap_or(&cfg.content_dir);
-            vite::maybe_run_vite_build(project_dir.as_std_path()).await?;
+            // Run Vite build for every source that ships its own vite project
+            // (the primary's content_dir.parent() plus each mounted source's,
+            // e.g. styx-docs/), before dodeca build so the dist assets exist.
+            // `maybe_run_vite_build` is a no-op where there's no vite.config.
+            //
+            // The primary's build is fatal; a mounted source's is not — a subsite
+            // whose JS toolchain can't build here shouldn't sink the whole
+            // aggregate. Its bundle is simply absent (the page still renders).
+            for (i, source) in cfg.sources.iter().enumerate() {
+                let project_dir = source.content_dir.parent().unwrap_or(&source.content_dir);
+                let res = vite::maybe_run_vite_build(project_dir.as_std_path()).await;
+                if i == 0 {
+                    res?;
+                } else if let Err(e) = res {
+                    tracing::warn!(
+                        source = %source.name,
+                        "vite build failed for mounted source; its bundle will be \
+                         unavailable (the rest of the site builds): {e}"
+                    );
+                }
+            }
 
             // CLI flag wins over `link_check.mode` in dodeca.styx.
             let mode = cli_mode.unwrap_or(cfg.link_check_mode);
