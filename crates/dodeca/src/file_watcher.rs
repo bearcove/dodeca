@@ -267,10 +267,6 @@ impl WatcherConfig {
         {
             dirs.push(parent.to_owned());
         }
-        // Files pulled in by `include` shortcodes (watched individually).
-        for inc in &self.included_files {
-            dirs.push(inc.clone());
-        }
         dirs.sort();
         dirs.dedup();
         dirs
@@ -510,6 +506,29 @@ pub fn watch_dirs(watcher: &WatcherHandle, dirs: &[Utf8PathBuf]) {
             && let Err(e) = w.watch(dir.as_std_path(), RecursiveMode::Recursive)
         {
             tracing::debug!(dir = %dir, error = %e, "watch_dirs: failed to watch");
+        }
+    }
+}
+
+/// Watch the *parent directory* (non-recursively) of each given file. Used for
+/// files pulled in by `include` shortcodes: the macOS notify backend (FSEvents)
+/// is directory-based, so watching the parent — not the file itself — is what
+/// actually delivers change events. Non-recursive keeps it from descending into
+/// sibling `target/`, `node_modules/`, etc. `categorize` (via `included_files`)
+/// then narrows the resulting events to the specific included files.
+pub fn watch_include_files(watcher: &WatcherHandle, files: &[Utf8PathBuf]) {
+    let Ok(mut w) = watcher.lock() else { return };
+    let mut seen = std::collections::HashSet::new();
+    for file in files {
+        let Some(parent) = file.parent() else {
+            continue;
+        };
+        if !seen.insert(parent.to_owned()) || !parent.exists() {
+            continue;
+        }
+        match w.watch(parent.as_std_path(), RecursiveMode::NonRecursive) {
+            Ok(()) => tracing::debug!(dir = %parent, "watch_include_files: watching parent"),
+            Err(e) => tracing::warn!(dir = %parent, error = %e, "watch_include_files: failed"),
         }
     }
 }

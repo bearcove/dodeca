@@ -2264,7 +2264,7 @@ async fn start_file_watcher_from_receiver(
                 dodeca::includes::wait_dirty().await;
                 if let Some(cfg) = dodeca::config::global_config() {
                     let paths = dodeca::includes::refresh(&server.db, &cfg._root);
-                    file_watcher::watch_dirs(&watcher, &paths);
+                    file_watcher::watch_include_files(&watcher, &paths);
                     register_included_paths(&swap, &paths);
                 }
             }
@@ -2362,7 +2362,7 @@ async fn start_file_watcher_from_receiver(
             // invalidates exactly the pages that embed them).
             if let Some(cfg) = dodeca::config::global_config() {
                 let paths = dodeca::includes::refresh(&server.db, &cfg._root);
-                file_watcher::watch_dirs(&watcher_for_reload, &paths);
+                file_watcher::watch_include_files(&watcher_for_reload, &paths);
                 register_included_paths(&config_swap, &paths);
             }
 

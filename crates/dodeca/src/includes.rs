@@ -54,6 +54,7 @@ pub fn read(rel: &str, project_root: &Utf8Path) -> Option<String> {
 fn note(rel: &str) {
     let mut known = KNOWN.lock().unwrap();
     if known.insert(rel.to_string()) {
+        tracing::debug!(rel, "include: noted new path");
         dirty().notify_one();
     }
 }
@@ -79,7 +80,10 @@ pub fn refresh(db: &Database, project_root: &Utf8Path) -> Vec<camino::Utf8PathBu
     let mut entries = Vec::new();
     let mut watch = Vec::new();
     for rel in known {
+        // Canonicalize so the watched path + registered `included_files` match the
+        // canonical paths `notify` reports (the project root may be relative).
         let abs = project_root.join(&rel);
+        let abs = abs.canonicalize_utf8().unwrap_or(abs);
         watch.push(abs.clone());
         if let Ok(content) = std::fs::read_to_string(&abs) {
             entries.push(IncludedFileEntry { path: rel, content });
@@ -91,9 +95,14 @@ pub fn refresh(db: &Database, project_root: &Utf8Path) -> Vec<camino::Utf8PathBu
         .ok()
         .flatten()
         .unwrap_or_default();
-    if current != entries
-        && let Err(e) = IncludedFileRegistry::set(db, entries)
-    {
+    let changed = current != entries;
+    tracing::debug!(
+        known = watch.len(),
+        loaded = entries.len(),
+        changed,
+        "include: refresh"
+    );
+    if changed && let Err(e) = IncludedFileRegistry::set(db, entries) {
         tracing::warn!(error = %e, "includes: failed to publish registry");
     }
     watch
