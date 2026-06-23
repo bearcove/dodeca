@@ -679,6 +679,24 @@ impl<'a> Renderable<'a> {
         if let Some(cfg) = crate::config::global_config() {
             let owner_mount =
                 crate::build_context::source_for_route(self.route().as_str(), &cfg.sources);
+
+            // Expose every mounted source as `{ name, mount, active }` so the
+            // project switcher in the shared chrome is data-driven — it lists
+            // all sites and grows automatically as sources are added, instead of
+            // hardcoding a fixed set.
+            let sites: Vec<Value> = cfg
+                .sources
+                .iter()
+                .map(|s| {
+                    let mut site = VObject::new();
+                    site.insert(VString::from("name"), Value::from(s.name.as_str()));
+                    site.insert(VString::from("mount"), Value::from(s.mount.as_str()));
+                    site.insert(VString::from("active"), Value::from(s.mount == owner_mount));
+                    Value::from(site)
+                })
+                .collect();
+            obj.insert(VString::from("sites"), VArray::from_iter(sites));
+
             if let Some(src) = cfg.sources.iter().find(|s| s.mount == owner_mount) {
                 let mut source_obj = VObject::new();
                 source_obj.insert(VString::from("name"), Value::from(src.name.as_str()));
