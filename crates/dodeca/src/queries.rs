@@ -1691,88 +1691,100 @@ fn collect_transitive_css(
 pub async fn vite_css_for_entries<DB: Db>(db: &DB) -> PicanteResult<HashMap<String, Vec<String>>> {
     let mut result: HashMap<String, Vec<String>> = HashMap::new();
 
-    // Look for .vite/manifest.json in static files
     let static_files = StaticRegistry::files(db)?.unwrap_or_default();
-    let manifest_file = static_files.iter().find(|f| {
-        f.path(db)
-            .ok()
-            .map(|p| p.as_str() == ".vite/manifest.json")
-            .unwrap_or(false)
-    });
 
-    let Some(manifest_file) = manifest_file else {
-        return Ok(result);
-    };
-
-    let content = manifest_file.content(db)?;
-    let Ok(manifest_str) = std::str::from_utf8(&content) else {
-        return Ok(result);
-    };
-
-    let manifest: HashMap<String, ViteManifestEntry> = match facet_json::from_str(manifest_str) {
-        Ok(m) => m,
-        Err(e) => {
-            tracing::warn!("Failed to parse Vite manifest for CSS collection: {}", e);
-            return Ok(result);
-        }
-    };
-
-    // Build a map of vite output path → static file for cache-bust lookups
+    // Map of static file key → file, for cache-bust lookups.
     let static_file_map: HashMap<String, StaticFile> = static_files
         .iter()
-        .filter_map(|f| {
-            let path = f.path(db).ok()?.as_str().to_string();
-            Some((path, *f))
-        })
+        .filter_map(|f| Some((f.path(db).ok()?.as_str().to_string(), *f)))
         .collect();
 
-    // For each entry point, collect all transitive CSS
-    for (src, entry) in &manifest {
-        // Skip non-entry points and chunk keys (start with _)
-        if !entry.is_entry.unwrap_or(false) || src.starts_with('_') {
-            continue;
-        }
-
-        let mut visited = std::collections::HashSet::new();
-        let css_files = collect_transitive_css(&manifest, src, &mut visited);
-
-        if css_files.is_empty() {
-            continue;
-        }
-
-        // Convert CSS paths to cache-busted URLs
-        let mut css_urls = Vec::new();
-        for css in css_files {
-            let css_url = if let Some(static_file) = static_file_map.get(&css) {
-                let output = static_file_output(db, *static_file).await?;
-                format!("/{}", output.cache_busted_path)
-            } else {
-                format!("/{css}")
-            };
-            // Avoid duplicates
-            if !css_urls.contains(&css_url) {
-                css_urls.push(css_url);
+    // Per source (primary "" + each mounted source), keyed/prefixed like
+    // `vite_manifest_map` so a mounted entry's CSS is found under its mount and
+    // the injected `<link>` (matched against the post-rewrite script `src`)
+    // resolves. The injection runs after URL rewriting, so we key by the
+    // mount-prefixed source, built, and cache-busted-built paths.
+    let mut segments = vec![String::new()];
+    if let Some(cfg) = crate::config::global_config() {
+        for s in cfg.sources.iter() {
+            let seg = s.mount.trim_matches('/').to_string();
+            if !seg.is_empty() {
+                segments.push(seg);
             }
         }
+    }
 
-        let source_path = format!("/{src}");
-        let built_path = format!("/{}", entry.file);
-        let cache_busted_built_path = if let Some(static_file) = static_file_map.get(&entry.file) {
-            let output = static_file_output(db, *static_file).await?;
-            Some(format!("/{}", output.cache_busted_path))
+    for seg in segments {
+        let prefix = if seg.is_empty() {
+            String::new()
         } else {
-            None
+            format!("{seg}/")
+        };
+        let manifest_key = format!("{prefix}.vite/manifest.json");
+        let Some(manifest_file) = static_file_map.get(&manifest_key) else {
+            continue;
         };
 
-        tracing::debug!(
-            source = %source_path,
-            css_count = css_urls.len(),
-            "Vite entry CSS dependencies"
-        );
-        result.insert(source_path, css_urls.clone());
-        result.insert(built_path, css_urls.clone());
-        if let Some(cache_busted) = cache_busted_built_path {
-            result.insert(cache_busted, css_urls);
+        let content = manifest_file.content(db)?;
+        let Ok(manifest_str) = std::str::from_utf8(&content) else {
+            continue;
+        };
+        let manifest: HashMap<String, ViteManifestEntry> = match facet_json::from_str(manifest_str)
+        {
+            Ok(m) => m,
+            Err(e) => {
+                tracing::warn!(%manifest_key, "Failed to parse Vite manifest for CSS: {e}");
+                continue;
+            }
+        };
+
+        // For each entry point, collect all transitive CSS.
+        for (src, entry) in &manifest {
+            // Skip non-entry points and chunk keys (start with _).
+            if !entry.is_entry.unwrap_or(false) || src.starts_with('_') {
+                continue;
+            }
+
+            let mut visited = std::collections::HashSet::new();
+            let css_files = collect_transitive_css(&manifest, src, &mut visited);
+            if css_files.is_empty() {
+                continue;
+            }
+
+            // Cache-busted, mount-prefixed CSS URLs.
+            let mut css_urls = Vec::new();
+            for css in css_files {
+                let css_key = format!("{prefix}{css}");
+                let css_url = if let Some(static_file) = static_file_map.get(&css_key) {
+                    let output = static_file_output(db, *static_file).await?;
+                    format!("/{}", output.cache_busted_path)
+                } else {
+                    format!("/{css_key}")
+                };
+                if !css_urls.contains(&css_url) {
+                    css_urls.push(css_url);
+                }
+            }
+
+            // Three keys, all mount-prefixed: the source entry, the un-hashed
+            // built path, and the cache-busted built path (what the script's
+            // `src` becomes after URL rewriting).
+            let source_path = format!("/{prefix}{src}");
+            let built_path = format!("/{prefix}{}", entry.file);
+            let built_key = format!("{prefix}{}", entry.file);
+            let cache_busted_built_path = if let Some(static_file) = static_file_map.get(&built_key)
+            {
+                let output = static_file_output(db, *static_file).await?;
+                Some(format!("/{}", output.cache_busted_path))
+            } else {
+                None
+            };
+
+            result.insert(source_path, css_urls.clone());
+            result.insert(built_path, css_urls.clone());
+            if let Some(cache_busted) = cache_busted_built_path {
+                result.insert(cache_busted, css_urls);
+            }
         }
     }
 
