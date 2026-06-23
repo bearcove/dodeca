@@ -857,12 +857,29 @@ function installCreateUI(layer: HTMLElement): void {
     setKind("note");
     picker.hidden = true;
     ui.hidden = false;
-    const r = sel!.getRangeAt(0).getBoundingClientRect();
-    ui.style.top = `${window.scrollY + r.bottom + 8}px`;
-    ui.style.left = `${Math.max(8, window.scrollX + Math.min(r.left, window.innerWidth - 360))}px`;
-    // On touch, stealing focus pops the on-screen keyboard and collapses the native
-    // selection handles mid-gesture — let the user tap the field when they're ready.
-    if (!isCoarse()) bodyEl.focus();
+    if (isCoarse()) {
+      // The native iOS edit menu (Copy / Look Up / …) hugs the selection and can't be
+      // suppressed from the web. Anchoring our popup to the same rect makes the two
+      // collide, so on touch we dock to the bottom of the viewport instead — well clear
+      // of the selection-hugging menu.
+      ui.style.position = "fixed";
+      ui.style.top = "auto";
+      ui.style.bottom = "12px";
+      ui.style.left = "8px";
+      ui.style.right = "8px";
+      ui.style.width = "auto";
+      // Don't steal focus: it pops the on-screen keyboard and collapses the native
+      // selection handles mid-gesture. Let the user tap the field when they're ready.
+    } else {
+      const r = sel!.getRangeAt(0).getBoundingClientRect();
+      ui.style.position = "absolute";
+      ui.style.top = `${window.scrollY + r.bottom + 8}px`;
+      ui.style.bottom = "auto";
+      ui.style.right = "auto";
+      ui.style.width = "";
+      ui.style.left = `${Math.max(8, window.scrollX + Math.min(r.left, window.innerWidth - 360))}px`;
+      bodyEl.focus();
+    }
     return true;
   };
 
@@ -1025,8 +1042,12 @@ function installCreateUI(layer: HTMLElement): void {
     ppHead.textContent = `New page: “${ppTitle.length > 60 ? ppTitle.slice(0, 57) + "…" : ppTitle}”`;
     ppStatus.textContent = "";
     ppFilter.value = "";
+    picker.style.position = ui.style.position;
     picker.style.top = ui.style.top;
+    picker.style.bottom = ui.style.bottom;
     picker.style.left = ui.style.left;
+    picker.style.right = ui.style.right;
+    picker.style.width = ui.style.width;
     ppFilter.focus();
     if (!sections) {
       ppList.innerHTML = `<div class="dn-empty">loading sections…</div>`;
