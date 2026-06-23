@@ -523,9 +523,21 @@ pub fn set_global_config(config: ResolvedConfig) -> Result<()> {
 
 /// Get the global config (returns None if not initialized).
 ///
-/// Returns an owned `Arc` snapshot: the caller sees a consistent config even if
-/// a hot-reload swaps in a new one mid-use.
+/// When called inside a request/render scope (a `TASK_DB` is set), this reads
+/// through the [`ConfigRegistry`](crate::db::ConfigRegistry) picante input so
+/// the *calling tracked query records a dependency on the config* — that's what
+/// makes a config change auto-invalidate renders, per-source CSS, and search.
+/// Outside a request (pre-db bootstrap, the non-tracked HTTP path) it falls
+/// back to the ambient `ArcSwap` snapshot.
+///
+/// Both are kept in sync: every config install sets the ambient snapshot and
+/// (once a db exists) the `ConfigRegistry` input from the same `ResolvedConfig`.
 pub fn global_config() -> Option<std::sync::Arc<ResolvedConfig>> {
+    if let Ok(Ok(Some(cfg))) =
+        crate::db::TASK_DB.try_with(|db| crate::db::ConfigRegistry::config(db.as_ref()))
+    {
+        return Some(cfg);
+    }
     RESOLVED_CONFIG.load_full()
 }
 

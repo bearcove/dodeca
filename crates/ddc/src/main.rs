@@ -3,9 +3,9 @@
 use camino::{Utf8Path, Utf8PathBuf};
 use dodeca::config::{LinkCheckMode, ResolvedConfig};
 use dodeca::db::{
-    self, DataFile, DataRegistry, Database, MarkdownRenderSettings, OutputFile, QueryStats,
-    SassFile, SassRegistry, SourceFile, SourceRegistry, StaticFile, StaticRegistry, TemplateFile,
-    TemplateRegistry,
+    self, ConfigRegistry, DataFile, DataRegistry, Database, MarkdownRenderSettings, OutputFile,
+    QueryStats, SassFile, SassRegistry, SourceFile, SourceRegistry, StaticFile, StaticRegistry,
+    TemplateFile, TemplateRegistry,
 };
 use dodeca::queries::{self, build_site};
 use dodeca::tui::{self, LogEvent};
@@ -2462,6 +2462,13 @@ async fn serve_plain(
         .await
         .map_err(|_| eyre!("Failed to get bound port"))?;
 
+    // Publish the resolved config into the picante input so tracked queries
+    // (renders, per-source CSS, search) record a dependency on it — a config
+    // reload then invalidates them automatically.
+    if let Some(cfg) = dodeca::config::global_config() {
+        ConfigRegistry::set(&*server.db, cfg).expect("failed to set config input");
+    }
+
     // Load source files from every mounted source (mount-prefixed keys), via
     // the same loader the build path uses.
     println!("{}", "Loading source files...".dimmed());
@@ -2859,6 +2866,12 @@ async fn serve_with_tui(
     // Load source files into the server
     let _ = event_tx.send(LogEvent::build("Loading source files..."));
     progress_tx.send_modify(|prog| prog.parse.start(0));
+
+    // Publish the resolved config into the picante input (see the serve_plain
+    // path) so tracked queries record a dependency on it for reload invalidation.
+    if let Some(cfg) = dodeca::config::global_config() {
+        ConfigRegistry::set(&*server.db, cfg).expect("failed to set config input");
+    }
 
     // Load source files from every mounted source (mount-prefixed keys), via
     // the same loader the build path uses.

@@ -137,7 +137,7 @@ pub struct SourceRegistry {
 /// remains for pre-db bootstrap and the non-tracked HTTP path.)
 #[picante::input]
 pub struct ConfigRegistry {
-    pub config: crate::config::ResolvedConfig,
+    pub config: Arc<crate::config::ResolvedConfig>,
 }
 
 /// Markdown rendering settings that affect parsed HTML output.
