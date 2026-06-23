@@ -880,11 +880,9 @@ impl WikiLinkIndex {
     /// the page's own source namespace first (bare/local links), then the
     /// name-qualified namespace (explicit cross-source links).
     fn resolve(&self, key: &str, source_path: &str) -> Option<&String> {
-        let name = source_of(source_path)
-            .map(|s| s.name.as_str())
-            .unwrap_or("");
+        let name = source_of(source_path).map(|s| s.name).unwrap_or_default();
         self.local
-            .get(name)
+            .get(name.as_str())
             .and_then(|m| m.resolved.get(key))
             .or_else(|| self.global.resolved.get(key))
     }
@@ -894,9 +892,9 @@ impl WikiLinkIndex {
     /// namespace overriding (bare links resolve locally). Used by the HTML-level
     /// wiki-link pass, which resolves against a single map per page.
     fn resolved_for(&self, source: &str) -> HashMap<String, String> {
-        let name = source_of(source).map(|s| s.name.as_str()).unwrap_or("");
+        let name = source_of(source).map(|s| s.name).unwrap_or_default();
         let mut map = self.global.resolved.clone();
-        if let Some(local) = self.local.get(name) {
+        if let Some(local) = self.local.get(name.as_str()) {
             for (key, route) in &local.resolved {
                 map.insert(key.clone(), route.clone());
             }
@@ -907,9 +905,9 @@ impl WikiLinkIndex {
     /// Ambiguity candidates for a key as seen from `source` (page's local
     /// namespace first, then global) — for the "ambiguous vs missing" diagnostic.
     fn ambiguity(&self, source: &str, key: &str) -> Option<&Vec<String>> {
-        let name = source_of(source).map(|s| s.name.as_str()).unwrap_or("");
+        let name = source_of(source).map(|s| s.name).unwrap_or_default();
         self.local
-            .get(name)
+            .get(name.as_str())
             .and_then(|m| m.ambiguous.get(key))
             .or_else(|| self.global.ambiguous.get(key))
     }
@@ -941,8 +939,9 @@ fn add_provenance_candidates(
     route: &Route,
 ) {
     let source = source_of(route.as_str());
-    let name = source.map(|s| s.name.clone()).unwrap_or_default();
+    let name = source.as_ref().map(|s| s.name.clone()).unwrap_or_default();
     let seg = source
+        .as_ref()
         .map(|s| s.mount.trim_matches('/').to_string())
         .unwrap_or_default();
     let trimmed = route.as_str().trim_matches('/');
@@ -2310,16 +2309,17 @@ pub async fn all_rendered_html<DB: Db>(
 /// If a wiki-link target's leading name token (`kb` in `kb:overview`) is a
 /// configured source whose content directory is absent — a sibling repo not
 /// checked out — return that source, for the "not checked out" diagnostic.
-fn absent_source_for_target(target: &str) -> Option<&'static crate::config::ResolvedSource> {
+fn absent_source_for_target(target: &str) -> Option<crate::config::ResolvedSource> {
     let name = target
         .split([':', '/'])
         .next()
         .map(str::trim)
         .filter(|s| !s.is_empty())?;
-    let sources = &crate::config::global_config()?.sources;
-    sources
+    let cfg = crate::config::global_config()?;
+    cfg.sources
         .iter()
         .find(|s| s.name == name && !s.content_dir.exists())
+        .cloned()
 }
 
 fn collect_wiki_link_errors(
@@ -2766,12 +2766,12 @@ pub async fn static_url_map<DB: Db>(db: &DB) -> PicanteResult<HashMap<String, St
 /// The source that owns a route or source path — the one whose mount segment is
 /// the longest prefix (the root source, segment ``, is the fallback). Used to
 /// recover both the mount (for asset prefixing) and the name (for wiki links).
-fn source_of(path: &str) -> Option<&'static crate::config::ResolvedSource> {
-    let sources = &crate::config::global_config()?.sources;
+fn source_of(path: &str) -> Option<crate::config::ResolvedSource> {
+    let cfg = crate::config::global_config()?;
     let trimmed = path.trim_matches('/');
-    let mut best: Option<&'static crate::config::ResolvedSource> = None;
+    let mut best: Option<&crate::config::ResolvedSource> = None;
     let mut best_len: Option<usize> = None;
-    for source in sources {
+    for source in &cfg.sources {
         let seg = source.mount.trim_matches('/');
         let matches = seg.is_empty()
             || trimmed == seg
@@ -2783,7 +2783,7 @@ fn source_of(path: &str) -> Option<&'static crate::config::ResolvedSource> {
             best_len = Some(seg.len());
         }
     }
-    best
+    best.cloned()
 }
 
 /// The name of the source a route or source path belongs to (empty for the

@@ -23,6 +23,7 @@ ignored = ["getrandom", "facet-default"]
 [workspace.dependencies]
 # Core utilities
 aho-corasick = "1.1"
+arc-swap = "1.9"
 brotli = "8"
 camino = "1.2"
 tokenizers = "0.23"

@@ -34,9 +34,7 @@ impl ContentService for HostContentService {
         // oauth2-proxy); fail-closed there — no identity → bounce to the proxy
         // login. With no `auth` config (local `ddc serve`) it's open.
         if path == "/_dodeca/status" {
-            let auth_enabled = crate::config::global_config()
-                .and_then(|c| c.auth.as_ref())
-                .is_some();
+            let auth_enabled = crate::config::global_config().is_some_and(|c| c.auth.is_some());
             if auth_enabled && identity.is_none() {
                 return ServeContent::Redirect {
                     location: format!("/oauth2/start?rd={path}"),
@@ -154,9 +152,8 @@ impl ContentService for HostContentService {
                     };
                 }
                 None => {
-                    let auth_enabled = crate::config::global_config()
-                        .and_then(|c| c.auth.as_ref())
-                        .is_some();
+                    let auth_enabled =
+                        crate::config::global_config().is_some_and(|c| c.auth.is_some());
                     if auth_enabled && identity.is_none() {
                         return ServeContent::Redirect {
                             location: format!("/oauth2/start?rd={path}"),

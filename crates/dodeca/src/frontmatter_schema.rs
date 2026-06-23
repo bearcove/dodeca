@@ -23,12 +23,14 @@ struct LinkTarget {
 }
 
 pub fn validate(parsed: &[ParsedData]) -> Vec<FrontmatterSchemaError> {
-    let Some(page_types) = crate::config::global_config().and_then(|config| {
-        config
-            .page_types
-            .as_ref()
-            .filter(|page_types| !page_types.is_empty())
-    }) else {
+    let Some(config) = crate::config::global_config() else {
+        return Vec::new();
+    };
+    let Some(page_types) = config
+        .page_types
+        .as_ref()
+        .filter(|page_types| !page_types.is_empty())
+    else {
         return Vec::new();
     };
 

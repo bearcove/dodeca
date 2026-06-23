@@ -948,6 +948,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "arc-swap"
+version = "1.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a3a1fd6f75306b68087b831f025c712524bcb19aad54e557b1129cfa0a2b207"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
 name = "arg_enum_proc_macro"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2638,6 +2647,7 @@ dependencies = [
  "aho-corasick",
  "arboard",
  "arborium-theme",
+ "arc-swap",
  "ariadne 0.5.1",
  "axum",
  "base64 0.22.1",

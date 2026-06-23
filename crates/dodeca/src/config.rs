@@ -6,11 +6,11 @@
 //! Config parsing uses facet-styx directly — config is a bootstrap concern
 //! that must be resolved before cells are available.
 
+use arc_swap::ArcSwapOption;
 use camino::{Utf8Path, Utf8PathBuf};
 use eyre::{Result, eyre};
 use std::env;
 use std::fs;
-use std::sync::OnceLock;
 
 // Re-export config types from dodeca-config crate
 pub use dodeca_config::{
@@ -495,10 +495,20 @@ fn normalize_mount(raw: &str) -> String {
 // Global config access
 // ============================================================================
 
-/// Global resolved configuration
-static RESOLVED_CONFIG: OnceLock<ResolvedConfig> = OnceLock::new();
+/// Global resolved configuration.
+///
+/// Stored in an [`ArcSwapOption`] so the serve loop can hot-reload it when
+/// `.config/dodeca.styx` changes: a new config is published with a single
+/// atomic store, and existing readers that hold an `Arc` to the previous one
+/// keep it alive until they drop it (then it's freed — no leak). Lock-free on
+/// the read path, which matters because `global_config()` is hit per render.
+static RESOLVED_CONFIG: ArcSwapOption<ResolvedConfig> = ArcSwapOption::const_empty();
 
-/// Initialize the global config (call once at startup)
+/// Install a config as the global one (startup) or replace it (hot-reload).
+///
+/// Re-publishes the build-step executor for the new config, then atomically
+/// swaps the config in. Safe to call more than once: a later call supersedes
+/// the earlier config for all *new* `global_config()` reads.
 pub fn set_global_config(config: ResolvedConfig) -> Result<()> {
     // Initialize build step executor
     let executor = std::sync::Arc::new(crate::build_steps::BuildStepExecutor::new(
@@ -507,14 +517,16 @@ pub fn set_global_config(config: ResolvedConfig) -> Result<()> {
     ));
     crate::host::Host::get().set_build_step_executor(executor);
 
-    RESOLVED_CONFIG
-        .set(config)
-        .map_err(|_| eyre!("Global config already initialized"))
+    RESOLVED_CONFIG.store(Some(std::sync::Arc::new(config)));
+    Ok(())
 }
 
-/// Get the global config (returns None if not initialized)
-pub fn global_config() -> Option<&'static ResolvedConfig> {
-    RESOLVED_CONFIG.get()
+/// Get the global config (returns None if not initialized).
+///
+/// Returns an owned `Arc` snapshot: the caller sees a consistent config even if
+/// a hot-reload swaps in a new one mid-use.
+pub fn global_config() -> Option<std::sync::Arc<ResolvedConfig>> {
+    RESOLVED_CONFIG.load_full()
 }
 
 #[cfg(test)]

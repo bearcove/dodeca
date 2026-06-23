@@ -19,6 +19,7 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [dependencies]
 aho-corasick.workspace = true
+arc-swap.workspace = true
 brotli.workspace = true
 cell-embed = { path = "../../cells/cell-embed" }
 cell-embed-proto = { path = "../../cells/cell-embed-proto" }
