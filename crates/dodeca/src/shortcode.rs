@@ -100,6 +100,14 @@ async fn render_one_shortcode(
 ) -> String {
     let args_proto = decode_args(args_b64);
 
+    // `include` is a built-in shortcode: pull another file's content into the
+    // page (e.g. a crate's README), optionally cleaned up for embedding via
+    // `strip_readme`. Resolved here rather than as a gingembre template because
+    // it reads a file and renders markdown.
+    if name == "include" {
+        return render_include(args_proto.as_ref()).await;
+    }
+
     let template_name = format!("shortcodes/{name}.html");
 
     // Check the template exists before attempting render.
@@ -143,6 +151,126 @@ async fn render_one_shortcode(
             format!("<!-- shortcode '{name}' error: {e} -->")
         }
     }
+}
+
+/// Render the built-in `include` shortcode: read a file relative to the project
+/// root, optionally run the `strip_readme` cleanup, and render it as markdown.
+///
+/// `{{ include(path="figue/README.md", strip_readme=true) }}`
+///
+/// Note: this reads the file directly for now; making the included file a
+/// tracked picante input (so editing it hot-reloads dependents) is the next step.
+async fn render_include(args: Option<&ShortcodeArgsProto>) -> String {
+    let Some(path) = include_arg(args, "path") else {
+        tracing::warn!("include: missing `path` argument");
+        return "<!-- include: missing `path` -->".to_string();
+    };
+    let strip = include_arg(args, "strip_readme").as_deref() == Some("true");
+
+    let Some(cfg) = crate::config::global_config() else {
+        return "<!-- include: config not initialized -->".to_string();
+    };
+    let abs = cfg._root.join(&path);
+
+    let raw = match std::fs::read_to_string(&abs) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!(path = %abs, error = %e, "include: failed to read file");
+            return format!("<!-- include: cannot read '{path}' -->");
+        }
+    };
+
+    let content = if strip {
+        strip_readme_markdown(&raw)
+    } else {
+        raw
+    };
+
+    match crate::cells::parse_and_render_markdown(&path, &content, false, false).await {
+        Ok(cell_markdown_proto::ParseResult::Success { html, .. }) => html,
+        other => {
+            tracing::warn!(path = %abs, ?other, "include: markdown render failed");
+            format!("<!-- include: render failed for '{path}' -->")
+        }
+    }
+}
+
+/// Look up a single named argument from a shortcode's `Pairs` args.
+fn include_arg(args: Option<&ShortcodeArgsProto>, key: &str) -> Option<String> {
+    match args? {
+        ShortcodeArgsProto::Pairs(pairs) => {
+            pairs.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
+        }
+        ShortcodeArgsProto::Yaml(_) => None,
+    }
+}
+
+/// Clean up a crate README for embedding in a docs page: drop the leading `#`
+/// title and the run of shield/badge lines, and honor rustdoc's `# `-prefixed
+/// hidden lines inside ```rust code blocks (so `# fn main()` scaffolding doesn't
+/// show, and `##` unescapes to `#`).
+fn strip_readme_markdown(md: &str) -> String {
+    let mut out: Vec<String> = Vec::new();
+    // `Some(is_rust)` while inside a fenced code block.
+    let mut fence: Option<bool> = None;
+    // Still consuming the leading title/badge preamble.
+    let mut in_preamble = true;
+
+    for line in md.lines() {
+        let t = line.trim_start();
+
+        if t.starts_with("```") || t.starts_with("~~~") {
+            if fence.is_none() {
+                let lang = t.trim_start_matches(['`', '~']).trim();
+                let is_rust =
+                    lang.is_empty() || lang == "rust" || lang == "rs" || lang.starts_with("rust,");
+                fence = Some(is_rust);
+            } else {
+                fence = None;
+            }
+            in_preamble = false;
+            out.push(line.to_string());
+            continue;
+        }
+
+        if let Some(is_rust) = fence {
+            if is_rust {
+                let ct = line.trim_start();
+                if ct == "#" || ct.starts_with("# ") {
+                    continue; // rustdoc hidden line
+                }
+                if let Some(rest) = ct.strip_prefix("##") {
+                    let indent = &line[..line.len() - ct.len()];
+                    out.push(format!("{indent}#{rest}")); // `##` -> `#`
+                    continue;
+                }
+            }
+            out.push(line.to_string());
+            continue;
+        }
+
+        if in_preamble {
+            if t.is_empty() {
+                continue;
+            }
+            if t.starts_with("# ") {
+                continue; // the title
+            }
+            if is_badge_line(t) {
+                continue;
+            }
+            in_preamble = false;
+        }
+        out.push(line.to_string());
+    }
+
+    let joined = out.join("\n");
+    format!("{}\n", joined.trim_start_matches('\n').trim_end())
+}
+
+/// A markdown line that's just a shield/badge image-link (or a row of them).
+fn is_badge_line(t: &str) -> bool {
+    t.contains("shields.io") || (t.starts_with("[![") && t.ends_with(')'))
 }
 
 /// Decode base64 + facet-json args from the `data-args` attribute.
