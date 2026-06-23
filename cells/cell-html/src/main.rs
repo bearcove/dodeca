@@ -1022,7 +1022,11 @@ fn localize_mounted_links_in_doc(doc: &mut Document, mount: &MountLocalization) 
 fn localize_links_in_subtree(doc: &mut Document, node_id: NodeId, mount: &MountLocalization) {
     let children: Vec<NodeId> = doc.children(node_id).collect();
 
+    // `data-x-site` opts a link out of mount localization: it's shared cross-site
+    // chrome (the ecosystem nav) authored in final assembled-site form, so e.g.
+    // its facet-home `/` must stay `/` instead of being rewritten to `/wiki/`.
     if tag_name(doc, node_id) == Some("a")
+        && get_attr(doc, node_id, "data-x-site").is_none()
         && let Some(href) = get_attr(doc, node_id, "href")
         && let Some(new_href) = localize_mounted_href(&href, mount)
     {
