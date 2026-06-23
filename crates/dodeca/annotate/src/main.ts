@@ -266,6 +266,17 @@ async function withClient<T>(call: (c: DevtoolsServiceClient) => Promise<T>): Pr
   }
 }
 
+// Idempotency key for a write, generated once per logical save and reused across
+// `withClient`'s retry-once so a lost ack can't double the note: the server
+// dedupes on it. `crypto.randomUUID()` is secure-context-only (undefined over
+// plain-http Tailscale, exactly where the retry matters), so use getRandomValues,
+// which is available in insecure contexts too.
+function newNonce(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 // ── note model (read from server-rendered asides) ───────────────────────────
 interface NoteComment {
   author: string;
@@ -520,6 +531,7 @@ function main(): void {
       if (!body) return;
       const a = author.value.trim();
       localStorage.setItem(AUTHOR_KEY, a);
+      const nonce = newNonce();
       status.textContent = "saving…";
       try {
         const res: AnnotateResult = await withClient((c) =>
@@ -531,6 +543,7 @@ function main(): void {
             author: a || null,
             kind: null,
             reply_to: note.id,
+            nonce,
           }),
         );
         if (res.tag === "Ok") {
@@ -877,6 +890,7 @@ function installCreateUI(layer: HTMLElement): void {
     if (!body) return;
     const author = authorEl.value.trim();
     localStorage.setItem(AUTHOR_KEY, author);
+    const nonce = newNonce();
     statusEl.textContent = "saving…";
     try {
       const res: AnnotateResult = await withClient((c) =>
@@ -888,6 +902,7 @@ function installCreateUI(layer: HTMLElement): void {
           author: author || null,
           kind,
           reply_to: null,
+          nonce,
         }),
       );
       switch (res.tag) {

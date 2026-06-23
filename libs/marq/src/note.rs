@@ -41,6 +41,14 @@ pub struct NoteMeta {
     #[facet(default)]
     pub id: Option<String>,
 
+    /// Idempotency key for the write that created this note. The dev overlay
+    /// retries an annotate once if an ack is lost, so the server dedupes on this
+    /// nonce to avoid a duplicate. A new note reuses its thread `id` as the key
+    /// (so this stays `None`); a reply — which shares an existing thread `id` —
+    /// carries the key here instead.
+    #[facet(default)]
+    pub nonce: Option<String>,
+
     /// Creation timestamp (RFC 3339), for rendering a byline date.
     #[facet(default)]
     pub created: Option<String>,
@@ -131,6 +139,9 @@ pub fn to_comment(meta: &NoteMeta, body: &str) -> Option<String> {
     }
     if let Some(id) = &meta.id {
         obj.insert("id", id.as_str());
+    }
+    if let Some(nonce) = &meta.nonce {
+        obj.insert("nonce", nonce.as_str());
     }
     if let Some(created) = &meta.created {
         obj.insert("created", created.as_str());
@@ -318,6 +329,23 @@ mod tests {
         assert_eq!(parsed.meta.id.as_deref(), Some("t1"));
         assert_eq!(parsed.meta.resolved, Some(true));
         assert!(render_aside(&parsed.meta, "<p>x</p>").contains("data-resolved=\"true\""));
+    }
+
+    #[test]
+    fn to_comment_round_trips_nonce() {
+        // Replies carry the idempotency key in `nonce` (their `id` is the shared
+        // thread id); it must survive the source round-trip so the server can
+        // dedupe a retried write against what's already on disk.
+        let meta = NoteMeta {
+            id: Some("thread1".into()),
+            nonce: Some("a1b2c3d4e5f6".into()),
+            ..Default::default()
+        };
+        let comment = to_comment(&meta, "a reply").expect("serializable");
+        let parsed = parse_note(&comment).expect("round-trips");
+        assert_eq!(parsed.meta.id.as_deref(), Some("thread1"));
+        assert_eq!(parsed.meta.nonce.as_deref(), Some("a1b2c3d4e5f6"));
+        assert_eq!(parsed.body, "a reply");
     }
 
     #[test]

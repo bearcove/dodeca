@@ -641,13 +641,30 @@ impl SiteServer {
         let created = Some(chrono::Utc::now().to_rfc3339());
         let content = tokio::fs::read_to_string(&disk_path).await?;
 
+        // Idempotency: the overlay retries a write once if an ack is lost (a
+        // reconnect can land the retry on a fresh lane), so a note bearing this
+        // nonce may already be on disk. If so, return it instead of inserting a
+        // duplicate. A new note adopts the nonce as its thread id; a reply carries
+        // it in its `nonce` field — `find_note_with_nonce` matches either.
+        if let Some(line) = find_note_with_nonce(&content, &req.nonce) {
+            tracing::debug!(
+                route = %route,
+                nonce = %req.nonce,
+                line,
+                "annotate deduplicated by nonce (retried write)"
+            );
+            return Ok(Some((source_file.to_string(), line)));
+        }
+
         let (new_content, line) = if let Some(thread_id) = req.reply_to.as_deref() {
             // Reply: append a comment with the existing thread id right after the
-            // thread's last note. No new highlight.
+            // thread's last note. No new highlight. The nonce can't be the id (the
+            // thread id already exists), so it rides in the note's `nonce` field.
             let meta = marq::NoteMeta {
                 author,
                 kind: req.kind.clone(),
                 id: Some(thread_id.to_string()),
+                nonce: Some(req.nonce.clone()),
                 created,
                 resolved: None,
                 quote: None, // replies join the thread; they don't anchor a span
@@ -666,7 +683,9 @@ impl SiteServer {
             let Some(entry) = source_map.get_by_sid(&req.sid) else {
                 return Ok(None);
             };
-            let id = new_note_id();
+            // A new note opens a fresh thread, so its idempotency nonce doubles as
+            // the thread id; the dedup check above keys off this on a retry.
+            let id = req.nonce.clone();
             let quote = {
                 let q = req.selected_text.trim();
                 (!q.is_empty()).then(|| q.to_string())
@@ -675,6 +694,7 @@ impl SiteServer {
                 author,
                 kind: req.kind.clone(),
                 id: Some(id.clone()),
+                nonce: None,
                 created,
                 resolved: None,
                 quote,
@@ -2932,14 +2952,29 @@ fn set_resolved_in_source(content: &str, id: &str, resolved: bool) -> Option<(St
     None
 }
 
-/// A short, unique-enough note thread id (hex of the current time in
-/// nanoseconds — monotonic per annotation in practice).
-fn new_note_id() -> String {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    format!("{nanos:x}")
+/// Find an existing note already carrying `nonce` — either as its thread `id` (a
+/// new note adopts the nonce as its id) or in its `nonce` field (a reply, whose
+/// `id` is the shared thread id). Returns the matching note's 1-based start line.
+///
+/// Makes [`Server::annotate_source`] idempotent: the overlay retries a write once
+/// on a lost ack, so a repeat must resolve to the note already on disk instead of
+/// inserting a duplicate.
+fn find_note_with_nonce(content: &str, nonce: &str) -> Option<u32> {
+    let mut from = 0usize;
+    while let Some(rel) = content[from..].find("<!--") {
+        let start = from + rel;
+        let Some(close_rel) = content[start..].find("-->") else {
+            break;
+        };
+        let end = start + close_rel + 3; // just past "-->"
+        if let Some(note) = marq::parse_note(&content[start..end])
+            && (note.meta.id.as_deref() == Some(nonce) || note.meta.nonce.as_deref() == Some(nonce))
+        {
+            return Some(content[..start].matches('\n').count() as u32 + 1);
+        }
+        from = end;
+    }
+    None
 }
 
 /// Best-effort `git config user.name` in the source repo, for attributing notes
@@ -3985,6 +4020,43 @@ mod tests {
         // The matched `-->` is the second one (later in the file).
         assert!(line > 10);
         assert!(find_thread_end_line(content, "missing").is_none());
+    }
+
+    #[test]
+    fn find_note_with_nonce_matches_new_note_id_or_reply_nonce_field() {
+        // A new note adopts its nonce as the thread id; a reply (sharing an
+        // existing thread id) carries the nonce in its own field. Dedup must find
+        // either — that's what makes a retried `annotate` idempotent. Build the
+        // notes through the real serialize path so to_comment/parse_note are
+        // exercised exactly as the live write does.
+        let new_note = marq::to_comment(
+            &marq::NoteMeta {
+                id: Some("nonce-new".into()),
+                ..Default::default()
+            },
+            "a fresh note",
+        )
+        .unwrap();
+        let reply = marq::to_comment(
+            &marq::NoteMeta {
+                id: Some("thread".into()),
+                nonce: Some("nonce-reply".into()),
+                ..Default::default()
+            },
+            "a reply",
+        )
+        .unwrap();
+        let content = format!("# T\n\nPara.\n\n{new_note}\n\nMore.\n\n{reply}\n\nEnd.\n");
+
+        // New note matched by its id, reply matched by its nonce field; the reply
+        // resolves to a later line than the new note.
+        assert!(
+            find_note_with_nonce(&content, "nonce-reply")
+                > find_note_with_nonce(&content, "nonce-new")
+        );
+        // An unknown nonce — the common first-write case — finds nothing, so the
+        // write proceeds.
+        assert!(find_note_with_nonce(&content, "never-written").is_none());
     }
 
     /// A new annotation stores the selected text as the note's `quote` and
