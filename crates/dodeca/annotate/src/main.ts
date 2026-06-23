@@ -219,6 +219,7 @@ function wsUrl(): string {
   return `${proto}://${location.host}/_/ws`;
 }
 let clientPromise: Promise<DevtoolsServiceClient> | null = null;
+let reconnectDelay = 0;
 function client(): Promise<DevtoolsServiceClient> {
   if (!clientPromise) {
     clientPromise = (async () => {
@@ -226,14 +227,43 @@ function client(): Promise<DevtoolsServiceClient> {
       const lane = await connection.openRawLane({
         metadata: voxServiceMetadata("DevtoolsService"),
       });
-      // The host may push BrowserService events on this lane; the overlay
-      // doesn't need them (it reloads after writes), so the dispatcher is a
-      // no-op. The Driver must still run to service the lane.
-      void Driver.new(lane, new BrowserServiceDispatcher({ onEvent: async () => {} })).run();
+      // The host may push BrowserService events on this lane; the overlay doesn't need
+      // them (it reloads after writes), so the dispatcher is a no-op. The Driver must
+      // still run to service the lane — and when it stops (socket dropped, server gone,
+      // device slept), we forget the cached client and self-heal.
+      void Driver.new(lane, new BrowserServiceDispatcher({ onEvent: async () => {} }))
+        .run()
+        .catch(() => {})
+        .finally(onDisconnected);
+      reconnectDelay = 0; // connected — reset backoff
       return new DevtoolsServiceClient(lane.caller());
-    })();
+    })().catch((err) => {
+      onDisconnected(); // never cache a failed connect; back off and retry
+      throw err;
+    });
   }
   return clientPromise;
+}
+
+// Drop the cached client and reconnect with capped exponential backoff, so the overlay
+// re-establishes its connection on its own after any drop (Tailscale blip, dev-server
+// restart, phone sleep).
+function onDisconnected(): void {
+  clientPromise = null;
+  reconnectDelay = Math.min(reconnectDelay ? reconnectDelay * 2 : 1000, 30000);
+  setTimeout(() => void client().catch(() => {}), reconnectDelay);
+}
+
+// Run an RPC through a live client, reconnecting once if the cached one turned out to be
+// stale (e.g. the socket died while the device slept and we haven't processed the close
+// yet). Writes are retried once — a duplicate note on a rare lost-ack beats a lost note.
+async function withClient<T>(call: (c: DevtoolsServiceClient) => Promise<T>): Promise<T> {
+  try {
+    return await call(await client());
+  } catch {
+    clientPromise = null;
+    return await call(await client());
+  }
 }
 
 // ── note model (read from server-rendered asides) ───────────────────────────
@@ -471,10 +501,8 @@ function main(): void {
       pinned = true;
       status.textContent = note.resolved ? "reopening…" : "resolving…";
       try {
-        const res: AnnotateResult = await (await client()).setNoteResolved(
-          location.pathname,
-          note.id,
-          !note.resolved,
+        const res: AnnotateResult = await withClient((c) =>
+          c.setNoteResolved(location.pathname, note.id, !note.resolved),
         );
         if (res.tag === "Ok") {
           status.textContent = "saved — reloading…";
@@ -494,15 +522,17 @@ function main(): void {
       localStorage.setItem(AUTHOR_KEY, a);
       status.textContent = "saving…";
       try {
-        const res: AnnotateResult = await (await client()).annotate({
-          route: location.pathname,
-          sid: "",
-          selected_text: "",
-          body,
-          author: a || null,
-          kind: null,
-          reply_to: note.id,
-        });
+        const res: AnnotateResult = await withClient((c) =>
+          c.annotate({
+            route: location.pathname,
+            sid: "",
+            selected_text: "",
+            body,
+            author: a || null,
+            kind: null,
+            reply_to: note.id,
+          }),
+        );
         if (res.tag === "Ok") {
           status.textContent = "saved — reloading…";
           setTimeout(() => location.reload(), 250);
@@ -842,21 +872,24 @@ function installCreateUI(layer: HTMLElement): void {
 
   const save = async () => {
     if (!pending) return;
+    const target = pending; // capture non-null for the deferred withClient closure
     const body = bodyEl.value.trim();
     if (!body) return;
     const author = authorEl.value.trim();
     localStorage.setItem(AUTHOR_KEY, author);
     statusEl.textContent = "saving…";
     try {
-      const res: AnnotateResult = await (await client()).annotate({
-        route: location.pathname,
-        sid: pending.sid,
-        selected_text: pending.text,
-        body,
-        author: author || null,
-        kind,
-        reply_to: null,
-      });
+      const res: AnnotateResult = await withClient((c) =>
+        c.annotate({
+          route: location.pathname,
+          sid: target.sid,
+          selected_text: target.text,
+          body,
+          author: author || null,
+          kind,
+          reply_to: null,
+        }),
+      );
       switch (res.tag) {
         case "Ok":
           statusEl.textContent = "saved — reloading…";
@@ -932,7 +965,7 @@ function installCreateUI(layer: HTMLElement): void {
   const createInto = async (sectionPath: string) => {
     ppStatus.textContent = "creating…";
     try {
-      const res = await (await client()).createPage(sectionPath, ppTitle);
+      const res = await withClient((c) => c.createPage(sectionPath, ppTitle));
       if (res.tag === "Ok") {
         ppStatus.textContent = `created ${res.route} — opening in your editor…`;
         setTimeout(hide, 800);
@@ -958,7 +991,7 @@ function installCreateUI(layer: HTMLElement): void {
     if (!sections) {
       ppList.innerHTML = `<div class="dn-empty">loading sections…</div>`;
       try {
-        sections = await (await client()).listSections();
+        sections = await withClient((c) => c.listSections());
       } catch {
         sections = [];
       }
