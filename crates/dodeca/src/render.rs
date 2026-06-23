@@ -692,6 +692,9 @@ impl<'a> Renderable<'a> {
                     site.insert(VString::from("name"), Value::from(s.name.as_str()));
                     site.insert(VString::from("mount"), Value::from(s.mount.as_str()));
                     site.insert(VString::from("active"), Value::from(s.mount == owner_mount));
+                    if let Some(repo) = s.repo.as_deref() {
+                        site.insert(VString::from("repo"), Value::from(repo));
+                    }
                     Value::from(site)
                 })
                 .collect();
@@ -701,6 +704,9 @@ impl<'a> Renderable<'a> {
                 let mut source_obj = VObject::new();
                 source_obj.insert(VString::from("name"), Value::from(src.name.as_str()));
                 source_obj.insert(VString::from("mount"), Value::from(src.mount.as_str()));
+                if let Some(repo) = src.repo.as_deref() {
+                    source_obj.insert(VString::from("repo"), Value::from(repo));
+                }
                 let mount_trim = src.mount.trim_end_matches('/');
                 let mount_route = if mount_trim.is_empty() {
                     Route::root()

@@ -560,6 +560,7 @@ mod tests {
             content_dir: Utf8PathBuf::from(content_dir),
             checkout_dir: None,
             git: None,
+            repo: None,
         }
     }
 

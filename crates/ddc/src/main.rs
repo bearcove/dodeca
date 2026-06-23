@@ -329,6 +329,7 @@ fn resolve_dirs(
                 content_dir: c.clone(),
                 checkout_dir: None,
                 git: None,
+                repo: None,
             }],
             skip_domains: vec![],
             rate_limit_ms: None,
@@ -360,6 +361,7 @@ fn resolve_dirs(
                     content_dir: content_dir.clone(),
                     checkout_dir: None,
                     git: None,
+                    repo: None,
                 }]
             } else {
                 cfg.sources

@@ -63,6 +63,7 @@ fn workspace_sources(content_dir: &camino::Utf8Path) -> Vec<ResolvedSource> {
         content_dir: content_dir.to_owned(),
         checkout_dir: None,
         git: None,
+        repo: None,
     }]
 }
 use dodeca::template_host::TEMPLATE_FUNCTION_NAMES;
@@ -9014,8 +9015,7 @@ pub fn template_block_definition(
     name: &str,
 ) -> Option<(String, String, Ident)> {
     let content = template_content(project, template_file, current_file, current_content)?;
-    let template = gingembre::parse_template(template_file, content.as_str())
-        .ok()?;
+    let template = gingembre::parse_template(template_file, content.as_str()).ok()?;
     if let Some(ident) = top_level_block_ident(&template.body, name) {
         return Some((template_file.to_string(), content, ident));
     }
@@ -9078,8 +9078,7 @@ pub fn template_macro_definition_target(
         imports.get(&namespace.name)?.as_str()
     };
     let target_content = template_content(project, target_file, template_file, content)?;
-    let template = gingembre::parse_template(target_file, target_content.as_str())
-        .ok()?;
+    let template = gingembre::parse_template(target_file, target_content.as_str()).ok()?;
     let target_ident = top_level_macro_ident(&template.body, &macro_name.name)?;
     Some(TemplateDefinitionTarget {
         kind: TemplateDefinitionKind::Macro,

@@ -389,6 +389,7 @@ impl BuildContext {
                 content_dir: content_dir.to_owned(),
                 checkout_dir: None,
                 git: None,
+                repo: None,
             }],
             output_dir: output_dir.to_owned(),
             sources: BTreeMap::new(),
@@ -761,6 +762,7 @@ mod tests {
             content_dir: Utf8PathBuf::from(content_dir),
             checkout_dir: None,
             git: None,
+            repo: None,
         }
     }
 

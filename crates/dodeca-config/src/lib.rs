@@ -295,6 +295,13 @@ pub struct SourceDef {
     /// `git pull` from on a webhook/poll. Only meaningful with `checkout`.
     #[facet(default)]
     pub git: Option<String>,
+
+    /// Browsable repository URL for this source (e.g.
+    /// `https://github.com/facet-rs/facet/tree/main/figue`), exposed to
+    /// templates for "view source / on GitHub" links. Independent of `git`
+    /// (the clone remote for checkout-backed sources).
+    #[facet(default)]
+    pub repo: Option<String>,
 }
 
 /// Authentication / authorization config. Its mere presence turns on gating of

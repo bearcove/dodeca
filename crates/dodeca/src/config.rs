@@ -133,6 +133,8 @@ pub struct ResolvedSource {
     /// Remote to clone/pull the `checkout_dir` from, and to suggest cloning when
     /// the source isn't checked out locally.
     pub git: Option<String>,
+    /// Browsable repository URL, exposed to templates for "view on GitHub" links.
+    pub repo: Option<String>,
 }
 
 /// Discovered configuration with resolved paths
@@ -434,6 +436,7 @@ fn resolve_sources(root: &Utf8Path, config: &DodecaConfig) -> Result<Vec<Resolve
             content_dir: root.join(content),
             checkout_dir: None,
             git: None,
+            repo: None,
         }]),
         (None, None) => Err(eyre!(
             "config must set either `content` (single source) or `sources` (multiple)"
@@ -482,6 +485,7 @@ fn resolve_source(root: &Utf8Path, def: &SourceDef) -> Result<ResolvedSource> {
         content_dir,
         checkout_dir,
         git: def.git.clone(),
+        repo: def.repo.clone(),
     })
 }
 
@@ -576,6 +580,7 @@ mod tests {
             checkout: None,
             content: None,
             git: None,
+            repo: None,
         }
     }
 
@@ -704,6 +709,7 @@ mod tests {
             checkout: Some("../vixen".into()),
             content: Some("docs/content".into()),
             git: Some("g.git".into()),
+            repo: None,
         };
         let sources = resolve_sources(root, &config(None, Some(vec![def]))).unwrap();
         assert_eq!(
@@ -727,6 +733,7 @@ mod tests {
             checkout: Some("../x".into()),
             content: None,
             git: None,
+            repo: None,
         };
         assert!(resolve_sources(root, &config(None, Some(vec![def]))).is_err());
     }
