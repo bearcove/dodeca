@@ -1703,8 +1703,8 @@ fn handle_file_changed(
                 DataRegistry::set(db, data_files).expect("failed to set data files");
             }
         }
-        // Config changes are handled at the batch level (full reload), not here.
-        PathCategory::Config => (),
+        // Config + include changes are handled at the batch level, not here.
+        PathCategory::Config | PathCategory::Include => (),
         PathCategory::Unknown => (), // Unknown files don't need picante updates
     }
     // Note: For all file types, picante tracks changes when the registry is updated.
@@ -1801,8 +1801,8 @@ fn handle_file_removed(
                 DataRegistry::set(db, data_files).expect("failed to set data files");
             }
         }
-        // Config changes are handled at the batch level (full reload), not here.
-        PathCategory::Config => {}
+        // Config + include changes are handled at the batch level, not here.
+        PathCategory::Config | PathCategory::Include => {}
         PathCategory::Unknown => {}
     }
 }
@@ -2015,7 +2015,27 @@ fn build_watcher_config(
         data_dir: canon(parent.join("data")),
         sources: canonicalize_sources(&resolved.sources),
         config_file: config_file.map(canon),
+        // Preserve includes discovered so far so a config reload keeps watching them.
+        included_files: dodeca::includes::known_abs(&resolved._root),
     }
+}
+
+/// Add include paths to the live watcher config (so `categorize` recognizes
+/// them as [`file_watcher::PathCategory::Include`] and their edits fire events).
+/// A no-op when they're all already present.
+fn register_included_paths(
+    config_swap: &arc_swap::ArcSwap<file_watcher::WatcherConfig>,
+    paths: &[Utf8PathBuf],
+) {
+    let current = config_swap.load();
+    if paths.iter().all(|p| current.included_files.contains(p)) {
+        return;
+    }
+    let mut wc = (**current).clone();
+    for p in paths {
+        wc.included_files.insert(p.clone());
+    }
+    config_swap.store(std::sync::Arc::new(wc));
 }
 
 /// Re-resolve `.config/dodeca.styx` and reload everything in place.
@@ -2238,12 +2258,14 @@ async fn start_file_watcher_from_receiver(
     {
         let server = server.clone();
         let watcher = watcher_for_reload.clone();
+        let swap = config_swap.clone();
         dodeca::spawn::spawn(async move {
             loop {
                 dodeca::includes::wait_dirty().await;
                 if let Some(cfg) = dodeca::config::global_config() {
                     let paths = dodeca::includes::refresh(&server.db, &cfg._root);
                     file_watcher::watch_dirs(&watcher, &paths);
+                    register_included_paths(&swap, &paths);
                 }
             }
         });
@@ -2341,6 +2363,7 @@ async fn start_file_watcher_from_receiver(
             if let Some(cfg) = dodeca::config::global_config() {
                 let paths = dodeca::includes::refresh(&server.db, &cfg._root);
                 file_watcher::watch_dirs(&watcher_for_reload, &paths);
+                register_included_paths(&config_swap, &paths);
             }
 
             match apply_result {
@@ -2736,6 +2759,8 @@ async fn serve_plain(
             let p = dodeca::config::config_file_path(&c._root);
             p.canonicalize_utf8().unwrap_or(p)
         }),
+        // Populated lazily as `include` shortcodes are first rendered.
+        included_files: Default::default(),
     };
     let (startup_watcher, startup_watcher_rx) = file_watcher::create_watcher(&watcher_config)?;
 
@@ -3108,6 +3133,8 @@ async fn serve_with_tui(
             let p = dodeca::config::config_file_path(&c._root);
             p.canonicalize_utf8().unwrap_or(p)
         }),
+        // Populated lazily as `include` shortcodes are first rendered.
+        included_files: Default::default(),
     };
 
     let mut watched_dirs = vec![content_dir.to_string()];

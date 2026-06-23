@@ -58,6 +58,17 @@ fn note(rel: &str) {
     }
 }
 
+/// Absolute paths of every include seen so far, resolved against `project_root`.
+/// Used to repopulate the watcher's include set after a config reload.
+pub fn known_abs(project_root: &Utf8Path) -> std::collections::HashSet<camino::Utf8PathBuf> {
+    KNOWN
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|rel| project_root.join(rel))
+        .collect()
+}
+
 /// Re-read every known included file and republish the [`IncludedFileRegistry`]
 /// if its contents changed. Returns the absolute paths to watch. Cheap (includes
 /// are few) and only sets the input on a real change, so it won't spuriously

@@ -38,6 +38,11 @@ pub struct WatcherConfig {
     /// Absolute path to the project config file (`.config/dodeca.styx`), if any.
     /// A change to it triggers a full config re-resolution + registry reload.
     pub config_file: Option<Utf8PathBuf>,
+    /// Absolute paths of files pulled in by `include` shortcodes. They live
+    /// outside every content/asset tree, so they're tracked here explicitly so a
+    /// change to one categorizes as [`PathCategory::Include`] and re-renders the
+    /// pages that embed it. Grows as includes are discovered at render time.
+    pub included_files: std::collections::HashSet<Utf8PathBuf>,
 }
 
 /// Among `sources`, the one whose `dir_of` is the longest path-prefix of `path`,
@@ -124,6 +129,9 @@ pub enum PathCategory {
     /// The project config file (`.config/dodeca.styx`). A change re-resolves the
     /// config and reloads every source's registries in place.
     Config,
+    /// A file pulled in by an `include` shortcode. A change re-reads it into the
+    /// include registry, re-rendering the pages that embed it.
+    Include,
     Unknown,
 }
 
@@ -184,6 +192,8 @@ impl WatcherConfig {
     pub fn categorize(&self, path: &Utf8Path) -> PathCategory {
         if self.config_file.as_deref() == Some(path) {
             PathCategory::Config
+        } else if self.included_files.contains(path) {
+            PathCategory::Include
         } else if self.content_match(path).is_some() {
             PathCategory::Content
         } else if self.template_match(path).is_some() {
@@ -219,7 +229,7 @@ impl WatcherConfig {
                 .map(|(mount, rel)| crate::build_context::mounted_key(&mount, rel.as_str()).into()),
             PathCategory::Dist => path.strip_prefix(&self.dist_dir).ok().map(|p| p.to_owned()),
             PathCategory::Data => path.strip_prefix(&self.data_dir).ok().map(|p| p.to_owned()),
-            PathCategory::Config | PathCategory::Unknown => None,
+            PathCategory::Config | PathCategory::Include | PathCategory::Unknown => None,
         }
     }
 
@@ -257,6 +267,10 @@ impl WatcherConfig {
         {
             dirs.push(parent.to_owned());
         }
+        // Files pulled in by `include` shortcodes (watched individually).
+        for inc in &self.included_files {
+            dirs.push(inc.clone());
+        }
         dirs.sort();
         dirs.dedup();
         dirs
@@ -279,7 +293,7 @@ fn should_watch_path(path: &Path, config: &WatcherConfig) -> bool {
     };
 
     match config.categorize(utf8_path) {
-        PathCategory::Config => true,
+        PathCategory::Config | PathCategory::Include => true,
         PathCategory::Static | PathCategory::Dist | PathCategory::Data => true,
         PathCategory::Content | PathCategory::Template | PathCategory::Sass => {
             // For these, check extension
@@ -516,6 +530,7 @@ mod tests {
             data_dir: base.join("data"),
             sources: vec![],
             config_file: Some(base.join(".config/dodeca.styx")),
+            included_files: Default::default(),
         }
     }
 
@@ -544,6 +559,7 @@ mod tests {
                 src("build", "/spec/build", "/proj/spec/content"),
             ],
             config_file: Some(Utf8PathBuf::from("/proj/.config/dodeca.styx")),
+            included_files: Default::default(),
         }
     }
 
