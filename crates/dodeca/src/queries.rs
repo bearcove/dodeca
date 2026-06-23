@@ -2522,6 +2522,27 @@ pub async fn static_path_map<DB: Db>(db: &DB) -> PicanteResult<HashMap<String, S
     Ok(path_map)
 }
 
+/// The global static path map, plus — when `key` belongs to a mounted source —
+/// bare aliases of that source's entries (`/assets/x` → `/styx/assets/x.<hash>`).
+/// A mounted source's own CSS/JS references its assets source-relative (the form
+/// it'd use standalone), so without these aliases the references stay un-mounted
+/// and 404. Mirrors the per-page mount-aware aliasing in `serve_html`.
+async fn source_scoped_static_path_map<DB: Db>(
+    db: &DB,
+    key: &str,
+) -> PicanteResult<HashMap<String, String>> {
+    let mut path_map = static_path_map(db).await?;
+    if let Some(seg) = page_mount_segment(key) {
+        let prefix = format!("/{seg}/");
+        for (k, v) in path_map.clone() {
+            if let Some(rest) = k.strip_prefix(&prefix) {
+                path_map.insert(format!("/{rest}"), v);
+            }
+        }
+    }
+    Ok(path_map)
+}
+
 /// Process a single static file and return its cache-busted output
 /// For fonts, this triggers global font analysis for subsetting
 /// For CSS/JS files, URLs/string literals are rewritten to cache-busted versions
@@ -2553,8 +2574,9 @@ pub async fn static_file_output<DB: Db>(
         let raw_content = load_static(db, file).await?;
         let css_str = String::from_utf8_lossy(&raw_content);
 
-        // Use pre-computed path map (no recursion needed)
-        let path_map = static_path_map(db).await?;
+        // Source-scoped so a mounted source's CSS that references its own assets
+        // source-relative (`url(/assets/x)`) resolves to the mounted, hashed path.
+        let path_map = source_scoped_static_path_map(db, &path).await?;
 
         // Rewrite URLs in CSS
         let rewritten = rewrite_urls_in_css(&css_str, &path_map).await;
@@ -2564,8 +2586,10 @@ pub async fn static_file_output<DB: Db>(
         let raw_content = load_static(db, file).await?;
         let js_str = String::from_utf8_lossy(&raw_content);
 
-        // Use pre-computed path map (no recursion needed)
-        let path_map = static_path_map(db).await?;
+        // Source-scoped: a mounted source's bundled JS references its assets
+        // source-relative (e.g. `/assets/foo_bg.wasm`); alias those to the
+        // mounted, cache-busted paths (`/styx/assets/foo_bg.<hash>.wasm`).
+        let path_map = source_scoped_static_path_map(db, &path).await?;
 
         // Rewrite string literals in JS
         let rewritten = rewrite_string_literals_in_js(&js_str, &path_map).await;
