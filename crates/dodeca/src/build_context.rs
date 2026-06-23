@@ -118,7 +118,21 @@ pub fn templates_for_route(
         return all;
     }
     let owner_mount = source_for_route(route, sources);
+    // The primary (mount `/`) source's templates are the shared base every
+    // source inherits; a mounted source's own templates override by bare name.
+    // So picante/dibs can ship zero templates and still render with the shared
+    // chrome, while styx overrides only the few it customizes (codemirror,
+    // monaco, its homepage). All re-keyed by bare name; the owner wins.
     let mut out = HashMap::new();
+    if owner_mount != "/" {
+        for (key, content) in &all {
+            if let Some((src, rel)) = source_for_key(sources, key) {
+                if src.mount == "/" {
+                    out.insert(rel, content.clone());
+                }
+            }
+        }
+    }
     for (key, content) in all {
         if let Some((src, rel)) = source_for_key(sources, &key) {
             if src.mount == owner_mount {
@@ -813,7 +827,7 @@ mod tests {
     }
 
     #[test]
-    fn templates_for_route_isolates_per_source() {
+    fn templates_for_route_inherits_primary_with_overrides() {
         let sources = vec![
             src("/", "/proj/kb/content"),
             src("/wiki/", "/proj/wiki/content"),
@@ -821,6 +835,8 @@ mod tests {
         let mut all = HashMap::new();
         all.insert("page.html".to_string(), "KB-PAGE".to_string());
         all.insert("base.html".to_string(), "KB-BASE".to_string());
+        all.insert("macros.html".to_string(), "KB-MACROS".to_string());
+        // The wiki overrides page/base but ships no macros of its own.
         all.insert("wiki/page.html".to_string(), "WIKI-PAGE".to_string());
         all.insert("wiki/base.html".to_string(), "WIKI-BASE".to_string());
 
@@ -828,14 +844,20 @@ mod tests {
         let kb = templates_for_route(all.clone(), "/hello/", &sources);
         assert_eq!(kb.get("page.html").map(String::as_str), Some("KB-PAGE"));
         assert_eq!(kb.get("base.html").map(String::as_str), Some("KB-BASE"));
-        assert_eq!(kb.len(), 2);
+        assert_eq!(kb.get("macros.html").map(String::as_str), Some("KB-MACROS"));
+        assert_eq!(kb.len(), 3);
 
-        // A wiki-mounted route sees only the wiki's templates, with the mount
-        // prefix stripped so `page.html` / `base.html` resolve to the wiki's.
+        // A wiki-mounted route inherits the primary's templates as a base, with
+        // its own overriding by bare name: page/base are the wiki's, macros is
+        // inherited from the primary.
         let wiki = templates_for_route(all.clone(), "/wiki/note/", &sources);
         assert_eq!(wiki.get("page.html").map(String::as_str), Some("WIKI-PAGE"));
         assert_eq!(wiki.get("base.html").map(String::as_str), Some("WIKI-BASE"));
-        assert_eq!(wiki.len(), 2);
+        assert_eq!(
+            wiki.get("macros.html").map(String::as_str),
+            Some("KB-MACROS")
+        );
+        assert_eq!(wiki.len(), 3);
     }
 
     #[test]

@@ -671,6 +671,34 @@ impl<'a> Renderable<'a> {
             );
         }
 
+        // Expose the *current source* — its `name` and its own `root` section —
+        // so one shared template can render each mounted site's nav and brand
+        // from its own sections, instead of hardcoding the primary's. (`root`
+        // above is the aggregate root; on `/picante/…` this `source.root` is
+        // picante's.) For a single-source site this is just the root again.
+        if let Some(cfg) = crate::config::global_config() {
+            let owner_mount =
+                crate::build_context::source_for_route(self.route().as_str(), &cfg.sources);
+            if let Some(src) = cfg.sources.iter().find(|s| s.mount == owner_mount) {
+                let mut source_obj = VObject::new();
+                source_obj.insert(VString::from("name"), Value::from(src.name.as_str()));
+                source_obj.insert(VString::from("mount"), Value::from(src.mount.as_str()));
+                let mount_trim = src.mount.trim_end_matches('/');
+                let mount_route = if mount_trim.is_empty() {
+                    Route::root()
+                } else {
+                    Route::new(mount_trim.to_string())
+                };
+                if let Some(src_root) = site_tree.sections.get(&mount_route) {
+                    source_obj.insert(
+                        VString::from("root"),
+                        section_to_value(src_root, site_tree, &base_url),
+                    );
+                }
+                obj.insert(VString::from("source"), Value::from(source_obj));
+            }
+        }
+
         // Per-viewer editor flag (gates the in-browser Edit button in templates).
         obj.insert(VString::from("can_edit"), Value::from(can_edit));
 
@@ -1015,6 +1043,20 @@ pub fn section_to_value(section: &Section, site_tree: &SiteTree, base_url: &str)
         .collect();
     map.insert(VString::from("pages"), VArray::from_iter(section_pages));
 
+    // Mounted sources (e.g. `/styx`, `/picante`) are separate sites that happen
+    // to live under the aggregate root; they must NOT appear in the primary's
+    // section tree (`root.subsections`) — only in cross-site search. Exclude
+    // their root routes here.
+    let mount_roots: std::collections::HashSet<String> = crate::config::global_config()
+        .map(|c| {
+            c.sources
+                .iter()
+                .filter(|s| s.mount != "/")
+                .map(|s| s.mount.trim_end_matches('/').to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+
     // Add subsections (full objects, sorted by weight)
     let mut child_sections: Vec<&Section> = site_tree
         .sections
@@ -1028,6 +1070,7 @@ pub fn section_to_value(section: &Section, site_tree: &SiteTree, base_url: &str)
                     .filter(|c| *c == '/')
                     .count()
                     == 0
+                && !mount_roots.contains(s.route.as_str())
         })
         .collect();
     child_sections.sort_by_key(|s| s.weight);
