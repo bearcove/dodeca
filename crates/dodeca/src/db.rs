@@ -126,6 +126,20 @@ pub struct SourceRegistry {
     pub sources: Vec<SourceFile>,
 }
 
+/// Input: the resolved site configuration (singleton).
+///
+/// Making the config a picante input is what lets a config change (e.g. adding
+/// a source to `.config/dodeca.styx`) invalidate exactly the queries that read
+/// it — renders, per-source CSS, search — with no manual bookkeeping. A tracked
+/// query reads it via `ConfigRegistry::config(db)?`, recording the dependency;
+/// `ConfigRegistry::set(db, cfg)` on reload bumps the revision and the engine
+/// re-derives everything downstream. (The ambient `config::global_config()`
+/// remains for pre-db bootstrap and the non-tracked HTTP path.)
+#[picante::input]
+pub struct ConfigRegistry {
+    pub config: crate::config::ResolvedConfig,
+}
+
 /// Markdown rendering settings that affect parsed HTML output.
 #[picante::input]
 pub struct MarkdownRenderSettings {
@@ -525,6 +539,7 @@ pub struct AllRenderedHtml {
         StaticRegistry,
         DataRegistry,
         SourceRegistry,
+        ConfigRegistry,
         MarkdownRenderSettings,
     ),
     interned(CharSet, crate::queries::DataValuePath,),

@@ -116,7 +116,7 @@ impl ProjectPaths {
 /// A resolved content source: an absolute content directory and the URL
 /// namespace it mounts under. A leaf config resolves to exactly one of these
 /// at mount `/`; an aggregator config resolves to one per `sources` entry.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, facet::Facet)]
 pub struct ResolvedSource {
     /// Stable identity, used for cross-source links (`[[<name>:slug]]`) and
     /// search labelling — independent of `mount`. Empty for the degenerate
@@ -136,7 +136,7 @@ pub struct ResolvedSource {
 }
 
 /// Discovered configuration with resolved paths
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, facet::Facet)]
 pub struct ResolvedConfig {
     /// Project root (parent of .config/)
     pub _root: Utf8PathBuf,
