@@ -2578,39 +2578,51 @@ async fn serve_plain(
         println!("  Loaded {count} data files");
     }
 
-    // Load SASS files into picante (CSS compiled on-demand via query)
-    if sass_dir.exists() {
-        let sass_files_list: Vec<Utf8PathBuf> = WalkBuilder::new(&sass_dir)
-            .build()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
-            .filter(|e| {
-                e.path()
-                    .extension()
-                    .map(|ext| ext == "scss" || ext == "sass")
-                    .unwrap_or(false)
-            })
-            .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
-            .collect();
-
+    // Load SASS files into picante (CSS compiled on-demand via query). Primary
+    // sass keeps bare keys; each non-primary source's sass is mount-prefixed so
+    // it compiles its own `<mount>/main.css` bundle (per-source CSS bundles).
+    {
         let db = &*server.db;
         let mut sass_files = Vec::new();
 
-        for path in &sass_files_list {
-            let content = fs::read_to_string(path)?;
-            let relative = path
-                .strip_prefix(&sass_dir)
-                .map(|p| p.to_string())
-                .unwrap_or_else(|_| path.to_string());
+        if sass_dir.exists() {
+            let sass_files_list: Vec<Utf8PathBuf> = WalkBuilder::new(&sass_dir)
+                .build()
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
+                .filter(|e| {
+                    e.path()
+                        .extension()
+                        .map(|ext| ext == "scss" || ext == "sass")
+                        .unwrap_or(false)
+                })
+                .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
+                .collect();
 
-            let sass_path = SassPath::new(relative);
-            let sass_content = SassContent::new(content);
-            let sass_file = SassFile::new(db, sass_path, sass_content)?;
-            sass_files.push(sass_file);
+            for path in &sass_files_list {
+                let content = fs::read_to_string(path)?;
+                let relative = path
+                    .strip_prefix(&sass_dir)
+                    .map(|p| p.to_string())
+                    .unwrap_or_else(|_| path.to_string());
+
+                let sass_path = SassPath::new(relative);
+                let sass_content = SassContent::new(content);
+                let sass_file = SassFile::new(db, sass_path, sass_content)?;
+                sass_files.push(sass_file);
+            }
         }
+
+        // Mounted sources' sass (mount-prefixed keys) via the shared loader —
+        // mirrors the per-source static block above. Build does the same in
+        // `load_sass`.
+        for (_path, file) in dodeca::build_context::load_source_sass_files(db, sources)? {
+            sass_files.push(file);
+        }
+
         let count = sass_files.len();
         server.set_sass_files(sass_files);
-        println!("  Loaded {} SASS files", count);
+        println!("  Loaded {count} SASS files");
     }
 
     let on_event: FileEventHandler = Arc::new(|event: &file_watcher::FileEvent| match event {
@@ -2962,10 +2974,15 @@ async fn serve_with_tui(
             sass_files.push(sass_file);
         }
 
+        // Mounted sources' sass (mount-prefixed keys) — per-source CSS bundles.
+        for (_path, file) in dodeca::build_context::load_source_sass_files(db, sources)? {
+            sass_files.push(file);
+        }
+
         let count = sass_files.len();
         server.set_sass_files(sass_files);
 
-        let _ = event_tx.send(LogEvent::build(format!("Loaded {} SASS files", count)));
+        let _ = event_tx.send(LogEvent::build(format!("Loaded {count} SASS files")));
     }
 
     // Mark all tasks as ready - in serve mode, everything is computed on-demand via picante
