@@ -289,6 +289,12 @@ fn check_legacy_configs(config_dir: &Utf8Path) -> Result<()> {
 }
 
 /// Search for `.config/dodeca.styx` walking up from current directory
+/// Absolute path to the project config file given the project root (parent of
+/// `.config/`). Used by the serve file-watcher to watch for config changes.
+pub fn config_file_path(root: &Utf8Path) -> Utf8PathBuf {
+    root.join(CONFIG_DIR).join(CONFIG_FILE_STYX)
+}
+
 fn find_config_file() -> Result<Option<Utf8PathBuf>> {
     let cwd = env::current_dir()?;
     let cwd = Utf8PathBuf::try_from(cwd).map_err(|e| {

@@ -1703,6 +1703,8 @@ fn handle_file_changed(
                 DataRegistry::set(db, data_files).expect("failed to set data files");
             }
         }
+        // Config changes are handled at the batch level (full reload), not here.
+        PathCategory::Config => (),
         PathCategory::Unknown => (), // Unknown files don't need picante updates
     }
     // Note: For all file types, picante tracks changes when the registry is updated.
@@ -1799,6 +1801,8 @@ fn handle_file_removed(
                 DataRegistry::set(db, data_files).expect("failed to set data files");
             }
         }
+        // Config changes are handled at the batch level (full reload), not here.
+        PathCategory::Config => {}
         PathCategory::Unknown => {}
     }
 }
@@ -2416,6 +2420,10 @@ async fn serve_plain(
             .canonicalize_utf8()
             .unwrap_or_else(|_| data_dir.clone()),
         sources: canonicalize_sources(sources),
+        config_file: dodeca::config::global_config().map(|c| {
+            let p = dodeca::config::config_file_path(&c._root);
+            p.canonicalize_utf8().unwrap_or(p)
+        }),
     };
     let (startup_watcher, startup_watcher_rx) = file_watcher::create_watcher(&watcher_config)?;
 
@@ -3056,6 +3064,10 @@ async fn serve_with_tui(
             .canonicalize_utf8()
             .unwrap_or_else(|_| data_dir.clone()),
         sources: canonicalize_sources(sources),
+        config_file: dodeca::config::global_config().map(|c| {
+            let p = dodeca::config::config_file_path(&c._root);
+            p.canonicalize_utf8().unwrap_or(p)
+        }),
     };
 
     let mut watched_dirs = vec![content_dir.to_string()];

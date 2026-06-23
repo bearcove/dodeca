@@ -35,6 +35,9 @@ pub struct WatcherConfig {
     pub data_dir: Utf8PathBuf,
     /// All mounted content sources (empty ⇒ single-source/legacy).
     pub sources: Vec<crate::config::ResolvedSource>,
+    /// Absolute path to the project config file (`.config/dodeca.styx`), if any.
+    /// A change to it triggers a full config re-resolution + registry reload.
+    pub config_file: Option<Utf8PathBuf>,
 }
 
 /// Among `sources`, the one whose `dir_of` is the longest path-prefix of `path`,
@@ -118,6 +121,9 @@ pub enum PathCategory {
     /// Dist directory (generated/build output) - takes priority over Static
     Dist,
     Data,
+    /// The project config file (`.config/dodeca.styx`). A change re-resolves the
+    /// config and reloads every source's registries in place.
+    Config,
     Unknown,
 }
 
@@ -176,7 +182,9 @@ impl WatcherConfig {
 
     /// Categorize a path by which watched directory it belongs to.
     pub fn categorize(&self, path: &Utf8Path) -> PathCategory {
-        if self.content_match(path).is_some() {
+        if self.config_file.as_deref() == Some(path) {
+            PathCategory::Config
+        } else if self.content_match(path).is_some() {
             PathCategory::Content
         } else if self.template_match(path).is_some() {
             PathCategory::Template
@@ -211,7 +219,7 @@ impl WatcherConfig {
                 .map(|(mount, rel)| crate::build_context::mounted_key(&mount, rel.as_str()).into()),
             PathCategory::Dist => path.strip_prefix(&self.dist_dir).ok().map(|p| p.to_owned()),
             PathCategory::Data => path.strip_prefix(&self.data_dir).ok().map(|p| p.to_owned()),
-            PathCategory::Unknown => None,
+            PathCategory::Config | PathCategory::Unknown => None,
         }
     }
 
@@ -242,6 +250,13 @@ impl WatcherConfig {
                 dirs.push(dir);
             }
         }
+        // Watch the config file's directory (`.config/`) so edits to
+        // `dodeca.styx` fire — it lives outside every content/asset tree.
+        if let Some(cfg) = &self.config_file
+            && let Some(parent) = cfg.parent()
+        {
+            dirs.push(parent.to_owned());
+        }
         dirs.sort();
         dirs.dedup();
         dirs
@@ -264,6 +279,7 @@ fn should_watch_path(path: &Path, config: &WatcherConfig) -> bool {
     };
 
     match config.categorize(utf8_path) {
+        PathCategory::Config => true,
         PathCategory::Static | PathCategory::Dist | PathCategory::Data => true,
         PathCategory::Content | PathCategory::Template | PathCategory::Sass => {
             // For these, check extension
