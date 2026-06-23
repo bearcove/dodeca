@@ -2489,6 +2489,7 @@ name = "ddc"
 version = "0.6.1"
 dependencies = [
  "arboard",
+ "arc-swap",
  "camino",
  "cell-http-proto",
  "cell-term-proto",

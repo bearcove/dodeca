@@ -29,6 +29,7 @@ dodeca = { path = "../dodeca" }
 dodeca-authoring-lsp = { path = "../dodeca-authoring-lsp" }
 dodeca-debug = { path = "../dodeca-debug" }
 arboard = { version = "3", default-features = false }
+arc-swap.workspace = true
 camino.workspace = true
 chrono.workspace = true
 eyre.workspace = true

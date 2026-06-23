@@ -486,6 +486,20 @@ pub fn create_watcher(config: &WatcherConfig) -> eyre::Result<(WatcherHandle, Wa
     Ok((watcher, rx))
 }
 
+/// Add directories to an existing watcher (best-effort, recursive). Re-watching
+/// an already-watched dir is a no-op. Used by config hot-reload to start
+/// watching a newly-added source's content/chrome dirs.
+pub fn watch_dirs(watcher: &WatcherHandle, dirs: &[Utf8PathBuf]) {
+    let Ok(mut w) = watcher.lock() else { return };
+    for dir in dirs {
+        if dir.exists()
+            && let Err(e) = w.watch(dir.as_std_path(), RecursiveMode::Recursive)
+        {
+            tracing::debug!(dir = %dir, error = %e, "watch_dirs: failed to watch");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -501,6 +515,7 @@ mod tests {
             dist_dir: base.join("dist"),
             data_dir: base.join("data"),
             sources: vec![],
+            config_file: Some(base.join(".config/dodeca.styx")),
         }
     }
 
@@ -528,7 +543,28 @@ mod tests {
                 src("kb", "/", "/proj/content"),
                 src("build", "/spec/build", "/proj/spec/content"),
             ],
+            config_file: Some(Utf8PathBuf::from("/proj/.config/dodeca.styx")),
         }
+    }
+
+    #[test]
+    fn config_file_is_categorized_and_watched() {
+        let c = multi_source_config();
+        // The config file itself categorizes as Config (not Content/Unknown).
+        assert_eq!(
+            c.categorize(Utf8Path::new("/proj/.config/dodeca.styx")),
+            PathCategory::Config
+        );
+        // It maps to no registry key (a config change triggers a full reload).
+        assert_eq!(
+            c.relative_path(Utf8Path::new("/proj/.config/dodeca.styx")),
+            None
+        );
+        // Its directory is in the watch set so notify fires on edits.
+        assert!(
+            c.all_watch_dirs()
+                .contains(&Utf8PathBuf::from("/proj/.config"))
+        );
     }
 
     #[test]

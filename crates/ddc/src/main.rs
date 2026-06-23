@@ -1841,6 +1841,251 @@ fn prune_missing_sources(config: &file_watcher::WatcherConfig, server: &serve::S
     }
 }
 
+/// Counts of files loaded into each registry, for caller-side logging.
+struct RegistryCounts {
+    sources: usize,
+    templates: usize,
+    static_files: usize,
+    data: usize,
+    sass: usize,
+}
+
+/// Load every picante input registry (sources, templates, static, data, sass)
+/// from `sources` and the primary `parent_dir`. This is the single loader used
+/// by both serve startup paths and by config hot-reload: setting each registry
+/// is a picante input update, so downstream queries (renders, CSS, search)
+/// invalidate and re-derive on demand. Replaces the whole set each call, so
+/// removed sources drop out. Does no logging — callers report `RegistryCounts`.
+fn load_all_registries(
+    server: &serve::SiteServer,
+    sources: &[dodeca::config::ResolvedSource],
+    parent_dir: &Utf8Path,
+) -> Result<RegistryCounts> {
+    let static_dir = parent_dir.join("static");
+    let dist_dir = parent_dir.join("dist");
+    let data_dir = parent_dir.join("data");
+    let sass_dir = parent_dir.join("sass");
+
+    // Sources (mount-prefixed keys), via the same loader the build path uses.
+    let source_files = dodeca::build_context::load_source_files(&server.db, sources)?;
+    let sources_count = source_files.len();
+    server.set_sources(source_files.into_iter().map(|(_, file)| file).collect());
+
+    // Templates (mount-prefixed keys) — each mounted source renders with its
+    // own chrome, overlaid on the primary baseline.
+    let templates: Vec<TemplateFile> =
+        dodeca::build_context::load_template_files(&server.db, sources)?
+            .into_iter()
+            .map(|(_, file)| file)
+            .collect();
+    let templates_count = templates.len();
+    server.set_templates(templates);
+
+    // Static files: primary static/, then dist/ (overrides), then each source's
+    // mount-prefixed static, plus the hidden vite manifest.
+    let static_count = {
+        let db = &*server.db;
+        let mut static_files_map: std::collections::BTreeMap<String, StaticFile> =
+            std::collections::BTreeMap::new();
+        for dir in [&static_dir, &dist_dir] {
+            if dir.exists() {
+                for entry in WalkBuilder::new(dir).build() {
+                    let entry = entry?;
+                    let path = Utf8Path::from_path(entry.path())
+                        .ok_or_else(|| eyre!("Non-UTF8 path in static/dist directory"))?;
+                    if entry
+                        .file_type()
+                        .map(|ft| ft.is_file() || (ft.is_symlink() && path.is_file()))
+                        .unwrap_or_else(|| path.is_file())
+                    {
+                        let relative = path.strip_prefix(dir)?;
+                        let key = relative.to_string();
+                        let static_file =
+                            StaticFile::new(db, StaticPath::new(key.clone()), fs::read(path)?)?;
+                        static_files_map.insert(key, static_file);
+                    }
+                }
+            }
+        }
+        let manifest_path = dist_dir.join(".vite/manifest.json");
+        if manifest_path.exists()
+            && let Ok(content) = fs::read(&manifest_path)
+        {
+            let key = ".vite/manifest.json".to_string();
+            let static_file = StaticFile::new(db, StaticPath::new(key.clone()), content)?;
+            static_files_map.insert(key, static_file);
+        }
+        for (path, file) in dodeca::build_context::load_source_static_files(db, sources)? {
+            static_files_map.insert(path.as_str().to_string(), file);
+        }
+        let count = static_files_map.len();
+        server.set_static_files(static_files_map.into_values().collect());
+        count
+    };
+
+    // Data files (primary only).
+    let data_count = {
+        let db = &*server.db;
+        let mut data_files = Vec::new();
+        if data_dir.exists() {
+            for entry in WalkBuilder::new(&data_dir).build() {
+                let entry = entry?;
+                let path = Utf8Path::from_path(entry.path())
+                    .ok_or_else(|| eyre!("Non-UTF8 path in data directory"))?;
+                if path.is_file() && is_data_file_extension(path.extension().unwrap_or("")) {
+                    let relative = path.strip_prefix(&data_dir)?;
+                    let data_file = DataFile::new(
+                        db,
+                        DataPath::new(relative.to_string()),
+                        DataContent::new(fs::read_to_string(path)?),
+                    )?;
+                    data_files.push(data_file);
+                }
+            }
+        }
+        let count = data_files.len();
+        server.set_data_files(data_files);
+        count
+    };
+
+    // SASS files: primary (bare keys) + each source's mount-prefixed sass
+    // (per-source CSS bundles).
+    let sass_count = {
+        let db = &*server.db;
+        let mut sass_files = Vec::new();
+        if sass_dir.exists() {
+            for entry in WalkBuilder::new(&sass_dir).build() {
+                let entry = entry?;
+                let path = match Utf8Path::from_path(entry.path()) {
+                    Some(p) => p,
+                    None => continue,
+                };
+                if entry.file_type().map(|ft| ft.is_file()).unwrap_or(false)
+                    && matches!(path.extension(), Some("scss") | Some("sass"))
+                {
+                    let relative = path
+                        .strip_prefix(&sass_dir)
+                        .map(|p| p.to_string())
+                        .unwrap_or_else(|_| path.to_string());
+                    let sass_file = SassFile::new(
+                        db,
+                        SassPath::new(relative),
+                        SassContent::new(fs::read_to_string(path)?),
+                    )?;
+                    sass_files.push(sass_file);
+                }
+            }
+        }
+        for (_path, file) in dodeca::build_context::load_source_sass_files(db, sources)? {
+            sass_files.push(file);
+        }
+        let count = sass_files.len();
+        server.set_sass_files(sass_files);
+        count
+    };
+
+    Ok(RegistryCounts {
+        sources: sources_count,
+        templates: templates_count,
+        static_files: static_count,
+        data: data_count,
+        sass: sass_count,
+    })
+}
+
+/// Build a `WatcherConfig` from a resolved config: primary dirs derived from
+/// the primary content dir's parent, every mounted source, and the config file
+/// to watch. Paths are canonicalized to match what `notify` reports.
+fn build_watcher_config(
+    resolved: &dodeca::config::ResolvedConfig,
+    config_file: Option<Utf8PathBuf>,
+) -> file_watcher::WatcherConfig {
+    let content_dir = resolved.content_dir.clone();
+    let parent = content_dir
+        .parent()
+        .map(|p| p.to_owned())
+        .unwrap_or_else(|| content_dir.clone());
+    let canon = |p: Utf8PathBuf| p.canonicalize_utf8().unwrap_or(p);
+    file_watcher::WatcherConfig {
+        content_dir: canon(content_dir),
+        templates_dir: canon(parent.join("templates")),
+        sass_dir: canon(parent.join("sass")),
+        static_dir: canon(parent.join("static")),
+        dist_dir: canon(parent.join("dist")),
+        data_dir: canon(parent.join("data")),
+        sources: canonicalize_sources(&resolved.sources),
+        config_file: config_file.map(canon),
+    }
+}
+
+/// Re-resolve `.config/dodeca.styx` and reload everything in place.
+///
+/// Publishes the new config to both the ambient snapshot and the `ConfigRegistry`
+/// picante input (invalidating every render that read it), reloads all file
+/// registries from the new source set (picante re-derives the affected pages),
+/// then refreshes the live `WatcherConfig` and starts watching any newly-added
+/// source dirs. A parse error keeps the old config (the serve stays up).
+fn reload_config(
+    server: &serve::SiteServer,
+    config_swap: &arc_swap::ArcSwap<file_watcher::WatcherConfig>,
+    watcher: &file_watcher::WatcherHandle,
+) -> Result<()> {
+    let Some(config_file) = config_swap.load().config_file.clone() else {
+        tracing::warn!("config changed but no config file is known; skipping reload");
+        return Ok(());
+    };
+    // The project root is the parent of `.config/`.
+    let Some(root) = config_file.parent().and_then(|p| p.parent()) else {
+        return Ok(());
+    };
+
+    let resolved = match dodeca::config::ResolvedConfig::discover_from(root) {
+        Ok(Some(r)) => r,
+        Ok(None) => {
+            tracing::warn!(root = %root, "config reload: no config found; keeping old config");
+            return Ok(());
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "config reload: parse failed; keeping old config");
+            return Ok(());
+        }
+    };
+
+    tracing::info!(
+        sources = resolved.sources.len(),
+        "config reload: re-resolved"
+    );
+
+    // Publish to the ambient snapshot and the picante input (same value).
+    dodeca::config::set_global_config(resolved.clone())?;
+    ConfigRegistry::set(&*server.db, std::sync::Arc::new(resolved.clone()))
+        .expect("failed to set config input on reload");
+
+    // Reload every file registry from the new source set — picante invalidates
+    // and re-derives the affected pages, CSS bundles, and search index.
+    let parent_dir = resolved
+        .content_dir
+        .parent()
+        .map(|p| p.to_owned())
+        .unwrap_or_else(|| resolved.content_dir.clone());
+    let counts = load_all_registries(server, &resolved.sources, &parent_dir)?;
+    tracing::info!(
+        sources = counts.sources,
+        templates = counts.templates,
+        static_files = counts.static_files,
+        data = counts.data,
+        sass = counts.sass,
+        "config reload: registries reloaded"
+    );
+
+    // Refresh the live watcher config (so `categorize` sees new sources) and
+    // start watching any newly-added source dirs.
+    let new_wc = build_watcher_config(&resolved, Some(config_file));
+    file_watcher::watch_dirs(watcher, &new_wc.all_watch_dirs());
+    config_swap.store(std::sync::Arc::new(new_wc));
+    Ok(())
+}
+
 type FileEventHandler = Arc<dyn Fn(&file_watcher::FileEvent) + Send + Sync>;
 
 fn expand_file_events(
@@ -1965,13 +2210,22 @@ async fn start_file_watcher_from_receiver(
     let (event_tx, mut event_rx) =
         tokio::sync::mpsc::unbounded_channel::<file_watcher::FileEvent>();
 
-    let watcher_config_thread = watcher_config.clone();
+    // The watcher config is swappable so a config hot-reload can update what the
+    // notify thread and the apply loop see for `categorize` (e.g. a newly-added
+    // source) without recreating the watcher.
+    let config_swap = Arc::new(arc_swap::ArcSwap::from_pointee(watcher_config));
+
+    // Keep a handle to the watcher for reload-time re-watching of new dirs (the
+    // thread below takes ownership of its own clone to keep the watcher alive).
+    let watcher_for_reload = watcher.clone();
+
+    let config_thread = config_swap.clone();
     std::thread::spawn(move || {
         let watcher = watcher; // keep Arc alive
         while let Ok(event) = watcher_rx.recv() {
             let Ok(event) = event else { continue };
-            let file_events =
-                file_watcher::process_notify_event(event, &watcher_config_thread, &watcher);
+            let cfg = config_thread.load_full();
+            let file_events = file_watcher::process_notify_event(event, &cfg, &watcher);
             for file_event in file_events {
                 let _ = event_tx.send(file_event);
             }
@@ -2019,17 +2273,50 @@ async fn start_file_watcher_from_receiver(
             }
 
             let batch = std::mem::take(&mut pending);
+            let config_apply = config_swap.load_full();
+
+            // Did this batch touch the config file? If so, run a full reload
+            // after applying the (non-config) file events.
+            let config_changed = batch.iter().any(|ev| {
+                let path = match ev {
+                    file_watcher::FileEvent::Changed(p)
+                    | file_watcher::FileEvent::Removed(p)
+                    | file_watcher::FileEvent::DirectoryCreated(p) => p,
+                };
+                config_apply.categorize(path) == file_watcher::PathCategory::Config
+            });
+
             let server_apply = server.clone();
-            let config_apply = watcher_config.clone();
             let on_event = on_event.clone();
             let after_apply = after_apply.clone();
             let token = active_revision.take();
 
             let apply_result = tokio::task::spawn_blocking(move || {
-                apply_file_events_blocking(batch, &config_apply, &server_apply, on_event.as_ref());
+                apply_file_events_blocking(
+                    batch,
+                    config_apply.as_ref(),
+                    &server_apply,
+                    on_event.as_ref(),
+                );
                 (server_apply, after_apply)
             })
             .await;
+
+            // A config change re-resolves and reloads every registry in place.
+            if config_changed {
+                let server_reload = server.clone();
+                let swap = config_swap.clone();
+                let watcher = watcher_for_reload.clone();
+                let reload = tokio::task::spawn_blocking(move || {
+                    reload_config(&server_reload, &swap, &watcher)
+                })
+                .await;
+                match reload {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => tracing::error!(error = %e, "config reload failed"),
+                    Err(e) => tracing::error!(error = %e, "config reload task panicked"),
+                }
+            }
 
             match apply_result {
                 Ok((server_apply, after_apply)) => {
@@ -2477,13 +2764,11 @@ async fn serve_plain(
         ConfigRegistry::set(&*server.db, cfg).expect("failed to set config input");
     }
 
-    // Load source files from every mounted source (mount-prefixed keys), via
-    // the same loader the build path uses.
+    // Load every picante input registry (sources, templates, static, data,
+    // sass) — the single loader shared with config hot-reload.
     println!("{}", "Loading source files...".dimmed());
-    let source_files = dodeca::build_context::load_source_files(&server.db, sources)?;
-    let source_count = source_files.len();
-    server.set_sources(source_files.into_iter().map(|(_, file)| file).collect());
-    println!("  Loaded {source_count} source files");
+    let counts = load_all_registries(&server, sources, parent_dir)?;
+    println!("  Loaded {} source files", counts.sources);
     // Status page — served by the http cell at /_dodeca/status on the content
     // port (HTTP stays in the cell). See note re: a separate localhost port.
     server.set_status_context(sources.to_vec(), actual_port);
@@ -2491,172 +2776,12 @@ async fn serve_plain(
         "  {} http://127.0.0.1:{actual_port}/_dodeca/status",
         "Status".cyan()
     );
-
-    // Load templates from every mounted source (mount-prefixed keys), via the
-    // same loader the build path uses — so a mounted source renders with its
-    // own chrome.
-    {
-        let templates: Vec<TemplateFile> =
-            dodeca::build_context::load_template_files(&server.db, sources)?
-                .into_iter()
-                .map(|(_, file)| file)
-                .collect();
-        let count = templates.len();
-        server.set_templates(templates);
-        println!("  Loaded {} templates", count);
+    println!("  Loaded {} templates", counts.templates);
+    if counts.static_files > 0 {
+        println!("  Loaded {} static files", counts.static_files);
     }
-
-    // Load static files into picante (from static/ and dist/, with dist/ taking priority)
-    {
-        let db = &*server.db;
-        let mut static_files_map: std::collections::BTreeMap<String, StaticFile> =
-            std::collections::BTreeMap::new();
-
-        // Load from static/ first
-        if static_dir.exists() {
-            let walker = WalkBuilder::new(&static_dir).build();
-            for entry in walker {
-                let entry = entry?;
-                let path = Utf8Path::from_path(entry.path())
-                    .ok_or_else(|| eyre!("Non-UTF8 path in static directory"))?;
-
-                if entry
-                    .file_type()
-                    .map(|ft| ft.is_file() || (ft.is_symlink() && path.is_file()))
-                    .unwrap_or_else(|| path.is_file())
-                {
-                    let relative = path.strip_prefix(&static_dir)?;
-                    let content = fs::read(path)?;
-                    let key = relative.to_string();
-                    let static_path = StaticPath::new(key.clone());
-                    let static_file = StaticFile::new(db, static_path, content)?;
-                    static_files_map.insert(key, static_file);
-                }
-            }
-        }
-
-        // Load from dist/ (overwrites static/ on conflict)
-        if dist_dir.exists() {
-            let walker = WalkBuilder::new(&dist_dir).build();
-            for entry in walker {
-                let entry = entry?;
-                let path = Utf8Path::from_path(entry.path())
-                    .ok_or_else(|| eyre!("Non-UTF8 path in dist directory"))?;
-
-                if entry
-                    .file_type()
-                    .map(|ft| ft.is_file() || (ft.is_symlink() && path.is_file()))
-                    .unwrap_or_else(|| path.is_file())
-                {
-                    let relative = path.strip_prefix(&dist_dir)?;
-                    let content = fs::read(path)?;
-                    let key = relative.to_string();
-                    let static_path = StaticPath::new(key.clone());
-                    let static_file = StaticFile::new(db, static_path, content)?;
-                    static_files_map.insert(key, static_file);
-                }
-            }
-        }
-
-        // Explicitly load .vite/manifest.json (hidden file not picked up by WalkBuilder)
-        let manifest_path = dist_dir.join(".vite/manifest.json");
-        if manifest_path.exists() {
-            if let Ok(content) = fs::read(&manifest_path) {
-                let static_path = StaticPath::new(".vite/manifest.json".to_string());
-                let static_file = StaticFile::new(db, static_path, content)?;
-                static_files_map.insert(".vite/manifest.json".to_string(), static_file);
-            }
-        }
-
-        // Mounted sources' static assets (mount-prefixed keys) via the shared
-        // loader — so e.g. /wiki/style.css is served and a mounted page's
-        // /style.css alias resolves. Build path does the same in load_static.
-        for (path, file) in dodeca::build_context::load_source_static_files(db, sources)? {
-            static_files_map.insert(path.as_str().to_string(), file);
-        }
-
-        let count = static_files_map.len();
-        server.set_static_files(static_files_map.into_values().collect());
-        if count > 0 {
-            println!("  Loaded {count} static files");
-        }
-    }
-
-    // Load data files into picante
-    if data_dir.exists() {
-        let walker = WalkBuilder::new(&data_dir).build();
-        let db = &*server.db;
-        let mut data_files = Vec::new();
-
-        for entry in walker {
-            let entry = entry?;
-            let path = Utf8Path::from_path(entry.path())
-                .ok_or_else(|| eyre!("Non-UTF8 path in data directory"))?;
-
-            if path.is_file() {
-                // Only load supported data formats
-                let ext = path.extension().unwrap_or("");
-                if is_data_file_extension(ext) {
-                    let relative = path.strip_prefix(&data_dir)?;
-                    let content = fs::read_to_string(path)?;
-
-                    let data_path = DataPath::new(relative.to_string());
-                    let data_file = DataFile::new(db, data_path, DataContent::new(content))?;
-                    data_files.push(data_file);
-                }
-            }
-        }
-        let count = data_files.len();
-        server.set_data_files(data_files);
-        println!("  Loaded {count} data files");
-    }
-
-    // Load SASS files into picante (CSS compiled on-demand via query). Primary
-    // sass keeps bare keys; each non-primary source's sass is mount-prefixed so
-    // it compiles its own `<mount>/main.css` bundle (per-source CSS bundles).
-    {
-        let db = &*server.db;
-        let mut sass_files = Vec::new();
-
-        if sass_dir.exists() {
-            let sass_files_list: Vec<Utf8PathBuf> = WalkBuilder::new(&sass_dir)
-                .build()
-                .filter_map(|e| e.ok())
-                .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
-                .filter(|e| {
-                    e.path()
-                        .extension()
-                        .map(|ext| ext == "scss" || ext == "sass")
-                        .unwrap_or(false)
-                })
-                .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
-                .collect();
-
-            for path in &sass_files_list {
-                let content = fs::read_to_string(path)?;
-                let relative = path
-                    .strip_prefix(&sass_dir)
-                    .map(|p| p.to_string())
-                    .unwrap_or_else(|_| path.to_string());
-
-                let sass_path = SassPath::new(relative);
-                let sass_content = SassContent::new(content);
-                let sass_file = SassFile::new(db, sass_path, sass_content)?;
-                sass_files.push(sass_file);
-            }
-        }
-
-        // Mounted sources' sass (mount-prefixed keys) via the shared loader —
-        // mirrors the per-source static block above. Build does the same in
-        // `load_sass`.
-        for (_path, file) in dodeca::build_context::load_source_sass_files(db, sources)? {
-            sass_files.push(file);
-        }
-
-        let count = sass_files.len();
-        server.set_sass_files(sass_files);
-        println!("  Loaded {count} SASS files");
-    }
+    println!("  Loaded {} data files", counts.data);
+    println!("  Loaded {} SASS files", counts.sass);
 
     let on_event: FileEventHandler = Arc::new(|event: &file_watcher::FileEvent| match event {
         file_watcher::FileEvent::Changed(path) => {
@@ -2881,148 +3006,38 @@ async fn serve_with_tui(
         ConfigRegistry::set(&*server.db, cfg).expect("failed to set config input");
     }
 
-    // Load source files from every mounted source (mount-prefixed keys), via
-    // the same loader the build path uses.
-    let source_files = dodeca::build_context::load_source_files(&server.db, sources)?;
-    let source_count = source_files.len();
-    server.set_sources(source_files.into_iter().map(|(_, file)| file).collect());
-
+    // Load every picante input registry (sources, templates, static, data,
+    // sass) — the single loader shared with config hot-reload. `parent_dir` and
+    // `templates_dir` are also used below by the file watcher, so they stay
+    // bound here.
+    let parent_dir = content_dir.parent().unwrap_or(content_dir);
+    let templates_dir = parent_dir.join("templates");
+    let counts = load_all_registries(&server, sources, parent_dir)?;
     progress_tx.send_modify(|prog| prog.parse.finish());
     let _ = event_tx.send(LogEvent::build(format!(
-        "Loaded {source_count} source files"
+        "Loaded {} source files",
+        counts.sources
     )));
-
-    // Reload template files from every mounted source (mount-prefixed keys),
-    // via the shared loader. Consumers dedup by path (last-wins), so re-reading
-    // the full set is correct.
-    let parent_dir = content_dir.parent().unwrap_or(content_dir);
-    // Primary templates dir — still used below for the file watcher (per-source
-    // dirs aren't file-watched; prod reloads via pull, which re-runs this fn).
-    let templates_dir = parent_dir.join("templates");
-    {
-        // Get current templates BEFORE locking db to avoid deadlock, then
-        // overlay the freshly-loaded full set.
-        let mut templates = server.get_templates();
-        templates.extend(
-            dodeca::build_context::load_template_files(&server.db, sources)?
-                .into_iter()
-                .map(|(_, file)| file),
-        );
-        let count = templates.len();
-        server.set_templates(templates);
-        let _ = event_tx.send(LogEvent::build(format!("Loaded {} templates", count)));
+    let _ = event_tx.send(LogEvent::build(format!(
+        "Loaded {} templates",
+        counts.templates
+    )));
+    if counts.static_files > 0 {
+        let _ = event_tx.send(LogEvent::build(format!(
+            "Loaded {} static files",
+            counts.static_files
+        )));
     }
-
-    // Load static files into picante (from static/ and dist/, with dist/ taking priority)
-    let static_dir = parent_dir.join("static");
-    let dist_dir = parent_dir.join("dist");
-    {
-        let db = &*server.db;
-        let mut static_files_map: std::collections::BTreeMap<String, StaticFile> =
-            std::collections::BTreeMap::new();
-
-        // Load from static/ first
-        if static_dir.exists() {
-            let walker = WalkBuilder::new(&static_dir).build();
-            for entry in walker {
-                let entry = entry?;
-                let path = Utf8Path::from_path(entry.path())
-                    .ok_or_else(|| eyre!("Non-UTF8 path in static directory"))?;
-
-                if entry
-                    .file_type()
-                    .map(|ft| ft.is_file() || (ft.is_symlink() && path.is_file()))
-                    .unwrap_or_else(|| path.is_file())
-                {
-                    let relative = path.strip_prefix(&static_dir)?;
-                    let content = fs::read(path)?;
-                    let key = relative.to_string();
-                    let static_path = StaticPath::new(key.clone());
-                    let static_file = StaticFile::new(db, static_path, content)?;
-                    static_files_map.insert(key, static_file);
-                }
-            }
-        }
-
-        // Load from dist/ (overwrites static/ on conflict)
-        if dist_dir.exists() {
-            let walker = WalkBuilder::new(&dist_dir).build();
-            for entry in walker {
-                let entry = entry?;
-                let path = Utf8Path::from_path(entry.path())
-                    .ok_or_else(|| eyre!("Non-UTF8 path in dist directory"))?;
-
-                if entry
-                    .file_type()
-                    .map(|ft| ft.is_file() || (ft.is_symlink() && path.is_file()))
-                    .unwrap_or_else(|| path.is_file())
-                {
-                    let relative = path.strip_prefix(&dist_dir)?;
-                    let content = fs::read(path)?;
-                    let key = relative.to_string();
-                    let static_path = StaticPath::new(key.clone());
-                    let static_file = StaticFile::new(db, static_path, content)?;
-                    static_files_map.insert(key, static_file);
-                }
-            }
-        }
-
-        // Mounted sources' static assets (mount-prefixed keys) via the shared
-        // loader — keeps reload consistent with the initial load and the build.
-        for (path, file) in dodeca::build_context::load_source_static_files(db, sources)? {
-            static_files_map.insert(path.as_str().to_string(), file);
-        }
-
-        let count = static_files_map.len();
-        server.set_static_files(static_files_map.into_values().collect());
-        if count > 0 {
-            let _ = event_tx.send(LogEvent::build(format!("Loaded {count} static files")));
-        }
+    if counts.data > 0 {
+        let _ = event_tx.send(LogEvent::build(format!(
+            "Loaded {} data files",
+            counts.data
+        )));
     }
-
-    // Load SASS files into picante (CSS compiled on-demand via query)
-    let sass_dir = parent_dir.join("sass");
-    if sass_dir.exists() {
-        let sass_files_list: Vec<Utf8PathBuf> = WalkBuilder::new(&sass_dir)
-            .build()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
-            .filter(|e| {
-                e.path()
-                    .extension()
-                    .map(|ext| ext == "scss" || ext == "sass")
-                    .unwrap_or(false)
-            })
-            .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
-            .collect();
-
-        // Get current sass files BEFORE locking db to avoid deadlock
-        let mut sass_files = server.get_sass_files();
-        let db = &*server.db;
-
-        for path in &sass_files_list {
-            let content = fs::read_to_string(path)?;
-            let relative = path
-                .strip_prefix(&sass_dir)
-                .map(|p| p.to_string())
-                .unwrap_or_else(|_| path.to_string());
-
-            let sass_path = SassPath::new(relative);
-            let sass_content = SassContent::new(content);
-            let sass_file = SassFile::new(db, sass_path, sass_content)?;
-            sass_files.push(sass_file);
-        }
-
-        // Mounted sources' sass (mount-prefixed keys) — per-source CSS bundles.
-        for (_path, file) in dodeca::build_context::load_source_sass_files(db, sources)? {
-            sass_files.push(file);
-        }
-
-        let count = sass_files.len();
-        server.set_sass_files(sass_files);
-
-        let _ = event_tx.send(LogEvent::build(format!("Loaded {count} SASS files")));
-    }
+    let _ = event_tx.send(LogEvent::build(format!(
+        "Loaded {} SASS files",
+        counts.sass
+    )));
 
     // Mark all tasks as ready - in serve mode, everything is computed on-demand via picante
     progress_tx.send_modify(|prog| {
