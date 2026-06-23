@@ -165,6 +165,11 @@ where
                 resolve_relative_links_in_doc(&mut doc, base_route);
             }
 
+            // 6b. Resolve cross-page spec rule references (global rule registry)
+            if let Some(rule_ref_to_route) = &input.rule_ref_to_route {
+                resolve_rule_refs_in_doc(&mut doc, rule_ref_to_route);
+            }
+
             // 7. Transform images to picture elements
             if let Some(image_variants) = &input.image_variants {
                 transform_images_in_doc(&mut doc, image_variants);
@@ -1287,6 +1292,39 @@ fn ensure_trailing_slash(route: &str) -> String {
 // ============================================================================
 // Relative Link Resolution
 // ============================================================================
+
+/// Rewrite cross-page spec rule references. The markdown cell renders an inline
+/// `r[rule.id]` reference as `<a href="#r-rule.id" class="rule-ref">`, always
+/// pointing at the *current* page. For a rule defined on another page that
+/// anchor is dead; `rule_ref_to_route` maps the anchor id (`r-rule.id`) to the
+/// route of the page that defines it, so we rewrite the href to
+/// `<route>#r-rule.id`. Same-page references (owner == current route) resolve
+/// to an absolute-but-equivalent anchor, which is harmless.
+fn resolve_rule_refs_in_doc(doc: &mut Document, rule_ref_to_route: &HashMap<String, String>) {
+    let Some(body_id) = doc.body() else { return };
+    let mut anchors = Vec::new();
+    collect_anchors(doc, body_id, &mut anchors);
+
+    for node_id in anchors {
+        let Some(class) = get_attr(doc, node_id, "class") else {
+            continue;
+        };
+        if !class.split_whitespace().any(|c| c == "rule-ref") {
+            continue;
+        }
+        let Some(href) = get_attr(doc, node_id, "href") else {
+            continue;
+        };
+        // Only same-page anchors (`#r-...`) emitted by the markdown cell.
+        let Some(anchor) = href.strip_prefix('#') else {
+            continue;
+        };
+        if let Some(route) = rule_ref_to_route.get(anchor) {
+            let route = route.trim_end_matches('/');
+            set_attr(doc, node_id, "href", &format!("{route}/#{anchor}"));
+        }
+    }
+}
 
 fn resolve_relative_links_in_doc(doc: &mut Document, base_route: &str) {
     // Ensure base ends with /

@@ -91,6 +91,7 @@ pub async fn process_html(
         source_to_route: options.source_to_route,
         wiki_to_route: options.wiki_to_route,
         wiki_to_title: options.wiki_to_title,
+        rule_ref_to_route: options.rule_ref_to_route,
         base_route: options.base_route,
         image_variants: options.image_variants,
         vite_css_map: options.vite_css_map,
@@ -153,6 +154,9 @@ pub struct HtmlProcessOptions {
     pub wiki_to_route: Option<HashMap<String, String>>,
     /// Wiki link key to target page title (relabels bare `[[slug]]` links)
     pub wiki_to_title: Option<HashMap<String, String>>,
+    /// Rule-anchor id (`r-rule.id`) to the route of the page that defines it,
+    /// for resolving cross-page spec rule references (the global rule registry).
+    pub rule_ref_to_route: Option<HashMap<String, String>>,
     /// Base route for relative link resolution
     pub base_route: Option<String>,
     /// Image variants for picture element transformation

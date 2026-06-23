@@ -2801,6 +2801,27 @@ fn page_mount_segment(route: &str) -> Option<String> {
         .filter(|seg| !seg.is_empty())
 }
 
+/// Build the global rule registry: each spec rule's anchor id (`r-rule.id`)
+/// mapped to the route of the page/section that *defines* it. The markdown cell
+/// renders an inline `r[rule.id]` reference as a same-page `#r-rule.id` link;
+/// this lets the HTML cell rewrite references to rules defined on other pages to
+/// the owning page's route. It is also the foundation a spec-coverage layer
+/// (cross-file requirement traceability) builds on.
+fn build_req_index(site_tree: &SiteTree) -> HashMap<String, String> {
+    let mut index = HashMap::new();
+    for (route, section) in &site_tree.sections {
+        for req in &section.reqs {
+            index.insert(req.anchor_id.clone(), route.as_str().to_string());
+        }
+    }
+    for (route, page) in &site_tree.pages {
+        for req in &page.rules {
+            index.insert(req.anchor_id.clone(), route.as_str().to_string());
+        }
+    }
+    index
+}
+
 /// Serve a single page or section with full URL rewriting and minification
 /// This is the main entry point for lazy page serving
 #[picante::tracked]
@@ -3067,6 +3088,7 @@ pub async fn serve_html<DB: Db>(
         source_to_route: Some(source_to_route),
         wiki_to_route: Some(wiki_to_route),
         wiki_to_title: Some(wiki_to_title),
+        rule_ref_to_route: Some(build_req_index(&site_tree)),
         base_route: Some(base_route),
         mount,
         ..Default::default()

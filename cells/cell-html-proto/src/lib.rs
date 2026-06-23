@@ -116,6 +116,14 @@ pub struct HtmlProcessInput {
     #[facet(default)]
     pub wiki_to_title: Option<HashMap<String, String>>,
 
+    /// Rule-anchor to owning route, for resolving cross-page spec rule
+    /// references. The markdown cell renders an inline `r[rule.id]` reference as
+    /// a same-page `#r-rule.id` link; when the rule is *defined* on another
+    /// page, this map (anchor id like `r-rule.id` -> that page's route) rewrites
+    /// the href to `<route>#r-rule.id`. This is dodeca's global rule registry.
+    #[facet(default)]
+    pub rule_ref_to_route: Option<HashMap<String, String>>,
+
     /// Base route for resolving relative links (e.g., "/guide/intro/")
     #[facet(default)]
     pub base_route: Option<String>,
