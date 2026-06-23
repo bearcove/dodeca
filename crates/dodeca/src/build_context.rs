@@ -101,11 +101,12 @@ pub fn source_for_route<'a>(route: &str, sources: &'a [ResolvedSource]) -> &'a s
 /// Narrow the full (mount-prefixed) template registry down to the templates
 /// owned by the source serving `route`, re-keyed by their *bare* names.
 ///
-/// This is what makes per-source chrome work: a page mounted at `/wiki/`
-/// renders with `/wiki/`'s own `page.html`, and its `{% extends "base.html" %}`
-/// resolves to `/wiki/`'s `base.html` — never the primary site's same-named
-/// template. There is deliberately no fallback to the primary's templates: a
-/// mounted source is self-contained chrome.
+/// The primary (mount `/`) source's templates are a shared base that every
+/// source inherits; a mounted source's own templates override by bare name. So
+/// a page mounted at `/wiki/` renders with `/wiki/`'s `page.html` if it has one,
+/// otherwise the primary's — and `{% extends "base.html" %}` resolves the same
+/// way. A mounted source can therefore ship zero templates (pure inherit) or
+/// override only the few it customizes.
 ///
 /// A single-source site (one source at `/`) returns the map unchanged, so the
 /// common case stays byte-identical to before.
