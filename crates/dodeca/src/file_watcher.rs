@@ -43,6 +43,14 @@ pub struct WatcherConfig {
     /// change to one categorizes as [`PathCategory::Include`] and re-renders the
     /// pages that embed it. Grows as includes are discovered at render time.
     pub included_files: std::collections::HashSet<Utf8PathBuf>,
+    /// Absolute paths of code files scanned for requirement references (from the
+    /// sources' `impls` globs). Like `included_files` they live outside the
+    /// content tree, so they're tracked explicitly: a change categorizes as
+    /// [`PathCategory::Code`] and re-derives coverage.
+    pub code_files: std::collections::HashSet<Utf8PathBuf>,
+    /// Project root, used to recover a code file's project-root-relative key
+    /// when it changes.
+    pub project_root: Utf8PathBuf,
 }
 
 /// Among `sources`, the one whose `dir_of` is the longest path-prefix of `path`,
@@ -132,6 +140,10 @@ pub enum PathCategory {
     /// A file pulled in by an `include` shortcode. A change re-reads it into the
     /// include registry, re-rendering the pages that embed it.
     Include,
+    /// A code file scanned for `r[verb rule.id]` references (from a source's
+    /// `impls` globs). A change re-reads it into the code registry, re-deriving
+    /// coverage. Like includes, these live outside the content tree.
+    Code,
     Unknown,
 }
 
@@ -194,6 +206,8 @@ impl WatcherConfig {
             PathCategory::Config
         } else if self.included_files.contains(path) {
             PathCategory::Include
+        } else if self.code_files.contains(path) {
+            PathCategory::Code
         } else if self.content_match(path).is_some() {
             PathCategory::Content
         } else if self.template_match(path).is_some() {
@@ -229,6 +243,10 @@ impl WatcherConfig {
                 .map(|(mount, rel)| crate::build_context::mounted_key(&mount, rel.as_str()).into()),
             PathCategory::Dist => path.strip_prefix(&self.dist_dir).ok().map(|p| p.to_owned()),
             PathCategory::Data => path.strip_prefix(&self.data_dir).ok().map(|p| p.to_owned()),
+            PathCategory::Code => path
+                .strip_prefix(&self.project_root)
+                .ok()
+                .map(|p| p.to_owned()),
             PathCategory::Config | PathCategory::Include | PathCategory::Unknown => None,
         }
     }
@@ -289,7 +307,7 @@ fn should_watch_path(path: &Path, config: &WatcherConfig) -> bool {
     };
 
     match config.categorize(utf8_path) {
-        PathCategory::Config | PathCategory::Include => true,
+        PathCategory::Config | PathCategory::Include | PathCategory::Code => true,
         PathCategory::Static | PathCategory::Dist | PathCategory::Data => true,
         PathCategory::Content | PathCategory::Template | PathCategory::Sass => {
             // For these, check extension
@@ -491,6 +509,18 @@ pub fn create_watcher(config: &WatcherConfig) -> eyre::Result<(WatcherHandle, Wa
                 w.watch(dir.as_std_path(), RecursiveMode::Recursive)?;
             }
         }
+        // Code files live outside the content tree; watch their parent dirs
+        // (non-recursive, like includes) so edits fire, narrowed by `categorize`
+        // via `code_files`.
+        let mut seen = std::collections::HashSet::new();
+        for file in &config.code_files {
+            if let Some(parent) = file.parent()
+                && seen.insert(parent.to_owned())
+                && parent.exists()
+            {
+                let _ = w.watch(parent.as_std_path(), RecursiveMode::NonRecursive);
+            }
+        }
     }
 
     Ok((watcher, rx))
@@ -550,6 +580,8 @@ mod tests {
             sources: vec![],
             config_file: Some(base.join(".config/dodeca.styx")),
             included_files: Default::default(),
+            code_files: Default::default(),
+            project_root: base.to_owned(),
         }
     }
 
@@ -581,6 +613,8 @@ mod tests {
             ],
             config_file: Some(Utf8PathBuf::from("/proj/.config/dodeca.styx")),
             included_files: Default::default(),
+            code_files: Default::default(),
+            project_root: Utf8PathBuf::from("/proj"),
         }
     }
 

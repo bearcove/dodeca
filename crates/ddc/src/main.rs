@@ -1749,6 +1749,36 @@ fn handle_file_changed(
                 DataRegistry::set(db, data_files).expect("failed to set data files");
             }
         }
+        PathCategory::Code => {
+            if let Ok(content) = fs::read_to_string(path) {
+                let last_modified = fs::metadata(path.as_std_path())
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
+                let db = &*server.db;
+                let mut files = CodeRegistry::files(db).ok().flatten().unwrap_or_default();
+                let relative_str = relative.to_string();
+                let code_path = dodeca::types::CodePath::new(relative_str.clone());
+                let code_content = dodeca::types::CodeContent::new(content);
+                if let Some(pos) = files.iter().position(|f| {
+                    f.path(db)
+                        .ok()
+                        .map(|p| p.as_str() == relative_str)
+                        .unwrap_or(false)
+                }) {
+                    files[pos] =
+                        dodeca::db::CodeFile::new(db, code_path, code_content, last_modified)
+                            .expect("failed to create code file");
+                } else {
+                    let f = dodeca::db::CodeFile::new(db, code_path, code_content, last_modified)
+                        .expect("failed to create code file");
+                    files.push(f);
+                }
+                CodeRegistry::set(db, files).expect("failed to set code files");
+            }
+        }
         // Config + include changes are handled at the batch level, not here.
         PathCategory::Config | PathCategory::Include => (),
         PathCategory::Unknown => (), // Unknown files don't need picante updates
@@ -1847,6 +1877,19 @@ fn handle_file_removed(
                 DataRegistry::set(db, data_files).expect("failed to set data files");
             }
         }
+        PathCategory::Code => {
+            let db = &*server.db;
+            let mut files = CodeRegistry::files(db).ok().flatten().unwrap_or_default();
+            if let Some(pos) = files.iter().position(|f| {
+                f.path(db)
+                    .ok()
+                    .map(|p| p.as_str() == relative_str)
+                    .unwrap_or(false)
+            }) {
+                files.remove(pos);
+                CodeRegistry::set(db, files).expect("failed to set code files");
+            }
+        }
         // Config + include changes are handled at the batch level, not here.
         PathCategory::Config | PathCategory::Include => {}
         PathCategory::Unknown => {}
@@ -1916,6 +1959,14 @@ fn load_all_registries(
     let source_files = dodeca::build_context::load_source_files(&server.db, sources)?;
     let sources_count = source_files.len();
     server.set_sources(source_files.into_iter().map(|(_, file)| file).collect());
+
+    // Code files (from `impls` globs) for spec coverage. They live outside the
+    // content tree (project-root-relative), so they load against the config root.
+    if let Some(cfg) = dodeca::config::global_config() {
+        let code = dodeca::build_context::load_code_files(&server.db, sources, &cfg._root)?;
+        CodeRegistry::set(&*server.db, code.into_iter().map(|(_, f)| f).collect())
+            .expect("failed to set code files");
+    }
 
     // Templates (mount-prefixed keys) — each mounted source renders with its
     // own chrome, overlaid on the primary baseline.
@@ -2063,6 +2114,11 @@ fn build_watcher_config(
         config_file: config_file.map(canon),
         // Preserve includes discovered so far so a config reload keeps watching them.
         included_files: dodeca::includes::known_abs(&resolved._root),
+        code_files: dodeca::build_context::code_file_abs_paths(&resolved.sources, &resolved._root)
+            .into_iter()
+            .map(canon)
+            .collect(),
+        project_root: canon(resolved._root.clone()),
     }
 }
 
@@ -2807,6 +2863,21 @@ async fn serve_plain(
         }),
         // Populated lazily as `include` shortcodes are first rendered.
         included_files: Default::default(),
+        code_files: dodeca::config::global_config()
+            .map(|c| {
+                dodeca::build_context::code_file_abs_paths(sources, &c._root)
+                    .into_iter()
+                    .map(|p| p.canonicalize_utf8().unwrap_or(p))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        project_root: dodeca::config::global_config()
+            .map(|c| {
+                c._root
+                    .canonicalize_utf8()
+                    .unwrap_or_else(|_| c._root.clone())
+            })
+            .unwrap_or_default(),
     };
     let (startup_watcher, startup_watcher_rx) = file_watcher::create_watcher(&watcher_config)?;
 
@@ -3181,6 +3252,21 @@ async fn serve_with_tui(
         }),
         // Populated lazily as `include` shortcodes are first rendered.
         included_files: Default::default(),
+        code_files: dodeca::config::global_config()
+            .map(|c| {
+                dodeca::build_context::code_file_abs_paths(sources, &c._root)
+                    .into_iter()
+                    .map(|p| p.canonicalize_utf8().unwrap_or(p))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        project_root: dodeca::config::global_config()
+            .map(|c| {
+                c._root
+                    .canonicalize_utf8()
+                    .unwrap_or_else(|_| c._root.clone())
+            })
+            .unwrap_or_default(),
     };
 
     let mut watched_dirs = vec![content_dir.to_string()];

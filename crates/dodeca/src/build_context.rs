@@ -188,15 +188,12 @@ pub fn load_source_files(
     Ok(out)
 }
 
-/// Walk the project root once, collecting every file matched by any source's
-/// `impls` `include`/`test_include` globs (minus `exclude`) into `CodeFile`
-/// inputs keyed by project-root-relative path. Returns empty when no source
-/// declares `impls`.
-pub fn load_code_files(
-    db: &Database,
-    roots: &[ResolvedSource],
-    project_root: &Utf8Path,
-) -> Result<Vec<(crate::types::CodePath, crate::db::CodeFile)>> {
+/// Absolute paths of every file matched by any source's `impls`
+/// `include`/`test_include` globs (minus `exclude`), found by walking the
+/// project root once. Empty when no source declares `impls`. Shared by
+/// [`load_code_files`] (which reads + ingests them) and the file watcher (which
+/// needs the abs paths to recognize a changed code file).
+pub fn code_file_abs_paths(roots: &[ResolvedSource], project_root: &Utf8Path) -> Vec<Utf8PathBuf> {
     use globset::{Glob, GlobSetBuilder};
 
     let mut inc = GlobSetBuilder::new();
@@ -220,10 +217,11 @@ pub fn load_code_files(
         }
     }
     if !any {
-        return Ok(Vec::new());
+        return Vec::new();
     }
-    let include = inc.build()?;
-    let exclude = exc.build()?;
+    let (Ok(include), Ok(exclude)) = (inc.build(), exc.build()) else {
+        return Vec::new();
+    };
 
     let mut out = Vec::new();
     for entry in WalkBuilder::new(project_root)
@@ -239,9 +237,26 @@ pub fn load_code_files(
         let Ok(rel) = abs.strip_prefix(project_root) else {
             continue;
         };
-        if !include.is_match(rel.as_std_path()) || exclude.is_match(rel.as_std_path()) {
-            continue;
+        if include.is_match(rel.as_std_path()) && !exclude.is_match(rel.as_std_path()) {
+            out.push(abs);
         }
+    }
+    out
+}
+
+/// Read every code file matched by the sources' `impls` globs into `CodeFile`
+/// inputs keyed by project-root-relative path. Returns empty when no source
+/// declares `impls`.
+pub fn load_code_files(
+    db: &Database,
+    roots: &[ResolvedSource],
+    project_root: &Utf8Path,
+) -> Result<Vec<(crate::types::CodePath, crate::db::CodeFile)>> {
+    let mut out = Vec::new();
+    for abs in code_file_abs_paths(roots, project_root) {
+        let Ok(rel) = abs.strip_prefix(project_root) else {
+            continue;
+        };
         let content = fs::read_to_string(&abs)?;
         let last_modified = fs::metadata(&abs)?
             .modified()?
