@@ -64,6 +64,7 @@ fn workspace_sources(content_dir: &camino::Utf8Path) -> Vec<ResolvedSource> {
         checkout_dir: None,
         git: None,
         repo: None,
+        impls: Vec::new(),
     }]
 }
 use dodeca::template_host::TEMPLATE_FUNCTION_NAMES;

@@ -95,6 +95,7 @@ gingembre = { path = "../gingembre" }
 if-addrs.workspace = true
 ignore.workspace = true
 include_dir.workspace = true
+globset.workspace = true
 marq.workspace = true
 notify.workspace = true
 pulldown-cmark.workspace = true

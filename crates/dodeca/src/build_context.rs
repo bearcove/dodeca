@@ -7,11 +7,14 @@ use eyre::{Result, eyre};
 use ignore::WalkBuilder;
 
 use crate::config::ResolvedSource;
-use crate::db::{DataFile, Database, QueryStats, SassFile, SourceFile, StaticFile, TemplateFile};
+use crate::db::{
+    CodeFile, DataFile, Database, QueryStats, SassFile, SourceFile, StaticFile, TemplateFile,
+};
 use crate::template_paths::{logical_template_path, physical_template_path};
 use crate::types::{
-    DataContent, DataPath, SassContent, SassPath, SassPathRef, SourceContent, SourcePath,
-    SourcePathRef, StaticPath, TemplateContent, TemplatePath, TemplatePathRef,
+    CodeContent, CodePath, DataContent, DataPath, SassContent, SassPath, SassPathRef,
+    SourceContent, SourcePath, SourcePathRef, StaticPath, TemplateContent, TemplatePath,
+    TemplatePathRef,
 };
 use crate::vite;
 
@@ -185,6 +188,78 @@ pub fn load_source_files(
     Ok(out)
 }
 
+/// Walk the project root once, collecting every file matched by any source's
+/// `impls` `include`/`test_include` globs (minus `exclude`) into `CodeFile`
+/// inputs keyed by project-root-relative path. Returns empty when no source
+/// declares `impls`.
+pub fn load_code_files(
+    db: &Database,
+    roots: &[ResolvedSource],
+    project_root: &Utf8Path,
+) -> Result<Vec<(crate::types::CodePath, crate::db::CodeFile)>> {
+    use globset::{Glob, GlobSetBuilder};
+
+    let mut inc = GlobSetBuilder::new();
+    let mut exc = GlobSetBuilder::new();
+    let mut any = false;
+    for root in roots {
+        for impl_ in &root.impls {
+            // test_include files carry references too (verify-only enforcement
+            // is a later coverage refinement), so scan them alongside include.
+            for pat in impl_.include.iter().chain(&impl_.test_include) {
+                if let Ok(g) = Glob::new(pat) {
+                    inc.add(g);
+                    any = true;
+                }
+            }
+            for pat in &impl_.exclude {
+                if let Ok(g) = Glob::new(pat) {
+                    exc.add(g);
+                }
+            }
+        }
+    }
+    if !any {
+        return Ok(Vec::new());
+    }
+    let include = inc.build()?;
+    let exclude = exc.build()?;
+
+    let mut out = Vec::new();
+    for entry in WalkBuilder::new(project_root)
+        .build()
+        .filter_map(|e| e.ok())
+    {
+        if !entry.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
+            continue;
+        }
+        let Ok(abs) = Utf8PathBuf::from_path_buf(entry.into_path()) else {
+            continue;
+        };
+        let Ok(rel) = abs.strip_prefix(project_root) else {
+            continue;
+        };
+        if !include.is_match(rel.as_std_path()) || exclude.is_match(rel.as_std_path()) {
+            continue;
+        }
+        let content = fs::read_to_string(&abs)?;
+        let last_modified = fs::metadata(&abs)?
+            .modified()?
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let code_path = CodePath::new(rel.as_str().to_string());
+        let file = CodeFile::new(
+            db,
+            code_path.clone(),
+            CodeContent::new(content),
+            last_modified,
+        )?;
+        out.push((code_path, file));
+    }
+    Ok(out)
+}
+
 /// Load template files from every source's `templates/` dir (sibling of its
 /// content dir), with mount-prefixed keys. The primary (mount `/`) keeps bare
 /// keys (`page.html`); a mounted source gets prefixed keys (`wiki/page.html`).
@@ -350,6 +425,10 @@ pub struct BuildContext {
     /// The primary content dir — the mount-`/` source. Templates, sass, static,
     /// data and the cache are derived from it (one shared chrome for the site).
     pub content_dir: Utf8PathBuf,
+    /// Project root (the dir holding `.config/`). `impls` code globs resolve
+    /// against this. Defaults to the content dir's parent; set explicitly from
+    /// the resolved config's root where available.
+    pub project_root: Utf8PathBuf,
     /// All content sources, each with its mount prefix. Markdown is loaded from
     /// every source with mount-prefixed keys; a single-source build has exactly
     /// one entry at mount `/`.
@@ -365,6 +444,9 @@ pub struct BuildContext {
     pub static_files: BTreeMap<StaticPath, StaticFile>,
     /// Data files keyed by data path.
     pub data_files: BTreeMap<DataPath, DataFile>,
+    /// Code files (from source `impls` globs) keyed by project-root-relative
+    /// path, scanned for requirement references.
+    pub code_files: BTreeMap<CodePath, CodeFile>,
     /// Query statistics, if tracking is enabled.
     pub stats: Option<Arc<QueryStats>>,
 }
@@ -383,6 +465,7 @@ impl BuildContext {
         Self {
             db,
             content_dir: content_dir.to_owned(),
+            project_root: content_dir.parent().unwrap_or(content_dir).to_owned(),
             source_roots: vec![ResolvedSource {
                 name: String::new(),
                 mount: "/".to_string(),
@@ -398,8 +481,14 @@ impl BuildContext {
             sass_files: BTreeMap::new(),
             static_files: BTreeMap::new(),
             data_files: BTreeMap::new(),
+            code_files: BTreeMap::new(),
             stats,
         }
+    }
+
+    /// Set the project root that `impls` code globs resolve against.
+    pub fn set_project_root(&mut self, root: impl Into<Utf8PathBuf>) {
+        self.project_root = root.into();
     }
 
     /// Get the database Arc for sharing with render contexts.
@@ -468,6 +557,17 @@ impl BuildContext {
         let roots = self.source_roots.clone();
         for (path, source) in load_source_files(&self.db, &roots)? {
             self.sources.insert(path, source);
+        }
+        Ok(())
+    }
+
+    /// Load every code file matched by a source's `impls` globs into `CodeFile`
+    /// inputs, keyed by project-root-relative path.
+    pub fn load_code(&mut self) -> Result<()> {
+        let roots = self.source_roots.clone();
+        let project_root = self.project_root.clone();
+        for (path, file) in load_code_files(&self.db, &roots, &project_root)? {
+            self.code_files.insert(path, file);
         }
         Ok(())
     }

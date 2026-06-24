@@ -3,9 +3,9 @@
 use camino::{Utf8Path, Utf8PathBuf};
 use dodeca::config::{LinkCheckMode, ResolvedConfig};
 use dodeca::db::{
-    self, ConfigRegistry, DataFile, DataRegistry, Database, MarkdownRenderSettings, OutputFile,
-    QueryStats, SassFile, SassRegistry, SourceFile, SourceRegistry, StaticFile, StaticRegistry,
-    TemplateFile, TemplateRegistry,
+    self, CodeRegistry, ConfigRegistry, DataFile, DataRegistry, Database, MarkdownRenderSettings,
+    OutputFile, QueryStats, SassFile, SassRegistry, SourceFile, SourceRegistry, StaticFile,
+    StaticRegistry, TemplateFile, TemplateRegistry,
 };
 use dodeca::queries::{self, build_site};
 use dodeca::tui::{self, LogEvent};
@@ -277,6 +277,8 @@ enum Command {
 struct ResolvedBuildConfig {
     content_dir: Utf8PathBuf,
     output_dir: Utf8PathBuf,
+    /// Project root (`.config/` parent). `impls` code globs resolve against it.
+    root: Utf8PathBuf,
     /// All content sources (mount + content dir). For a single-source project
     /// this is one entry at mount `/` whose content dir equals `content_dir`.
     sources: Vec<dodeca::config::ResolvedSource>,
@@ -323,6 +325,10 @@ fn resolve_dirs(
         return Ok(ResolvedBuildConfig {
             content_dir: c.clone(),
             output_dir: o.clone(),
+            root: c
+                .parent()
+                .map(Utf8Path::to_owned)
+                .unwrap_or_else(|| c.clone()),
             sources: vec![dodeca::config::ResolvedSource {
                 name: String::new(),
                 mount: "/".to_string(),
@@ -330,6 +336,7 @@ fn resolve_dirs(
                 checkout_dir: None,
                 git: None,
                 repo: None,
+                impls: Vec::new(),
             }],
             skip_domains: vec![],
             rate_limit_ms: None,
@@ -349,6 +356,7 @@ fn resolve_dirs(
         Some(cfg) => {
             // Initialize global config for access from render pipeline
             dodeca::config::set_global_config(cfg.clone())?;
+            let root = cfg._root.clone();
             // A CLI `--content` override collapses to a single source at `/`;
             // otherwise use the config's resolved sources.
             let cli_content_override = content.is_some();
@@ -362,6 +370,7 @@ fn resolve_dirs(
                     checkout_dir: None,
                     git: None,
                     repo: None,
+                    impls: Vec::new(),
                 }]
             } else {
                 cfg.sources
@@ -369,6 +378,7 @@ fn resolve_dirs(
             Ok(ResolvedBuildConfig {
                 content_dir,
                 output_dir,
+                root,
                 sources,
                 skip_domains: cfg.skip_domains,
                 rate_limit_ms: cfg.rate_limit_ms,
@@ -488,7 +498,14 @@ async fn async_main(command: Command) -> Result<()> {
                 link_check,
             };
 
-            build(&cfg.content_dir, &cfg.output_dir, &cfg.sources, options).await?;
+            build(
+                &cfg.content_dir,
+                &cfg.output_dir,
+                &cfg.sources,
+                &cfg.root,
+                options,
+            )
+            .await?;
             Ok(())
         }
         Command::Serve(args) => {
@@ -1020,6 +1037,7 @@ pub async fn build(
     content_dir: &Utf8PathBuf,
     output_dir: &Utf8PathBuf,
     sources: &[dodeca::config::ResolvedSource],
+    project_root: &Utf8Path,
     options: BuildOptions,
 ) -> Result<BuildContext> {
     use std::time::Instant;
@@ -1044,6 +1062,7 @@ pub async fn build(
     let query_stats = QueryStats::new();
     let mut ctx = BuildContext::with_stats(content_dir, output_dir, Some(Arc::clone(&query_stats)));
     ctx.set_source_roots(sources.to_vec());
+    ctx.set_project_root(project_root);
 
     // Load picante cache from disk (for font subsetting, image processing, etc.)
     let picante_cache_path = cache_dir.join("dodeca.bin");
@@ -1060,6 +1079,7 @@ pub async fn build(
     ctx.load_sass()?;
     ctx.load_static()?;
     ctx.load_data()?;
+    ctx.load_code()?;
 
     if verbose {
         println!(
@@ -1079,11 +1099,14 @@ pub async fn build(
     let static_vec: Vec<_> = ctx.static_files.values().copied().collect();
     let data_vec: Vec<_> = ctx.data_files.values().copied().collect();
 
+    let code_vec: Vec<_> = ctx.code_files.values().copied().collect();
+
     SourceRegistry::set(&*ctx.db, source_vec)?;
     TemplateRegistry::set(&*ctx.db, template_vec)?;
     SassRegistry::set(&*ctx.db, sass_vec)?;
     StaticRegistry::set(&*ctx.db, static_vec)?;
     DataRegistry::set(&*ctx.db, data_vec)?;
+    CodeRegistry::set(&*ctx.db, code_vec)?;
 
     // Update progress: parsing phase
     if let Some(ref p) = options.progress {

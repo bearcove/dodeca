@@ -1,6 +1,6 @@
 use crate::types::{
-    DataContent, DataPath, HtmlBody, Route, SassContent, SassPath, SourceContent, SourcePath,
-    StaticPath, TemplateContent, TemplatePath, Title,
+    CodeContent, CodePath, DataContent, DataPath, HtmlBody, Route, SassContent, SassPath,
+    SourceContent, SourcePath, StaticPath, TemplateContent, TemplatePath, Title,
 };
 use std::sync::Arc;
 
@@ -124,6 +124,28 @@ pub struct DataRegistry {
 #[picante::input]
 pub struct SourceRegistry {
     pub sources: Vec<SourceFile>,
+}
+
+/// Input: A code file scanned for `r[verb rule.id]` requirement references.
+/// Keyed by its project-root-relative path, mirroring [`SourceFile`].
+#[picante::input]
+pub struct CodeFile {
+    /// Project-root-relative path to this file.
+    #[key]
+    pub path: CodePath,
+
+    /// The raw content of the file.
+    pub content: CodeContent,
+
+    /// Last modification time as Unix timestamp (seconds since epoch).
+    pub last_modified: i64,
+}
+
+/// Input code-file registry - tracks all scanned code files as a whole
+/// (singleton). Republished on load/edit so `coverage_report` re-derives.
+#[picante::input]
+pub struct CodeRegistry {
+    pub files: Vec<CodeFile>,
 }
 
 /// One file pulled in by an `include` shortcode (e.g. a crate README), by its
@@ -558,6 +580,8 @@ pub struct AllRenderedHtml {
         StaticRegistry,
         DataRegistry,
         SourceRegistry,
+        CodeFile,
+        CodeRegistry,
         IncludedFileRegistry,
         ConfigRegistry,
         MarkdownRenderSettings,

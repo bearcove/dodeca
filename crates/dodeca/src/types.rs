@@ -47,6 +47,19 @@ pub struct SourceContent {
     inner: String,
 }
 
+/// Project-root-relative path to a code file scanned for requirement
+/// references. Example: "src/lib.rs", "facet-json/src/de.rs".
+#[braid]
+pub struct CodePath {
+    inner: String,
+}
+
+/// Raw code file content, scanned for `r[verb rule.id]` references.
+#[braid]
+pub struct CodeContent {
+    inner: String,
+}
+
 /// Relative path to a template file from the templates directory.
 /// Example: "base.html", "page.html"
 #[braid]
