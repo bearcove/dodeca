@@ -1100,6 +1100,7 @@ pub async fn build(
     let data_vec: Vec<_> = ctx.data_files.values().copied().collect();
 
     let code_vec: Vec<_> = ctx.code_files.values().copied().collect();
+    let has_code = !code_vec.is_empty();
 
     SourceRegistry::set(&*ctx.db, source_vec)?;
     TemplateRegistry::set(&*ctx.db, template_vec)?;
@@ -1149,6 +1150,26 @@ pub async fn build(
             std::process::exit(1);
         }
     };
+
+    // Spec coverage summary — only meaningful when sources declare `impls`.
+    if has_code {
+        let report = db::TASK_DB
+            .scope(ctx.db_arc(), queries::coverage_report(&*ctx.db))
+            .await?;
+        let invalid = report.invalid_references.len();
+        println!(
+            "{} {}/{} rules covered ({:.0}%){}",
+            "Coverage".cyan(),
+            report.covered_rules.len(),
+            report.total_rules,
+            report.coverage_percent(),
+            if invalid == 0 {
+                String::new()
+            } else {
+                format!(", {invalid} invalid ref(s)")
+            }
+        );
+    }
 
     // Code execution validation
     let failed_executions: Vec<_> = site_output

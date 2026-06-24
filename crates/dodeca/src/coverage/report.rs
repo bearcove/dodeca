@@ -6,7 +6,7 @@ use facet::Facet;
 use std::collections::{HashMap, HashSet};
 
 /// Coverage analysis results for a single spec
-#[derive(Debug, Facet)]
+#[derive(Debug, Clone, Facet)]
 pub struct CoverageReport {
     /// Name of the spec
     pub spec_name: String,

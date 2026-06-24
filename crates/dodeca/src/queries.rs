@@ -2801,6 +2801,58 @@ fn page_mount_segment(route: &str) -> Option<String> {
         .filter(|seg| !seg.is_empty())
 }
 
+/// Scan one code file for `r[verb rule.id]` references in its comments.
+/// Keyed on the `CodeFile` input, so it re-runs only when that file changes.
+#[picante::tracked]
+pub async fn references_in_file<DB: Db>(
+    db: &DB,
+    code_file: crate::db::CodeFile,
+) -> PicanteResult<crate::coverage::Reqs> {
+    let path = code_file.path(db)?;
+    let content = code_file.content(db)?;
+    Ok(crate::coverage::Reqs::extract_from_content(
+        std::path::Path::new(path.as_str()),
+        content.as_str(),
+    ))
+}
+
+/// Fold code references against the spec rules dodeca extracts from markdown,
+/// producing a coverage report. Known rules are every `r[rule.id]` *defined*
+/// across the site tree (via marq); references are the union of
+/// [`references_in_file`] over every scanned `CodeFile`. Picante re-runs this
+/// only when a spec rule or a scanned code file changes — replacing tracey's
+/// hand-rolled rebuild engine.
+#[picante::tracked]
+pub async fn coverage_report<DB: Db>(db: &DB) -> PicanteResult<crate::coverage::CoverageReport> {
+    use std::collections::HashSet;
+
+    // Known rules: every requirement *defined* in a markdown spec page.
+    let mut known: HashSet<crate::coverage::RuleId> = HashSet::new();
+    if let Ok(site_tree) = build_tree(db).await? {
+        let defs = site_tree
+            .sections
+            .values()
+            .flat_map(|s| s.reqs.iter())
+            .chain(site_tree.pages.values().flat_map(|p| p.rules.iter()));
+        for req in defs {
+            if let Some(rid) = crate::coverage::parse_rule_id(&req.id) {
+                known.insert(rid);
+            }
+        }
+    }
+
+    // References: scan every code file the `impls` globs collected.
+    let mut all = crate::coverage::Reqs::new();
+    let files = crate::db::CodeRegistry::files(db)?.unwrap_or_default();
+    for cf in files {
+        all.extend(references_in_file(db, cf).await?);
+    }
+
+    Ok(crate::coverage::CoverageReport::compute(
+        "coverage", &known, &all,
+    ))
+}
+
 /// Build the global rule registry: each spec rule's anchor id (`r-rule.id`)
 /// mapped to the route of the page/section that *defines* it. The markdown cell
 /// renders an inline `r[rule.id]` reference as a same-page `#r-rule.id` link;
