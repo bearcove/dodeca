@@ -618,6 +618,7 @@ pub struct AllRenderedHtml {
         crate::queries::all_rendered_html,
         crate::queries::references_in_file,
         crate::queries::coverage_report,
+        crate::queries::rule_impls,
         crate::queries::global_char_set,
         crate::queries::static_file_cache_path,
         crate::queries::static_path_map,

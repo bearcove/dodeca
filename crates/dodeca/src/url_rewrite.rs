@@ -93,6 +93,7 @@ pub async fn process_html(
         wiki_to_title: options.wiki_to_title,
         rule_ref_to_route: options.rule_ref_to_route,
         rule_coverage: options.rule_coverage,
+        rule_impls: options.rule_impls,
         base_route: options.base_route,
         image_variants: options.image_variants,
         vite_css_map: options.vite_css_map,
@@ -162,6 +163,9 @@ pub struct HtmlProcessOptions {
     /// for rules defined on this page, stamped onto their blocks as
     /// `data-coverage`.
     pub rule_coverage: Option<HashMap<String, String>>,
+    /// Per-rule implementation sites (anchor id -> code units referencing it),
+    /// injected by cell-html as an "implemented by" list inside the rule block.
+    pub rule_impls: Option<HashMap<String, Vec<cell_html_proto::ImplSite>>>,
     /// Base route for relative link resolution
     pub base_route: Option<String>,
     /// Image variants for picture element transformation

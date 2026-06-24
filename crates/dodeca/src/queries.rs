@@ -2888,6 +2888,38 @@ pub async fn coverage_report<DB: Db>(db: &DB) -> PicanteResult<crate::coverage::
     ))
 }
 
+/// Per-rule implementation sites: for every rule referenced in code, the code
+/// units (functions/structs) whose comments reference it — via `code_units`'
+/// tree-sitter attribution. Keyed by canonical rule id. Powers the "implemented
+/// by `fn …`" list shown on a covered rule.
+#[picante::tracked]
+pub async fn rule_impls<DB: Db>(
+    db: &DB,
+) -> PicanteResult<HashMap<String, Vec<cell_html_proto::ImplSite>>> {
+    let mut map: HashMap<String, Vec<cell_html_proto::ImplSite>> = HashMap::new();
+    let files = crate::db::CodeRegistry::files(db)?.unwrap_or_default();
+    for cf in files {
+        let path = cf.path(db)?;
+        let content = cf.content(db)?;
+        let units = crate::coverage::extract(std::path::Path::new(path.as_str()), content.as_str());
+        for unit in units.units {
+            if unit.req_refs.is_empty() {
+                continue;
+            }
+            let site = cell_html_proto::ImplSite {
+                unit: unit.name.clone(),
+                kind: unit.kind.as_str().to_string(),
+                file: path.as_str().to_string(),
+                line: unit.start_line as u32,
+            };
+            for rid in &unit.req_refs {
+                map.entry(rid.canonical()).or_default().push(site.clone());
+            }
+        }
+    }
+    Ok(map)
+}
+
 /// Build the global rule registry: each spec rule's anchor id (`r-rule.id`)
 /// mapped to the route of the page/section that *defines* it. The markdown cell
 /// renders an inline `r[rule.id]` reference as a same-page `#r-rule.id` link;
@@ -3190,6 +3222,22 @@ pub async fn serve_html<DB: Db>(
         Some(map)
     };
 
+    // Implementation sites for this page's rules (anchor id -> code units).
+    let rule_impls_map = if page_reqs.is_empty() {
+        None
+    } else {
+        let all_impls = rule_impls(db).await?;
+        let mut map: HashMap<String, Vec<cell_html_proto::ImplSite>> = HashMap::new();
+        for req in &page_reqs {
+            if let Some(rid) = crate::coverage::parse_rule_id(&req.id)
+                && let Some(sites) = all_impls.get(&rid.canonical())
+            {
+                map.insert(req.anchor_id.clone(), sites.clone());
+            }
+        }
+        (!map.is_empty()).then_some(map)
+    };
+
     let process_options = crate::url_rewrite::HtmlProcessOptions {
         path_map: Some(path_map),
         vite_css_map: Some(vite_css_map),
@@ -3199,6 +3247,7 @@ pub async fn serve_html<DB: Db>(
         wiki_to_title: Some(wiki_to_title),
         rule_ref_to_route: Some(build_req_index(&site_tree)),
         rule_coverage,
+        rule_impls: rule_impls_map,
         base_route: Some(base_route),
         mount,
         ..Default::default()

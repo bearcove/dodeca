@@ -175,6 +175,11 @@ where
                 apply_rule_coverage_in_doc(&mut doc, rule_coverage);
             }
 
+            // 6d. Inject "implemented by <fn …>" lists into rule blocks.
+            if let Some(rule_impls) = &input.rule_impls {
+                apply_rule_impls_in_doc(&mut doc, rule_impls);
+            }
+
             // 7. Transform images to picture elements
             if let Some(image_variants) = &input.image_variants {
                 transform_images_in_doc(&mut doc, image_variants);
@@ -1353,6 +1358,51 @@ fn collect_all_nodes(doc: &Document, node_id: NodeId, out: &mut Vec<NodeId>) {
     out.push(node_id);
     for child_id in doc.children(node_id) {
         collect_all_nodes(doc, child_id, out);
+    }
+}
+
+/// Inject an "implemented by" list of code units into each rule-definition
+/// block whose anchor id appears in `rule_impls`.
+fn apply_rule_impls_in_doc(
+    doc: &mut Document,
+    rule_impls: &HashMap<String, Vec<cell_html_proto::ImplSite>>,
+) {
+    let Some(body_id) = doc.body() else { return };
+    let mut nodes = Vec::new();
+    collect_all_nodes(doc, body_id, &mut nodes);
+    for node_id in nodes {
+        let Some(id) = get_attr(doc, node_id, "id") else {
+            continue;
+        };
+        let Some(sites) = rule_impls.get(&id) else {
+            continue;
+        };
+        if sites.is_empty() {
+            continue;
+        }
+
+        let container = doc.create_element("div");
+        set_attr(doc, container, "class", "rule-impls");
+
+        let label = doc.create_element("span");
+        set_attr(doc, label, "class", "rule-impls-label");
+        let label_text = doc.create_text("Implemented by".to_string());
+        doc.append_child(label, label_text);
+        doc.append_child(container, label);
+
+        let list = doc.create_element("ul");
+        for site in sites {
+            let li = doc.create_element("li");
+            let name = site.unit.as_deref().unwrap_or("(top level)");
+            let text = doc.create_text(format!(
+                "{} {} — {}:{}",
+                site.kind, name, site.file, site.line
+            ));
+            doc.append_child(li, text);
+            doc.append_child(list, li);
+        }
+        doc.append_child(container, list);
+        doc.append_child(node_id, container);
     }
 }
 

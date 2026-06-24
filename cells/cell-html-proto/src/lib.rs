@@ -131,6 +131,13 @@ pub struct HtmlProcessInput {
     #[facet(default)]
     pub rule_coverage: Option<HashMap<String, String>>,
 
+    /// Per-rule implementation sites: anchor id (`r-rule.id`) -> the code units
+    /// that reference the rule. cell-html injects these as a list of links
+    /// inside the rule block, so a covered rule shows *which* `fn`/`struct`
+    /// implements it.
+    #[facet(default)]
+    pub rule_impls: Option<HashMap<String, Vec<ImplSite>>>,
+
     /// Base route for resolving relative links (e.g., "/guide/intro/")
     #[facet(default)]
     pub base_route: Option<String>,
@@ -287,6 +294,20 @@ pub struct ExtractedLinks {
     pub hrefs: Vec<String>,
     /// All id attribute values from any element
     pub element_ids: Vec<String>,
+}
+
+/// A code unit that references a spec rule — the "implemented by" site shown
+/// on a rule block.
+#[derive(Debug, Clone, Facet)]
+pub struct ImplSite {
+    /// Name of the enclosing unit (e.g. `step`), if it has one.
+    pub unit: Option<String>,
+    /// Kind of unit (`function`, `struct`, …).
+    pub kind: String,
+    /// Project-root-relative file path.
+    pub file: String,
+    /// 1-indexed start line of the unit.
+    pub line: u32,
 }
 
 /// Information about responsive image variants for picture element generation
