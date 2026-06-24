@@ -337,6 +337,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "arborium-cobol"
+version = "2.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3cdc0038f76bde19f97d50b55801c53741ec8c09deb1fa045e9f94d4d9f50742"
+dependencies = [
+ "arborium-sysroot",
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
 name = "arborium-cpp"
 version = "2.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -353,6 +364,28 @@ name = "arborium-css"
 version = "2.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "216eaa63b7784ee6adf3051cf5f991ba87a6d51bff6709672ae48e0ccda96829"
+dependencies = [
+ "arborium-sysroot",
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "arborium-d"
+version = "2.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "17fcc7a2c14b036d70b55dcb482cda657cf5013baaed92dcc7f67a4033c12e61"
+dependencies = [
+ "arborium-sysroot",
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "arborium-dart"
+version = "2.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bad16f6d408525cdfe1999921ecef55d9520c84c882b7bdae1922768d5655b07"
 dependencies = [
  "arborium-sysroot",
  "cc",
@@ -393,10 +426,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "arborium-erlang"
+version = "2.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2d03a81e00a3c870ee3553dc033907b9eeee8856a579f7b68858d9aefd18fe9"
+dependencies = [
+ "arborium-sysroot",
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
 name = "arborium-fish"
 version = "2.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5ef2d976882fde745655dd726cc9614aae6e6a6d659de0ee8a2dc1d9a9709485"
+dependencies = [
+ "arborium-sysroot",
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "arborium-fsharp"
+version = "2.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75046d5bccf1e4023f31aeb7ad119b57d50fd77b027b40d4cc1e73a2d1c669c8"
 dependencies = [
  "arborium-sysroot",
  "cc",
@@ -561,6 +616,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "arborium-lean"
+version = "2.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "80b795046d03aae5780c58e746ddaf780f683e36d9efa8f67abbe9bc01299eb5"
+dependencies = [
+ "arborium-sysroot",
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
 name = "arborium-lua"
 version = "2.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -581,6 +647,17 @@ dependencies = [
  "arborium-sysroot",
  "arborium-toml",
  "arborium-yaml",
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "arborium-matlab"
+version = "2.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6742e7370d821ecb38ab7bcdce40a60e7d55a43d66a14999364a8b2f4818a704"
+dependencies = [
+ "arborium-sysroot",
  "cc",
  "tree-sitter-language",
 ]
@@ -780,9 +857,9 @@ dependencies = [
 
 [[package]]
 name = "arborium-sysroot"
-version = "2.18.0"
+version = "2.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b9ce9dee108d720f7433b99b0d17b15ea6870b89032ce53bd44e78c8687d514"
+checksum = "59d99d80550b726f9dec7ee6d07118c31e08b10e729ac488eabd4c10603dc841"
 dependencies = [
  "cc",
  "dlmalloc",
@@ -870,6 +947,17 @@ name = "arborium-typst"
 version = "2.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bb1d1bbd1515a380963e0d9f807449879d5ed83fac83ab36f74f706d5a05bba2"
+dependencies = [
+ "arborium-sysroot",
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "arborium-vb"
+version = "2.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f4b8bad10c740594c79652211a9dc8a2e0606c8695a0d7cc2b34bea97a0abfb"
 dependencies = [
  "arborium-sysroot",
  "cc",
@@ -2647,7 +2735,41 @@ version = "0.6.1"
 dependencies = [
  "aho-corasick",
  "arboard",
+ "arborium-asm",
+ "arborium-bash",
+ "arborium-c",
+ "arborium-clojure",
+ "arborium-cmake",
+ "arborium-cobol",
+ "arborium-cpp",
+ "arborium-d",
+ "arborium-dart",
+ "arborium-elixir",
+ "arborium-erlang",
+ "arborium-fsharp",
+ "arborium-go",
+ "arborium-haskell",
+ "arborium-java",
+ "arborium-julia",
+ "arborium-lean",
+ "arborium-lua",
+ "arborium-matlab",
+ "arborium-nix",
+ "arborium-ocaml",
+ "arborium-perl",
+ "arborium-php",
+ "arborium-powershell",
+ "arborium-python",
+ "arborium-r",
+ "arborium-ruby",
+ "arborium-rust",
+ "arborium-svelte",
+ "arborium-swift",
  "arborium-theme",
+ "arborium-tree-sitter",
+ "arborium-typescript",
+ "arborium-vb",
+ "arborium-yaml",
  "arc-swap",
  "ariadne 0.5.1",
  "axum",
