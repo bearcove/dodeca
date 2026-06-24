@@ -2810,10 +2810,45 @@ pub async fn references_in_file<DB: Db>(
 ) -> PicanteResult<crate::coverage::Reqs> {
     let path = code_file.path(db)?;
     let content = code_file.content(db)?;
-    Ok(crate::coverage::Reqs::extract_from_content(
-        std::path::Path::new(path.as_str()),
-        content.as_str(),
-    ))
+    let path_ref = std::path::Path::new(path.as_str());
+    let ext = path_ref.extension().and_then(|e| e.to_str()).unwrap_or("");
+
+    if crate::coverage::has_tree_sitter_grammar(ext) {
+        let extracted = crate::coverage::extract_refs_with_warnings(path_ref, content.as_str());
+        let mut reqs = crate::coverage::Reqs::new();
+        for full_ref in extracted.references {
+            let verb = match full_ref.verb.as_str() {
+                "define" => crate::coverage::RefVerb::Define,
+                "impl" => crate::coverage::RefVerb::Impl,
+                "verify" => crate::coverage::RefVerb::Verify,
+                "depends" => crate::coverage::RefVerb::Depends,
+                "related" => crate::coverage::RefVerb::Related,
+                _ => continue,
+            };
+            reqs.references.push(crate::coverage::ReqReference {
+                prefix: full_ref.prefix,
+                verb,
+                req_id: full_ref.req_id,
+                file: path_ref.to_path_buf(),
+                line: full_ref.line,
+                span: crate::coverage::SourceSpan::new(full_ref.byte_offset, full_ref.byte_length),
+            });
+        }
+        for warning in extracted.warnings {
+            reqs.warnings.push(crate::coverage::ParseWarning {
+                file: path_ref.to_path_buf(),
+                line: warning.line,
+                span: crate::coverage::SourceSpan::new(warning.byte_offset, warning.byte_length),
+                kind: crate::coverage::WarningKind::MalformedReference,
+            });
+        }
+        Ok(reqs)
+    } else {
+        Ok(crate::coverage::Reqs::extract_from_content(
+            path_ref,
+            content.as_str(),
+        ))
+    }
 }
 
 /// Fold code references against the spec rules dodeca extracts from markdown,
