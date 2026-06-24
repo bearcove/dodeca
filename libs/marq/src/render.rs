@@ -368,6 +368,42 @@ fn render_inline_code(code: &str, handler: Option<&BoxedInlineCodeHandler>) -> S
     format!("<code>{}</code>", html_escape(code))
 }
 
+/// Render a LaTeX math fragment to a MathML string via `pulldown-latex`.
+///
+/// `block` selects display mode (`<math display="block">` with `displaystyle`
+/// sizing) vs inline. Invalid LaTeX is rendered by `pulldown-latex` itself as a
+/// visible error node (in its error colour), so the author sees the mistake
+/// rather than a silent drop; the `Err` arm only fires on a writer failure,
+/// which a `String` sink never produces, but we fall back to the escaped source
+/// for total safety.
+fn tex_to_mathml(tex: &str, block: bool) -> String {
+    use pulldown_latex::{
+        Parser as LatexParser, Storage,
+        config::{DisplayMode, RenderConfig},
+        mathml::push_mathml,
+    };
+
+    let storage = Storage::new();
+    let parser = LatexParser::new(tex, &storage);
+    let config = RenderConfig {
+        display_mode: if block {
+            DisplayMode::Block
+        } else {
+            DisplayMode::Inline
+        },
+        ..Default::default()
+    };
+
+    let mut out = String::new();
+    if push_mathml(&mut out, parser, config).is_err() {
+        out.clear();
+        out.push_str("<code class=\"math-error\">");
+        out.push_str(&html_escape(tex));
+        out.push_str("</code>");
+    }
+    out
+}
+
 /// Resolve a link using the custom resolver if available, otherwise use default resolution.
 async fn resolve_link_with_resolver(
     link: &str,
@@ -930,9 +966,24 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
         | Options::ENABLE_HEADING_ATTRIBUTES
         | Options::ENABLE_YAML_STYLE_METADATA_BLOCKS
         | Options::ENABLE_PLUSES_DELIMITED_METADATA_BLOCKS
-        | Options::ENABLE_WIKILINKS;
+        | Options::ENABLE_WIKILINKS
+        | Options::ENABLE_MATH;
 
-    let parser = Parser::new_ext(markdown, parser_options).into_offset_iter();
+    // Convert `$…$` / `$$…$$` math to MathML right at the source, before any
+    // downstream consumer sees the events: every catch-all renders `InlineHtml`
+    // verbatim, so the rest of the pipeline needs no math awareness. Both inline
+    // and display math stay `InlineHtml` (paragraph-safe); the `display="block"`
+    // attribute, not a block-level event, drives display rendering.
+    let parser = Parser::new_ext(markdown, parser_options)
+        .into_offset_iter()
+        .map(|(event, range)| {
+            let event = match event {
+                Event::InlineMath(tex) => Event::InlineHtml(tex_to_mathml(&tex, false).into()),
+                Event::DisplayMath(tex) => Event::InlineHtml(tex_to_mathml(&tex, true).into()),
+                other => other,
+            };
+            (event, range)
+        });
 
     // Collected data
     let mut headings: Vec<Heading> = Vec::new();
@@ -4218,6 +4269,59 @@ Third paragraph.
         assert!(
             doc.html.contains("A--&gt;B"),
             "Mermaid code should be HTML-escaped: {}",
+            doc.html
+        );
+    }
+
+    #[tokio::test]
+    async fn inline_math_renders_mathml() {
+        let doc = render(
+            "The loss $L(x) = x^2$ is convex.",
+            &RenderOptions::default(),
+        )
+        .await
+        .unwrap();
+        assert!(
+            doc.html.contains("<math"),
+            "inline $…$ should render a <math> element: {}",
+            doc.html
+        );
+        assert!(
+            !doc.html.contains("$L(x)"),
+            "raw TeX delimiters should not survive: {}",
+            doc.html
+        );
+    }
+
+    #[tokio::test]
+    async fn display_math_renders_block_mathml() {
+        let doc = render(
+            r"$$\int_0^1 x \, dx = \frac{1}{2}$$",
+            &RenderOptions::default(),
+        )
+        .await
+        .unwrap();
+        assert!(
+            doc.html.contains("display=\"block\""),
+            "$$…$$ should render display=\"block\" MathML: {}",
+            doc.html
+        );
+    }
+
+    #[tokio::test]
+    async fn lone_dollar_in_prose_is_not_math() {
+        // A single unmatched `$` must stay literal — no math span.
+        let doc = render("It costs $5 today.", &RenderOptions::default())
+            .await
+            .unwrap();
+        assert!(
+            !doc.html.contains("<math"),
+            "lone $ should not start a math span: {}",
+            doc.html
+        );
+        assert!(
+            doc.html.contains("$5"),
+            "the literal $5 should survive: {}",
             doc.html
         );
     }

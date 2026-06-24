@@ -147,6 +147,9 @@ lang-zsh = ["arborium?/lang-zsh"]
 # Markdown parsing
 pulldown-cmark.workspace = true
 
+# LaTeX math ($…$ / $$…$$) → MathML
+pulldown-latex.workspace = true
+
 # Frontmatter parsing
 facet.workspace = true
 facet-toml.workspace = true
@@ -179,6 +182,7 @@ facet-yaml = { version = "0.50.0-rc.0" }
 
 # Markdown
 pulldown-cmark = "0.13"
+pulldown-latex = "0.7"
 
 # Error handling
 thiserror = "2.0"
