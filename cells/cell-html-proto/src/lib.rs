@@ -124,6 +124,13 @@ pub struct HtmlProcessInput {
     #[facet(default)]
     pub rule_ref_to_route: Option<HashMap<String, String>>,
 
+    /// Per-rule coverage status for rules *defined* on this page: anchor id
+    /// (`r-rule.id`) -> status (`covered` / `uncovered`). cell-html stamps it
+    /// onto the matching `<div class="req" id="r-rule.id">` as a `data-coverage`
+    /// attribute, which the stylesheet renders as a badge.
+    #[facet(default)]
+    pub rule_coverage: Option<HashMap<String, String>>,
+
     /// Base route for resolving relative links (e.g., "/guide/intro/")
     #[facet(default)]
     pub base_route: Option<String>,

@@ -3133,6 +3133,28 @@ pub async fn serve_html<DB: Db>(
             wiki_to_route.insert(raw, target);
         }
     }
+    // Per-rule coverage for rules *defined* on this page. Skip pages with no
+    // rules so they don't take a dependency on the global coverage fold.
+    let page_reqs: Vec<crate::db::ReqDefinition> = site_tree
+        .pages
+        .get(&route)
+        .map(|p| p.rules.clone())
+        .or_else(|| site_tree.sections.get(&route).map(|s| s.reqs.clone()))
+        .unwrap_or_default();
+    let rule_coverage = if page_reqs.is_empty() {
+        None
+    } else {
+        let report = coverage_report(db).await?;
+        let mut map = HashMap::new();
+        for req in &page_reqs {
+            let covered = crate::coverage::parse_rule_id(&req.id)
+                .is_some_and(|rid| report.covered_rules.contains(&rid));
+            let status = if covered { "covered" } else { "uncovered" };
+            map.insert(req.anchor_id.clone(), status.to_string());
+        }
+        Some(map)
+    };
+
     let process_options = crate::url_rewrite::HtmlProcessOptions {
         path_map: Some(path_map),
         vite_css_map: Some(vite_css_map),
@@ -3141,6 +3163,7 @@ pub async fn serve_html<DB: Db>(
         wiki_to_route: Some(wiki_to_route),
         wiki_to_title: Some(wiki_to_title),
         rule_ref_to_route: Some(build_req_index(&site_tree)),
+        rule_coverage,
         base_route: Some(base_route),
         mount,
         ..Default::default()

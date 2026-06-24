@@ -170,6 +170,11 @@ where
                 resolve_rule_refs_in_doc(&mut doc, rule_ref_to_route);
             }
 
+            // 6c. Stamp per-rule coverage status onto rule-definition blocks.
+            if let Some(rule_coverage) = &input.rule_coverage {
+                apply_rule_coverage_in_doc(&mut doc, rule_coverage);
+            }
+
             // 7. Transform images to picture elements
             if let Some(image_variants) = &input.image_variants {
                 transform_images_in_doc(&mut doc, image_variants);
@@ -1323,6 +1328,31 @@ fn resolve_rule_refs_in_doc(doc: &mut Document, rule_ref_to_route: &HashMap<Stri
             let route = route.trim_end_matches('/');
             set_attr(doc, node_id, "href", &format!("{route}/#{anchor}"));
         }
+    }
+}
+
+/// Stamp `data-coverage` onto each rule-definition element (`id="r-rule.id"`)
+/// whose anchor id appears in `rule_coverage`. The stylesheet renders the
+/// attribute as a covered / uncovered badge.
+fn apply_rule_coverage_in_doc(doc: &mut Document, rule_coverage: &HashMap<String, String>) {
+    let Some(body_id) = doc.body() else { return };
+    let mut nodes = Vec::new();
+    collect_all_nodes(doc, body_id, &mut nodes);
+    for node_id in nodes {
+        let Some(id) = get_attr(doc, node_id, "id") else {
+            continue;
+        };
+        if let Some(status) = rule_coverage.get(&id) {
+            set_attr(doc, node_id, "data-coverage", status);
+        }
+    }
+}
+
+/// Collect a node and all its descendants (pre-order).
+fn collect_all_nodes(doc: &Document, node_id: NodeId, out: &mut Vec<NodeId>) {
+    out.push(node_id);
+    for child_id in doc.children(node_id) {
+        collect_all_nodes(doc, child_id, out);
     }
 }
 

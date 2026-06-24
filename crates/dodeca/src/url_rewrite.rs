@@ -92,6 +92,7 @@ pub async fn process_html(
         wiki_to_route: options.wiki_to_route,
         wiki_to_title: options.wiki_to_title,
         rule_ref_to_route: options.rule_ref_to_route,
+        rule_coverage: options.rule_coverage,
         base_route: options.base_route,
         image_variants: options.image_variants,
         vite_css_map: options.vite_css_map,
@@ -157,6 +158,10 @@ pub struct HtmlProcessOptions {
     /// Rule-anchor id (`r-rule.id`) to the route of the page that defines it,
     /// for resolving cross-page spec rule references (the global rule registry).
     pub rule_ref_to_route: Option<HashMap<String, String>>,
+    /// Per-rule coverage status (anchor id `r-rule.id` -> `covered`/`uncovered`)
+    /// for rules defined on this page, stamped onto their blocks as
+    /// `data-coverage`.
+    pub rule_coverage: Option<HashMap<String, String>>,
     /// Base route for relative link resolution
     pub base_route: Option<String>,
     /// Image variants for picture element transformation
