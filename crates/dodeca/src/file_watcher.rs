@@ -561,6 +561,7 @@ mod tests {
             checkout_dir: None,
             git: None,
             repo: None,
+            impls: Vec::new(),
         }
     }
 
