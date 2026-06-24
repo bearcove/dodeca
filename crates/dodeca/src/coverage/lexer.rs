@@ -1,0 +1,1172 @@
+//! Rust lexer for extracting rule references from comments
+//!
+//! This module implements parsing of rule references from Rust source code.
+//! It scans comments for patterns like `r[verb rule.id]`.
+
+use super::parse_rule_id;
+use super::positions::ByteSpan;
+use super::positions::{ByteOffset, LineNumber, LineStarts, RefLocation};
+use super::rule_id::RuleId;
+use facet::Facet;
+use std::path::{Path, PathBuf};
+
+/// Byte span in source code
+///
+/// r[impl ref.span.offset]
+/// r[impl ref.span.length]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Facet)]
+pub struct SourceSpan {
+    /// Byte offset from start of file
+    pub offset: usize,
+    /// Byte length
+    pub length: usize,
+}
+
+impl SourceSpan {
+    pub fn new(offset: usize, length: usize) -> Self {
+        Self { offset, length }
+    }
+}
+
+impl From<ByteSpan> for SourceSpan {
+    fn from(value: ByteSpan) -> Self {
+        Self::new(value.offset().as_usize(), value.length().as_usize())
+    }
+}
+
+/// The relationship type between code and a spec rule
+///
+/// r[impl ref.verb.impl]
+/// r[impl ref.verb.verify]
+/// r[impl ref.verb.depends]
+/// r[impl ref.verb.related]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Facet)]
+#[repr(u8)]
+pub enum RefVerb {
+    /// Where the requirement is defined (typically in specs/docs)
+    Define,
+    /// Code that fulfills/implements the requirement
+    Impl,
+    /// Tests that verify the implementation matches the spec
+    Verify,
+    /// Strict dependency - must recheck if the referenced rule changes
+    Depends,
+    /// Loose connection - show when reviewing
+    Related,
+}
+
+impl RefVerb {
+    /// Parse a verb from its string representation
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "define" => Some(RefVerb::Define),
+            "impl" => Some(RefVerb::Impl),
+            "verify" => Some(RefVerb::Verify),
+            "depends" => Some(RefVerb::Depends),
+            "related" => Some(RefVerb::Related),
+            _ => None,
+        }
+    }
+
+    /// Get the string representation of this verb
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            RefVerb::Define => "define",
+            RefVerb::Impl => "impl",
+            RefVerb::Verify => "verify",
+            RefVerb::Depends => "depends",
+            RefVerb::Related => "related",
+        }
+    }
+}
+
+impl std::fmt::Display for RefVerb {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// A reference to a requirement found in source code
+///
+/// r[impl ref.span.file]
+#[derive(Debug, Clone, Facet)]
+pub struct ReqReference {
+    /// The prefix identifying which spec this reference belongs to
+    pub prefix: String,
+    /// The relationship type (impl, verify, depends, etc.)
+    pub verb: RefVerb,
+    /// The requirement ID (e.g., "channel.id.allocation")
+    pub req_id: RuleId,
+    /// File where the reference was found
+    pub file: PathBuf,
+    /// Line number (1-indexed)
+    pub line: usize,
+    /// Byte span of the reference in source
+    pub span: SourceSpan,
+}
+
+/// Warning during parsing
+#[derive(Debug, Clone, Facet)]
+pub struct ParseWarning {
+    /// File where the warning occurred
+    pub file: PathBuf,
+    /// Line number (1-indexed)
+    pub line: usize,
+    /// Byte span of the problematic text
+    pub span: SourceSpan,
+    /// What kind of warning
+    pub kind: WarningKind,
+}
+
+/// Types of parse warnings
+///
+/// r[impl ref.verb.unknown]
+#[derive(Debug, Clone, Facet)]
+#[repr(u8)]
+pub enum WarningKind {
+    /// Unknown verb in `[verb rule.id]`
+    UnknownVerb(String),
+    /// Malformed reference
+    MalformedReference,
+}
+
+/// Collection of requirement references extracted from source files
+#[derive(Debug, Clone, Default, Facet)]
+pub struct Reqs {
+    /// Valid requirement references
+    pub references: Vec<ReqReference>,
+    /// Warnings encountered during parsing
+    pub warnings: Vec<ParseWarning>,
+}
+
+impl Reqs {
+    /// Create an empty Reqs collection
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Number of valid references
+    pub fn len(&self) -> usize {
+        self.references.len()
+    }
+
+    /// Whether there are no references
+    pub fn is_empty(&self) -> bool {
+        self.references.is_empty()
+    }
+
+    /// Extract requirements from raw content (no I/O)
+    pub fn extract_from_content(path: &Path, content: &str) -> Self {
+        let mut reqs = Reqs::new();
+        extract_from_content(path, content, &mut reqs);
+        reqs
+    }
+
+    /// Merge another Reqs into this one
+    pub fn extend(&mut self, other: Reqs) {
+        self.references.extend(other.references);
+        self.warnings.extend(other.warnings);
+    }
+}
+
+/// Extract requirement references from source content into the Reqs collection
+///
+/// When the "reverse" feature is enabled, this uses tree-sitter for proper
+/// comment parsing. Otherwise, falls back to text-based scanning.
+pub(crate) fn extract_from_content(path: &Path, content: &str, reqs: &mut Reqs) {
+    // Text-based comment scanning. (tracey's tree-sitter "reverse" path becomes
+    // a separate `code_units` picante query in dodeca; it is not inlined here.)
+    extract_from_content_text_based(path, content, reqs);
+}
+
+pub(crate) fn is_valid_req_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '+'
+}
+
+/// State for tracking ignore directives across lines.
+///
+/// r[impl ref.ignore.prefix]
+#[derive(Default)]
+struct IgnoreState {
+    /// Skip the next line (set by @tracey:ignore-next-line)
+    ignore_next_line: Option<LineNumber>,
+    /// Currently inside an ignore block (set by @tracey:ignore-start)
+    /// r[impl ref.ignore.block]
+    in_ignore_block: bool,
+}
+
+/// Check if a comment contains ignore directives and update state accordingly.
+///
+/// Returns true if the current comment's refs should be extracted (not ignored).
+fn check_ignore_directives(text: &str, line: LineNumber, state: &mut IgnoreState) -> bool {
+    // Check for ignore directives
+    // r[impl ref.ignore.next-line]
+    if text.contains("@tracey:ignore-next-line") {
+        state.ignore_next_line = Some(line);
+        return false;
+    }
+
+    // r[impl ref.ignore.block]
+    if text.contains("@tracey:ignore-start") {
+        state.in_ignore_block = true;
+        return false;
+    }
+
+    if text.contains("@tracey:ignore-end") {
+        state.in_ignore_block = false;
+        return false;
+    }
+
+    // Check if we're in an ignore block
+    if state.in_ignore_block {
+        return false;
+    }
+
+    // Check if previous line had ignore-next-line
+    if let Some(ignore_line) = state.ignore_next_line {
+        if line.is_immediately_after(ignore_line) {
+            state.ignore_next_line = None;
+            return false;
+        }
+        state.ignore_next_line = None;
+    }
+
+    true
+}
+
+/// Find the byte position where a YAML line comment starts.
+///
+/// Per the YAML spec a `#` opens a comment only when it is at the start of the
+/// line (possibly after leading whitespace) or is immediately preceded by at
+/// least one whitespace character, AND is not inside a single- or double-quoted
+/// scalar.  A bare `#` embedded in a plain scalar — e.g. `url: http://x/#frag`
+/// — is NOT a comment.
+fn find_yaml_comment_start(line: &str) -> Option<usize> {
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut prev: Option<char> = None;
+
+    for (idx, ch) in line.char_indices() {
+        match ch {
+            '\'' if !in_double => in_single = !in_single,
+            '"' if !in_single => in_double = !in_double,
+            '#' if !in_single
+                && !in_double
+                && (idx == 0 || prev.is_some_and(|p| p.is_whitespace())) =>
+            {
+                return Some(idx);
+            }
+            _ => {}
+        }
+        prev = Some(ch);
+    }
+    None
+}
+
+fn extract_from_content_text_based(path: &Path, content: &str, reqs: &mut Reqs) {
+    // Track line starts for computing line numbers from byte offsets
+    let line_starts = LineStarts::from_content(content);
+
+    // Pre-compute file-level code mask for doc-comment groups so that fenced
+    // code blocks spanning multiple `///` / `//!` lines are properly masked.
+    let file_code_mask = super::markdown::compute_doc_comment_code_mask(content);
+
+    let mut ignore_state = IgnoreState::default();
+
+    let is_yaml = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| matches!(e, "yml" | "yaml"));
+
+    // Scan for comments and extract references
+    for (line_idx, line) in content.lines().enumerate() {
+        let line_num = LineNumber::from_zero_based(line_idx);
+        let line_start = line_starts.line_start_for_index(line_idx);
+
+        if is_yaml {
+            // YAML uses # as its only comment syntax; skip // and /* */ scanning
+            // entirely to avoid false positives (e.g. URLs containing //).
+            if let Some(comment_pos) = find_yaml_comment_start(line) {
+                let comment = &line[comment_pos..];
+                let comment_start = line_start.add(comment_pos);
+
+                if check_ignore_directives(comment, line_num, &mut ignore_state) {
+                    extract_references_from_text(
+                        path,
+                        comment,
+                        comment_start,
+                        line_num,
+                        &file_code_mask,
+                        reqs,
+                    );
+                }
+            }
+        } else {
+            // Check for line comments (// or ///)
+            if let Some(comment_pos) = line.find("//") {
+                let comment = &line[comment_pos..];
+                let comment_start = line_start.add(comment_pos);
+
+                if check_ignore_directives(comment, line_num, &mut ignore_state) {
+                    extract_references_from_text(
+                        path,
+                        comment,
+                        comment_start,
+                        line_num,
+                        &file_code_mask,
+                        reqs,
+                    );
+                }
+            }
+        }
+    }
+
+    // Handle block comments /* */ — not applicable to YAML.
+    if !is_yaml {
+        let mut in_block_comment = false;
+        let mut block_start = 0;
+        let mut block_line = LineNumber::from_one_based(1);
+        let mut i = 0;
+        let bytes = content.as_bytes();
+
+        while i < bytes.len() {
+            if in_block_comment {
+                if i + 1 < bytes.len() && bytes[i] == b'*' && bytes[i + 1] == b'/' {
+                    let block_content = &content[block_start..i];
+                    if check_ignore_directives(block_content, block_line, &mut ignore_state) {
+                        extract_references_from_text(
+                            path,
+                            block_content,
+                            ByteOffset::from_usize(block_start),
+                            block_line,
+                            &file_code_mask,
+                            reqs,
+                        );
+                    }
+                    in_block_comment = false;
+                    i += 2;
+                    continue;
+                }
+            } else if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'*' {
+                in_block_comment = true;
+                block_start = i + 2;
+                block_line = line_starts.line_number_for_offset(ByteOffset::from_usize(i));
+                i += 2;
+                continue;
+            }
+            i += 1;
+        }
+    }
+}
+
+/// Extract rule references from a piece of text (comment content)
+fn extract_references_from_text(
+    path: &Path,
+    text: &str,
+    text_offset: ByteOffset,
+    base_line: LineNumber,
+    file_code_mask: &[bool],
+    reqs: &mut Reqs,
+) {
+    let code_mask = super::markdown::markdown_code_mask(text);
+    let mut chars = text.char_indices().peekable();
+    let mut prev_ch: Option<char> = None;
+
+    while let Some((start_idx, ch)) = chars.next() {
+        // Check both per-text mask and file-level mask for doc-comment groups
+        let file_idx = text_offset.as_usize() + start_idx;
+        if super::markdown::is_code_index(start_idx, &code_mask)
+            || super::markdown::is_code_index(file_idx, file_code_mask)
+        {
+            prev_ch = Some(ch);
+            continue;
+        }
+        // r[impl ref.syntax.brackets+2]
+        // r[impl ref.prefix.matching+2]
+        // Match any valid prefix (alphanumeric) followed by '['
+        // Only start a prefix scan when NOT preceded by a word character,
+        // so that identifiers like `slot_count[i]` are not misinterpreted.
+        if ch.is_ascii_lowercase() || ch.is_ascii_digit() {
+            if prev_ch.is_some_and(|pc| pc.is_ascii_alphanumeric() || pc == '_') {
+                prev_ch = Some(ch);
+                continue;
+            }
+            let prefix_start = start_idx;
+            let mut prefix = String::new();
+            prefix.push(ch);
+
+            // Continue reading prefix (can be multi-char like "h2")
+            while let Some(&(_, next_ch)) = chars.peek() {
+                if next_ch == '[' {
+                    break; // Found the bracket
+                } else if next_ch.is_ascii_lowercase() || next_ch.is_ascii_digit() {
+                    prefix.push(next_ch);
+                    chars.next();
+                } else {
+                    break; // Not a valid prefix character
+                }
+            }
+
+            // Check if we have '[' after the prefix
+            if let Some(&(_bracket_idx, next_ch)) = chars.peek() {
+                if next_ch != '[' {
+                    continue; // Not an annotation
+                }
+                chars.next(); // consume '['
+            } else {
+                continue;
+            }
+
+            // Try to parse: r[verb rule.id] or r[rule.id]
+            let mut first_word = String::new();
+            let mut valid = true;
+
+            // First char must be an ASCII letter. Case is preserved: lowercase
+            // first words are still tried as a verb (the only verbs are lowercase);
+            // uppercase or mixed-case first words flow through as a rule-ID body.
+            if let Some(&(_, first_char)) = chars.peek() {
+                if first_char.is_ascii_alphabetic() {
+                    first_word.push(first_char);
+                    chars.next();
+                } else {
+                    valid = false;
+                }
+            } else {
+                valid = false;
+            }
+
+            if valid {
+                // Read the first word (could be verb or start of rule ID)
+                // r[impl ref.syntax.req-id]
+                while let Some(&(_, c)) = chars.peek() {
+                    if c == ']' || c == ' ' {
+                        break;
+                    } else if is_valid_req_char(c) {
+                        first_word.push(c);
+                        chars.next();
+                    } else {
+                        valid = false;
+                        break;
+                    }
+                }
+            }
+
+            if !valid || first_word.is_empty() {
+                continue;
+            }
+
+            // Check what follows
+            if let Some(&(end_idx, next_char)) = chars.peek() {
+                if next_char == ' ' {
+                    // Space after first word - might be r[verb rule.id]
+                    // r[impl ref.syntax.verb]
+                    if let Some(verb) = RefVerb::parse(&first_word) {
+                        chars.next(); // consume space
+
+                        // Now read the rule ID
+                        let mut req_id = String::new();
+
+                        // First char of rule ID must be an ASCII letter.
+                        // Case is preserved (StrictDoc-style UIDs like BR-001).
+                        if let Some(&(_, c)) = chars.peek() {
+                            if c.is_ascii_alphabetic() {
+                                req_id.push(c);
+                                chars.next();
+                            } else {
+                                continue; // invalid, skip
+                            }
+                        }
+
+                        // Continue reading rule ID
+                        let mut final_idx = end_idx;
+                        while let Some(&(idx, c)) = chars.peek() {
+                            final_idx = idx;
+                            if c == ']' {
+                                chars.next();
+                                break;
+                            } else if is_valid_req_char(c) {
+                                req_id.push(c);
+                                chars.next();
+                            } else {
+                                break; // invalid char
+                            }
+                        }
+
+                        // Validate rule ID
+                        if is_valid_req_id(&req_id) {
+                            let location = RefLocation::from_relative_indices(
+                                base_line,
+                                text_offset,
+                                prefix_start,
+                                final_idx,
+                            );
+                            if let Some(rule_id) = parse_rule_id(&req_id) {
+                                reqs.references.push(ReqReference {
+                                    prefix: prefix.clone(),
+                                    verb,
+                                    req_id: rule_id,
+                                    file: path.to_path_buf(),
+                                    line: location.line().as_usize(),
+                                    span: location.span().into(),
+                                });
+                            }
+                        } else {
+                            let location = RefLocation::from_relative_indices(
+                                base_line,
+                                text_offset,
+                                prefix_start,
+                                final_idx,
+                            );
+                            reqs.warnings.push(ParseWarning {
+                                file: path.to_path_buf(),
+                                line: location.line().as_usize(),
+                                span: location.span().into(),
+                                kind: WarningKind::MalformedReference,
+                            });
+                        }
+                    } else {
+                        // Not a known verb - just ignore it. We only match rule
+                        // references with known verbs: impl, verify, define, depends, related
+                        // This avoids false positives on things like [payload bytes]
+                    }
+                } else if next_char == ']' {
+                    // Immediate close - this is r[rule.id] format (defaults to impl)
+                    // r[impl ref.verb.default]
+                    chars.next(); // consume ]
+
+                    // Validate requirement ID syntax
+                    if is_valid_req_id(&first_word) {
+                        let location = RefLocation::from_relative_indices(
+                            base_line,
+                            text_offset,
+                            prefix_start,
+                            end_idx,
+                        );
+                        if let Some(rule_id) = parse_rule_id(&first_word) {
+                            reqs.references.push(ReqReference {
+                                prefix: prefix.clone(),
+                                verb: RefVerb::Impl, // default to impl
+                                req_id: rule_id,
+                                file: path.to_path_buf(),
+                                line: location.line().as_usize(),
+                                span: location.span().into(),
+                            });
+                        }
+                    } else {
+                        let location = RefLocation::from_relative_indices(
+                            base_line,
+                            text_offset,
+                            prefix_start,
+                            end_idx,
+                        );
+                        reqs.warnings.push(ParseWarning {
+                            file: path.to_path_buf(),
+                            line: location.line().as_usize(),
+                            span: location.span().into(),
+                            kind: WarningKind::MalformedReference,
+                        });
+                    }
+                }
+            }
+            // After parsing (successful or not), the last consumed char is
+            // somewhere inside the bracket expression. Set prev_ch to ']'
+            // as a safe non-word character so that a legitimate reference
+            // immediately following is not skipped.
+            prev_ch = Some(']');
+        } else {
+            prev_ch = Some(ch);
+        }
+    }
+
+    extract_relation_annotations(path, text, text_offset, base_line, file_code_mask, reqs);
+}
+
+/// Scan `text` for StrictDoc-style `@relation(UID[, UID...][, scope=...][, role=...])`
+/// annotations and emit a [`ReqReference`] for each UID.
+///
+/// Multi-UID annotations expand to one reference per UID, all sharing the call's span.
+/// `role=Refines` and unknown roles emit a parse warning and produce no references.
+fn extract_relation_annotations(
+    path: &Path,
+    text: &str,
+    text_offset: ByteOffset,
+    base_line: LineNumber,
+    file_code_mask: &[bool],
+    reqs: &mut Reqs,
+) {
+    let code_mask = super::markdown::markdown_code_mask(text);
+    let mut search_start = 0;
+    while let Some(rel) = text[search_start..].find("@relation") {
+        let hit_start = search_start + rel;
+
+        // Honour code-mask: ignore `@relation` inside inline code spans or
+        // fenced code blocks, same as `r[...]` markers.
+        if super::markdown::is_code_index(hit_start, &code_mask)
+            || super::markdown::is_code_index(text_offset.as_usize() + hit_start, file_code_mask)
+        {
+            search_start = hit_start + "@relation".len();
+            continue;
+        }
+
+        let Some(ann) = strictdoc_parser::parse_relation_annotation(&text[hit_start..]) else {
+            search_start = hit_start + "@relation".len();
+            continue;
+        };
+
+        let abs_start = hit_start + ann.start;
+        let abs_end = hit_start + ann.end;
+
+        let verb = match ann.role {
+            None | Some(strictdoc_parser::RelationRole::Implements) => RefVerb::Impl,
+            Some(strictdoc_parser::RelationRole::Verifies) => RefVerb::Verify,
+            Some(strictdoc_parser::RelationRole::Refines)
+            | Some(strictdoc_parser::RelationRole::Other(_)) => {
+                let location = RefLocation::from_relative_indices(
+                    base_line,
+                    text_offset,
+                    abs_start,
+                    abs_end.saturating_sub(1),
+                );
+                reqs.warnings.push(ParseWarning {
+                    file: path.to_path_buf(),
+                    line: location.line().as_usize(),
+                    span: location.span().into(),
+                    kind: WarningKind::MalformedReference,
+                });
+                search_start = abs_end;
+                continue;
+            }
+        };
+
+        let location = RefLocation::from_relative_indices(
+            base_line,
+            text_offset,
+            abs_start,
+            abs_end.saturating_sub(1),
+        );
+
+        for uid in &ann.uids {
+            if let Some(rule_id) = parse_rule_id(uid) {
+                reqs.references.push(ReqReference {
+                    prefix: "r".to_string(),
+                    verb,
+                    req_id: rule_id,
+                    file: path.to_path_buf(),
+                    line: location.line().as_usize(),
+                    span: location.span().into(),
+                });
+            } else {
+                reqs.warnings.push(ParseWarning {
+                    file: path.to_path_buf(),
+                    line: location.line().as_usize(),
+                    span: location.span().into(),
+                    kind: WarningKind::MalformedReference,
+                });
+            }
+        }
+
+        search_start = abs_end;
+    }
+}
+
+// r[impl ref.syntax.req-id+3]
+fn is_valid_req_id(req_id: &str) -> bool {
+    let Some(parsed) = parse_rule_id(req_id) else {
+        return false;
+    };
+    !parsed.base.ends_with('.')
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_simple_reference_legacy() {
+        let content = r#"
+            // See r[channel.id.allocation] for details
+            fn allocate_id() {}
+        "#;
+
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs.references[0].prefix, "r");
+        assert_eq!(reqs.references[0].req_id, "channel.id.allocation");
+        assert_eq!(reqs.references[0].verb, RefVerb::Impl);
+    }
+
+    // r[verify ref.syntax.req-id+3]
+    #[test]
+    fn test_extract_all_valid_req_chars() {
+        let content = r#"
+            // See r[channel0_config.no-reuse] for details
+            fn set_channel0_config() {}
+        "#;
+
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs.references[0].prefix, "r");
+        assert_eq!(reqs.references[0].req_id, "channel0_config.no-reuse");
+        assert_eq!(reqs.references[0].verb, RefVerb::Impl);
+    }
+
+    #[test]
+    fn test_extract_with_explicit_verb() {
+        let content = r#"
+            // r[impl channel.id.allocation]
+            fn allocate_id() {}
+
+            // r[verify channel.id.parity]
+            #[test]
+            fn test_parity() {}
+
+            // r[depends channel.framing]
+            fn needs_framing() {}
+
+            // r[related channel.errors]
+            fn handle_errors() {}
+
+            // r[define channel.id.format]
+            // This is where we define the format
+        "#;
+
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 5);
+
+        assert_eq!(reqs.references[0].verb, RefVerb::Impl);
+        assert_eq!(reqs.references[0].req_id, "channel.id.allocation");
+
+        assert_eq!(reqs.references[1].verb, RefVerb::Verify);
+        assert_eq!(reqs.references[1].req_id, "channel.id.parity");
+
+        assert_eq!(reqs.references[2].verb, RefVerb::Depends);
+        assert_eq!(reqs.references[2].req_id, "channel.framing");
+
+        assert_eq!(reqs.references[3].verb, RefVerb::Related);
+        assert_eq!(reqs.references[3].req_id, "channel.errors");
+
+        assert_eq!(reqs.references[4].verb, RefVerb::Define);
+        assert_eq!(reqs.references[4].req_id, "channel.id.format");
+    }
+
+    #[test]
+    fn test_extract_multiple_references() {
+        let content = r#"
+            /// Implements r[channel.id.parity] and r[channel.id.no-reuse]
+            fn next_channel_id() {}
+        "#;
+
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 2);
+        assert_eq!(reqs.references[0].req_id, "channel.id.parity");
+        assert_eq!(reqs.references[1].req_id, "channel.id.no-reuse");
+    }
+
+    #[test]
+    fn test_mixed_syntax() {
+        let content = r#"
+            // Short form: r[channel.id.one] and explicit: r[verify channel.id.two]
+            fn foo() {}
+        "#;
+
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 2);
+        assert_eq!(reqs.references[0].req_id, "channel.id.one");
+        assert_eq!(reqs.references[0].verb, RefVerb::Impl);
+        assert_eq!(reqs.references[1].req_id, "channel.id.two");
+        assert_eq!(reqs.references[1].verb, RefVerb::Verify);
+    }
+
+    #[test]
+    fn test_extract_versioned_references() {
+        let content = r#"
+            // r[impl auth.login+2]
+            // r[verify auth.session+3]
+            fn foo() {}
+        "#;
+
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 2);
+        assert_eq!(reqs.references[0].req_id, "auth.login+2");
+        assert_eq!(reqs.references[1].req_id, "auth.session+3");
+    }
+
+    #[test]
+    fn test_extract_single_segment_references() {
+        let content = r#"
+            // r[impl link]
+            // r[link]
+            fn foo() {}
+        "#;
+
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 2);
+        assert_eq!(reqs.references[0].req_id, "link");
+        assert_eq!(reqs.references[1].req_id, "link");
+    }
+
+    #[test]
+    fn test_reject_invalid_version_suffix() {
+        let content = r#"
+            // r[impl auth.login+]
+            // r[impl auth.session+0]
+            fn foo() {}
+        "#;
+
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 0);
+    }
+
+    #[test]
+    fn test_warn_on_rejected_reference() {
+        let content = r#"
+            // r[impl link.]
+            // r[link.]
+            fn foo() {}
+        "#;
+
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 0);
+        assert_eq!(reqs.warnings.len(), 2);
+        assert!(
+            reqs.warnings
+                .iter()
+                .all(|warning| matches!(warning.kind, WarningKind::MalformedReference))
+        );
+    }
+
+    #[test]
+    fn test_ignore_non_rule_brackets() {
+        let content = r#"
+            // array[0] is not a rule
+            // [Some text] is not a rule either
+            fn foo() {}
+        "#;
+
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 0);
+    }
+
+    #[test]
+    fn test_unknown_verb_ignored() {
+        // Unknown verbs are silently ignored to avoid false positives
+        // on things like [payload bytes] in documentation
+        let content = r#"
+            // [frobnicate rule.id]
+            // [payload bytes]
+            fn foo() {}
+        "#;
+
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 0);
+        assert_eq!(reqs.warnings.len(), 0); // No warnings for unknown verbs
+    }
+
+    #[test]
+    fn test_verb_display() {
+        assert_eq!(RefVerb::Impl.to_string(), "impl");
+        assert_eq!(RefVerb::Verify.to_string(), "verify");
+        assert_eq!(RefVerb::Depends.to_string(), "depends");
+        assert_eq!(RefVerb::Related.to_string(), "related");
+        assert_eq!(RefVerb::Define.to_string(), "define");
+    }
+
+    #[test]
+    fn test_span_tracking() {
+        let content = "// r[impl foo.bar]";
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs.references[0].prefix, "r");
+        assert_eq!(reqs.references[0].span.offset, 3); // after "// ", points to 'r'
+    }
+
+    #[test]
+    fn test_span_length_includes_closing_bracket() {
+        let content = "// r[foo.bar]";
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs.references[0].span.length, "r[foo.bar]".len());
+    }
+
+    #[test]
+    fn test_multi_char_prefix() {
+        let content = r#"
+            // h2[impl stream.priority]
+            // m[verify message.format]
+            fn test() {}
+        "#;
+
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 2);
+        assert_eq!(reqs.references[0].prefix, "h2");
+        assert_eq!(reqs.references[0].req_id, "stream.priority");
+        assert_eq!(reqs.references[1].prefix, "m");
+        assert_eq!(reqs.references[1].req_id, "message.format");
+    }
+
+    #[test]
+    fn test_jsx_block_comments() {
+        let content = r#"
+            return html`
+              ${/* r[impl dashboard.header.search] */ null}
+              <input type="text" />
+            `;
+        "#;
+
+        let reqs = Reqs::extract_from_content(Path::new("test.tsx"), content);
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs.references[0].prefix, "r");
+        assert_eq!(reqs.references[0].verb, RefVerb::Impl);
+        assert_eq!(reqs.references[0].req_id, "dashboard.header.search");
+    }
+
+    #[test]
+    fn test_ignore_refs_inside_inline_backticks_in_comments() {
+        let content = r#"
+            // See `r[impl ignored.inline]` for docs
+            // r[impl visible.ref]
+            fn test() {}
+        "#;
+
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs.references[0].req_id, "visible.ref");
+    }
+
+    #[test]
+    fn test_ignore_refs_inside_fenced_code_in_comments() {
+        let content = r#"
+            /*
+            ```markdown
+            r[impl ignored.fenced]
+            ```
+            r[impl visible.ref]
+            */
+            fn test() {}
+        "#;
+
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs.references[0].req_id, "visible.ref");
+    }
+
+    #[test]
+    fn test_fenced_code_in_inner_doc_comments() {
+        let content = "//! ```text\n//! slot_count[i]\n//! ```\n";
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(
+            reqs.len(),
+            0,
+            "fenced code in //! should produce no annotations"
+        );
+        assert_eq!(reqs.warnings.len(), 0);
+    }
+
+    #[test]
+    fn test_fenced_code_in_outer_doc_comments() {
+        let content = "/// ```rust\n/// // r[haha.hehe]\n/// ```\n";
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(
+            reqs.len(),
+            0,
+            "fenced code in /// should produce no annotations"
+        );
+        assert_eq!(reqs.warnings.len(), 0);
+    }
+
+    #[test]
+    fn test_identifier_before_bracket_not_annotation() {
+        let content = "/// slot_count[i] is fun\n";
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 0, "identifier[x] should not be an annotation");
+        assert_eq!(reqs.warnings.len(), 0);
+    }
+
+    #[test]
+    fn test_inline_backtick_in_doc_comment() {
+        let content = "/// `r[haha.hehe]` yey\n";
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(
+            reqs.len(),
+            0,
+            "inline code in /// should produce no annotations"
+        );
+    }
+
+    #[test]
+    fn test_legitimate_ref_after_whitespace_still_works() {
+        let content = "/// r[impl foo.bar]\n";
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs.references[0].prefix, "r");
+        assert_eq!(reqs.references[0].verb, RefVerb::Impl);
+        assert_eq!(reqs.references[0].req_id, "foo.bar");
+    }
+
+    #[test]
+    fn test_uppercase_rule_id_in_marker_is_preserved() {
+        let content = "// r[impl BR-001]\nfn f() {}\n";
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs.references[0].req_id, "BR-001");
+        assert_eq!(reqs.references[0].verb, RefVerb::Impl);
+    }
+
+    #[test]
+    fn test_mixed_case_rule_id_in_marker_is_preserved() {
+        let content = "// r[verify Auth.Login]\nfn f() {}\n";
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs.references[0].req_id, "Auth.Login");
+        assert_eq!(reqs.references[0].verb, RefVerb::Verify);
+    }
+
+    #[test]
+    fn test_uppercase_rule_id_no_verb_defaults_to_impl() {
+        let content = "// r[BR-001]\nfn f() {}\n";
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs.references[0].req_id, "BR-001");
+        assert_eq!(reqs.references[0].verb, RefVerb::Impl);
+    }
+
+    #[test]
+    fn test_relation_annotation_single_uid() {
+        let content = "// @relation(BR-001, scope=function)\nfn f() {}\n";
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs.references[0].req_id, "BR-001");
+        assert_eq!(reqs.references[0].verb, RefVerb::Impl);
+        assert_eq!(reqs.references[0].prefix, "r");
+    }
+
+    #[test]
+    fn test_relation_annotation_role_verifies() {
+        let content = "// @relation(BR-001, role=Verifies)\nfn f() {}\n";
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs.references[0].verb, RefVerb::Verify);
+    }
+
+    #[test]
+    fn test_relation_annotation_multi_uid_shares_span() {
+        let content = "// @relation(BR-001, BR-002, scope=function, role=Verifies)\nfn f() {}\n";
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 2);
+        assert_eq!(reqs.references[0].req_id, "BR-001");
+        assert_eq!(reqs.references[1].req_id, "BR-002");
+        assert_eq!(reqs.references[0].verb, RefVerb::Verify);
+        assert_eq!(reqs.references[1].verb, RefVerb::Verify);
+        // Both annotations share the same span (the @relation call)
+        assert_eq!(
+            reqs.references[0].span.offset,
+            reqs.references[1].span.offset
+        );
+        assert_eq!(
+            reqs.references[0].span.length,
+            reqs.references[1].span.length
+        );
+    }
+
+    #[test]
+    fn test_relation_annotation_refines_warns_and_skips() {
+        let content = "// @relation(BR-001, role=Refines)\nfn f() {}\n";
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 0, "Refines role must not produce a reference");
+        assert_eq!(reqs.warnings.len(), 1);
+        assert!(matches!(
+            reqs.warnings[0].kind,
+            WarningKind::MalformedReference
+        ));
+    }
+
+    #[test]
+    fn test_fixture_strictdoc_lib_rs_yields_all_refs() {
+        // Mirror of the integration fixture so any drift in lexer is caught here.
+        let content = "// Implementation site: @relation, no explicit role -> Implements.
+// @relation(BR-001, scope=function)
+pub fn connect() {}
+
+// Test site: explicit Verifies role.
+// @relation(BR-002, scope=function, role=Verifies)
+#[test]
+fn test_heartbeat_emitted() {}
+
+// Multi-UID annotation; both UIDs share the same span.
+// @relation(BR-001, BR-002, scope=function, role=Verifies)
+fn dual_verify() {}
+
+// Refines role is rejected for v1: warning, no reference produced.
+// @relation(BR-003, role=Refines)
+fn refines_placeholder() {}
+
+// Legacy r[...] marker uses the same prefix and continues to work alongside @relation.
+// r[impl BR-003]
+pub fn reconnect() {}
+";
+        let reqs = Reqs::extract_from_content(Path::new("src/lib.rs"), content);
+        let ids: Vec<String> = reqs
+            .references
+            .iter()
+            .map(|r| format!("{:?} {}", r.verb, r.req_id))
+            .collect();
+        // 1 impl BR-001 + 1 verify BR-002 + 2 verify (BR-001, BR-002) + 1 impl BR-003 = 5 refs
+        assert_eq!(reqs.len(), 5, "expected 5 references, got: {ids:?}");
+        // Refines produces a warning
+        assert_eq!(reqs.warnings.len(), 1);
+    }
+
+    #[test]
+    fn test_yaml_only_scans_hash_comments() {
+        // URLs with // must not produce false positives in YAML files.
+        let content = "url: https://example.com/api\n# r[impl yaml.endpoint]\npath: /v1\n";
+        let reqs = Reqs::extract_from_content(Path::new("config.yaml"), content);
+        assert_eq!(reqs.len(), 1, "only the # comment should be extracted");
+        assert_eq!(reqs.references[0].req_id, "yaml.endpoint");
+    }
+
+    #[test]
+    fn test_yaml_block_comment_syntax_not_scanned() {
+        // /* */ is not valid YAML comment syntax; must not be parsed as one.
+        let content = "/* r[impl yaml.false-positive] */\n";
+        let reqs = Reqs::extract_from_content(Path::new("config.yml"), content);
+        assert_eq!(
+            reqs.len(),
+            0,
+            "/* */ should not be treated as a comment in YAML"
+        );
+    }
+
+    #[test]
+    fn test_yaml_hash_in_scalar_not_parsed() {
+        // '#' embedded in a plain scalar (no preceding whitespace) is not a comment.
+        let content = "url: https://example.com/#frag r[impl should.not.parse]\n";
+        let reqs = Reqs::extract_from_content(Path::new("config.yaml"), content);
+        assert_eq!(
+            reqs.len(),
+            0,
+            "# inside a scalar value must not be treated as a comment"
+        );
+    }
+
+    #[test]
+    fn test_yaml_hash_after_space_is_comment() {
+        // '#' preceded by whitespace is a valid YAML comment.
+        let content = "key: value # r[impl yaml.inline]\n";
+        let reqs = Reqs::extract_from_content(Path::new("config.yaml"), content);
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs.references[0].req_id, "yaml.inline");
+    }
+
+    #[test]
+    fn test_yaml_hash_in_quoted_scalar_not_parsed() {
+        // '#' inside a quoted string is not a comment.
+        let content = "msg: \"hello # r[impl yaml.false-positive]\"\n";
+        let reqs = Reqs::extract_from_content(Path::new("config.yaml"), content);
+        assert_eq!(
+            reqs.len(),
+            0,
+            "# inside a double-quoted scalar must not be a comment"
+        );
+    }
+}

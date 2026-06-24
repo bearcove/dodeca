@@ -142,6 +142,7 @@ fontcull = { path = "libs/fontcull/fontcull", default-features = false }
 # Markdown
 marq = { path = "libs/marq" }
 pulldown-cmark = "0.13"
+strictdoc-parser = "0.1.1"
 arborium-theme = "2"
 
 # Search (from-scratch, pagefind-inspired full-text search)

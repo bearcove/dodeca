@@ -14,6 +14,7 @@ pub mod cell_server;
 pub mod cells;
 pub mod config;
 pub mod content_service;
+pub mod coverage;
 pub mod data;
 pub mod db;
 pub mod dictionary;
