@@ -14,7 +14,8 @@ mod report;
 mod rule_id;
 
 pub use code_units::{
-    CodeUnit, CodeUnitKind, CodeUnits, ExtractedRefs, extract, extract_refs_with_warnings,
+    CodeUnit, CodeUnitKind, CodeUnits, ExtractedRefs, extract, extract_refs,
+    extract_refs_with_warnings,
 };
 pub use lexer::{ParseWarning, RefVerb, ReqReference, Reqs, SourceSpan, WarningKind};
 pub use report::CoverageReport;
