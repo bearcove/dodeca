@@ -302,6 +302,35 @@ pub struct SourceDef {
     /// (the clone remote for checkout-backed sources).
     #[facet(default)]
     pub repo: Option<String>,
+
+    /// Code implementations whose source files are scanned for requirement
+    /// references (`r[verb rule.id]`) to compute coverage of this source's spec
+    /// rules. Each entry is one named implementation (a language or crate).
+    #[facet(default)]
+    pub impls: Option<Vec<ImplDef>>,
+}
+
+/// One implementation of a source's spec: a named set of code files scanned for
+/// requirement references. Mirrors tracey's `impl` block, attached to a dodeca
+/// source so editing it hot-reloads coverage through the config input.
+#[derive(Debug, Clone, Default, Facet)]
+#[facet(rename_all = "snake_case")]
+pub struct ImplDef {
+    /// Name of this implementation (e.g. `rust`, `core`, `frontend`).
+    pub name: String,
+
+    /// Glob patterns for source files to scan, relative to the project root.
+    #[facet(default)]
+    pub include: Vec<String>,
+
+    /// Glob patterns to exclude from `include`.
+    #[facet(default)]
+    pub exclude: Vec<String>,
+
+    /// Glob patterns for test files. References in these files may only
+    /// *verify* a rule, never *implement* it.
+    #[facet(default)]
+    pub test_include: Vec<String>,
 }
 
 /// Authentication / authorization config. Its mere presence turns on gating of

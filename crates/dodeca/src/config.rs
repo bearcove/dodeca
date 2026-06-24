@@ -135,6 +135,25 @@ pub struct ResolvedSource {
     pub git: Option<String>,
     /// Browsable repository URL, exposed to templates for "view on GitHub" links.
     pub repo: Option<String>,
+    /// Code implementations scanned for requirement references to compute
+    /// coverage of this source's spec rules. Empty when the source declares no
+    /// `impls`.
+    pub impls: Vec<ResolvedImpl>,
+}
+
+/// A code implementation to scan for requirement references (resolved from
+/// [`dodeca_config::ImplDef`]). Globs are project-root-relative; the scanner
+/// resolves them at scan time.
+#[derive(Debug, Clone, facet::Facet)]
+pub struct ResolvedImpl {
+    /// Name of this implementation (e.g. `rust`).
+    pub name: String,
+    /// Globs for source files to scan.
+    pub include: Vec<String>,
+    /// Globs to exclude from `include`.
+    pub exclude: Vec<String>,
+    /// Globs for test files (references may only *verify*, not *implement*).
+    pub test_include: Vec<String>,
 }
 
 /// Discovered configuration with resolved paths
@@ -437,6 +456,7 @@ fn resolve_sources(root: &Utf8Path, config: &DodecaConfig) -> Result<Vec<Resolve
             checkout_dir: None,
             git: None,
             repo: None,
+            impls: Vec::new(),
         }]),
         (None, None) => Err(eyre!(
             "config must set either `content` (single source) or `sources` (multiple)"
@@ -486,6 +506,18 @@ fn resolve_source(root: &Utf8Path, def: &SourceDef) -> Result<ResolvedSource> {
         checkout_dir,
         git: def.git.clone(),
         repo: def.repo.clone(),
+        impls: def
+            .impls
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|i| ResolvedImpl {
+                name: i.name,
+                include: i.include,
+                exclude: i.exclude,
+                test_include: i.test_include,
+            })
+            .collect(),
     })
 }
 
@@ -581,6 +613,7 @@ mod tests {
             content: None,
             git: None,
             repo: None,
+            impls: None,
         }
     }
 
@@ -710,6 +743,7 @@ mod tests {
             content: Some("docs/content".into()),
             git: Some("g.git".into()),
             repo: None,
+            impls: None,
         };
         let sources = resolve_sources(root, &config(None, Some(vec![def]))).unwrap();
         assert_eq!(
@@ -734,6 +768,7 @@ mod tests {
             content: None,
             git: None,
             repo: None,
+            impls: None,
         };
         assert!(resolve_sources(root, &config(None, Some(vec![def]))).is_err());
     }

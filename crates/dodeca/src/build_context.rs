@@ -390,6 +390,7 @@ impl BuildContext {
                 checkout_dir: None,
                 git: None,
                 repo: None,
+                impls: Vec::new(),
             }],
             output_dir: output_dir.to_owned(),
             sources: BTreeMap::new(),
