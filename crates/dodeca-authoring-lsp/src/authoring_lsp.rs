@@ -36,6 +36,10 @@ use tower_lsp::lsp_types::{
 };
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
+// The route-graph analysis layer (link resolution, markdown refs, route graph)
+// now lives in `dodeca::authoring_graph`; re-export so the rest of this module
+// (and `ddc`) keep referencing the items unqualified.
+pub use dodeca::authoring_graph::*;
 use dodeca::authoring_model::{
     AuthoringDocumentOverlay, AuthoringInputPath, AuthoringPage, AuthoringPageKind,
     AuthoringProject, AuthoringWorkspace, RenderedHref, RenderedHrefOrigin,
@@ -1848,43 +1852,6 @@ pub struct AuthoringDiagnostic {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RouteGraphNode {
-    pub route: String,
-    pub source_file: String,
-    pub title: String,
-    pub incoming: Vec<RouteGraphEdge>,
-    pub outgoing: Vec<RouteGraphEdge>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RouteGraphEdge {
-    pub kind: RouteGraphEdgeKind,
-    pub source_route: String,
-    pub source_file: String,
-    pub target_route: String,
-    pub target: String,
-    pub line: Option<u32>,
-    pub column: Option<u32>,
-    pub line_end: Option<u32>,
-    pub column_end: Option<u32>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RouteGraphEdgeKind {
-    Markdown,
-    RenderedHtml,
-}
-
-impl RouteGraphEdgeKind {
-    pub fn label(self) -> &'static str {
-        match self {
-            RouteGraphEdgeKind::Markdown => "markdown",
-            RouteGraphEdgeKind::RenderedHtml => "renderedHtml",
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TemplateRouteReference {
     pub target: String,
     pub target_route: String,
@@ -2089,102 +2056,6 @@ pub fn site_graph_diagnostics(project: &AuthoringProject) -> Vec<AuthoringDiagno
     diagnostics
 }
 
-pub fn route_graph_for_project(project: &AuthoringProject) -> Vec<RouteGraphNode> {
-    let mut outgoing_by_route: HashMap<String, Vec<RouteGraphEdge>> = HashMap::new();
-    let mut incoming_by_route: HashMap<String, Vec<RouteGraphEdge>> = HashMap::new();
-    let mut seen_edges: HashSet<(String, String, String)> = HashSet::new();
-
-    for page in &project.pages {
-        let Some(content) = project.source_contents.get(&page.source_file) else {
-            continue;
-        };
-        for reference in markdown_references(content) {
-            let Some(target_route) = reference_target_route(project, page, &reference) else {
-                continue;
-            };
-            if !project.route_exists(&target_route) {
-                continue;
-            }
-            let (line, column) = byte_to_line_column(content, reference.byte_start);
-            let (line_end, column_end) = byte_to_line_column(content, reference.byte_end);
-            let edge = RouteGraphEdge {
-                kind: RouteGraphEdgeKind::Markdown,
-                source_route: page.route.clone(),
-                source_file: page.source_file.clone(),
-                target_route: target_route.clone(),
-                target: reference.target,
-                line: Some(line),
-                column: Some(column),
-                line_end: Some(line_end),
-                column_end: Some(column_end),
-            };
-            seen_edges.insert((
-                edge.source_route.clone(),
-                edge.target_route.clone(),
-                edge.target.clone(),
-            ));
-            outgoing_by_route
-                .entry(page.route.clone())
-                .or_default()
-                .push(edge.clone());
-            incoming_by_route
-                .entry(target_route)
-                .or_default()
-                .push(edge);
-        }
-    }
-
-    for (source_route, hrefs) in &project.rendered_hrefs_by_route {
-        let Some(source_page) = project.page_for_route(source_route) else {
-            continue;
-        };
-        for href in hrefs {
-            let Some(target_route) = rendered_href_target_route(project, source_page, &href.href)
-            else {
-                continue;
-            };
-            if !seen_edges.insert((
-                source_route.clone(),
-                target_route.clone(),
-                href.href.clone(),
-            )) {
-                continue;
-            }
-            let edge = RouteGraphEdge {
-                kind: RouteGraphEdgeKind::RenderedHtml,
-                source_route: source_route.clone(),
-                source_file: source_page.source_file.clone(),
-                target_route: target_route.clone(),
-                target: href.href.clone(),
-                line: None,
-                column: None,
-                line_end: None,
-                column_end: None,
-            };
-            outgoing_by_route
-                .entry(source_route.clone())
-                .or_default()
-                .push(edge.clone());
-            incoming_by_route
-                .entry(target_route)
-                .or_default()
-                .push(edge);
-        }
-    }
-
-    project
-        .pages
-        .iter()
-        .map(|page| RouteGraphNode {
-            route: page.route.clone(),
-            source_file: page.source_file.clone(),
-            title: page.title.clone(),
-            incoming: incoming_by_route.remove(&page.route).unwrap_or_default(),
-            outgoing: outgoing_by_route.remove(&page.route).unwrap_or_default(),
-        })
-        .collect()
-}
-
 pub fn duplicate_title_diagnostics(project: &AuthoringProject) -> Vec<AuthoringDiagnostic> {
     let mut by_title: HashMap<&str, Vec<&AuthoringPage>> = HashMap::new();
     for page in &project.pages {
@@ -2290,24 +2161,6 @@ pub fn inbound_link_counts(project: &AuthoringProject) -> HashMap<String, usize>
         }
     }
     counts
-}
-
-pub fn rendered_href_target_route(
-    project: &AuthoringProject,
-    source_page: &AuthoringPage,
-    href: &str,
-) -> Option<String> {
-    if is_special_target(href) {
-        return None;
-    }
-
-    let (target_without_fragment, _) = split_fragment(href);
-    if target_without_fragment.is_empty() || is_likely_static_file(target_without_fragment) {
-        return None;
-    }
-
-    let target_route = route_for_link_target(project, source_page, target_without_fragment);
-    project.route_exists(&target_route).then_some(target_route)
 }
 
 pub fn template_route_references(
@@ -3103,7 +2956,8 @@ pub fn diagnostic_for_reference(
     let (kind, resolved_route, message) =
         if let Some(source_target) = target_without_fragment.strip_prefix("@/") {
             let Some(route) = project.source_to_route.get(source_target) else {
-                return Some(reference.diagnostic(
+                return Some(markdown_reference_diagnostic(
+                    &reference,
                     page,
                     content,
                     AuthoringDiagnosticKind::Source,
@@ -3146,7 +3000,14 @@ pub fn diagnostic_for_reference(
             }
         };
 
-    Some(reference.diagnostic(page, content, kind, resolved_route, message))
+    Some(markdown_reference_diagnostic(
+        &reference,
+        page,
+        content,
+        kind,
+        resolved_route,
+        message,
+    ))
 }
 
 pub fn missing_route_code_actions(
@@ -5272,34 +5133,6 @@ pub fn relative_source_path_from_source(source_file: &str, target_source_file: &
     }
 }
 
-pub fn reference_target_route(
-    project: &AuthoringProject,
-    page: &AuthoringPage,
-    reference: &MarkdownReference,
-) -> Option<String> {
-    let target = reference.target.as_str();
-    if is_special_target(target) {
-        return None;
-    }
-
-    let (target_without_fragment, _) = split_fragment(target);
-    if let Some(source_target) = target_without_fragment.strip_prefix("@/") {
-        return project.source_to_route.get(source_target).cloned();
-    }
-
-    if reference.kind == MarkdownReferenceKind::Image
-        || is_likely_static_file(target_without_fragment)
-    {
-        return None;
-    }
-
-    Some(route_for_link_target(
-        project,
-        page,
-        target_without_fragment,
-    ))
-}
-
 pub fn location_for_markdown_reference(
     content_dir: &Utf8Path,
     source_file: &str,
@@ -5383,128 +5216,34 @@ pub fn location_for_static_target(
         .and_then(|path| location_for_path(path, 1, 1))
 }
 
-pub fn route_for_link_target(
-    project: &AuthoringProject,
+/// Build an [`AuthoringDiagnostic`] anchored at a markdown reference's span.
+/// (Was `MarkdownReference::diagnostic`; the type now lives in
+/// `dodeca::authoring_graph`, so this is a free fn over `AuthoringDiagnostic`,
+/// which stays in this crate.)
+pub fn markdown_reference_diagnostic(
+    reference: &MarkdownReference,
     page: &AuthoringPage,
-    target_without_fragment: &str,
-) -> String {
-    if target_without_fragment.is_empty() {
-        return page.route.clone();
+    content: &str,
+    kind: AuthoringDiagnosticKind,
+    resolved_route: Option<String>,
+    message: String,
+) -> AuthoringDiagnostic {
+    let (line, column) = byte_to_line_column(content, reference.byte_start);
+    let (line_end, column_end) = byte_to_line_column(content, reference.byte_end);
+    AuthoringDiagnostic {
+        source_file: page.source_file.clone(),
+        route: page.route.clone(),
+        kind,
+        target: reference.target.clone(),
+        resolved_route,
+        message,
+        line,
+        column,
+        line_end,
+        column_end,
+        byte_start: reference.byte_start,
+        byte_end: reference.byte_end,
     }
-
-    if let Some(source_target) =
-        source_target_for_relative_markdown_link(page, target_without_fragment)
-        && let Some(route) = project.source_to_route.get(&source_target)
-    {
-        return route.clone();
-    }
-
-    if target_without_fragment.starts_with('/') {
-        normalize_route(target_without_fragment)
-    } else {
-        normalize_route(&format!(
-            "{}{target_without_fragment}",
-            ensure_trailing_slash(&page.link_base_route)
-        ))
-    }
-}
-
-pub fn source_target_for_relative_markdown_link(
-    page: &AuthoringPage,
-    target: &str,
-) -> Option<String> {
-    if !target.ends_with(".md") {
-        return None;
-    }
-    let source_parent = Utf8Path::new(&page.source_file)
-        .parent()
-        .unwrap_or_else(|| Utf8Path::new(""));
-    Some(normalize_relative_path(&source_parent.join(target)))
-}
-
-pub fn normalize_relative_path(path: &Utf8Path) -> String {
-    let mut parts = Vec::new();
-    for segment in path.as_str().split('/') {
-        match segment {
-            "" | "." => {}
-            ".." => {
-                parts.pop();
-            }
-            segment => parts.push(segment),
-        }
-    }
-    parts.join("/")
-}
-
-pub fn ensure_trailing_slash(route: &str) -> String {
-    if route == "/" || route.ends_with('/') {
-        route.to_string()
-    } else {
-        format!("{route}/")
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MarkdownReferenceKind {
-    Link,
-    Image,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MarkdownReference {
-    pub kind: MarkdownReferenceKind,
-    pub target: String,
-    pub byte_start: usize,
-    pub byte_end: usize,
-}
-
-impl MarkdownReference {
-    pub fn diagnostic(
-        &self,
-        page: &AuthoringPage,
-        content: &str,
-        kind: AuthoringDiagnosticKind,
-        resolved_route: Option<String>,
-        message: String,
-    ) -> AuthoringDiagnostic {
-        let (line, column) = byte_to_line_column(content, self.byte_start);
-        let (line_end, column_end) = byte_to_line_column(content, self.byte_end);
-        AuthoringDiagnostic {
-            source_file: page.source_file.clone(),
-            route: page.route.clone(),
-            kind,
-            target: self.target.clone(),
-            resolved_route,
-            message,
-            line,
-            column,
-            line_end,
-            column_end,
-            byte_start: self.byte_start,
-            byte_end: self.byte_end,
-        }
-    }
-}
-
-pub fn markdown_references(content: &str) -> Vec<MarkdownReference> {
-    Parser::new_ext(content, Options::all())
-        .into_offset_iter()
-        .filter_map(|(event, range)| match event {
-            Event::Start(Tag::Link { dest_url, .. }) => Some(MarkdownReference {
-                kind: MarkdownReferenceKind::Link,
-                target: dest_url.to_string(),
-                byte_start: range.start,
-                byte_end: range.end,
-            }),
-            Event::Start(Tag::Image { dest_url, .. }) => Some(MarkdownReference {
-                kind: MarkdownReferenceKind::Image,
-                target: dest_url.to_string(),
-                byte_start: range.start,
-                byte_end: range.end,
-            }),
-            _ => None,
-        })
-        .collect()
 }
 
 pub fn reference_at_position(content: &str, position: Position) -> Option<MarkdownReference> {
@@ -9405,73 +9144,6 @@ pub fn missing_anchor_message(
     } else {
         Some(format!("anchor '#{fragment}' not found on target page"))
     }
-}
-
-pub fn is_special_target(target: &str) -> bool {
-    target.starts_with("http://")
-        || target.starts_with("https://")
-        || target.starts_with("mailto:")
-        || target.starts_with("tel:")
-        || target.starts_with("javascript:")
-        || target.starts_with("data:")
-        || target.starts_with("/__")
-}
-
-pub fn split_fragment(target: &str) -> (&str, Option<&str>) {
-    let target = strip_query(target);
-    match target.find('#') {
-        Some(idx) => (&target[..idx], Some(&target[idx + 1..])),
-        None => (target, None),
-    }
-}
-
-pub fn strip_query(target: &str) -> &str {
-    target.split('?').next().unwrap_or(target)
-}
-
-pub fn is_likely_static_file(path: &str) -> bool {
-    let extensions = [
-        ".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".woff2", ".ttf",
-        ".eot", ".pdf", ".zip", ".tar", ".gz", ".webp", ".jxl", ".xml", ".txt", ".wasm",
-    ];
-    extensions.iter().any(|ext| path.ends_with(ext))
-}
-
-pub fn normalize_route(path: &str) -> String {
-    let mut parts = Vec::new();
-
-    for part in path.split('/') {
-        match part {
-            "" | "." => {}
-            ".." => {
-                parts.pop();
-            }
-            p => parts.push(p),
-        }
-    }
-
-    if parts.is_empty() {
-        "/".to_string()
-    } else {
-        format!("/{}", parts.join("/"))
-    }
-}
-
-pub fn byte_to_line_column(content: &str, byte_offset: usize) -> (u32, u32) {
-    let mut line = 1;
-    let mut column = 1;
-    for (idx, ch) in content.char_indices() {
-        if idx >= byte_offset {
-            break;
-        }
-        if ch == '\n' {
-            line += 1;
-            column = 1;
-        } else {
-            column += 1;
-        }
-    }
-    (line, column)
 }
 
 pub fn position_to_byte_offset(content: &str, position: Position) -> Option<usize> {

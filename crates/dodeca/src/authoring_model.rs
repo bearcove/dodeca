@@ -1373,7 +1373,7 @@ fn route_output_path(route: &str) -> String {
     }
 }
 
-fn normalize_route(path: &str) -> String {
+pub fn normalize_route(path: &str) -> String {
     let mut parts = Vec::new();
 
     for part in path.split('/') {
@@ -1393,6 +1393,6 @@ fn normalize_route(path: &str) -> String {
     }
 }
 
-fn strip_query(target: &str) -> &str {
+pub fn strip_query(target: &str) -> &str {
     target.split('?').next().unwrap_or(target)
 }
