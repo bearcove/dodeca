@@ -20,7 +20,8 @@ use tower_lsp::lsp_types::{
     DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
     DocumentChangeOperation, DocumentChanges, DocumentLink, DocumentLinkOptions,
     DocumentLinkParams, DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse,
-    Documentation, ExecuteCommandOptions, ExecuteCommandParams, FileSystemWatcher, GlobPattern,
+    Documentation, ExecuteCommandOptions, ExecuteCommandParams, FileChangeType, FileSystemWatcher,
+    GlobPattern,
     GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams,
     HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, Location,
     MarkupContent, MarkupKind, MessageType, NumberOrString, OneOf,
@@ -958,20 +959,44 @@ impl Backend {
         &self,
         params: DidChangeWatchedFilesParams,
     ) -> Result<()> {
-        // On-disk changes to files that aren't open in the editor invalidate the
-        // held snapshot; the next query rebuilds it from the provider's db
-        // (which, for the browser editor, the server's own watcher has already
-        // refreshed). Open documents are handled via overlays, so ignore them.
-        let mut state = self.state.lock().unwrap();
-        let open_documents = state.documents.keys().cloned().collect::<HashSet<_>>();
-        let changed = params
-            .changes
-            .iter()
-            .any(|event| !open_documents.contains(&event.uri));
-        if changed {
-            state.input_revision = state.input_revision.wrapping_add(1);
-            state.held_snapshot = None;
+        use dodeca::authoring_model::DiskChangeKind;
+
+        // Open documents are handled via overlays, so ignore disk events for
+        // them. For the rest, collect their on-disk changes and the provider.
+        let (disk_changes, provider) = {
+            let state = self.state.lock().unwrap();
+            let open_documents = state.documents.keys().cloned().collect::<HashSet<_>>();
+            let disk_changes: Vec<(String, DiskChangeKind)> = params
+                .changes
+                .iter()
+                .filter(|event| !open_documents.contains(&event.uri))
+                .filter_map(|event| {
+                    let path = lsp_file_uri_to_utf8_path(&event.uri).ok()?;
+                    let kind = if event.typ == FileChangeType::DELETED {
+                        DiskChangeKind::Deleted
+                    } else {
+                        DiskChangeKind::CreatedOrModified
+                    };
+                    Some((path.to_string(), kind))
+                })
+                .collect();
+            (disk_changes, state.project_provider.clone())
+        };
+
+        if disk_changes.is_empty() {
+            return Ok(());
         }
+
+        // Ingest the changes into the provider's db (the standalone `ddc lsp`
+        // holds a db loaded once at startup; the browser editor's provider
+        // already tracks disk and no-ops here), then invalidate the held
+        // snapshot so the next query rebuilds against the refreshed db.
+        if let Some(provider) = provider {
+            provider.apply_disk_changes(disk_changes).await?;
+        }
+        let mut state = self.state.lock().unwrap();
+        state.input_revision = state.input_revision.wrapping_add(1);
+        state.held_snapshot = None;
         Ok(())
     }
 

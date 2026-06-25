@@ -136,6 +136,29 @@ pub trait AuthoringProjectProvider: Send + Sync {
         &'a self,
         overlays: Vec<(String, String)>,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<AuthoringSnapshot>> + Send + 'a>>;
+
+    /// Ingest on-disk changes to files that aren't open in the editor (reported
+    /// via `workspace/didChangeWatchedFiles`) into the backing db, so the next
+    /// snapshot sees created / modified / deleted source files. Providers fronted
+    /// by their own live watcher (e.g. the browser editor's server) already track
+    /// disk and leave this a no-op; the standalone `ddc lsp`, which holds a db
+    /// loaded once at startup, must apply them itself.
+    fn apply_disk_changes<'a>(
+        &'a self,
+        changes: Vec<(String, DiskChangeKind)>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
+        let _ = changes;
+        Box::pin(async { Ok(()) })
+    }
+}
+
+/// What happened to a watched file on disk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiskChangeKind {
+    /// The file was created or its contents changed — (re)read it.
+    CreatedOrModified,
+    /// The file was deleted — drop it from the workspace.
+    Deleted,
 }
 
 /// Map an absolute on-disk path to its mount-prefixed source key (inverse of
@@ -386,6 +409,77 @@ impl AuthoringProjectProvider for DbAuthoringProvider {
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<AuthoringSnapshot>> + Send + 'a>>
     {
         Box::pin(async move { overlay_snapshot(&self.db, &self.sources, overlays).await })
+    }
+
+    fn apply_disk_changes<'a>(
+        &'a self,
+        changes: Vec<(String, DiskChangeKind)>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
+        Box::pin(async move {
+            use crate::db::{SourceFile, SourceRegistry};
+            use crate::types::{SourceContent, SourcePath};
+
+            let mut registered = SourceRegistry::sources(&*self.db)
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            let find = |reg: &[SourceFile], key: &str| {
+                reg.iter().position(|s| {
+                    s.path(&*self.db)
+                        .ok()
+                        .map(|p| p.as_str() == key)
+                        .unwrap_or(false)
+                })
+            };
+
+            let mut dirty = false;
+            for (abs, kind) in changes {
+                // Only markdown content participates in the source registry;
+                // a path outside every source's content dir maps to no key.
+                if Utf8Path::new(&abs).extension() != Some("md") {
+                    continue;
+                }
+                let Some(key) = source_key_for_path(&self.sources, &abs) else {
+                    continue;
+                };
+                match kind {
+                    DiskChangeKind::Deleted => {
+                        if let Some(pos) = find(&registered, &key) {
+                            registered.remove(pos);
+                            dirty = true;
+                        }
+                    }
+                    DiskChangeKind::CreatedOrModified => {
+                        let Ok(content) = std::fs::read_to_string(&abs) else {
+                            continue; // raced with a delete; ignore.
+                        };
+                        let last_modified = std::fs::metadata(&abs)
+                            .and_then(|m| m.modified())
+                            .ok()
+                            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                            .map(|d| d.as_secs() as i64)
+                            .unwrap_or(0);
+                        let file = SourceFile::new(
+                            &*self.db,
+                            SourcePath::new(key.clone()),
+                            SourceContent::new(content),
+                            last_modified,
+                        )
+                        .map_err(|e| eyre::eyre!("ingest source file: {e:?}"))?;
+                        match find(&registered, &key) {
+                            Some(pos) => registered[pos] = file,
+                            None => registered.push(file),
+                        }
+                        dirty = true;
+                    }
+                }
+            }
+            if dirty {
+                SourceRegistry::set(&*self.db, registered)
+                    .map_err(|e| eyre::eyre!("update source registry: {e:?}"))?;
+            }
+            Ok(())
+        })
     }
 }
 
