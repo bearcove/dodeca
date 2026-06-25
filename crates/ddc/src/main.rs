@@ -390,27 +390,6 @@ fn resolve_dirs(
     }
 }
 
-fn resolve_content_dir(path: Option<String>, content: Option<String>) -> Result<Utf8PathBuf> {
-    if let Some(content) = content {
-        return Ok(Utf8PathBuf::from(content));
-    }
-
-    let path = path.map(Utf8PathBuf::from);
-    let config = if let Some(ref project_path) = path {
-        ResolvedConfig::discover_from(project_path)?
-    } else {
-        ResolvedConfig::discover()?
-    };
-
-    match config {
-        Some(cfg) => {
-            dodeca::config::set_global_config(cfg.clone())?;
-            Ok(cfg.content_dir)
-        }
-        None => Err(eyre!("No configuration found.")),
-    }
-}
-
 #[allow(clippy::disallowed_methods)] // Entry point - needs manual runtime management
 fn main() -> Result<()> {
     // Install SIGUSR1 handler for debugging (dumps stack traces)

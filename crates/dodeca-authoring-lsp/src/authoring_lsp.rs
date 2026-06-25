@@ -43,37 +43,13 @@ pub use dodeca::authoring_graph::*;
 // `dodeca::authoring_templates`; re-export so the rest of this module is unchanged.
 pub use dodeca::authoring_model::{AuthoringDiagnostic, AuthoringDiagnosticKind};
 use dodeca::authoring_model::{
-    AuthoringInputPath, AuthoringPage, AuthoringPageKind, AuthoringProject, AuthoringWorkspace,
-    RenderedHref, RenderedHrefOrigin,
+    AuthoringInputPath, AuthoringPage, AuthoringPageKind, AuthoringProject, RenderedHref,
+    RenderedHrefOrigin,
 };
 pub use dodeca::authoring_templates::*;
-use dodeca::config::{ResolvedConfig, ResolvedSource};
+use dodeca::config::ResolvedConfig;
 use dodeca::queries::default_title_from_source_path;
 
-/// Resolve the source set for an authoring workspace rooted at `content_dir`.
-///
-/// Discovers the config from the workspace (the aggregator config, when you've
-/// opened the aggregate) and uses its `sources` — so the LSP sees the full
-/// multi-source world (cross-source links, files in mounted sub-repos). Also
-/// publishes it as the global config so source/wiki resolution works. Falls
-/// back to a single source for a config-less directory.
-fn workspace_sources(content_dir: &camino::Utf8Path) -> Vec<ResolvedSource> {
-    if let Ok(Some(cfg)) = ResolvedConfig::discover_containing(content_dir) {
-        let _ = dodeca::config::set_global_config(cfg.clone());
-        if !cfg.sources.is_empty() {
-            return cfg.sources;
-        }
-    }
-    vec![ResolvedSource {
-        name: String::new(),
-        mount: "/".to_string(),
-        content_dir: content_dir.to_owned(),
-        checkout_dir: None,
-        git: None,
-        repo: None,
-        impls: Vec::new(),
-    }]
-}
 use dodeca::template_host::TEMPLATE_FUNCTION_NAMES;
 use dodeca::template_paths::{logical_template_path, physical_template_path};
 use dodeca::types::SourcePath;
@@ -216,34 +192,6 @@ pub struct AuthoringWorld {
 }
 
 impl AuthoringWorld {
-    pub fn new(project: AuthoringProject) -> Result<Self> {
-        let content_graph = ContentAuthoringGraph::new(&project);
-        Self::with_content_graph(project, content_graph)
-    }
-
-    /// Build the world with a precomputed content graph — the db-backed path
-    /// supplies the memoized `content_graph` tracked-query result so the O(n)
-    /// graph isn't recomputed by hand.
-    pub fn with_content_graph(
-        project: AuthoringProject,
-        content_graph: ContentAuthoringGraph,
-    ) -> Result<Self> {
-        let template_index = TemplateAuthoringIndex::new(&project);
-        let mut source_document_targets = HashMap::new();
-        for (source_file, content) in &project.source_contents {
-            source_document_targets.insert(
-                source_file.clone(),
-                frontmatter_document_targets(&project, content)?,
-            );
-        }
-        Ok(Self {
-            project,
-            template_index,
-            content_graph,
-            source_document_targets,
-        })
-    }
-
     pub fn route_graph(&self) -> &[RouteGraphNode] {
         self.content_graph.routes()
     }
@@ -329,12 +277,6 @@ pub struct ContentAuthoringGraph {
 }
 
 impl ContentAuthoringGraph {
-    pub fn new(project: &AuthoringProject) -> Self {
-        Self {
-            routes: route_graph_for_project(project),
-        }
-    }
-
     pub fn routes(&self) -> &[RouteGraphNode] {
         &self.routes
     }
