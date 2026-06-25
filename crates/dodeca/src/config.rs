@@ -447,6 +447,12 @@ fn resolve_sources(root: &Utf8Path, config: &DodecaConfig) -> Result<Vec<Resolve
                     "`sources` is present but empty; list at least one source or use `content`"
                 ));
             }
+            if config.impls.is_some() {
+                return Err(eyre!(
+                    "config sets both `sources` and a top-level `impls`; declare `impls` \
+                     per-source inside `sources` instead"
+                ));
+            }
             sources.iter().map(|s| resolve_source(root, s)).collect()
         }
         (None, Some(content)) => Ok(vec![ResolvedSource {
@@ -456,7 +462,7 @@ fn resolve_sources(root: &Utf8Path, config: &DodecaConfig) -> Result<Vec<Resolve
             checkout_dir: None,
             git: None,
             repo: None,
-            impls: Vec::new(),
+            impls: resolve_impls(&config.impls),
         }]),
         (None, None) => Err(eyre!(
             "config must set either `content` (single source) or `sources` (multiple)"
@@ -506,19 +512,24 @@ fn resolve_source(root: &Utf8Path, def: &SourceDef) -> Result<ResolvedSource> {
         checkout_dir,
         git: def.git.clone(),
         repo: def.repo.clone(),
-        impls: def
-            .impls
-            .clone()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|i| ResolvedImpl {
-                name: i.name,
-                include: i.include,
-                exclude: i.exclude,
-                test_include: i.test_include,
-            })
-            .collect(),
+        impls: resolve_impls(&def.impls),
     })
+}
+
+/// Resolve `ImplDef`s (config schema) into `ResolvedImpl`s. Shared by the
+/// per-source (`sources`) and single-source (`content` + top-level `impls`) forms.
+fn resolve_impls(impls: &Option<Vec<dodeca_config::ImplDef>>) -> Vec<ResolvedImpl> {
+    impls
+        .clone()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|i| ResolvedImpl {
+            name: i.name,
+            include: i.include,
+            exclude: i.exclude,
+            test_include: i.test_include,
+        })
+        .collect()
 }
 
 /// Normalize a mount prefix to a canonical form: a leading and trailing slash,
@@ -594,6 +605,7 @@ mod tests {
             content: content.map(str::to_string),
             output: "public".to_string(),
             sources,
+            impls: None,
             link_check: None,
             stable_assets: None,
             code_execution: None,
@@ -602,6 +614,30 @@ mod tests {
             page_types: None,
             auth: None,
         }
+    }
+
+    #[test]
+    fn single_source_content_form_carries_top_level_impls() {
+        let mut cfg = config(Some("docs/content"), None);
+        cfg.impls = Some(vec![dodeca_config::ImplDef {
+            name: "rust".into(),
+            include: vec!["rust/**/src/**/*.rs".into()],
+            exclude: vec!["**/target/**".into()],
+            test_include: vec!["rust/**/tests/**/*.rs".into()],
+        }]);
+        let sources = resolve_sources(Utf8Path::new("/proj"), &cfg).unwrap();
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].impls.len(), 1);
+        assert_eq!(sources[0].impls[0].name, "rust");
+        assert_eq!(sources[0].impls[0].include, vec!["rust/**/src/**/*.rs"]);
+        assert_eq!(sources[0].impls[0].test_include, vec!["rust/**/tests/**/*.rs"]);
+    }
+
+    #[test]
+    fn sources_form_with_top_level_impls_is_rejected() {
+        let mut cfg = config(None, Some(vec![source("vox", "/vox", Some("vox/docs/content"))]));
+        cfg.impls = Some(Vec::new());
+        assert!(resolve_sources(Utf8Path::new("/proj"), &cfg).is_err());
     }
 
     fn source(name: &str, mount: &str, local: Option<&str>) -> SourceDef {

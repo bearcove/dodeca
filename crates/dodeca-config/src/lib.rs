@@ -41,6 +41,12 @@ pub struct DodecaConfig {
     #[facet(default)]
     pub sources: Option<Vec<SourceDef>>,
 
+    /// Code implementations scanned for `r[verb rule.id]` references, for a
+    /// single-source (`content`) project. The `sources` form declares `impls`
+    /// per-source instead; setting both is rejected.
+    #[facet(default)]
+    pub impls: Option<Vec<ImplDef>>,
+
     /// Link checking configuration
     #[facet(default)]
     pub link_check: Option<LinkCheckConfig>,
