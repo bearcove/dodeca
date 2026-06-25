@@ -654,7 +654,7 @@ async fn async_main(command: Command) -> Result<()> {
             // Back the standalone LSP with a loaded picante db + VFS overlays
             // (the same machinery the in-process browser-editor LSP uses), not
             // the disk "world" model.
-            let (db, sources) = load_lsp_db(args.content.clone(), args.output.clone())?;
+            let (db, sources) = load_lsp_db(None, args.content.clone(), args.output.clone())?;
             let provider = Arc::new(dodeca::authoring_model::DbAuthoringProvider { db, sources });
             dodeca_authoring_lsp::run_with_provider(args.content, args.output, provider).await
         }
@@ -691,9 +691,11 @@ async fn async_main(command: Command) -> Result<()> {
 }
 
 async fn run_diagnostics(args: DiagnosticsArgs) -> Result<()> {
-    let content_dir = resolve_content_dir(args.path, args.content)?;
-    let mut diagnostics =
-        authoring_lsp::authoring_diagnostics_for_content_dir(&content_dir).await?;
+    // Same db + VFS machinery as `ddc lsp` (no overlays): build the project from
+    // a loaded picante db, not the disk "world" model.
+    let (db, sources) = load_lsp_db(args.path, args.content, None)?;
+    let snapshot = dodeca::authoring_model::overlay_snapshot(&db, &sources, Vec::new()).await?;
+    let mut diagnostics = authoring_lsp::authoring_diagnostics_for_snapshot(&snapshot).await?;
 
     diagnostics.retain(|diagnostic| {
         if args.dead_links && !is_dead_link_diagnostic(diagnostic.kind) {
@@ -1043,10 +1045,11 @@ async fn save_picante_cache(db: &Database, cache_path: &Utf8Path) {
 /// `build()` loads, without rendering. Returns the db and its sources, which
 /// back a `DbAuthoringProvider` for the standalone LSP.
 fn load_lsp_db(
+    path: Option<String>,
     content: Option<String>,
     output: Option<String>,
 ) -> Result<(Arc<Database>, Vec<dodeca::config::ResolvedSource>)> {
-    let cfg = resolve_dirs(None, content, output)?;
+    let cfg = resolve_dirs(path, content, output)?;
     let mut ctx = BuildContext::new(&cfg.content_dir, &cfg.output_dir);
     ctx.set_source_roots(cfg.sources.clone());
     ctx.set_project_root(&cfg.root);

@@ -147,12 +147,28 @@ pub async fn serve_on<R, W>(
     Server::new(read, write, socket).serve(service).await;
 }
 
-pub async fn authoring_diagnostics_for_content_dir(
-    content_dir: &Utf8Path,
+/// Assemble the [`AuthoringWorld`] from an overlaid snapshot — every part is a
+/// memoized picante query. Shared by `current_world` and the one-shot
+/// diagnostics path.
+pub async fn build_world_from_snapshot(
+    snapshot: &dodeca::authoring_model::AuthoringSnapshot,
+) -> Result<AuthoringWorld> {
+    Ok(AuthoringWorld {
+        project: snapshot.project().await?,
+        content_graph: ContentAuthoringGraph {
+            routes: snapshot.content_graph().await?,
+        },
+        template_index: snapshot.template_index().await?,
+        source_document_targets: snapshot.frontmatter_targets().await?,
+    })
+}
+
+/// One-shot authoring diagnostics over an overlaid snapshot (for `ddc
+/// diagnostics`) — the db path, same as the LSP, not the disk "world" model.
+pub async fn authoring_diagnostics_for_snapshot(
+    snapshot: &dodeca::authoring_model::AuthoringSnapshot,
 ) -> Result<Vec<AuthoringDiagnostic>> {
-    let workspace = AuthoringWorkspace::new(&workspace_sources(content_dir))?;
-    let project = workspace.inputs().project().await?;
-    let world = AuthoringWorld::new(project)?;
+    let world = build_world_from_snapshot(snapshot).await?;
     Ok(load_authoring_diagnostics_for_world(&world))
 }
 
@@ -874,17 +890,10 @@ impl Backend {
     }
 
     pub async fn current_world(&self, dirs: &AuthoringDirs) -> Result<AuthoringWorld> {
-        let snapshot = self.current_snapshot(dirs).await?;
         // Every part of the world is a memoized picante query against the held
         // snapshot — there is no hand-rolled world cache.
-        Ok(AuthoringWorld {
-            project: snapshot.project().await?,
-            content_graph: ContentAuthoringGraph {
-                routes: snapshot.content_graph().await?,
-            },
-            template_index: snapshot.template_index().await?,
-            source_document_targets: snapshot.frontmatter_targets().await?,
-        })
+        let snapshot = self.current_snapshot(dirs).await?;
+        build_world_from_snapshot(&snapshot).await
     }
 
     pub async fn code_actions(&self, params: CodeActionParams) -> Result<CodeActionResponse> {
