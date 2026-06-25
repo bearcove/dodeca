@@ -636,52 +636,81 @@ impl AuthoringSnapshot {
     }
 
     /// Build the [`AuthoringProject`] from this overlaid snapshot.
+    /// The memoized [`AuthoringProject`] for this snapshot (via the
+    /// `authoring_project` tracked query, so repeated requests in the same
+    /// revision hit picante's cache rather than rebuilding).
     pub async fn project(&self) -> Result<AuthoringProject> {
-        use crate::db::{DataRegistry, SourceRegistry, StaticRegistry, TemplateRegistry};
-
-        let snapshot = &self.snapshot;
-        let content_dir = &self.content_dir;
+        let content_dir = self.content_dir.clone();
         self.scoped(async move {
-            let sources = SourceRegistry::sources(snapshot)
-                .ok()
-                .flatten()
-                .unwrap_or_default()
-                .into_iter()
-                .filter_map(|f| Some(((*f.path(snapshot).ok()?).clone(), f)))
-                .collect();
-            let templates = TemplateRegistry::templates(snapshot)
-                .ok()
-                .flatten()
-                .unwrap_or_default()
-                .into_iter()
-                .filter_map(|f| Some(((*f.path(snapshot).ok()?).clone(), f)))
-                .collect();
-            let static_files = StaticRegistry::files(snapshot)
-                .ok()
-                .flatten()
-                .unwrap_or_default()
-                .into_iter()
-                .filter_map(|f| Some(((*f.path(snapshot).ok()?).clone(), f)))
-                .collect();
-            let data_files = DataRegistry::files(snapshot)
-                .ok()
-                .flatten()
-                .unwrap_or_default()
-                .into_iter()
-                .filter_map(|f| Some(((*f.path(snapshot).ok()?).clone(), f)))
-                .collect();
-            build_authoring_project_on_db(ProjectBuildInputs {
-                db: snapshot,
-                content_dir,
-                sources: &sources,
-                templates: &templates,
-                static_files: &static_files,
-                data_files: &data_files,
-            })
-            .await
+            match crate::authoring_graph::authoring_project(&self.snapshot, content_dir).await {
+                Ok(result) => result.map_err(|e| eyre::eyre!(e)),
+                Err(e) => Err(eyre::eyre!("authoring_project query: {e:?}")),
+            }
         })
         .await
     }
+
+    /// The memoized content/route graph for this snapshot (via the
+    /// `content_graph` tracked query).
+    pub async fn content_graph(&self) -> Result<Vec<crate::authoring_graph::RouteGraphNode>> {
+        let content_dir = self.content_dir.clone();
+        self.scoped(async move {
+            match crate::authoring_graph::content_graph(&self.snapshot, content_dir).await {
+                Ok(result) => result.map_err(|e| eyre::eyre!(e)),
+                Err(e) => Err(eyre::eyre!("content_graph query: {e:?}")),
+            }
+        })
+        .await
+    }
+}
+
+/// Build an [`AuthoringProject`] from any `DB: Db` (the overlaid snapshot or the
+/// owned db), pulling the source/template/static/data maps from the registries.
+/// `TASK_DB` must already be scoped by the caller so render queries reach the
+/// cell hub. Backs the `authoring_project` tracked query.
+pub async fn build_authoring_project_from_db<DB: crate::db::Db>(
+    db: &DB,
+    content_dir: &Utf8Path,
+) -> Result<AuthoringProject> {
+    use crate::db::{DataRegistry, SourceRegistry, StaticRegistry, TemplateRegistry};
+
+    let sources = SourceRegistry::sources(db)
+        .ok()
+        .flatten()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|f| Some(((*f.path(db).ok()?).clone(), f)))
+        .collect();
+    let templates = TemplateRegistry::templates(db)
+        .ok()
+        .flatten()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|f| Some(((*f.path(db).ok()?).clone(), f)))
+        .collect();
+    let static_files = StaticRegistry::files(db)
+        .ok()
+        .flatten()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|f| Some(((*f.path(db).ok()?).clone(), f)))
+        .collect();
+    let data_files = DataRegistry::files(db)
+        .ok()
+        .flatten()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|f| Some(((*f.path(db).ok()?).clone(), f)))
+        .collect();
+    build_authoring_project_on_db(ProjectBuildInputs {
+        db,
+        content_dir,
+        sources: &sources,
+        templates: &templates,
+        static_files: &static_files,
+        data_files: &data_files,
+    })
+    .await
 }
 
 /// An [`AuthoringProjectProvider`] over a standalone db (not a `SiteServer`) —

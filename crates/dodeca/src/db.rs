@@ -632,6 +632,8 @@ pub struct AllRenderedHtml {
         crate::queries::check_external_url,
         crate::search::search_index_files,
         crate::knowledge::page_chunks_embedded,
+        crate::authoring_graph::authoring_project,
+        crate::authoring_graph::content_graph,
     ),
     db_trait(Db)
 )]

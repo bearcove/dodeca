@@ -206,8 +206,18 @@ pub struct AuthoringWorld {
 
 impl AuthoringWorld {
     pub fn new(project: AuthoringProject) -> Result<Self> {
-        let template_index = TemplateAuthoringIndex::new(&project);
         let content_graph = ContentAuthoringGraph::new(&project);
+        Self::with_content_graph(project, content_graph)
+    }
+
+    /// Build the world with a precomputed content graph — the db-backed path
+    /// supplies the memoized `content_graph` tracked-query result so the O(n)
+    /// graph isn't recomputed by hand.
+    pub fn with_content_graph(
+        project: AuthoringProject,
+        content_graph: ContentAuthoringGraph,
+    ) -> Result<Self> {
+        let template_index = TemplateAuthoringIndex::new(&project);
         let mut source_document_targets = HashMap::new();
         for (source_file, content) in &project.source_contents {
             source_document_targets.insert(
@@ -886,8 +896,12 @@ impl Backend {
                     .collect::<Vec<_>>();
                 (overlays, state.input_revision)
             };
-            let project = provider.snapshot(overlays).await?.project().await?;
-            let world = AuthoringWorld::new(project)?;
+            let snapshot = provider.snapshot(overlays).await?;
+            let project = snapshot.project().await?;
+            let content_graph = ContentAuthoringGraph {
+                routes: snapshot.content_graph().await?,
+            };
+            let world = AuthoringWorld::with_content_graph(project, content_graph)?;
             let mut state = self.state.lock().unwrap();
             if state.input_revision == revision {
                 state.world_cache = Some(CachedAuthoringWorld {

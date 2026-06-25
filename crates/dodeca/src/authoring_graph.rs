@@ -5,11 +5,44 @@
 
 use std::collections::{HashMap, HashSet};
 
-use camino::Utf8Path;
+use camino::{Utf8Path, Utf8PathBuf};
+use picante::PicanteResult;
 use pulldown_cmark::{Event, Options, Parser, Tag};
 
-use crate::authoring_model::{AuthoringPage, AuthoringProject};
+use crate::authoring_model::{AuthoringPage, AuthoringProject, build_authoring_project_from_db};
 pub use crate::authoring_model::{normalize_route, strip_query};
+use crate::db::Db;
+
+/// The memoized [`AuthoringProject`] for a db (overlaid snapshot or owned),
+/// keyed on `content_dir`. This is the authoring analysis entry point: picante
+/// memoizes it, so within an LSP revision repeated requests reuse it, and the
+/// snapshot's inherited render cells keep unchanged pages free across edits.
+/// The inner `Result` carries build failures (parse errors, missing files) as a
+/// string, matching the `build_site` convention.
+#[picante::tracked]
+pub async fn authoring_project<DB: Db>(
+    db: &DB,
+    content_dir: Utf8PathBuf,
+) -> PicanteResult<Result<AuthoringProject, String>> {
+    Ok(build_authoring_project_from_db(db, &content_dir)
+        .await
+        .map_err(|e| e.to_string()))
+}
+
+/// The memoized content/route graph (which page links to which, resolved to
+/// routes) over [`authoring_project`]. This is the "heavy query on every
+/// keystroke" — now a tracked query that picante recomputes only when its
+/// inputs change rather than a hand-rolled per-revision rebuild.
+#[picante::tracked]
+pub async fn content_graph<DB: Db>(
+    db: &DB,
+    content_dir: Utf8PathBuf,
+) -> PicanteResult<Result<Vec<RouteGraphNode>, String>> {
+    match authoring_project(db, content_dir).await? {
+        Ok(project) => Ok(Ok(route_graph_for_project(&project))),
+        Err(e) => Ok(Err(e)),
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
 pub struct RouteGraphNode {
