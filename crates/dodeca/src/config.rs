@@ -568,41 +568,38 @@ fn discover_source_config(content_dir: &Utf8Path) -> Option<SourceConfig> {
     }
 }
 
-/// Warn about nested `.config/dodeca.styx` files under `root` that no resolved
-/// source reaches. Such configs used to silently shadow the aggregator; now
-/// composition is explicit, so an orphaned one is dead config — the author
-/// either meant to `mounts` it or should remove it. Best-effort, never fatal.
-fn warn_orphaned_nested_configs(root: &Utf8Path, sources: &[ResolvedSource]) {
-    // A nested config dir is "reached" if some source's content/checkout dir is
-    // at-or-below it (composition walks up from the content dir to find it).
-    let reached = |config_dir: &Utf8Path| {
-        sources.iter().any(|s| {
-            s.content_dir.starts_with(config_dir)
-                || s.checkout_dir
-                    .as_deref()
-                    .is_some_and(|c| c.starts_with(config_dir))
-        })
-    };
-
-    for entry in ignore::WalkBuilder::new(root).hidden(false).build().flatten() {
-        if entry.file_name() != CONFIG_FILE_STYX {
-            continue;
+/// Warn about nested `.config/dodeca.styx` files buried *inside* a served
+/// source's content dir. Such a config used to silently shadow the aggregator
+/// when discovery walked up from a content file; now composition is explicit, so
+/// it's just dead config that's being ignored — the author either meant to
+/// `mounts` that subtree or should remove the config. Scanning is scoped to the
+/// content actually served (not the whole project), so unrelated sibling
+/// projects / fixtures don't trip it. Best-effort, never fatal.
+fn warn_orphaned_nested_configs(_root: &Utf8Path, sources: &[ResolvedSource]) {
+    for source in sources {
+        for entry in ignore::WalkBuilder::new(&source.content_dir)
+            .hidden(false)
+            .build()
+            .flatten()
+        {
+            if entry.file_name() != CONFIG_FILE_STYX {
+                continue;
+            }
+            let Some(path) = Utf8Path::from_path(entry.path()) else {
+                continue;
+            };
+            // Only flag configs strictly *within* served content; a source's own
+            // config lives above its content dir, not inside it.
+            if !path.starts_with(&source.content_dir) {
+                continue;
+            }
+            tracing::warn!(
+                config = %path,
+                source = %source.content_dir,
+                "nested dodeca config is buried inside served content; it is \
+                 ignored. Add a `mounts` entry for that subtree, or remove it."
+            );
         }
-        let Some(path) = Utf8Path::from_path(entry.path()) else {
-            continue;
-        };
-        // `<dir>/.config/dodeca.styx` → the config owns `<dir>`.
-        let Some(config_dir) = path.parent().and_then(|p| p.parent()) else {
-            continue;
-        };
-        if config_dir == root || reached(config_dir) {
-            continue;
-        }
-        tracing::warn!(
-            config = %path,
-            "nested dodeca config is not reached by any source; it is ignored. \
-             Add a `mounts` entry pointing at it, or remove it."
-        );
     }
 }
 

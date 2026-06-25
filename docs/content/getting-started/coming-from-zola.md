@@ -20,14 +20,23 @@ dodeca's content model is intentionally Zola-compatible. If you've used Zola, mo
 Zola uses `config.toml`. dodeca uses `.config/dodeca.styx` with [Styx](https://github.com/bearcove/styx) syntax:
 
 ```styx
-content content
-output public
+source {
+    content content
+}
 
-syntax_highlight {
-    light_theme github-light
-    dark_theme tokyo-night
+site {
+    output public
+
+    syntax_highlight {
+        light_theme github-light
+        dark_theme tokyo-night
+    }
 }
 ```
+
+`source {}` holds composable, source-scoped settings (content, build steps,
+impls); `site {}` holds whole-site settings (output, syntax highlighting, code
+execution).
 
 Styx uses `key value` pairs — no colons, no equals signs. See [Configuration](/reference/configuration/).
 
