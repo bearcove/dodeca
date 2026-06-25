@@ -489,6 +489,7 @@ impl BuildContext {
                 git: None,
                 repo: None,
                 impls: Vec::new(),
+                skip_domains: Vec::new(),
             }],
             output_dir: output_dir.to_owned(),
             sources: BTreeMap::new(),
@@ -880,6 +881,7 @@ mod tests {
             git: None,
             repo: None,
             impls: Vec::new(),
+            skip_domains: Vec::new(),
         }
     }
 

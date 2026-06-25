@@ -1,29 +1,39 @@
 use super::*;
 
 const CONFIG: &str = r#"
-content content
-output public
+source {
+  content content
 
-page-types {
-  Decision @object{
-    type @string
-    supersedes @seq(@link(@Decision))
+  page-types {
+    Decision @object{
+      type @string
+      supersedes @seq(@link(@Decision))
+    }
+    Note @object{
+      type @string
+    }
   }
-  Note @object{
-    type @string
-  }
+}
+
+site {
+  output public
 }
 "#;
 
 const ENUM_CONFIG: &str = r#"
-content content
-output public
+source {
+  content content
 
-page-types {
-  Vision @object{
-    type @string
-    status @enum{living, archived}
+  page-types {
+    Vision @object{
+      type @string
+      status @enum{living, archived}
+    }
   }
+}
+
+site {
+  output public
 }
 "#;
 

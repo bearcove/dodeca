@@ -337,6 +337,7 @@ fn resolve_dirs(
                 git: None,
                 repo: None,
                 impls: Vec::new(),
+                skip_domains: Vec::new(),
             }],
             skip_domains: vec![],
             rate_limit_ms: None,
@@ -371,6 +372,7 @@ fn resolve_dirs(
                     git: None,
                     repo: None,
                     impls: Vec::new(),
+                    skip_domains: Vec::new(),
                 }]
             } else {
                 cfg.sources

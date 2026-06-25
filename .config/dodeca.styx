@@ -1,19 +1,24 @@
-content docs/content
-output docs/public
+source {
+    content docs/content
 
-code_execution {
-    dependencies (
-        {name serde, version "1.0"}
-    )
+    build_steps {
+        git_hash {
+            command (git rev-parse --short HEAD)
+        }
+    }
 }
 
-syntax_highlight {
-    light_theme github-light
-    dark_theme tokyo-night
-}
+site {
+    output docs/public
 
-build_steps {
-    git_hash {
-        command (git rev-parse --short HEAD)
+    code_execution {
+        dependencies (
+            {name serde, version "1.0"}
+        )
+    }
+
+    syntax_highlight {
+        light_theme github-light
+        dark_theme tokyo-night
     }
 }

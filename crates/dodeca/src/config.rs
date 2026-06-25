@@ -14,7 +14,8 @@ use std::fs;
 
 // Re-export config types from dodeca-config crate
 pub use dodeca_config::{
-    AuthConfig, CodeExecutionConfig, DodecaConfig, LinkCheckMode, PageTypeSchema, SourceDef,
+    AuthConfig, CodeExecutionConfig, DodecaConfig, LinkCheckMode, MountDef, PageTypeSchema,
+    SiteConfig, SourceConfig,
 };
 
 /// Configuration file names
@@ -139,6 +140,9 @@ pub struct ResolvedSource {
     /// coverage of this source's spec rules. Empty when the source declares no
     /// `impls`.
     pub impls: Vec<ResolvedImpl>,
+    /// External domains this source asks the link checker to skip. Unioned into
+    /// the site's [`skip_domains`](ResolvedConfig::skip_domains).
+    pub skip_domains: Vec<String>,
 }
 
 /// A code implementation to scan for requirement references (resolved from
@@ -361,60 +365,78 @@ fn load_config(config_path: &Utf8Path) -> Result<ResolvedConfig> {
         .ok_or_else(|| eyre!(".config directory has no parent"))?
         .to_owned();
 
-    // Resolve content sources (explicit `sources`, or a single one synthesized
-    // from `content`). Transitional: the pipeline still uses one `content_dir`,
-    // so we keep the first source's directory there until per-source rendering
-    // lands.
-    let sources = resolve_sources(&root, &config)?;
+    resolve_config(&root, config)
+}
+
+/// Resolve a parsed [`DodecaConfig`] against its project `root`: assemble the
+/// sources (root `source` + each `mounts` entry, composing the mounted source's
+/// own `source {}`), and pull whole-site settings from `site {}`.
+fn resolve_config(root: &Utf8Path, config: DodecaConfig) -> Result<ResolvedConfig> {
+    let DodecaConfig {
+        source,
+        site,
+        mounts,
+    } = config;
+
+    let sources = resolve_sources(root, source.as_ref(), mounts.as_deref())?;
     let content_dir = sources
         .first()
         .map(|s| s.content_dir.clone())
         .ok_or_else(|| eyre!("no content sources resolved"))?;
-    let output_dir = root.join(&config.output);
+    let output_dir = root.join(&site.output);
 
-    // Extract skip domains
-    let skip_domains = config
-        .link_check
-        .as_ref()
-        .and_then(|lc| lc.skip_domains.clone())
-        .unwrap_or_default();
+    // skip_domains: the site-wide `link_check.skip_domains` base, with every
+    // source's unioned in on top, deduped (order-stable).
+    let mut skip_domains = Vec::new();
+    if let Some(base) = site.link_check.as_ref().and_then(|lc| lc.skip_domains.as_ref()) {
+        for d in base {
+            if !skip_domains.contains(d) {
+                skip_domains.push(d.clone());
+            }
+        }
+    }
+    for s in &sources {
+        for d in &s.skip_domains {
+            if !skip_domains.contains(d) {
+                skip_domains.push(d.clone());
+            }
+        }
+    }
 
-    // Extract rate limit
-    let rate_limit_ms = config.link_check.as_ref().and_then(|lc| lc.rate_limit_ms);
-
-    // Extract link check mode (defaults to Full)
-    let link_check_mode = config
+    let rate_limit_ms = site.link_check.as_ref().and_then(|lc| lc.rate_limit_ms);
+    let link_check_mode = site
         .link_check
         .as_ref()
         .and_then(|lc| lc.mode)
         .unwrap_or_default();
+    let stable_assets = site.stable_assets.unwrap_or_default();
 
-    // Extract stable asset paths
-    let stable_assets = config.stable_assets.unwrap_or_default();
-
-    // Resolve theme names with defaults
-    let light_theme_name = config
+    let light_theme_name = site
         .syntax_highlight
         .as_ref()
         .and_then(|sh| sh.light_theme.as_deref())
         .unwrap_or("github-light");
-    let dark_theme_name = config
+    let dark_theme_name = site
         .syntax_highlight
         .as_ref()
         .and_then(|sh| sh.dark_theme.as_deref())
         .unwrap_or("tokyo-night");
-
-    // Generate CSS for both themes
     let light_theme_css = crate::theme_resolver::generate_theme_css(light_theme_name)
         .map_err(|e| eyre!("Failed to load light theme '{}': {}", light_theme_name, e))?;
     let dark_theme_css = crate::theme_resolver::generate_theme_css(dark_theme_name)
         .map_err(|e| eyre!("Failed to load dark theme '{}': {}", dark_theme_name, e))?;
 
-    // Get base_url, defaulting to "/" for local development
-    let base_url = config.base_url.unwrap_or_else(|| "/".to_string());
+    let base_url = site.base_url.unwrap_or_else(|| "/".to_string());
+
+    warn_orphaned_nested_configs(root, &sources);
+
+    // Build steps + page types are source-scoped; for now take the root source's
+    // (per-mount composition of these is a follow-up).
+    let build_steps = source.as_ref().and_then(|s| s.build_steps.clone());
+    let page_types = source.as_ref().and_then(|s| s.page_types.clone());
 
     Ok(ResolvedConfig {
-        _root: root,
+        _root: root.to_owned(),
         base_url,
         sources,
         content_dir,
@@ -423,68 +445,73 @@ fn load_config(config_path: &Utf8Path) -> Result<ResolvedConfig> {
         rate_limit_ms,
         link_check_mode,
         stable_assets,
-        code_execution: config.code_execution.unwrap_or_default(),
+        code_execution: site.code_execution.unwrap_or_default(),
         light_theme_css,
         dark_theme_css,
-        build_steps: config.build_steps,
-        page_types: config.page_types,
-        auth: config.auth,
+        build_steps,
+        page_types,
+        auth: site.auth,
     })
 }
 
-/// Resolve the content sources from a config: either the explicit `sources`
-/// list, or a single source synthesized from `content` and mounted at `/`.
-/// Exactly one of the two must be present.
-fn resolve_sources(root: &Utf8Path, config: &DodecaConfig) -> Result<Vec<ResolvedSource>> {
-    match (&config.sources, &config.content) {
-        (Some(_), Some(_)) => Err(eyre!(
-            "config sets both `content` and `sources`; use one — \
-             `content` for a single-source project, `sources` for an aggregator"
-        )),
-        (Some(sources), None) => {
-            if sources.is_empty() {
-                return Err(eyre!(
-                    "`sources` is present but empty; list at least one source or use `content`"
-                ));
-            }
-            if config.impls.is_some() {
-                return Err(eyre!(
-                    "config sets both `sources` and a top-level `impls`; declare `impls` \
-                     per-source inside `sources` instead"
-                ));
-            }
-            sources.iter().map(|s| resolve_source(root, s)).collect()
-        }
-        (None, Some(content)) => Ok(vec![ResolvedSource {
+/// Assemble the resolved sources: the aggregator's own root `source` at `/`,
+/// plus each `mounts` entry (composing the mounted source's own `source {}`).
+/// At least one must be present.
+fn resolve_sources(
+    root: &Utf8Path,
+    source: Option<&SourceConfig>,
+    mounts: Option<&[MountDef]>,
+) -> Result<Vec<ResolvedSource>> {
+    let mut resolved = Vec::new();
+
+    if let Some(src) = source {
+        let content = src.content.as_deref().unwrap_or("content");
+        resolved.push(ResolvedSource {
             name: String::new(),
             mount: "/".to_string(),
             content_dir: root.join(content),
             checkout_dir: None,
             git: None,
-            repo: None,
-            impls: resolve_impls(&config.impls),
-        }]),
-        (None, None) => Err(eyre!(
-            "config must set either `content` (single source) or `sources` (multiple)"
-        )),
+            repo: src.repo.clone(),
+            impls: resolve_impls(&src.impls),
+            skip_domains: src.skip_domains.clone(),
+        });
     }
+
+    for m in mounts.unwrap_or_default() {
+        resolved.push(resolve_mount(root, m)?);
+    }
+
+    if resolved.is_empty() {
+        return Err(eyre!(
+            "config must set a top-level `source` (root content) and/or `mounts`"
+        ));
+    }
+    Ok(resolved)
 }
 
-/// Resolve one `SourceDef` to an absolute content dir + normalized mount.
-/// Git-only sources (no `local`) are rejected for now — fetching is deferred.
-fn resolve_source(root: &Utf8Path, def: &SourceDef) -> Result<ResolvedSource> {
-    let mount = normalize_mount(&def.mount);
+/// Resolve one `mounts` entry: its location from `local`/`checkout`, its
+/// behavior (`impls`, `skip_domains`, `repo`) composed from the mounted source's
+/// own `source {}` (read from a `.config` at-or-above its content dir).
+fn resolve_mount(root: &Utf8Path, def: &MountDef) -> Result<ResolvedSource> {
     if def.name.trim().is_empty() {
         return Err(eyre!(
-            "source mounted at `{mount}` has an empty `name`; \
-             every source needs a name (used for cross-source links)"
+            "mount at `{}` has an empty `name`; every source needs a name",
+            def.path
+        ));
+    }
+    let mount = normalize_mount(&def.path);
+    if mount == "/" {
+        return Err(eyre!(
+            "mount `{}` resolves to `/`; the root is the aggregator's own \
+             top-level `source`, not a `mounts` entry",
+            def.name
         ));
     }
     let (content_dir, checkout_dir) = match (&def.local, &def.checkout) {
         (Some(_), Some(_)) => {
             return Err(eyre!(
-                "source `{}` sets both `local` and `checkout`; use one \
-                 (`local` for a direct content dir, `checkout` for a repo)",
+                "mount `{}` sets both `local` and `checkout`; use one",
                 def.name
             ));
         }
@@ -499,30 +526,91 @@ fn resolve_source(root: &Utf8Path, def: &SourceDef) -> Result<ResolvedSource> {
         }
         (None, None) => {
             return Err(eyre!(
-                "source `{}` (mounted at `{mount}`) needs `local` (a content \
-                 dir) or `checkout` (a repo dir)",
+                "mount `{}` (at `{mount}`) needs `local` (a content dir) or \
+                 `checkout` (a repo dir)",
                 def.name
             ));
         }
     };
+
+    // Compose the mounted source's own `source {}` for its behavior.
+    let composed = discover_source_config(&content_dir);
     Ok(ResolvedSource {
         name: def.name.clone(),
         mount,
         content_dir,
         checkout_dir,
         git: def.git.clone(),
-        repo: def.repo.clone(),
-        impls: resolve_impls(&def.impls),
+        repo: composed.as_ref().and_then(|s| s.repo.clone()),
+        impls: composed
+            .as_ref()
+            .map(|s| resolve_impls(&s.impls))
+            .unwrap_or_default(),
+        skip_domains: composed.map(|s| s.skip_domains).unwrap_or_default(),
     })
 }
 
-/// Resolve `ImplDef`s (config schema) into `ResolvedImpl`s. Shared by the
-/// per-source (`sources`) and single-source (`content` + top-level `impls`) forms.
-fn resolve_impls(impls: &Option<Vec<dodeca_config::ImplDef>>) -> Vec<ResolvedImpl> {
+/// Read the `source {}` of the config that owns `content_dir` — the nearest
+/// `.config/dodeca.styx` at or above it — for composition. Parse-only (no nested
+/// resolve), and best-effort: a source with no config of its own just has no
+/// composed behavior.
+fn discover_source_config(content_dir: &Utf8Path) -> Option<SourceConfig> {
+    let mut current = content_dir;
+    loop {
+        let styx_file = current.join(CONFIG_DIR).join(CONFIG_FILE_STYX);
+        if styx_file.exists() {
+            let parsed = fs::read_to_string(&styx_file)
+                .ok()
+                .and_then(|content| facet_styx::from_str::<DodecaConfig>(&content).ok());
+            return parsed.and_then(|c| c.source);
+        }
+        current = current.parent()?;
+    }
+}
+
+/// Warn about nested `.config/dodeca.styx` files under `root` that no resolved
+/// source reaches. Such configs used to silently shadow the aggregator; now
+/// composition is explicit, so an orphaned one is dead config — the author
+/// either meant to `mounts` it or should remove it. Best-effort, never fatal.
+fn warn_orphaned_nested_configs(root: &Utf8Path, sources: &[ResolvedSource]) {
+    // A nested config dir is "reached" if some source's content/checkout dir is
+    // at-or-below it (composition walks up from the content dir to find it).
+    let reached = |config_dir: &Utf8Path| {
+        sources.iter().any(|s| {
+            s.content_dir.starts_with(config_dir)
+                || s.checkout_dir
+                    .as_deref()
+                    .is_some_and(|c| c.starts_with(config_dir))
+        })
+    };
+
+    for entry in ignore::WalkBuilder::new(root).hidden(false).build().flatten() {
+        if entry.file_name() != CONFIG_FILE_STYX {
+            continue;
+        }
+        let Some(path) = Utf8Path::from_path(entry.path()) else {
+            continue;
+        };
+        // `<dir>/.config/dodeca.styx` → the config owns `<dir>`.
+        let Some(config_dir) = path.parent().and_then(|p| p.parent()) else {
+            continue;
+        };
+        if config_dir == root || reached(config_dir) {
+            continue;
+        }
+        tracing::warn!(
+            config = %path,
+            "nested dodeca config is not reached by any source; it is ignored. \
+             Add a `mounts` entry pointing at it, or remove it."
+        );
+    }
+}
+
+/// Resolve `ImplDef`s (config schema) into `ResolvedImpl`s.
+fn resolve_impls(impls: &[dodeca_config::ImplDef]) -> Vec<ResolvedImpl> {
     impls
-        .clone()
-        .unwrap_or_default()
-        .into_iter()
+        .iter()
+        .cloned()
         .map(|i| ResolvedImpl {
             name: i.name,
             include: i.include,
@@ -598,59 +686,52 @@ pub fn global_config() -> Option<std::sync::Arc<ResolvedConfig>> {
 mod tests {
     use super::*;
 
-    /// A minimal `DodecaConfig` with everything but `content`/`sources` defaulted.
-    fn config(content: Option<&str>, sources: Option<Vec<SourceDef>>) -> DodecaConfig {
-        DodecaConfig {
-            base_url: None,
+    /// A `SourceConfig` with the given content dir, otherwise default.
+    fn src_cfg(content: Option<&str>) -> SourceConfig {
+        SourceConfig {
             content: content.map(str::to_string),
-            output: "public".to_string(),
-            sources,
-            impls: None,
-            link_check: None,
-            stable_assets: None,
-            code_execution: None,
-            syntax_highlight: None,
-            build_steps: None,
-            page_types: None,
-            auth: None,
+            ..Default::default()
         }
     }
 
+    /// A `mounts` entry: name + path + a direct `local` content dir.
+    fn mount(name: &str, path: &str, local: Option<&str>) -> MountDef {
+        MountDef {
+            name: name.to_string(),
+            path: path.to_string(),
+            local: local.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    /// Resolve a root `source` and/or `mounts` against `/proj`.
+    fn resolve(
+        source: Option<SourceConfig>,
+        mounts: Option<Vec<MountDef>>,
+    ) -> Result<Vec<ResolvedSource>> {
+        resolve_sources(Utf8Path::new("/proj"), source.as_ref(), mounts.as_deref())
+    }
+
     #[test]
-    fn single_source_content_form_carries_top_level_impls() {
-        let mut cfg = config(Some("docs/content"), None);
-        cfg.impls = Some(vec![dodeca_config::ImplDef {
+    fn root_source_carries_impls() {
+        let mut src = src_cfg(Some("docs/content"));
+        src.impls = vec![dodeca_config::ImplDef {
             name: "rust".into(),
             include: vec!["rust/**/src/**/*.rs".into()],
             exclude: vec!["**/target/**".into()],
             test_include: vec!["rust/**/tests/**/*.rs".into()],
-        }]);
-        let sources = resolve_sources(Utf8Path::new("/proj"), &cfg).unwrap();
+        }];
+        let sources = resolve(Some(src), None).unwrap();
         assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].mount, "/");
         assert_eq!(sources[0].impls.len(), 1);
-        assert_eq!(sources[0].impls[0].name, "rust");
         assert_eq!(sources[0].impls[0].include, vec!["rust/**/src/**/*.rs"]);
-        assert_eq!(sources[0].impls[0].test_include, vec!["rust/**/tests/**/*.rs"]);
     }
 
     #[test]
-    fn sources_form_with_top_level_impls_is_rejected() {
-        let mut cfg = config(None, Some(vec![source("vox", "/vox", Some("vox/docs/content"))]));
-        cfg.impls = Some(Vec::new());
-        assert!(resolve_sources(Utf8Path::new("/proj"), &cfg).is_err());
-    }
-
-    fn source(name: &str, mount: &str, local: Option<&str>) -> SourceDef {
-        SourceDef {
-            name: name.to_string(),
-            mount: mount.to_string(),
-            local: local.map(str::to_string),
-            checkout: None,
-            content: None,
-            git: None,
-            repo: None,
-            impls: None,
-        }
+    fn root_mount_path_is_rejected() {
+        // `/` is the top-level `source`, not a `mounts` entry.
+        assert!(resolve(None, Some(vec![mount("x", "/", Some("content"))])).is_err());
     }
 
     /// A minimal `ResolvedConfig` distinguished only by its `base_url`.
@@ -707,26 +788,36 @@ mod tests {
     }
 
     #[test]
-    fn single_content_yields_one_root_source() {
-        let root = Utf8Path::new("/proj");
-        let sources = resolve_sources(root, &config(Some("content"), None)).unwrap();
+    fn root_source_yields_one_source_at_slash() {
+        let sources = resolve(Some(src_cfg(Some("content"))), None).unwrap();
         assert_eq!(sources.len(), 1);
         assert_eq!(sources[0].mount, "/");
         assert_eq!(sources[0].content_dir, Utf8Path::new("/proj/content"));
     }
 
     #[test]
-    fn explicit_sources_resolve_with_mounts() {
-        let root = Utf8Path::new("/proj");
-        let defs = vec![
-            source("kb", "/", Some("content")),
-            source("build", "/spec/build", Some("../vixen/docs/content")),
-        ];
-        let sources = resolve_sources(root, &config(None, Some(defs))).unwrap();
+    fn root_source_defaults_content_to_content_dir() {
+        let sources = resolve(Some(src_cfg(None)), None).unwrap();
+        assert_eq!(sources[0].content_dir, Utf8Path::new("/proj/content"));
+    }
+
+    #[test]
+    fn root_source_plus_mount_resolve() {
+        let sources = resolve(
+            Some(src_cfg(Some("content"))),
+            Some(vec![mount(
+                "build",
+                "/spec/build",
+                Some("../vixen/docs/content"),
+            )]),
+        )
+        .unwrap();
         assert_eq!(sources.len(), 2);
-        assert_eq!(sources[0].name, "kb");
+        // The root source is unnamed and mounted at `/`.
+        assert_eq!(sources[0].name, "");
         assert_eq!(sources[0].mount, "/");
         assert_eq!(sources[0].content_dir, Utf8Path::new("/proj/content"));
+        // The mount carries its own name and normalized mount path.
         assert_eq!(sources[1].name, "build");
         assert_eq!(sources[1].mount, "/spec/build/");
         assert_eq!(
@@ -736,52 +827,54 @@ mod tests {
     }
 
     #[test]
-    fn content_and_sources_together_is_an_error() {
-        let root = Utf8Path::new("/proj");
-        let defs = vec![source("kb", "/", Some("content"))];
-        assert!(resolve_sources(root, &config(Some("content"), Some(defs))).is_err());
+    fn mounts_alone_resolve() {
+        let sources = resolve(
+            None,
+            Some(vec![mount("build", "/spec/build", Some("../vixen/content"))]),
+        )
+        .unwrap();
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].name, "build");
+        assert_eq!(sources[0].mount, "/spec/build/");
     }
 
     #[test]
-    fn neither_content_nor_sources_is_an_error() {
-        let root = Utf8Path::new("/proj");
-        assert!(resolve_sources(root, &config(None, None)).is_err());
+    fn neither_source_nor_mounts_is_an_error() {
+        assert!(resolve(None, None).is_err());
     }
 
     #[test]
-    fn empty_sources_list_is_an_error() {
-        let root = Utf8Path::new("/proj");
-        assert!(resolve_sources(root, &config(None, Some(vec![]))).is_err());
+    fn no_source_and_empty_mounts_is_an_error() {
+        assert!(resolve(None, Some(vec![])).is_err());
     }
 
     #[test]
-    fn git_only_source_is_rejected_for_now() {
-        let root = Utf8Path::new("/proj");
-        let defs = vec![source("build", "/spec/build", None)];
-        assert!(resolve_sources(root, &config(None, Some(defs))).is_err());
+    fn git_only_mount_is_rejected_for_now() {
+        assert!(resolve(None, Some(vec![mount("build", "/spec/build", None)])).is_err());
     }
 
     #[test]
-    fn source_without_name_is_rejected() {
-        let root = Utf8Path::new("/proj");
-        let defs = vec![source("", "/spec/build", Some("../vixen/docs/content"))];
-        assert!(resolve_sources(root, &config(None, Some(defs))).is_err());
+    fn mount_without_name_is_rejected() {
+        assert!(
+            resolve(
+                None,
+                Some(vec![mount("", "/spec/build", Some("../vixen/content"))]),
+            )
+            .is_err()
+        );
     }
 
     #[test]
-    fn checkout_source_resolves_content_subpath_and_checkout_dir() {
-        let root = Utf8Path::new("/proj");
-        let def = SourceDef {
+    fn checkout_mount_resolves_content_subpath_and_checkout_dir() {
+        let def = MountDef {
             name: "build".into(),
-            mount: "/spec/build".into(),
-            local: None,
+            path: "/spec/build".into(),
             checkout: Some("../vixen".into()),
             content: Some("docs/content".into()),
             git: Some("g.git".into()),
-            repo: None,
-            impls: None,
+            ..Default::default()
         };
-        let sources = resolve_sources(root, &config(None, Some(vec![def]))).unwrap();
+        let sources = resolve(None, Some(vec![def])).unwrap();
         assert_eq!(
             sources[0].content_dir,
             Utf8Path::new("/proj/../vixen/docs/content")
@@ -795,17 +888,13 @@ mod tests {
 
     #[test]
     fn local_and_checkout_together_is_an_error() {
-        let root = Utf8Path::new("/proj");
-        let def = SourceDef {
+        let def = MountDef {
             name: "x".into(),
-            mount: "/".into(),
+            path: "/x".into(),
             local: Some("content".into()),
             checkout: Some("../x".into()),
-            content: None,
-            git: None,
-            repo: None,
-            impls: None,
+            ..Default::default()
         };
-        assert!(resolve_sources(root, &config(None, Some(vec![def]))).is_err());
+        assert!(resolve(None, Some(vec![def])).is_err());
     }
 }

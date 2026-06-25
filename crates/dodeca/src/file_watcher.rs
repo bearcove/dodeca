@@ -594,6 +594,7 @@ mod tests {
             git: None,
             repo: None,
             impls: Vec::new(),
+            skip_domains: Vec::new(),
         }
     }
 

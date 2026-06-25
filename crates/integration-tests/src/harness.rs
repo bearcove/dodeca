@@ -1415,7 +1415,7 @@ impl InlineSite {
         // Write config (Styx format)
         fs::write(
             fixture_dir.join(".config/dodeca.styx"),
-            "content content\noutput public\n",
+            "source {\n    content content\n}\n\nsite {\n    output public\n}\n",
         )
         .expect("write config");
 

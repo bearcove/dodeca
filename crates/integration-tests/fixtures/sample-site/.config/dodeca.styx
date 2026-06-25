@@ -1,2 +1,7 @@
-content content
-output public
+source {
+    content content
+}
+
+site {
+    output public
+}

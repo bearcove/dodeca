@@ -5,33 +5,38 @@
 use super::*;
 
 /// Styx config with build steps for testing
-const STYX_CONFIG: &str = r#"content content
-output public
+const STYX_CONFIG: &str = r#"source {
+    content content
 
-build_steps {
-    echo_hello {
-        command (echo "hello-from-build-step")
-    }
+    build_steps {
+        echo_hello {
+            command (echo "hello-from-build-step")
+        }
 
-    read_file {
-        params {
-            file @file
+        read_file {
+            params {
+                file @file
+            }
+        }
+
+        word_count {
+            params {
+                file @file
+            }
+            command (wc -w "{file}")
+        }
+
+        echo_value {
+            params {
+                value @string
+            }
+            command (echo "{value}")
         }
     }
+}
 
-    word_count {
-        params {
-            file @file
-        }
-        command (wc -w "{file}")
-    }
-
-    echo_value {
-        params {
-            value @string
-        }
-        command (echo "{value}")
-    }
+site {
+    output public
 }
 "#;
 

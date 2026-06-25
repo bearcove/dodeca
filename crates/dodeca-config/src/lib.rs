@@ -16,69 +16,114 @@ use facet_styx::{
     RawStyx, StringConstraints,
 };
 
-/// Dodeca configuration from `.config/dodeca.styx`
+/// Dodeca configuration from `.config/dodeca.styx`.
+///
+/// Two sections carry the meaning, so you can see at a glance what travels with
+/// a source vs. what belongs to the assembled site:
+///
+/// - [`source`](Self::source) — **composable**, source-scoped. When this content
+///   is mounted into an aggregator, the aggregator adopts this block (its
+///   `impls`, `page_types`, …) re-namespaced under the mount.
+/// - [`site`](Self::site) — **not composable**, whole-site. When mounted, this is
+///   dropped; the aggregator's `site` is authoritative.
+/// - [`mounts`](Self::mounts) — additional sub-sources, each at a non-root URL
+///   `path`, composing that source's `source {}` (read from its own config).
+///
+/// The top-level `source` is the content served at `/`; `mounts` add sources
+/// beneath it (so a mount `path` may not be `/`). A leaf project sets `source` +
+/// `site`; an aggregator adds `mounts`. At least one of `source` / `mounts` must
+/// be present.
 #[derive(Debug, Clone, Facet)]
 #[facet(rename_all = "snake_case")]
 pub struct DodecaConfig {
-    /// Base URL for the site (e.g., `https://example.com`)
-    /// Used to generate permalinks. Defaults to "/" for local development.
+    /// Composable, source-scoped config — present in a leaf project.
     #[facet(default)]
-    pub base_url: Option<String>,
+    pub source: Option<SourceConfig>,
 
-    /// Content directory (relative to project root). A leaf project sets this;
-    /// it is equivalent to a single source mounted at `/`. Aggregator configs
-    /// omit it and use `sources` instead. Exactly one of `content` / `sources`
-    /// must be present.
+    /// Whole-site config (output, base URL, link checking, code execution, …).
+    /// Always the assembling site's; never composed from a mounted source.
+    pub site: SiteConfig,
+
+    /// Aggregator: content sources merged into one site, each mounted under a
+    /// URL `path`, composing that source's `source {}`.
+    #[facet(default)]
+    pub mounts: Option<Vec<MountDef>>,
+}
+
+/// Composable, source-scoped configuration: what a content collection *is* and
+/// how to render / validate / execute it. Chrome (`templates`/`sass`/`static`)
+/// is resolved by directory convention and so isn't listed here.
+#[derive(Debug, Clone, Default, Facet)]
+#[facet(rename_all = "snake_case")]
+pub struct SourceConfig {
+    /// Content directory, relative to the source's own root. Used when the
+    /// source is built standalone; when mounted, the `mounts` entry's location
+    /// is authoritative instead.
     #[facet(default)]
     pub content: Option<String>,
 
-    /// Output directory (relative to project root)
-    pub output: String,
-
-    /// Multiple content sources merged into one site, each mounted under a URL
-    /// prefix. When present, `content` must be omitted (and vice versa). This is
-    /// what lets one Dodeca site assemble several repos (the KB plus specs).
+    /// Browsable repository URL (e.g.
+    /// `https://github.com/facet-rs/facet/tree/main/figue`), exposed to
+    /// templates for "view source" links. Travels with the source.
     #[facet(default)]
-    pub sources: Option<Vec<SourceDef>>,
+    pub repo: Option<String>,
 
-    /// Code implementations scanned for `r[verb rule.id]` references, for a
-    /// single-source (`content`) project. The `sources` form declares `impls`
-    /// per-source instead; setting both is rejected.
+    /// Code implementations whose source files are scanned for `r[verb rule.id]`
+    /// references to compute coverage of this source's spec rules.
     #[facet(default)]
-    pub impls: Option<Vec<ImplDef>>,
-
-    /// Link checking configuration
-    #[facet(default)]
-    pub link_check: Option<LinkCheckConfig>,
-
-    /// Assets that should be served at their original paths (no cache-busting)
-    /// e.g., favicon.svg, robots.txt, og-image.png
-    #[facet(default)]
-    pub stable_assets: Option<Vec<String>>,
-
-    /// Code execution configuration
-    #[facet(default)]
-    pub code_execution: Option<CodeExecutionConfig>,
-
-    /// Syntax highlighting theme configuration
-    #[facet(default)]
-    pub syntax_highlight: Option<SyntaxHighlightConfig>,
-
-    /// Authentication (oauth2-proxy / Forgejo OIDC in front of dodeca). When
-    /// **present**, `/_dodeca/*` (status, editing) is gated on a forwarded
-    /// identity; when **absent**, those are open — which is what you want for
-    /// local `ddc serve` with no proxy in front.
-    #[facet(default)]
-    pub auth: Option<AuthConfig>,
-
-    /// Build steps - parameterized commands invoked from templates.
-    /// Keys are step names, values define params and command.
-    #[facet(default)]
-    pub build_steps: Option<HashMap<String, BuildStepDef>>,
+    pub impls: Vec<ImplDef>,
 
     /// First-class frontmatter schemas keyed by page type.
     #[facet(default, alias = "page-types")]
     pub page_types: Option<HashMap<String, PageTypeSchema>>,
+
+    /// Build steps — parameterized commands invoked from this source's templates.
+    #[facet(default)]
+    pub build_steps: Option<HashMap<String, BuildStepDef>>,
+
+    /// Domains to skip when link-checking this source's external links
+    /// (anti-bot, known-flaky). Unioned into the assembled site's link check.
+    #[facet(default)]
+    pub skip_domains: Vec<String>,
+}
+
+/// Whole-site configuration: properties of the assembled, published site. Exactly
+/// one applies to a build — the standalone leaf's, or the aggregator's. Never
+/// composed from a mounted source.
+#[derive(Debug, Clone, Default, Facet)]
+#[facet(rename_all = "snake_case")]
+pub struct SiteConfig {
+    /// Output directory (relative to project root).
+    pub output: String,
+
+    /// Base URL for the site (e.g. `https://example.com`); permalinks. For a
+    /// mounted source, the URL prefix comes from its `path`, not its `base_url`.
+    #[facet(default)]
+    pub base_url: Option<String>,
+
+    /// Link checking policy for the assembled site (`mode`, `rate_limit_ms`).
+    /// Per-source `skip_domains` are unioned in on top.
+    #[facet(default)]
+    pub link_check: Option<LinkCheckConfig>,
+
+    /// Assets served at their original paths (no cache-busting): favicon.svg,
+    /// robots.txt, og-image.png. One set for the whole site.
+    #[facet(default)]
+    pub stable_assets: Option<Vec<String>>,
+
+    /// Code execution (per-language sub-configs), for the whole site — the site
+    /// owns the policy of whether/how code samples run.
+    #[facet(default)]
+    pub code_execution: Option<CodeExecutionConfig>,
+
+    /// Syntax highlighting theme, for visual consistency across the site.
+    #[facet(default)]
+    pub syntax_highlight: Option<SyntaxHighlightConfig>,
+
+    /// Authentication (oauth2-proxy / Forgejo OIDC). Present → `/_dodeca/*` is
+    /// gated; absent → open (local `ddc serve`).
+    #[facet(default)]
+    pub auth: Option<AuthConfig>,
 }
 
 /// A frontmatter schema type.
@@ -249,45 +294,46 @@ fn documented_schema_to_styx(value: &Documented<PageTypeSchema>) -> Documented<S
     }
 }
 
-/// A single content source mounted into the site at a URL prefix.
+/// One sub-source mounted into an aggregator at a non-root URL `path`.
 ///
-/// A leaf project omits `sources` and uses the top-level `content`; that is
-/// equivalent to one source mounted at `/`. An aggregator config (e.g. the
-/// site repo) lists several sources, each pointing at a content directory — a
-/// sibling repo checkout — and mounted under a URL namespace.
+/// The aggregator's *own* root content is the top-level [`source`](DodecaConfig::source)
+/// at `/`; `mounts` are the additional sources beneath it, so a mount `path` may
+/// **not** be `/`. The entry supplies the source's **location** and namespace;
+/// its **behavior** (`impls`, `page_types`, …) is composed from the source's own
+/// `source {}`, read from a `.config/dodeca.styx` at-or-above its content dir.
 ///
 /// Example in `.config/dodeca.styx`:
 /// ```styx
-/// sources {
-///   { name kb     mount /            local content }
-///   { name build  mount /spec/build  git code.vixen.rs/vixen/vixen.git
-///                 checkout ../vixen   content docs/content }
-/// }
+/// mounts (
+///   {name vox   path /vox        local vox/docs/content}
+///   {name build path /spec/build checkout ../vixen content docs/content
+///                git code.vixen.rs/vixen/vixen.git}
+/// )
 /// ```
 ///
-/// A source is either **local** (`local` = a content dir, no repo) or
-/// **git-backed** (`checkout` = a repo dir to clone/pull, `content` = the
-/// content path *within* it, `git` = the remote to clone if the checkout is
-/// absent). Exactly one of `local` / `checkout`.
+/// The location is either **local** (`local` = the content dir, no repo) or
+/// **git-backed** (`checkout` = a repo dir to clone/pull, `content` = the content
+/// path within it, `git` = the remote to clone if absent). Exactly one of
+/// `local` / `checkout`.
 #[derive(Debug, Clone, Default, Facet)]
 #[facet(rename_all = "snake_case")]
-pub struct SourceDef {
+pub struct MountDef {
     /// Stable identity of this source, used to link to it from other sources
     /// (`[[<name>:slug]]`) and to label its search hits — independent of where
-    /// it is mounted. A source served at `/` still has a name. Required.
+    /// it is mounted. Required.
     pub name: String,
 
-    /// URL namespace this source mounts under, e.g. `/` or `/spec/build`.
-    pub mount: String,
+    /// URL namespace this source mounts under, e.g. `/spec/build`. May not be
+    /// `/` — the root is the aggregator's own top-level `source`.
+    pub path: String,
 
-    /// Direct content directory (relative to the project root). Use for a
-    /// source with no repo of its own (e.g. the aggregator's own `content`).
-    /// Mutually exclusive with `checkout`.
+    /// Direct content directory (relative to the aggregator root). Mutually
+    /// exclusive with `checkout`.
     #[facet(default)]
     pub local: Option<String>,
 
     /// Repo checkout directory — the stable location cloned/pulled by the
-    /// service (relative to the project root, e.g. `../vixen`). The content is
+    /// service (relative to the aggregator root, e.g. `../vixen`). The content is
     /// `content` *within* this dir. Mutually exclusive with `local`.
     #[facet(default)]
     pub checkout: Option<String>,
@@ -301,19 +347,6 @@ pub struct SourceDef {
     /// `git pull` from on a webhook/poll. Only meaningful with `checkout`.
     #[facet(default)]
     pub git: Option<String>,
-
-    /// Browsable repository URL for this source (e.g.
-    /// `https://github.com/facet-rs/facet/tree/main/figue`), exposed to
-    /// templates for "view source / on GitHub" links. Independent of `git`
-    /// (the clone remote for checkout-backed sources).
-    #[facet(default)]
-    pub repo: Option<String>,
-
-    /// Code implementations whose source files are scanned for requirement
-    /// references (`r[verb rule.id]`) to compute coverage of this source's spec
-    /// rules. Each entry is one named implementation (a language or crate).
-    #[facet(default)]
-    pub impls: Option<Vec<ImplDef>>,
 }
 
 /// One implementation of a source's spec: a named set of code files scanned for

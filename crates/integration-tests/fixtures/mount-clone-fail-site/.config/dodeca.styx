@@ -1,21 +1,22 @@
-// Aggregator with a healthy primary (local) and a mounted source whose repo
-// can't be cloned (a bogus git path). The mounted source must be skipped at
-// startup WITHOUT taking the site down — the primary keeps serving, the broken
-// mount 404s. Guards the "mount a private repo before the bot has access"
-// case from crashing the whole service.
-output public
+// Aggregator with a healthy primary (the root `source`, local) and a `mounts`
+// entry whose repo can't be cloned (a bogus git path). The mounted source must
+// be skipped at startup WITHOUT taking the site down — the primary keeps
+// serving, the broken mount 404s. Guards the "mount a private repo before the
+// bot has access" case from crashing the whole service.
+source {
+    content main/content
+}
 
-sources (
-    {
-        name main
-        mount /
-        local main/content
-    }
+mounts (
     {
         name broken
-        mount /broken
+        path /broken
         checkout repos/broken
         content content
         git "/nonexistent/dodeca-clone-fail.git"
     }
 )
+
+site {
+    output public
+}
