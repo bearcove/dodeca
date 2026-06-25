@@ -182,6 +182,32 @@ pub fn rule_coverage_hover_markdown(
     md
 }
 
+/// `Hint`-severity diagnostics for rules *defined* in this markdown document
+/// that have no `r[impl …]` site yet (uncovered). Subtle, not a wall of warnings.
+pub fn coverage_hint_diagnostics(
+    content: &str,
+    impls: &std::collections::HashMap<String, Vec<cell_html_proto::ImplSite>>,
+) -> Vec<Diagnostic> {
+    markdown_rule_markers(content)
+        .into_iter()
+        .filter(|marker| {
+            impls
+                .get(&marker.rule_id.canonical())
+                .is_none_or(|sites| sites.is_empty())
+        })
+        .map(|marker| Diagnostic {
+            range: byte_range_to_lsp_range(content, marker.byte_start, marker.byte_end),
+            severity: Some(DiagnosticSeverity::HINT),
+            source: Some("dodeca-coverage".to_string()),
+            message: format!(
+                "rule `{}` has no implementation (no `r[impl …]`)",
+                marker.rule_id.canonical()
+            ),
+            ..Default::default()
+        })
+        .collect()
+}
+
 /// LSP `Location`s for a rule's implementation sites (for go-to / references).
 pub fn rule_impl_locations(impls: &[cell_html_proto::ImplSite]) -> Vec<Location> {
     impls
@@ -1645,7 +1671,8 @@ impl Backend {
             self.client.publish_diagnostics(uri, Vec::new(), None).await;
             return;
         }
-        let diagnostics = match diagnostics_for_uri(&dirs.content_dir, project, &uri, &content) {
+        let mut diagnostics = match diagnostics_for_uri(&dirs.content_dir, project, &uri, &content)
+        {
             Ok(diagnostics) => diagnostics
                 .iter()
                 .map(authoring_diagnostic_to_lsp)
@@ -1657,6 +1684,13 @@ impl Backend {
                 Vec::new()
             }
         };
+
+        // Coverage hints: rules defined in this page with no `r[impl …]` yet.
+        if let Ok(snapshot) = self.current_snapshot(&dirs).await
+            && let Ok(impls) = snapshot.rule_impls().await
+        {
+            diagnostics.extend(coverage_hint_diagnostics(&content, &impls));
+        }
 
         self.client
             .publish_diagnostics(uri, diagnostics, None)
