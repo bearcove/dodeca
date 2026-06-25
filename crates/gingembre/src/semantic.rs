@@ -10,8 +10,9 @@ use crate::ast::{
     BinaryExpr, CallExpr, DictLit, Expr, FilterExpr, Ident, IfNode, ListLit, Literal,
     MacroCallExpr, MacroNode, Node, Span, Target, Template, TernaryExpr, TestExpr, UnaryExpr,
 };
+use facet::Facet;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Facet)]
 pub struct TemplateSemanticIndex {
     pub symbols: Vec<TemplateSymbol>,
     pub references: Vec<TemplateReference>,
@@ -19,7 +20,7 @@ pub struct TemplateSemanticIndex {
     scopes: Vec<TemplateScope>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Facet)]
 pub struct TemplateSymbol {
     pub id: usize,
     pub name: String,
@@ -29,7 +30,8 @@ pub struct TemplateSymbol {
     scope: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Facet)]
+#[repr(u8)]
 pub enum TemplateSymbolOrigin {
     ContextRoot,
     Function,
@@ -40,7 +42,8 @@ pub enum TemplateSymbolOrigin {
     Macro,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Facet)]
+#[repr(u8)]
 pub enum TemplateSymbolKind {
     ContextRoot,
     Function,
@@ -51,7 +54,7 @@ pub enum TemplateSymbolKind {
     Macro,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Facet)]
 pub struct TemplateReference {
     pub name: String,
     pub span: Span,
@@ -61,13 +64,15 @@ pub struct TemplateReference {
     pub path: Vec<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Facet)]
+#[repr(u8)]
 pub enum TemplateReferenceAccess {
     Read,
     Write,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Facet)]
+#[repr(u8)]
 pub enum TemplateReferenceKind {
     Variable,
     Function,
@@ -78,13 +83,14 @@ pub enum TemplateReferenceKind {
     Macro,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Facet)]
 pub struct TemplateSemanticToken {
     pub span: Span,
     pub kind: TemplateSemanticTokenKind,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Facet)]
+#[repr(u8)]
 pub enum TemplateSemanticTokenKind {
     Variable,
     Parameter,
@@ -96,7 +102,7 @@ pub enum TemplateSemanticTokenKind {
     Keyword,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Facet)]
 struct TemplateScope {
     parent: Option<usize>,
     span: Span,

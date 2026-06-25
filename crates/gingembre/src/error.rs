@@ -5,12 +5,13 @@
 #![allow(unused_assignments)]
 
 use ariadne::{Color, Label, Report, ReportKind, Source};
+use facet::Facet;
 use std::sync::Arc;
 use thiserror::Error;
 
 /// A span in source code (offset, length)
 // r[impl error.span]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Facet)]
 pub struct SourceSpan {
     offset: usize,
     len: usize,

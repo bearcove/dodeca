@@ -78,7 +78,7 @@ hotmeal = { path = "libs/hotmeal/hotmeal" }
 hotmeal-server = { path = "libs/hotmeal/hotmeal-server", features = ["tracing"] }
 hotmeal-wasm = { path = "libs/hotmeal/hotmeal-wasm" }
 
-facet = "0.50.0-rc.0"
+facet = { version = "0.50.0-rc.0", features = ["camino"] }
 facet-default = "0.50.0-rc.0"
 facet-format = "0.50.0-rc.0"
 facet-json = "0.50.0-rc.0"

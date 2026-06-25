@@ -3833,6 +3833,7 @@ version = "0.6.1"
 dependencies = [
  "ariadne 0.6.0",
  "camino",
+ "facet",
  "facet-value",
  "futures",
  "gingembre-syntax",

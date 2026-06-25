@@ -42,7 +42,8 @@ pub struct AuthoringWorkspaceInputs {
     data_files: std::collections::BTreeMap<DataPath, DataFile>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, facet::Facet)]
+#[repr(u8)]
 pub enum AuthoringInputPath {
     Source(String),
     Template(String),
@@ -52,7 +53,7 @@ pub enum AuthoringInputPath {
     Data(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, facet::Facet)]
 pub struct AuthoringProject {
     pub pages: Vec<AuthoringPage>,
     pub known_routes: HashSet<String>,
@@ -72,7 +73,7 @@ pub struct AuthoringProject {
 const TEMPLATE_CONTEXT_ROOTS: &[&str] =
     &["config", "page", "section", "current_path", "root", "data"];
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
 pub struct AuthoringPage {
     pub kind: AuthoringPageKind,
     pub route: String,
@@ -86,26 +87,27 @@ pub struct AuthoringPage {
     pub link_base_route: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
 pub struct AuthoringHeading {
     pub id: String,
     pub title: String,
     pub level: u8,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, facet::Facet)]
+#[repr(u8)]
 pub enum AuthoringPageKind {
     Page,
     Section,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
 pub struct RenderedHref {
     pub href: String,
     pub origin: Option<RenderedHrefOrigin>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
 pub struct RenderedHrefOrigin {
     pub path: AuthoringInputPath,
     pub byte_start: usize,
