@@ -182,6 +182,20 @@ pub fn rule_coverage_hover_markdown(
     md
 }
 
+/// Resolve a (possibly mount-prefixed) source-file key to its absolute path,
+/// honouring multi-source mounts: a key like `spec/build/foo.md` belongs to the
+/// source mounted at `/spec/build`, not the primary content dir. Falls back to
+/// `content_dir.join(key)` for a single-source / config-less workspace.
+pub fn source_file_abs_path(content_dir: &Utf8Path, source_file: &str) -> Utf8PathBuf {
+    if let Some(cfg) = dodeca::config::global_config()
+        && let Some((source, rel)) =
+            dodeca::build_context::source_for_key(&cfg.sources, source_file)
+    {
+        return source.content_dir.join(rel);
+    }
+    content_dir.join(source_file)
+}
+
 /// The requirement reference (`r[verb rule.id]`) the cursor is on in a code
 /// buffer, if any.
 pub fn code_ref_at_position(
@@ -476,7 +490,7 @@ impl AuthoringWorld {
                 if target.kind == FrontmatterDocumentKind::Template
                     && target.target_path == target_path
                 {
-                    let path = content_dir.join(source_file);
+                    let path = source_file_abs_path(content_dir, source_file);
                     locations.push(Location {
                         uri: Url::from_file_path(path.as_std_path())
                             .map_err(|_| eyre!("could not convert source path to URI: {path}"))?,
@@ -1358,7 +1372,11 @@ impl Backend {
                         Some(DocumentLink {
                             range: reference.source_range,
                             target: Some(
-                                Url::from_file_path(dirs.content_dir.join(source_file)).ok()?,
+                                Url::from_file_path(source_file_abs_path(
+                                    &dirs.content_dir,
+                                    source_file,
+                                ))
+                                .ok()?,
                             ),
                             tooltip: Some(format!("Open Dodeca page `{}`", reference.target_route)),
                             data: None,
@@ -1451,7 +1469,7 @@ impl Backend {
             else {
                 return Ok(None);
             };
-            let uri = Url::from_file_path(dirs.content_dir.join(&source_file))
+            let uri = Url::from_file_path(source_file_abs_path(&dirs.content_dir, &source_file))
                 .map_err(|_| eyre!("could not convert spec source path to URI: {source_file}"))?;
             let pos = Position {
                 line: line.saturating_sub(1),
@@ -1498,7 +1516,7 @@ impl Backend {
             {
                 let (_, fragment) = split_fragment(&reference.target);
                 if let Some(source_file) = project.source_file_for_route(&reference.target_route) {
-                    let path = dirs.content_dir.join(source_file);
+                    let path = source_file_abs_path(&dirs.content_dir, source_file);
                     return location_for_source_path(&path, fragment);
                 }
             }
@@ -1896,7 +1914,7 @@ impl Backend {
         }
 
         for page in &project.pages {
-            let path = dirs.content_dir.join(&page.source_file);
+            let path = source_file_abs_path(&dirs.content_dir, &page.source_file);
             let Some(uri) = Url::from_file_path(path.as_std_path()).ok() else {
                 continue;
             };
@@ -1930,7 +1948,7 @@ impl Backend {
         let dirs = self.dirs_for_uri(&source_uri)?;
         let source_file = source_file_for_new_route(&route)
             .ok_or_else(|| eyre!("cannot create page for route '{route}'"))?;
-        let path = dirs.content_dir.join(&source_file);
+        let path = source_file_abs_path(&dirs.content_dir, &source_file);
 
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -3376,7 +3394,7 @@ pub fn location_for_page(
     project: &AuthoringProject,
     page: &AuthoringPage,
 ) -> Option<Location> {
-    let uri = Url::from_file_path(content_dir.join(&page.source_file)).ok()?;
+    let uri = Url::from_file_path(source_file_abs_path(content_dir, &page.source_file)).ok()?;
     let content = project.source_contents.get(&page.source_file)?;
     let range = frontmatter_lsp_range(content).unwrap_or_else(|| one_line_range(0));
     Some(Location { uri, range })
@@ -3388,7 +3406,7 @@ pub fn location_for_page_heading(
     page: &AuthoringPage,
     heading_id: &str,
 ) -> Option<Location> {
-    let uri = Url::from_file_path(content_dir.join(&page.source_file)).ok()?;
+    let uri = Url::from_file_path(source_file_abs_path(content_dir, &page.source_file)).ok()?;
     let content = project.source_contents.get(&page.source_file)?;
     let line = markdown_headings(content)
         .into_iter()
@@ -3442,7 +3460,7 @@ pub fn definition_for_reference(
         else {
             return Ok(None);
         };
-        let path = dirs.content_dir.join(source_file);
+        let path = source_file_abs_path(&dirs.content_dir, source_file);
         return location_for_source_path(&path, fragment);
     }
 
@@ -3461,7 +3479,7 @@ pub fn definition_for_reference(
     let Some(source_file) = project.source_file_for_route(&target_route) else {
         return Ok(None);
     };
-    let path = dirs.content_dir.join(source_file);
+    let path = source_file_abs_path(&dirs.content_dir, source_file);
     location_for_source_path(&path, fragment)
 }
 
@@ -3532,7 +3550,7 @@ pub fn location_for_rendered_href_origin(
 ) -> Option<Location> {
     let (path, content) = match &origin.path {
         AuthoringInputPath::Source(source_file) => (
-            content_dir.join(source_file),
+            source_file_abs_path(content_dir, source_file),
             project.source_contents.get(source_file)?,
         ),
         AuthoringInputPath::Template(template_file) => (
@@ -3616,7 +3634,7 @@ pub fn rename_heading_workspace_edit(
     }
 
     let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
-    let target_uri = Url::from_file_path(content_dir.join(target_source_file))
+    let target_uri = Url::from_file_path(source_file_abs_path(content_dir, target_source_file))
         .map_err(|_| eyre!("could not convert source file to URI: {target_source_file}"))?;
     changes
         .entry(target_uri)
@@ -3627,7 +3645,9 @@ pub fn rename_heading_workspace_edit(
         let Some(content) = project.source_contents.get(&page.source_file) else {
             continue;
         };
-        let Some(uri) = Url::from_file_path(content_dir.join(&page.source_file)).ok() else {
+        let Some(uri) =
+            Url::from_file_path(source_file_abs_path(content_dir, &page.source_file)).ok()
+        else {
             continue;
         };
 
@@ -4140,7 +4160,7 @@ pub fn page_route_rename_plan(
     {
         return Ok(None);
     }
-    if content_dir.join(&target.source_file).exists()
+    if source_file_abs_path(content_dir, &target.source_file).exists()
         && target.source_file != target_page.source_file
     {
         return Ok(None);
@@ -4411,7 +4431,7 @@ pub fn page_route_edit_uri(
 }
 
 pub fn source_file_uri(content_dir: &Utf8Path, source_file: &str) -> Result<Url> {
-    Url::from_file_path(content_dir.join(source_file))
+    Url::from_file_path(source_file_abs_path(content_dir, source_file))
         .map_err(|_| eyre!("could not convert source file to URI: {source_file}"))
 }
 
@@ -4534,7 +4554,7 @@ pub fn location_for_markdown_reference(
     content: &str,
     reference: &MarkdownReference,
 ) -> Option<Location> {
-    let uri = Url::from_file_path(content_dir.join(source_file)).ok()?;
+    let uri = Url::from_file_path(source_file_abs_path(content_dir, source_file)).ok()?;
     let (line, column) = byte_to_line_column(content, reference.byte_start);
     let (line_end, column_end) = byte_to_line_column(content, reference.byte_end);
     Some(Location {
