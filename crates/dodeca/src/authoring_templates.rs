@@ -12,6 +12,7 @@ use std::collections::{HashMap, HashSet};
 
 use camino::Utf8PathBuf;
 use eyre::{Result, eyre};
+use facet::{Facet, NumericType, PrimitiveType, Type, UserType};
 use gingembre::ast::{Expr, Ident, Node, StringLit};
 use gingembre::{BuiltinItemInfo, builtin_filter, builtin_test};
 use lsp_types::{Location, Position, Range};
@@ -21,6 +22,7 @@ use crate::authoring_graph::{byte_to_line_column, rendered_href_target_route};
 use crate::authoring_model::{
     AuthoringDiagnostic, AuthoringDiagnosticKind, AuthoringInputPath, AuthoringProject,
 };
+use crate::queries::Frontmatter;
 
 #[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
 pub struct TemplateRouteReference {
@@ -1671,4 +1673,366 @@ pub fn top_level_macro_ident(nodes: &[Node], name: &str) -> Option<Ident> {
         Node::Macro(node) if node.name.name == name => Some(node.name.clone()),
         _ => None,
     })
+}
+
+#[derive(Debug, Clone)]
+pub struct FrontmatterEntry {
+    pub key: String,
+    pub key_start: usize,
+    pub key_end: usize,
+    pub value: String,
+    pub value_start: usize,
+    pub value_end: usize,
+    pub table: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct FrontmatterFieldSpec {
+    pub name: &'static str,
+    pub kind: FrontmatterFieldKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrontmatterFieldKind {
+    String,
+    Integer,
+    Table,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct FrontmatterContentByteRange {
+    pub start: usize,
+    pub end: usize,
+}
+
+pub fn frontmatter_lsp_range(content: &str) -> Option<Range> {
+    content.strip_prefix("+++\n")?;
+    let end = content[4..].find("\n+++")? + 4 + "\n+++".len();
+    let (line_end, column_end) = byte_to_line_column(content, end);
+
+    Some(Range {
+        start: Position {
+            line: 0,
+            character: 0,
+        },
+        end: Position {
+            line: line_end.saturating_sub(1),
+            character: column_end.saturating_sub(1),
+        },
+    })
+}
+pub fn frontmatter_field_specs() -> Vec<FrontmatterFieldSpec> {
+    let fields = match <Frontmatter as Facet>::SHAPE.ty {
+        Type::User(UserType::Struct(struct_type)) => struct_type.fields,
+        _ => return Vec::new(),
+    };
+
+    fields
+        .iter()
+        .filter_map(|field| {
+            let name = field.rename.unwrap_or(field.name);
+            frontmatter_field_kind(name, field.shape.get())
+                .map(|kind| FrontmatterFieldSpec { name, kind })
+        })
+        .collect()
+}
+pub fn frontmatter_field_kind(
+    name: &'static str,
+    shape: &'static facet::Shape,
+) -> Option<FrontmatterFieldKind> {
+    if name == "extra" {
+        return Some(FrontmatterFieldKind::Table);
+    }
+
+    let shape = if shape.type_identifier == "Option" {
+        shape.inner.unwrap_or(shape)
+    } else {
+        shape
+    };
+
+    if shape.type_identifier == "String" {
+        return Some(FrontmatterFieldKind::String);
+    }
+
+    match shape.ty {
+        Type::Primitive(PrimitiveType::Textual(_)) => Some(FrontmatterFieldKind::String),
+        Type::Primitive(PrimitiveType::Numeric(NumericType::Integer { .. })) => {
+            Some(FrontmatterFieldKind::Integer)
+        }
+        _ => None,
+    }
+}
+pub fn frontmatter_entries(content: &str) -> Vec<FrontmatterEntry> {
+    let Some(block) = frontmatter_content_byte_range(content) else {
+        return Vec::new();
+    };
+    let mut entries = Vec::new();
+    let mut table = None;
+    let mut line_start = block.start;
+
+    while line_start < block.end {
+        let line_end = content[line_start..block.end]
+            .find('\n')
+            .map(|offset| line_start + offset)
+            .unwrap_or(block.end);
+        let line = &content[line_start..line_end];
+        let trimmed = line.trim();
+
+        if let Some(table_name) = frontmatter_table_name(trimmed) {
+            table = Some(table_name);
+        } else if !trimmed.is_empty()
+            && !trimmed.starts_with('#')
+            && let Some(entry) =
+                frontmatter_entry_for_line(content, line_start, line, table.clone())
+        {
+            entries.push(entry);
+        }
+
+        line_start = line_end.saturating_add(1);
+    }
+
+    entries
+}
+pub fn frontmatter_entry_for_line(
+    content: &str,
+    line_start: usize,
+    line: &str,
+    table: Option<String>,
+) -> Option<FrontmatterEntry> {
+    let key_start_in_line = line.find(|c: char| !c.is_whitespace())?;
+    let key_tail = &line[key_start_in_line..];
+    let key_len = key_tail
+        .find(|c: char| !is_frontmatter_key_char(c))
+        .unwrap_or(key_tail.len());
+    if key_len == 0 {
+        return None;
+    }
+
+    let after_key = key_start_in_line + key_len;
+    let equals_offset = line[after_key..].find('=')? + after_key;
+    if !line[after_key..equals_offset]
+        .chars()
+        .all(char::is_whitespace)
+    {
+        return None;
+    }
+
+    let key_start = line_start + key_start_in_line;
+    let key_end = key_start + key_len;
+    let value_start_in_line =
+        equals_offset + 1 + leading_whitespace_len(&line[equals_offset + 1..]);
+    let value_end_in_line = line_comment_start(&line[value_start_in_line..])
+        .map(|offset| value_start_in_line + offset)
+        .unwrap_or(line.len());
+    let value_end_in_line = value_end_in_line - trailing_whitespace_len(&line[..value_end_in_line]);
+    let value_start = line_start + value_start_in_line;
+    let value_end = line_start + value_end_in_line.max(value_start_in_line);
+
+    Some(FrontmatterEntry {
+        key: content[key_start..key_end].to_string(),
+        key_start,
+        key_end,
+        value: content[value_start..value_end].to_string(),
+        value_start,
+        value_end,
+        table,
+    })
+}
+pub fn frontmatter_document_targets(
+    project: &AuthoringProject,
+    content: &str,
+) -> Result<Vec<FrontmatterDocumentTarget>> {
+    let targets = frontmatter_entries(content)
+        .into_iter()
+        .filter_map(|entry| {
+            let kind = frontmatter_document_kind_for_entry(&entry)?;
+            let (path, source_range) = frontmatter_string_value(content, &entry)?;
+            let target_path = match kind {
+                FrontmatterDocumentKind::Template => project.template_paths.get(&path)?,
+                FrontmatterDocumentKind::StaticAsset => {
+                    frontmatter_static_target_path(project, &path)?
+                }
+                FrontmatterDocumentKind::DataFile => frontmatter_data_target_path(project, &path)?,
+            };
+            Some(FrontmatterDocumentTarget {
+                kind,
+                path,
+                target_path: target_path.clone(),
+                source_range,
+            })
+        })
+        .collect();
+
+    Ok(targets)
+}
+pub fn frontmatter_document_kind_for_entry(
+    entry: &FrontmatterEntry,
+) -> Option<FrontmatterDocumentKind> {
+    if entry.table.is_some() {
+        return None;
+    }
+
+    match entry.key.as_str() {
+        "template" => Some(FrontmatterDocumentKind::Template),
+        "asset" => Some(FrontmatterDocumentKind::StaticAsset),
+        "data" => Some(FrontmatterDocumentKind::DataFile),
+        _ => None,
+    }
+}
+pub fn frontmatter_string_value(
+    content: &str,
+    entry: &FrontmatterEntry,
+) -> Option<(String, Range)> {
+    let value = entry.value.trim();
+    let leading = entry.value.find(value)?;
+    let start = entry.value_start + leading;
+    let quote = value.as_bytes().first().copied()?;
+    if quote != b'"' && quote != b'\'' {
+        return None;
+    }
+    if value.as_bytes().last().copied()? != quote || value.len() < 2 {
+        return None;
+    }
+
+    let inner_start = start + 1;
+    let inner_end = start + value.len() - 1;
+    Some((
+        content[inner_start..inner_end].to_string(),
+        byte_range_to_lsp_range(content, inner_start, inner_end),
+    ))
+}
+pub fn frontmatter_value_matches_kind(value: &str, kind: FrontmatterFieldKind) -> bool {
+    let value = value.trim();
+    match kind {
+        FrontmatterFieldKind::String => value.starts_with('"') || value.starts_with('\''),
+        FrontmatterFieldKind::Integer => frontmatter_value_is_integer(value),
+        FrontmatterFieldKind::Table => true,
+    }
+}
+pub fn frontmatter_value_is_integer(value: &str) -> bool {
+    let value = value.strip_prefix(['+', '-']).unwrap_or(value);
+    let mut previous_underscore = false;
+    let mut saw_digit = false;
+
+    for ch in value.chars() {
+        match ch {
+            '_' if saw_digit && !previous_underscore => previous_underscore = true,
+            '0'..='9' => {
+                saw_digit = true;
+                previous_underscore = false;
+            }
+            _ => return false,
+        }
+    }
+
+    saw_digit && !previous_underscore
+}
+pub fn frontmatter_content_byte_range(content: &str) -> Option<FrontmatterContentByteRange> {
+    content.strip_prefix("+++\n")?;
+    let closing_start = content[4..].find("\n+++")? + 4;
+    Some(FrontmatterContentByteRange {
+        start: 4,
+        end: closing_start,
+    })
+}
+pub fn frontmatter_table_name(trimmed_line: &str) -> Option<String> {
+    let inner = trimmed_line.strip_prefix('[')?.strip_suffix(']')?.trim();
+    (!inner.is_empty()).then(|| inner.to_string())
+}
+pub fn frontmatter_table_at_offset(content: &str, offset: usize) -> Option<String> {
+    let block = frontmatter_content_byte_range(content)?;
+    let mut table = None;
+    let mut line_start = block.start;
+    let limit = offset.min(block.end);
+
+    while line_start < limit {
+        let line_end = content[line_start..limit]
+            .find('\n')
+            .map(|line_end| line_start + line_end)
+            .unwrap_or(limit);
+        if let Some(table_name) = frontmatter_table_name(content[line_start..line_end].trim()) {
+            table = Some(table_name);
+        }
+        line_start = line_end.saturating_add(1);
+    }
+
+    table
+}
+pub fn frontmatter_has_extra_table(content: &str) -> bool {
+    let Some(block) = frontmatter_content_byte_range(content) else {
+        return false;
+    };
+    content[block.start..block.end]
+        .lines()
+        .filter_map(|line| frontmatter_table_name(line.trim()))
+        .any(|table| table == "extra")
+}
+
+pub fn frontmatter_static_target_path<'a>(
+    project: &'a AuthoringProject,
+    path: &str,
+) -> Option<&'a Utf8PathBuf> {
+    let trimmed = path.trim_start_matches('/');
+    project
+        .static_paths
+        .get(trimmed)
+        .or_else(|| project.static_paths.get(path))
+}
+pub fn frontmatter_data_target_path<'a>(
+    project: &'a AuthoringProject,
+    path: &str,
+) -> Option<&'a Utf8PathBuf> {
+    let trimmed = path.trim_start_matches('/');
+    project
+        .data_paths
+        .get(trimmed)
+        .or_else(|| project.data_paths.get(path))
+}
+
+pub fn is_frontmatter_key_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '_' || ch == '-'
+}
+pub fn leading_whitespace_len(input: &str) -> usize {
+    input
+        .char_indices()
+        .find(|(_, ch)| !ch.is_whitespace())
+        .map(|(idx, _)| idx)
+        .unwrap_or(input.len())
+}
+pub fn trailing_whitespace_len(input: &str) -> usize {
+    input.len() - input.trim_end_matches(char::is_whitespace).len()
+}
+pub fn line_comment_start(input: &str) -> Option<usize> {
+    let mut in_string = false;
+    let mut quote = '\0';
+    let mut escaped = false;
+
+    for (idx, ch) in input.char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' && quote == '"' {
+                escaped = true;
+            } else if ch == quote {
+                in_string = false;
+            }
+        } else if ch == '"' || ch == '\'' {
+            in_string = true;
+            quote = ch;
+        } else if ch == '#' {
+            return Some(idx);
+        }
+    }
+
+    None
+}
+
+impl FrontmatterFieldKind {
+    pub fn description(self) -> &'static str {
+        match self {
+            FrontmatterFieldKind::String => "a string",
+            FrontmatterFieldKind::Integer => "an integer",
+            FrontmatterFieldKind::Table => "a table",
+        }
+    }
 }
