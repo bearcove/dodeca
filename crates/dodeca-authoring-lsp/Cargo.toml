@@ -23,6 +23,7 @@ path = "src/lib.rs"
 
 [dependencies]
 camino.workspace = true
+cell-html-proto = { path = "../../cells/cell-html-proto" }
 dodeca = { path = "../dodeca" }
 eyre.workspace = true
 facet.workspace = true

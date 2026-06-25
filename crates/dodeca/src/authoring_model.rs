@@ -280,6 +280,28 @@ impl AuthoringSnapshot {
         .await
     }
 
+    /// The memoized spec-coverage report for this snapshot (rules defined in the
+    /// overlaid markdown vs. references collected from the `impls` code globs).
+    pub async fn coverage_report(&self) -> Result<crate::coverage::CoverageReport> {
+        self.scoped(async move {
+            crate::queries::coverage_report(&self.snapshot)
+                .await
+                .map_err(|e| eyre::eyre!("coverage_report query: {e:?}"))
+        })
+        .await
+    }
+
+    /// The memoized rule → implementation-site map for this snapshot
+    /// (canonical rule id → code units annotated with `r[impl …]`).
+    pub async fn rule_impls(&self) -> Result<HashMap<String, Vec<cell_html_proto::ImplSite>>> {
+        self.scoped(async move {
+            crate::queries::rule_impls(&self.snapshot)
+                .await
+                .map_err(|e| eyre::eyre!("rule_impls query: {e:?}"))
+        })
+        .await
+    }
+
     /// The memoized per-source frontmatter document targets for this snapshot.
     pub async fn frontmatter_targets(
         &self,

@@ -2874,6 +2874,7 @@ name = "dodeca-authoring-lsp"
 version = "0.6.1"
 dependencies = [
  "camino",
+ "cell-html-proto",
  "dodeca",
  "eyre",
  "facet",

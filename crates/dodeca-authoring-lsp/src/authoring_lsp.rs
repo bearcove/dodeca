@@ -91,6 +91,116 @@ pub async fn run_with_provider(
     Ok(())
 }
 
+// ─── Spec-coverage analysis (markdown rule definition markers) ───────────────
+
+/// A requirement *definition* marker (`r[rule.id …]`) found in a markdown
+/// document, with the byte span of the `r[…]` marker itself.
+#[derive(Debug, Clone)]
+pub struct RuleMarker {
+    pub rule_id: dodeca::coverage::RuleId,
+    pub byte_start: usize,
+    pub byte_end: usize,
+}
+
+/// A leading `<prefix>[<content>]` marker (`prefix` is `[a-z0-9]+`) — a mirror
+/// of marq's `parse_req_leading_marker`. Returns the inner content and the total
+/// byte length of the marker.
+fn leading_req_marker(text: &str) -> Option<(&str, usize)> {
+    let bytes = text.as_bytes();
+    let mut prefix_len = 0;
+    while prefix_len < bytes.len()
+        && (bytes[prefix_len].is_ascii_lowercase() || bytes[prefix_len].is_ascii_digit())
+    {
+        prefix_len += 1;
+    }
+    if prefix_len == 0 || bytes.get(prefix_len) != Some(&b'[') {
+        return None;
+    }
+    let marker_end = text.find(']')?;
+    if marker_end <= prefix_len + 1 {
+        return None;
+    }
+    Some((&text[prefix_len + 1..marker_end], marker_end + 1))
+}
+
+/// Scan a markdown document for requirement definition markers at the start of a
+/// paragraph/blockquote line (after `>`/whitespace), same shape marq recognises.
+pub fn markdown_rule_markers(content: &str) -> Vec<RuleMarker> {
+    let mut markers = Vec::new();
+    let mut line_start = 0usize;
+    for line in content.split_inclusive('\n') {
+        let bytes = line.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() && matches!(bytes[i], b' ' | b'\t' | b'>') {
+            i += 1;
+        }
+        if let Some((inner, marker_len)) = leading_req_marker(&line[i..]) {
+            let id_token = inner.split_whitespace().next().unwrap_or("");
+            if let Some(rule_id) = dodeca::coverage::parse_rule_id(id_token) {
+                markers.push(RuleMarker {
+                    rule_id,
+                    byte_start: line_start + i,
+                    byte_end: line_start + i + marker_len,
+                });
+            }
+        }
+        line_start += line.len();
+    }
+    markers
+}
+
+/// The rule marker the cursor is on, if any.
+pub fn rule_marker_at_position(content: &str, position: Position) -> Option<RuleMarker> {
+    let offset = position_to_byte_offset(content, position)?;
+    markdown_rule_markers(content)
+        .into_iter()
+        .find(|m| m.byte_start <= offset && offset <= m.byte_end)
+}
+
+/// Hover markdown for a rule: coverage status + its `r[impl …]` sites.
+pub fn rule_coverage_hover_markdown(
+    rule_id: &dodeca::coverage::RuleId,
+    report: &dodeca::coverage::CoverageReport,
+    impls: &[cell_html_proto::ImplSite],
+) -> String {
+    let status = if report.covered_rules.contains(rule_id) {
+        "✅ covered"
+    } else {
+        "⚠️ uncovered — no `r[impl …]`"
+    };
+    let mut md = format!("**Rule `{}`** — {status}", rule_id.canonical());
+    if !impls.is_empty() {
+        md.push_str(&format!("\n\nImplemented by ({}):", impls.len()));
+        for site in impls {
+            let unit = site.unit.as_deref().unwrap_or("·");
+            md.push_str(&format!(
+                "\n- `{}` ({}) — `{}:{}`",
+                unit, site.kind, site.file, site.line
+            ));
+        }
+    }
+    md
+}
+
+/// LSP `Location`s for a rule's implementation sites (for go-to / references).
+pub fn rule_impl_locations(impls: &[cell_html_proto::ImplSite]) -> Vec<Location> {
+    impls
+        .iter()
+        .filter_map(|site| {
+            let uri = Url::from_file_path(&site.file).ok()?;
+            let line = site.line.saturating_sub(1);
+            let pos = Position { line, character: 0 };
+            Some(Location {
+                uri,
+                range: Range {
+                    start: pos,
+                    end: pos,
+                },
+            })
+        })
+        .collect()
+}
+
 /// Serve the authoring LSP over an arbitrary byte transport (LSP `Content-Length`
 /// framing). `run` uses stdio; the in-process browser editor bridges this onto a
 /// vox channel via an in-memory duplex, so no subprocess is spawned. When
@@ -1050,6 +1160,21 @@ impl Backend {
             )));
         }
 
+        if let Some(marker) = rule_marker_at_position(&content, position) {
+            let snapshot = self.current_snapshot(&dirs).await?;
+            let report = snapshot.coverage_report().await?;
+            let impls = snapshot.rule_impls().await?;
+            let sites = impls
+                .get(&marker.rule_id.canonical())
+                .map(Vec::as_slice)
+                .unwrap_or_default();
+            let range = byte_range_to_lsp_range(&content, marker.byte_start, marker.byte_end);
+            return Ok(Some(markdown_hover(
+                rule_coverage_hover_markdown(&marker.rule_id, &report, sites),
+                range,
+            )));
+        }
+
         let Some(reference) = reference_at_position(&content, position) else {
             return Ok(None);
         };
@@ -1317,6 +1442,16 @@ impl Backend {
 
         if let Some(heading_id) = heading_id_at_position(page, &content, position) {
             return references_to_heading(&dirs.content_dir, project, page, &heading_id);
+        }
+
+        // On a rule definition marker, "references" are its `r[impl …]` sites.
+        if let Some(marker) = rule_marker_at_position(&content, position) {
+            let snapshot = self.current_snapshot(&dirs).await?;
+            let impls = snapshot.rule_impls().await?;
+            return Ok(impls
+                .get(&marker.rule_id.canonical())
+                .map(|sites| rule_impl_locations(sites))
+                .unwrap_or_default());
         }
 
         Ok(Vec::new())
@@ -6659,5 +6794,52 @@ pub fn diagnostic_kind_name(kind: AuthoringDiagnosticKind) -> &'static str {
         AuthoringDiagnosticKind::DuplicateRoute => "duplicateRoute",
         AuthoringDiagnosticKind::OrphanPage => "orphanPage",
         AuthoringDiagnosticKind::NoInboundLinks => "noInboundLinks",
+    }
+}
+
+#[cfg(test)]
+mod rule_marker_tests {
+    use super::markdown_rule_markers;
+
+    fn ids(content: &str) -> Vec<String> {
+        markdown_rule_markers(content)
+            .into_iter()
+            .map(|m| m.rule_id.canonical())
+            .collect()
+    }
+
+    #[test]
+    fn detects_paragraph_leading_marker() {
+        let md = "intro\n\nr[channel.id.allocation] the channel id is allocated\n";
+        let markers = markdown_rule_markers(md);
+        assert_eq!(markers.len(), 1);
+        let m = &markers[0];
+        assert_eq!(m.rule_id.canonical(), "channel.id.allocation");
+        // span covers exactly `r[channel.id.allocation]`
+        assert_eq!(&md[m.byte_start..m.byte_end], "r[channel.id.allocation]");
+    }
+
+    #[test]
+    fn detects_blockquote_marker() {
+        assert_eq!(
+            ids("> r[auth.login] must authenticate\n"),
+            vec!["auth.login"]
+        );
+    }
+
+    #[test]
+    fn ignores_mid_line_and_non_markers() {
+        // not paragraph-leading
+        assert!(ids("see r[foo.bar] here\n").is_empty());
+        // a bare link, no `[a-z0-9]+` prefix before `[`
+        assert!(ids("[foo](bar)\n").is_empty());
+        // empty marker
+        assert!(ids("r[] nope\n").is_empty());
+    }
+
+    #[test]
+    fn marker_id_is_first_token() {
+        // metadata after the id is ignored for the rule id
+        assert_eq!(ids("r[a.b status=draft] content\n"), vec!["a.b"]);
     }
 }
