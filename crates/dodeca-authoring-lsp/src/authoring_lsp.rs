@@ -40,10 +40,45 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 // now lives in `dodeca::authoring_graph`; re-export so the rest of this module
 // (and `ddc`) keep referencing the items unqualified.
 pub use dodeca::authoring_graph::*;
+pub use dodeca::authoring_model::{AuthoringDiagnostic, AuthoringDiagnosticKind};
 use dodeca::authoring_model::{
     AuthoringDocumentOverlay, AuthoringInputPath, AuthoringPage, AuthoringPageKind,
-    AuthoringProject, AuthoringWorkspace, RenderedHref, RenderedHrefOrigin,
+    AuthoringProject, AuthoringWorkspace, RenderedHref, RenderedHrefOrigin, TextPosition,
+    TextRange,
 };
+
+/// Convert dodeca's Facet-able [`TextPosition`] to a tower_lsp `Position` at the
+/// protocol boundary.
+fn to_lsp_position(position: TextPosition) -> Position {
+    Position {
+        line: position.line,
+        character: position.character,
+    }
+}
+
+/// Convert dodeca's Facet-able [`TextRange`] to a tower_lsp `Range`.
+fn to_lsp_range(range: TextRange) -> Range {
+    Range {
+        start: to_lsp_position(range.start),
+        end: to_lsp_position(range.end),
+    }
+}
+
+/// Convert a tower_lsp `Position` to dodeca's Facet-able [`TextPosition`].
+fn to_text_position(position: Position) -> TextPosition {
+    TextPosition {
+        line: position.line,
+        character: position.character,
+    }
+}
+
+/// Convert a tower_lsp `Range` to dodeca's Facet-able [`TextRange`].
+fn to_text_range(range: Range) -> TextRange {
+    TextRange {
+        start: to_text_position(range.start),
+        end: to_text_position(range.end),
+    }
+}
 use dodeca::config::{ResolvedConfig, ResolvedSource};
 use dodeca::queries::{Frontmatter, default_title_from_source_path};
 
@@ -1850,22 +1885,6 @@ pub fn lsp_file_uri_to_utf8_path(uri: &Url) -> Result<Utf8PathBuf> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AuthoringDiagnostic {
-    pub source_file: String,
-    pub route: String,
-    pub kind: AuthoringDiagnosticKind,
-    pub target: String,
-    pub resolved_route: Option<String>,
-    pub message: String,
-    pub line: u32,
-    pub column: u32,
-    pub line_end: u32,
-    pub column_end: u32,
-    pub byte_start: usize,
-    pub byte_end: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TemplateRouteReference {
     pub target: String,
     pub target_route: String,
@@ -1937,26 +1956,15 @@ pub struct TemplateMacroReferenceTarget {
     pub range: Range,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AuthoringDiagnosticKind {
-    Route,
-    Anchor,
-    Source,
-    StaticAsset,
-    Frontmatter,
-    MissingTemplate,
-    MissingBlock,
-    UnknownMacro,
-    UnknownFilter,
-    UnknownTest,
-    DuplicateTitle,
-    DuplicateRoute,
-    OrphanPage,
-    NoInboundLinks,
+/// tower_lsp `Range` for an [`AuthoringDiagnostic`] (the type now lives in
+/// `dodeca::authoring_model`; this extension keeps `diagnostic.range()` working
+/// at call sites). Auto-in-scope for this module.
+pub trait AuthoringDiagnosticExt {
+    fn range(&self) -> Range;
 }
 
-impl AuthoringDiagnostic {
-    pub fn range(&self) -> Range {
+impl AuthoringDiagnosticExt for AuthoringDiagnostic {
+    fn range(&self) -> Range {
         Range {
             start: Position {
                 line: self.line.saturating_sub(1),
