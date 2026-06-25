@@ -13,11 +13,14 @@ use std::collections::{HashMap, HashSet};
 use camino::Utf8PathBuf;
 use eyre::{Result, eyre};
 use gingembre::ast::{Expr, Ident, Node, StringLit};
-use lsp_types::{Position, Range};
+use gingembre::{BuiltinItemInfo, builtin_filter, builtin_test};
+use lsp_types::{Location, Position, Range};
 use url::Url;
 
 use crate::authoring_graph::{byte_to_line_column, rendered_href_target_route};
-use crate::authoring_model::{AuthoringInputPath, AuthoringProject};
+use crate::authoring_model::{
+    AuthoringDiagnostic, AuthoringDiagnosticKind, AuthoringInputPath, AuthoringProject,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
 pub struct TemplateRouteReference {
@@ -927,4 +930,745 @@ pub fn collect_literal_macro_call_occurrences(
         | gingembre::ast::Literal::Bool(_)
         | gingembre::ast::Literal::None(_) => {}
     }
+}
+
+pub fn diagnostics_for_template_nodes(
+    project: &AuthoringProject,
+    template_file: &str,
+    content: &str,
+    nodes: &[Node],
+) -> Vec<AuthoringDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let imports = template_import_aliases(project, nodes);
+    let parent_file = template_extends_path_from_nodes(nodes)
+        .filter(|path| project.template_paths.contains_key(path));
+    collect_template_diagnostics(
+        project,
+        template_file,
+        content,
+        nodes,
+        parent_file.as_deref(),
+        &imports,
+        &mut diagnostics,
+    );
+    diagnostics
+}
+pub fn collect_template_diagnostics(
+    project: &AuthoringProject,
+    template_file: &str,
+    content: &str,
+    nodes: &[Node],
+    parent_file: Option<&str>,
+    imports: &HashMap<String, String>,
+    diagnostics: &mut Vec<AuthoringDiagnostic>,
+) {
+    for node in nodes {
+        match node {
+            Node::Extends(node) => push_missing_template_diagnostic(
+                project,
+                template_file,
+                content,
+                TemplateDocumentKind::Extends,
+                &node.path,
+                diagnostics,
+            ),
+            Node::Include(node) => push_missing_template_diagnostic(
+                project,
+                template_file,
+                content,
+                TemplateDocumentKind::Include,
+                &node.path,
+                diagnostics,
+            ),
+            Node::Import(node) => push_missing_template_diagnostic(
+                project,
+                template_file,
+                content,
+                TemplateDocumentKind::Import,
+                &node.path,
+                diagnostics,
+            ),
+            Node::Block(node) => {
+                if let Some(parent_file) = parent_file
+                    && template_block_definition(
+                        project,
+                        parent_file,
+                        template_file,
+                        content,
+                        &node.name.name,
+                    )
+                    .is_none()
+                {
+                    diagnostics.push(template_diagnostic_for_ident(
+                        template_file,
+                        content,
+                        AuthoringDiagnosticKind::MissingBlock,
+                        &node.name,
+                        format!("parent block '{}' not found", node.name.name),
+                    ));
+                }
+                collect_template_diagnostics(
+                    project,
+                    template_file,
+                    content,
+                    &node.body,
+                    parent_file,
+                    imports,
+                    diagnostics,
+                );
+            }
+            Node::Macro(node) => {
+                for param in &node.params {
+                    if let Some(default) = &param.default {
+                        collect_template_expr_diagnostics(
+                            project,
+                            template_file,
+                            content,
+                            default,
+                            imports,
+                            diagnostics,
+                        );
+                    }
+                }
+                collect_template_diagnostics(
+                    project,
+                    template_file,
+                    content,
+                    &node.body,
+                    parent_file,
+                    imports,
+                    diagnostics,
+                );
+            }
+            Node::Print(node) => collect_template_expr_diagnostics(
+                project,
+                template_file,
+                content,
+                &node.expr,
+                imports,
+                diagnostics,
+            ),
+            Node::If(node) => {
+                collect_template_expr_diagnostics(
+                    project,
+                    template_file,
+                    content,
+                    &node.condition,
+                    imports,
+                    diagnostics,
+                );
+                collect_template_diagnostics(
+                    project,
+                    template_file,
+                    content,
+                    &node.then_body,
+                    parent_file,
+                    imports,
+                    diagnostics,
+                );
+                for branch in &node.elif_branches {
+                    collect_template_expr_diagnostics(
+                        project,
+                        template_file,
+                        content,
+                        &branch.condition,
+                        imports,
+                        diagnostics,
+                    );
+                    collect_template_diagnostics(
+                        project,
+                        template_file,
+                        content,
+                        &branch.body,
+                        parent_file,
+                        imports,
+                        diagnostics,
+                    );
+                }
+                if let Some(body) = &node.else_body {
+                    collect_template_diagnostics(
+                        project,
+                        template_file,
+                        content,
+                        body,
+                        parent_file,
+                        imports,
+                        diagnostics,
+                    );
+                }
+            }
+            Node::For(node) => {
+                collect_template_expr_diagnostics(
+                    project,
+                    template_file,
+                    content,
+                    &node.iter,
+                    imports,
+                    diagnostics,
+                );
+                collect_template_diagnostics(
+                    project,
+                    template_file,
+                    content,
+                    &node.body,
+                    parent_file,
+                    imports,
+                    diagnostics,
+                );
+                if let Some(body) = &node.else_body {
+                    collect_template_diagnostics(
+                        project,
+                        template_file,
+                        content,
+                        body,
+                        parent_file,
+                        imports,
+                        diagnostics,
+                    );
+                }
+            }
+            Node::Set(node) => collect_template_expr_diagnostics(
+                project,
+                template_file,
+                content,
+                &node.value,
+                imports,
+                diagnostics,
+            ),
+            Node::CallBlock(node) => {
+                for (_, expr) in &node.kwargs {
+                    collect_template_expr_diagnostics(
+                        project,
+                        template_file,
+                        content,
+                        expr,
+                        imports,
+                        diagnostics,
+                    );
+                }
+            }
+            Node::Text(_) | Node::Comment(_) | Node::Continue(_) | Node::Break(_) => {}
+        }
+    }
+}
+pub fn push_missing_template_diagnostic(
+    project: &AuthoringProject,
+    template_file: &str,
+    content: &str,
+    kind: TemplateDocumentKind,
+    path: &StringLit,
+    diagnostics: &mut Vec<AuthoringDiagnostic>,
+) {
+    if project.template_paths.contains_key(&path.value) {
+        return;
+    }
+    diagnostics.push(template_diagnostic_for_span(
+        template_file,
+        content,
+        AuthoringDiagnosticKind::MissingTemplate,
+        &path.value,
+        format!("template {} '{}' not found", kind.label(), path.value),
+        path.span.offset(),
+        path.span.offset() + path.span.len(),
+    ));
+}
+pub fn collect_template_expr_diagnostics(
+    project: &AuthoringProject,
+    template_file: &str,
+    content: &str,
+    expr: &Expr,
+    imports: &HashMap<String, String>,
+    diagnostics: &mut Vec<AuthoringDiagnostic>,
+) {
+    match expr {
+        Expr::Optional(inner) => collect_template_expr_diagnostics(
+            project,
+            template_file,
+            content,
+            &inner.expr,
+            imports,
+            diagnostics,
+        ),
+        Expr::Literal(literal) => collect_template_literal_diagnostics(
+            project,
+            template_file,
+            content,
+            literal,
+            imports,
+            diagnostics,
+        ),
+        Expr::Var(_) => {}
+        Expr::Field(expr) => {
+            collect_template_expr_diagnostics(
+                project,
+                template_file,
+                content,
+                &expr.base,
+                imports,
+                diagnostics,
+            );
+        }
+        Expr::Index(expr) => {
+            collect_template_expr_diagnostics(
+                project,
+                template_file,
+                content,
+                &expr.base,
+                imports,
+                diagnostics,
+            );
+            collect_template_expr_diagnostics(
+                project,
+                template_file,
+                content,
+                &expr.index,
+                imports,
+                diagnostics,
+            );
+        }
+        Expr::Filter(expr) => {
+            collect_template_expr_diagnostics(
+                project,
+                template_file,
+                content,
+                &expr.expr,
+                imports,
+                diagnostics,
+            );
+            for arg in &expr.args {
+                collect_template_expr_diagnostics(
+                    project,
+                    template_file,
+                    content,
+                    arg,
+                    imports,
+                    diagnostics,
+                );
+            }
+            for (_, expr) in &expr.kwargs {
+                collect_template_expr_diagnostics(
+                    project,
+                    template_file,
+                    content,
+                    expr,
+                    imports,
+                    diagnostics,
+                );
+            }
+            if builtin_filter(&expr.filter.name).is_none() {
+                diagnostics.push(template_diagnostic_for_ident(
+                    template_file,
+                    content,
+                    AuthoringDiagnosticKind::UnknownFilter,
+                    &expr.filter,
+                    format!("filter '{}' not found", expr.filter.name),
+                ));
+            }
+        }
+        Expr::Binary(expr) => {
+            collect_template_expr_diagnostics(
+                project,
+                template_file,
+                content,
+                &expr.left,
+                imports,
+                diagnostics,
+            );
+            collect_template_expr_diagnostics(
+                project,
+                template_file,
+                content,
+                &expr.right,
+                imports,
+                diagnostics,
+            );
+        }
+        Expr::Unary(expr) => collect_template_expr_diagnostics(
+            project,
+            template_file,
+            content,
+            &expr.expr,
+            imports,
+            diagnostics,
+        ),
+        Expr::Call(expr) => {
+            collect_template_expr_diagnostics(
+                project,
+                template_file,
+                content,
+                &expr.func,
+                imports,
+                diagnostics,
+            );
+            for arg in &expr.args {
+                collect_template_expr_diagnostics(
+                    project,
+                    template_file,
+                    content,
+                    arg,
+                    imports,
+                    diagnostics,
+                );
+            }
+            for (_, expr) in &expr.kwargs {
+                collect_template_expr_diagnostics(
+                    project,
+                    template_file,
+                    content,
+                    expr,
+                    imports,
+                    diagnostics,
+                );
+            }
+        }
+        Expr::Ternary(expr) => {
+            collect_template_expr_diagnostics(
+                project,
+                template_file,
+                content,
+                &expr.value,
+                imports,
+                diagnostics,
+            );
+            collect_template_expr_diagnostics(
+                project,
+                template_file,
+                content,
+                &expr.condition,
+                imports,
+                diagnostics,
+            );
+            collect_template_expr_diagnostics(
+                project,
+                template_file,
+                content,
+                &expr.otherwise,
+                imports,
+                diagnostics,
+            );
+        }
+        Expr::Test(expr) => {
+            collect_template_expr_diagnostics(
+                project,
+                template_file,
+                content,
+                &expr.expr,
+                imports,
+                diagnostics,
+            );
+            for arg in &expr.args {
+                collect_template_expr_diagnostics(
+                    project,
+                    template_file,
+                    content,
+                    arg,
+                    imports,
+                    diagnostics,
+                );
+            }
+            if builtin_test(&expr.test_name.name).is_none() {
+                diagnostics.push(template_diagnostic_for_ident(
+                    template_file,
+                    content,
+                    AuthoringDiagnosticKind::UnknownTest,
+                    &expr.test_name,
+                    format!("test '{}' not found", expr.test_name.name),
+                ));
+            }
+        }
+        Expr::MacroCall(expr) => {
+            for arg in &expr.args {
+                collect_template_expr_diagnostics(
+                    project,
+                    template_file,
+                    content,
+                    arg,
+                    imports,
+                    diagnostics,
+                );
+            }
+            for (_, expr) in &expr.kwargs {
+                collect_template_expr_diagnostics(
+                    project,
+                    template_file,
+                    content,
+                    expr,
+                    imports,
+                    diagnostics,
+                );
+            }
+            if template_macro_definition_target(
+                project,
+                template_file,
+                content,
+                imports,
+                &expr.namespace,
+                &expr.macro_name,
+            )
+            .is_none()
+            {
+                let target = format!("{}::{}", expr.namespace.name, expr.macro_name.name);
+                diagnostics.push(template_diagnostic_for_ident(
+                    template_file,
+                    content,
+                    AuthoringDiagnosticKind::UnknownMacro,
+                    &expr.macro_name,
+                    format!("macro '{target}' not found"),
+                ));
+            }
+        }
+    }
+}
+pub fn collect_template_literal_diagnostics(
+    project: &AuthoringProject,
+    template_file: &str,
+    content: &str,
+    literal: &gingembre::ast::Literal,
+    imports: &HashMap<String, String>,
+    diagnostics: &mut Vec<AuthoringDiagnostic>,
+) {
+    match literal {
+        gingembre::ast::Literal::List(list) => {
+            for expr in &list.elements {
+                collect_template_expr_diagnostics(
+                    project,
+                    template_file,
+                    content,
+                    expr,
+                    imports,
+                    diagnostics,
+                );
+            }
+        }
+        gingembre::ast::Literal::Dict(dict) => {
+            for (key, value) in &dict.entries {
+                collect_template_expr_diagnostics(
+                    project,
+                    template_file,
+                    content,
+                    key,
+                    imports,
+                    diagnostics,
+                );
+                collect_template_expr_diagnostics(
+                    project,
+                    template_file,
+                    content,
+                    value,
+                    imports,
+                    diagnostics,
+                );
+            }
+        }
+        gingembre::ast::Literal::String(_)
+        | gingembre::ast::Literal::Int(_)
+        | gingembre::ast::Literal::Float(_)
+        | gingembre::ast::Literal::Bool(_)
+        | gingembre::ast::Literal::None(_) => {}
+    }
+}
+pub fn template_diagnostic_for_ident(
+    template_file: &str,
+    content: &str,
+    kind: AuthoringDiagnosticKind,
+    ident: &Ident,
+    message: String,
+) -> AuthoringDiagnostic {
+    template_diagnostic_for_span(
+        template_file,
+        content,
+        kind,
+        &ident.name,
+        message,
+        ident.span.offset(),
+        ident.span.offset() + ident.span.len(),
+    )
+}
+pub fn template_diagnostic_for_span(
+    template_file: &str,
+    content: &str,
+    kind: AuthoringDiagnosticKind,
+    target: &str,
+    message: String,
+    byte_start: usize,
+    byte_end: usize,
+) -> AuthoringDiagnostic {
+    let (line, column) = byte_to_line_column(content, byte_start);
+    let (line_end, column_end) = byte_to_line_column(content, byte_end);
+    AuthoringDiagnostic {
+        source_file: template_file.to_string(),
+        route: String::new(),
+        kind,
+        target: target.to_string(),
+        resolved_route: None,
+        message,
+        line,
+        column,
+        line_end,
+        column_end,
+        byte_start,
+        byte_end,
+    }
+}
+pub fn template_block_definition(
+    project: &AuthoringProject,
+    template_file: &str,
+    current_file: &str,
+    current_content: &str,
+    name: &str,
+) -> Option<(String, String, Ident)> {
+    let content = template_content(project, template_file, current_file, current_content)?;
+    let template = gingembre::parse_template(template_file, content.as_str()).ok()?;
+    if let Some(ident) = top_level_block_ident(&template.body, name) {
+        return Some((template_file.to_string(), content, ident));
+    }
+
+    let mut seen = HashSet::new();
+    if let Some(parent_file) = template_extends_path(template_file, &content, &mut seen) {
+        return template_block_definition(
+            project,
+            &parent_file,
+            current_file,
+            current_content,
+            name,
+        );
+    }
+
+    None
+}
+
+pub fn template_extends_path(
+    template_file: &str,
+    content: &str,
+    seen: &mut HashSet<String>,
+) -> Option<String> {
+    if !seen.insert(template_file.to_string()) {
+        return None;
+    }
+    let template = gingembre::parse_template(template_file, content).ok()?;
+    template_extends_path_from_nodes(&template.body)
+}
+pub fn template_macro_definition_target(
+    project: &AuthoringProject,
+    template_file: &str,
+    content: &str,
+    imports: &HashMap<String, String>,
+    namespace: &Ident,
+    macro_name: &Ident,
+) -> Option<TemplateDefinitionTarget> {
+    let target_file = if namespace.name == "self" {
+        template_file
+    } else {
+        imports.get(&namespace.name)?.as_str()
+    };
+    let target_content = template_content(project, target_file, template_file, content)?;
+    let template = gingembre::parse_template(target_file, target_content.as_str()).ok()?;
+    let target_ident = top_level_macro_ident(&template.body, &macro_name.name)?;
+    Some(TemplateDefinitionTarget {
+        kind: TemplateDefinitionKind::Macro,
+        name: format!("{}::{}", namespace.name, macro_name.name),
+        source_range: template_ident_range(content, macro_name),
+        target_path: project.template_paths.get(target_file).cloned()?,
+        target_range: template_ident_range(&target_content, &target_ident),
+    })
+}
+pub fn template_content(
+    project: &AuthoringProject,
+    template_file: &str,
+    current_file: &str,
+    current_content: &str,
+) -> Option<String> {
+    if template_file == current_file {
+        Some(current_content.to_string())
+    } else {
+        project.template_contents.get(template_file).cloned()
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct TemplateItemInfo {
+    pub detail: &'static str,
+    pub documentation: &'static str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TemplateDefinitionKind {
+    Block,
+    Macro,
+    Filter,
+    Test,
+}
+
+impl TemplateDefinitionKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            TemplateDefinitionKind::Block => "block",
+            TemplateDefinitionKind::Macro => "macro",
+            TemplateDefinitionKind::Filter => "filter",
+            TemplateDefinitionKind::Test => "test",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TemplateDefinitionTarget {
+    pub kind: TemplateDefinitionKind,
+    pub name: String,
+    pub source_range: Range,
+    pub target_path: Utf8PathBuf,
+    pub target_range: Range,
+}
+impl TemplateDefinitionTarget {
+    pub fn location(&self) -> Result<Location> {
+        Ok(Location {
+            uri: Url::from_file_path(self.target_path.as_std_path()).map_err(|_| {
+                eyre!(
+                    "could not convert template definition path to URI: {}",
+                    self.target_path
+                )
+            })?,
+            range: self.target_range,
+        })
+    }
+
+    pub fn hover_markdown(&self) -> String {
+        let info = match self.kind {
+            TemplateDefinitionKind::Filter => builtin_filter(&self.name).map(template_builtin_info),
+            TemplateDefinitionKind::Test => builtin_test(&self.name).map(template_builtin_info),
+            TemplateDefinitionKind::Block | TemplateDefinitionKind::Macro => None,
+        };
+        if let Some(info) = info {
+            return format!(
+                "**{}**\n\n`{}`\n\n{}\n\nDefinition: `{}`",
+                info.detail, self.name, info.documentation, self.target_path
+            );
+        }
+        format!(
+            "**Dodeca template {}**\n\n`{}`\n\nDefinition: `{}`",
+            self.kind.label(),
+            self.name,
+            self.target_path
+        )
+    }
+}
+
+pub fn template_builtin_info(info: &BuiltinItemInfo) -> TemplateItemInfo {
+    TemplateItemInfo {
+        detail: info.detail,
+        documentation: info.documentation,
+    }
+}
+
+pub fn top_level_block_ident(nodes: &[Node], name: &str) -> Option<Ident> {
+    nodes.iter().find_map(|node| match node {
+        Node::Block(node) if node.name.name == name => Some(node.name.clone()),
+        _ => None,
+    })
+}
+
+pub fn top_level_macro_ident(nodes: &[Node], name: &str) -> Option<Ident> {
+    nodes.iter().find_map(|node| match node {
+        Node::Macro(node) if node.name.name == name => Some(node.name.clone()),
+        _ => None,
+    })
 }
