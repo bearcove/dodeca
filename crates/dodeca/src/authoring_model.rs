@@ -533,6 +533,135 @@ pub trait AuthoringProjectProvider: Send + Sync {
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<AuthoringProject>> + Send + 'a>>;
 }
 
+/// Map an absolute on-disk path to its mount-prefixed source key (inverse of
+/// `build_context::source_for_key`'s path-building), using the source list.
+fn source_key_for_path(sources: &[crate::config::ResolvedSource], abs: &str) -> Option<String> {
+    let abs = Utf8Path::new(abs);
+    for source in sources {
+        if let Ok(rel) = abs.strip_prefix(&source.content_dir) {
+            return Some(crate::build_context::mounted_key(
+                &source.mount,
+                rel.as_str(),
+            ));
+        }
+    }
+    None
+}
+
+/// Build an [`AuthoringProject`] from a live db, overlaying the editor's open
+/// documents (`(abs_path, buffer)`) onto an isolated [`DatabaseSnapshot`] — this
+/// is dodeca's VFS. The snapshot is private to this call, so queries see the
+/// unsaved buffers without touching the real db; picante reuses the host's
+/// memoized renders, so only the edited file's dependents recompute.
+///
+/// Shared by the in-process (browser-editor) LSP and the standalone `ddc lsp`.
+pub async fn authoring_project_from_db(
+    db: &std::sync::Arc<crate::db::Database>,
+    sources_list: &[crate::config::ResolvedSource],
+    overlays: Vec<(String, String)>,
+) -> Result<AuthoringProject> {
+    use crate::db::{
+        DataRegistry, DatabaseSnapshot, SourceFile, SourceRegistry, StaticRegistry,
+        TemplateRegistry,
+    };
+
+    let content_dir = sources_list
+        .first()
+        .map(|s| s.content_dir.clone())
+        .ok_or_else(|| eyre::eyre!("no workspace content dir"))?;
+
+    let snapshot = DatabaseSnapshot::from_database(db).await;
+
+    // Overlay open documents onto the snapshot's isolated copy.
+    let mut sources = SourceRegistry::sources(&snapshot)
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    for (path, content) in &overlays {
+        let Some(key) = source_key_for_path(sources_list, path) else {
+            continue;
+        };
+        let file = SourceFile::new(
+            &snapshot,
+            crate::types::SourcePath::new(key.clone()),
+            crate::types::SourceContent::new(content.clone()),
+            0,
+        )
+        .map_err(|e| eyre::eyre!("overlay source: {e:?}"))?;
+        match sources.iter().position(|s| {
+            s.path(&snapshot)
+                .ok()
+                .map(|p| p.as_str() == key)
+                .unwrap_or(false)
+        }) {
+            Some(i) => sources[i] = file,
+            None => sources.push(file),
+        }
+    }
+    SourceRegistry::set(&snapshot, sources).map_err(|e| eyre::eyre!("set overlays: {e:?}"))?;
+
+    let db = db.clone();
+    crate::db::TASK_DB
+        .scope(db, async move {
+            let sources = SourceRegistry::sources(&snapshot)
+                .ok()
+                .flatten()
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|f| Some(((*f.path(&snapshot).ok()?).clone(), f)))
+                .collect();
+            let templates = TemplateRegistry::templates(&snapshot)
+                .ok()
+                .flatten()
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|f| Some(((*f.path(&snapshot).ok()?).clone(), f)))
+                .collect();
+            let static_files = StaticRegistry::files(&snapshot)
+                .ok()
+                .flatten()
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|f| Some(((*f.path(&snapshot).ok()?).clone(), f)))
+                .collect();
+            let data_files = DataRegistry::files(&snapshot)
+                .ok()
+                .flatten()
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|f| Some(((*f.path(&snapshot).ok()?).clone(), f)))
+                .collect();
+            build_authoring_project_on_db(ProjectBuildInputs {
+                db: &snapshot,
+                content_dir: &content_dir,
+                sources: &sources,
+                templates: &templates,
+                static_files: &static_files,
+                data_files: &data_files,
+            })
+            .await
+        })
+        .await
+}
+
+/// An [`AuthoringProjectProvider`] over a standalone db (not a `SiteServer`) —
+/// for the `ddc lsp` editor integration. Owns the loaded db + its sources; VFS
+/// comes from [`authoring_project_from_db`].
+pub struct DbAuthoringProvider {
+    pub db: std::sync::Arc<crate::db::Database>,
+    pub sources: Vec<crate::config::ResolvedSource>,
+}
+
+impl AuthoringProjectProvider for DbAuthoringProvider {
+    fn project<'a>(
+        &'a self,
+        overlays: Vec<(String, String)>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<AuthoringProject>> + Send + 'a>>
+    {
+        Box::pin(async move { authoring_project_from_db(&self.db, &self.sources, overlays).await })
+    }
+}
+
 /// Borrowed inputs for building an `AuthoringProject` over any `DB: Db` — the
 /// owned `Database` (disk workspace) or a `DatabaseSnapshot` (host db, for the
 /// in-process LSP sharing the server's already-built + memoized state).

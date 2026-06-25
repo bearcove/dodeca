@@ -651,7 +651,12 @@ async fn async_main(command: Command) -> Result<()> {
         }
         Command::Lsp(args) => {
             logging::init_standard_tracing();
-            dodeca_authoring_lsp::run(args.content, args.output).await
+            // Back the standalone LSP with a loaded picante db + VFS overlays
+            // (the same machinery the in-process browser-editor LSP uses), not
+            // the disk "world" model.
+            let (db, sources) = load_lsp_db(args.content.clone(), args.output.clone())?;
+            let provider = Arc::new(dodeca::authoring_model::DbAuthoringProvider { db, sources });
+            dodeca_authoring_lsp::run_with_provider(args.content, args.output, provider).await
         }
         Command::Diagnostics(args) => {
             logging::init_standard_tracing();
@@ -1031,6 +1036,37 @@ async fn save_picante_cache(db: &Database, cache_path: &Utf8Path) {
             tracing::warn!("Failed to save picante cache: {:?}", e);
         }
     }
+}
+
+/// Build a loaded picante db for the LSP: resolve dirs, then load every input
+/// registry (sources, templates, sass, static, data, code) — the same inputs
+/// `build()` loads, without rendering. Returns the db and its sources, which
+/// back a `DbAuthoringProvider` for the standalone LSP.
+fn load_lsp_db(
+    content: Option<String>,
+    output: Option<String>,
+) -> Result<(Arc<Database>, Vec<dodeca::config::ResolvedSource>)> {
+    let cfg = resolve_dirs(None, content, output)?;
+    let mut ctx = BuildContext::new(&cfg.content_dir, &cfg.output_dir);
+    ctx.set_source_roots(cfg.sources.clone());
+    ctx.set_project_root(&cfg.root);
+    if let Some(global) = dodeca::config::global_config() {
+        ConfigRegistry::set(&*ctx.db, global)?;
+    }
+    MarkdownRenderSettings::set(&*ctx.db, false, true)?;
+    ctx.load_sources()?;
+    ctx.load_templates()?;
+    ctx.load_sass()?;
+    ctx.load_static()?;
+    ctx.load_data()?;
+    ctx.load_code()?;
+    SourceRegistry::set(&*ctx.db, ctx.sources.values().copied().collect())?;
+    TemplateRegistry::set(&*ctx.db, ctx.templates.values().copied().collect())?;
+    SassRegistry::set(&*ctx.db, ctx.sass_files.values().copied().collect())?;
+    StaticRegistry::set(&*ctx.db, ctx.static_files.values().copied().collect())?;
+    DataRegistry::set(&*ctx.db, ctx.data_files.values().copied().collect())?;
+    CodeRegistry::set(&*ctx.db, ctx.code_files.values().copied().collect())?;
+    Ok((ctx.db_arc(), cfg.sources))
 }
 
 pub async fn build(

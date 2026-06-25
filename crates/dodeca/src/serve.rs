@@ -1733,91 +1733,10 @@ impl SiteServer {
         &self,
         overlays: Vec<(String, String)>,
     ) -> Result<crate::authoring_model::AuthoringProject> {
-        use crate::authoring_model::{ProjectBuildInputs, build_authoring_project_on_db};
-        use crate::db::{
-            DataRegistry, SourceFile, SourceRegistry, StaticRegistry, TemplateRegistry,
-        };
-
-        let content_dir = self
-            .status_sources
-            .read()
-            .unwrap()
-            .first()
-            .map(|s| s.content_dir.clone())
-            .ok_or_else(|| eyre!("no workspace content dir"))?;
-
-        let db = self.db.clone();
-        let snapshot = DatabaseSnapshot::from_database(&self.db).await;
-
-        // Override open documents in the snapshot's isolated copy.
-        let mut sources = SourceRegistry::sources(&snapshot)
-            .ok()
-            .flatten()
-            .unwrap_or_default();
-        for (path, content) in &overlays {
-            let Some(key) = self.source_key_for_path(path) else {
-                continue;
-            };
-            let file = SourceFile::new(
-                &snapshot,
-                crate::types::SourcePath::new(key.clone()),
-                crate::types::SourceContent::new(content.clone()),
-                0,
-            )
-            .map_err(|e| eyre!("overlay source: {e:?}"))?;
-            match sources.iter().position(|s| {
-                s.path(&snapshot)
-                    .ok()
-                    .map(|p| p.as_str() == key)
-                    .unwrap_or(false)
-            }) {
-                Some(i) => sources[i] = file,
-                None => sources.push(file),
-            }
-        }
-        SourceRegistry::set(&snapshot, sources).map_err(|e| eyre!("set overlays: {e:?}"))?;
-
-        crate::db::TASK_DB
-            .scope(db, async move {
-                let sources = SourceRegistry::sources(&snapshot)
-                    .ok()
-                    .flatten()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter_map(|f| Some(((*f.path(&snapshot).ok()?).clone(), f)))
-                    .collect();
-                let templates = TemplateRegistry::templates(&snapshot)
-                    .ok()
-                    .flatten()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter_map(|f| Some(((*f.path(&snapshot).ok()?).clone(), f)))
-                    .collect();
-                let static_files = StaticRegistry::files(&snapshot)
-                    .ok()
-                    .flatten()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter_map(|f| Some(((*f.path(&snapshot).ok()?).clone(), f)))
-                    .collect();
-                let data_files = DataRegistry::files(&snapshot)
-                    .ok()
-                    .flatten()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter_map(|f| Some(((*f.path(&snapshot).ok()?).clone(), f)))
-                    .collect();
-                build_authoring_project_on_db(ProjectBuildInputs {
-                    db: &snapshot,
-                    content_dir: &content_dir,
-                    sources: &sources,
-                    templates: &templates,
-                    static_files: &static_files,
-                    data_files: &data_files,
-                })
-                .await
-            })
-            .await
+        // VFS + db→project is the same lifted logic the standalone `ddc lsp`
+        // uses; here it just sources the workspace list from the live server.
+        let sources = self.status_sources.read().unwrap().clone();
+        crate::authoring_model::authoring_project_from_db(&self.db, &sources, overlays).await
     }
 
     /// Editor: live preview of `buffer` overlaid on `source_key`, isolated.

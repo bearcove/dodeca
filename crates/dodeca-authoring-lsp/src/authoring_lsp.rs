@@ -97,6 +97,26 @@ pub async fn run(content: Option<String>, output: Option<String>) -> Result<()> 
     Ok(())
 }
 
+/// Like [`run`], but backed by a db-backed [`AuthoringProjectProvider`] (the
+/// project is built from a loaded picante db with VFS overlays, not the disk
+/// "world"). This is how the standalone `ddc lsp` gets the same incremental,
+/// buffer-aware analysis as the in-process browser-editor LSP.
+pub async fn run_with_provider(
+    content: Option<String>,
+    output: Option<String>,
+    provider: Arc<dyn dodeca::authoring_model::AuthoringProjectProvider>,
+) -> Result<()> {
+    serve_on(
+        tokio::io::stdin(),
+        tokio::io::stdout(),
+        content,
+        output,
+        Some(provider),
+    )
+    .await;
+    Ok(())
+}
+
 /// Serve the authoring LSP over an arbitrary byte transport (LSP `Content-Length`
 /// framing). `run` uses stdio; the in-process browser editor bridges this onto a
 /// vox channel via an in-memory duplex, so no subprocess is spawned. When
