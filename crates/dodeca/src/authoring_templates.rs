@@ -17,13 +17,54 @@ use gingembre::ast::{Expr, Ident, Node, StringLit};
 use gingembre::semantic::{TemplateSemanticIndex, TemplateSemanticTokenKind};
 use gingembre::{BuiltinItemInfo, builtin_filter, builtin_test};
 use lsp_types::{Location, Position, Range, SemanticToken, SemanticTokens};
+use picante::PicanteResult;
 use url::Url;
 
-use crate::authoring_graph::{byte_to_line_column, rendered_href_target_route};
+use crate::authoring_graph::{authoring_project, byte_to_line_column, rendered_href_target_route};
 use crate::authoring_model::{
     AuthoringDiagnostic, AuthoringDiagnosticKind, AuthoringInputPath, AuthoringProject,
 };
+use crate::db::Db;
 use crate::queries::Frontmatter;
+
+/// The memoized template authoring index (blocks/macros/includes/route refs +
+/// per-template diagnostics) over [`authoring_project`]. Replaces the hand-built
+/// index that `AuthoringWorld` recomputed every revision.
+#[picante::tracked]
+pub async fn template_authoring_index<DB: Db>(
+    db: &DB,
+    content_dir: Utf8PathBuf,
+) -> PicanteResult<Result<TemplateAuthoringIndex, String>> {
+    match authoring_project(db, content_dir).await? {
+        Ok(project) => Ok(Ok(TemplateAuthoringIndex::new(&project))),
+        Err(e) => Ok(Err(e)),
+    }
+}
+
+/// The memoized frontmatter document targets per source file (the
+/// `source_document_targets` the LSP world used to rebuild by hand).
+#[picante::tracked]
+pub async fn source_frontmatter_targets<DB: Db>(
+    db: &DB,
+    content_dir: Utf8PathBuf,
+) -> PicanteResult<Result<std::collections::HashMap<String, Vec<FrontmatterDocumentTarget>>, String>>
+{
+    match authoring_project(db, content_dir).await? {
+        Ok(project) => {
+            let mut targets = HashMap::new();
+            for (source_file, content) in &project.source_contents {
+                match frontmatter_document_targets(&project, content) {
+                    Ok(found) => {
+                        targets.insert(source_file.clone(), found);
+                    }
+                    Err(e) => return Ok(Err(e.to_string())),
+                }
+            }
+            Ok(Ok(targets))
+        }
+        Err(e) => Ok(Err(e)),
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
 pub struct TemplateRouteReference {

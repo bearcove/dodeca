@@ -700,6 +700,41 @@ impl AuthoringSnapshot {
         })
         .await
     }
+
+    /// The memoized template authoring index for this snapshot.
+    pub async fn template_index(
+        &self,
+    ) -> Result<crate::authoring_templates::TemplateAuthoringIndex> {
+        let content_dir = self.content_dir.clone();
+        self.scoped(async move {
+            match crate::authoring_templates::template_authoring_index(&self.snapshot, content_dir)
+                .await
+            {
+                Ok(result) => result.map_err(|e| eyre::eyre!(e)),
+                Err(e) => Err(eyre::eyre!("template_authoring_index query: {e:?}")),
+            }
+        })
+        .await
+    }
+
+    /// The memoized per-source frontmatter document targets for this snapshot.
+    pub async fn frontmatter_targets(
+        &self,
+    ) -> Result<HashMap<String, Vec<crate::authoring_templates::FrontmatterDocumentTarget>>> {
+        let content_dir = self.content_dir.clone();
+        self.scoped(async move {
+            match crate::authoring_templates::source_frontmatter_targets(
+                &self.snapshot,
+                content_dir,
+            )
+            .await
+            {
+                Ok(result) => result.map_err(|e| eyre::eyre!(e)),
+                Err(e) => Err(eyre::eyre!("source_frontmatter_targets query: {e:?}")),
+            }
+        })
+        .await
+    }
 }
 
 /// Build an [`AuthoringProject`] from any `DB: Db` (the overlaid snapshot or the

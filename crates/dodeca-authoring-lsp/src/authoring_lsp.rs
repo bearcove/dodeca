@@ -20,8 +20,8 @@ use tower_lsp::lsp_types::{
     DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
     DocumentChangeOperation, DocumentChanges, DocumentLink, DocumentLinkOptions,
     DocumentLinkParams, DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse,
-    Documentation, ExecuteCommandOptions, ExecuteCommandParams, FileChangeType, FileSystemWatcher,
-    GlobPattern, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams,
+    Documentation, ExecuteCommandOptions, ExecuteCommandParams, FileSystemWatcher, GlobPattern,
+    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams,
     HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, Location,
     MarkupContent, MarkupKind, MessageType, NumberOrString, OneOf,
     OptionalVersionedTextDocumentIdentifier, Position, PrepareRenameResponse, Range,
@@ -43,8 +43,8 @@ pub use dodeca::authoring_graph::*;
 // `dodeca::authoring_templates`; re-export so the rest of this module is unchanged.
 pub use dodeca::authoring_model::{AuthoringDiagnostic, AuthoringDiagnosticKind};
 use dodeca::authoring_model::{
-    AuthoringDocumentOverlay, AuthoringInputPath, AuthoringPage, AuthoringPageKind,
-    AuthoringProject, AuthoringWorkspace, RenderedHref, RenderedHrefOrigin,
+    AuthoringInputPath, AuthoringPage, AuthoringPageKind, AuthoringProject, AuthoringWorkspace,
+    RenderedHref, RenderedHrefOrigin,
 };
 pub use dodeca::authoring_templates::*;
 use dodeca::config::{ResolvedConfig, ResolvedSource};
@@ -135,9 +135,7 @@ pub async fn serve_on<R, W>(
         dirs: None,
         documents: HashMap::new(),
         input_revision: 0,
-        workspace: None,
-        applied_input_revision: None,
-        world_cache: None,
+        held_snapshot: None,
         project_provider: provider,
     }));
 
@@ -169,11 +167,14 @@ pub struct AuthoringState {
     pub dirs: Option<AuthoringDirs>,
     pub documents: HashMap<Url, String>,
     pub input_revision: u64,
-    pub workspace: Option<AuthoringWorkspace>,
-    pub applied_input_revision: Option<u64>,
-    pub world_cache: Option<CachedAuthoringWorld>,
-    /// When set (browser editor), build the project from the host's live db
-    /// (snapshot + overlays) instead of loading a disk workspace.
+    /// The overlaid db snapshot for the current open-document set, held per
+    /// `input_revision`. picante memoizes the authoring queries against it, so
+    /// the handful of LSP requests one keystroke triggers reuse the same
+    /// snapshot rather than re-snapshotting + recomputing. Replaces the
+    /// hand-rolled `world_cache`.
+    pub held_snapshot: Option<HeldSnapshot>,
+    /// Builds the overlaid snapshot — the live server db (browser editor) or a
+    /// standalone loaded db (`ddc lsp`).
     pub project_provider: Option<Arc<dyn dodeca::authoring_model::AuthoringProjectProvider>>,
 }
 
@@ -183,11 +184,11 @@ pub struct LspStartupArgs {
     pub output: Option<String>,
 }
 
-#[derive(Debug, Clone)]
-pub struct CachedAuthoringWorld {
+#[derive(Clone)]
+pub struct HeldSnapshot {
     pub content_dir: Utf8PathBuf,
     pub input_revision: u64,
-    pub world: AuthoringWorld,
+    pub snapshot: Arc<dodeca::authoring_model::AuthoringSnapshot>,
 }
 
 #[derive(Debug, Clone)]
@@ -703,9 +704,7 @@ impl Backend {
     pub fn set_dirs(&self, dirs: AuthoringDirs) {
         let mut state = self.state.lock().unwrap();
         if state.dirs.as_ref() != Some(&dirs) {
-            state.workspace = None;
-            state.applied_input_revision = None;
-            state.world_cache = None;
+            state.held_snapshot = None;
         }
         state.dirs = Some(dirs);
     }
@@ -760,53 +759,20 @@ impl Backend {
         &self,
         params: DidChangeWatchedFilesParams,
     ) -> Result<()> {
-        let dirs = self.dirs()?;
-        let mut changed = false;
-        {
-            let mut state = self.state.lock().unwrap();
-            let needs_workspace = state
-                .workspace
-                .as_ref()
-                .is_none_or(|workspace| workspace.content_dir() != dirs.content_dir);
-
-            if needs_workspace {
-                state.workspace = Some(AuthoringWorkspace::new(&workspace_sources(
-                    &dirs.content_dir,
-                ))?);
-                state.applied_input_revision = None;
-                state.world_cache = None;
-            }
-
-            let open_documents = state.documents.keys().cloned().collect::<HashSet<_>>();
-            let workspace = state
-                .workspace
-                .as_mut()
-                .expect("authoring workspace initialized");
-            for event in params.changes {
-                let path = lsp_file_uri_to_utf8_path(&event.uri)?;
-                let Some(input_path) = workspace.input_path_for_absolute_path(&path)? else {
-                    continue;
-                };
-                if open_documents.contains(&event.uri) {
-                    continue;
-                }
-                let content = match (&input_path, event.typ == FileChangeType::DELETED) {
-                    (_, true)
-                    | (AuthoringInputPath::Static(_), false)
-                    | (AuthoringInputPath::Dist(_), false) => None,
-                    (_, false) => Some(std::fs::read_to_string(&path)?),
-                };
-                workspace.apply_file_change(&input_path, content.as_deref())?;
-                changed = true;
-            }
-
-            if changed {
-                state.input_revision = state.input_revision.wrapping_add(1);
-                state.applied_input_revision = Some(state.input_revision);
-                state.world_cache = None;
-            }
+        // On-disk changes to files that aren't open in the editor invalidate the
+        // held snapshot; the next query rebuilds it from the provider's db
+        // (which, for the browser editor, the server's own watcher has already
+        // refreshed). Open documents are handled via overlays, so ignore them.
+        let mut state = self.state.lock().unwrap();
+        let open_documents = state.documents.keys().cloned().collect::<HashSet<_>>();
+        let changed = params
+            .changes
+            .iter()
+            .any(|event| !open_documents.contains(&event.uri));
+        if changed {
+            state.input_revision = state.input_revision.wrapping_add(1);
+            state.held_snapshot = None;
         }
-
         Ok(())
     }
 
@@ -831,14 +797,14 @@ impl Backend {
         let mut state = self.state.lock().unwrap();
         state.documents.insert(uri, content);
         state.input_revision = state.input_revision.wrapping_add(1);
-        state.world_cache = None;
+        state.held_snapshot = None;
     }
 
     pub fn remove_document(&self, uri: &Url) {
         let mut state = self.state.lock().unwrap();
         state.documents.remove(uri);
         state.input_revision = state.input_revision.wrapping_add(1);
-        state.world_cache = None;
+        state.held_snapshot = None;
     }
 
     pub fn document_content(&self, uri: &Url) -> Result<String> {
@@ -856,121 +822,69 @@ impl Backend {
         Ok(self.current_world(dirs).await?.project)
     }
 
-    pub async fn current_world(&self, dirs: &AuthoringDirs) -> Result<AuthoringWorld> {
-        let cached = {
+    /// The overlaid db snapshot for the current open documents, held per
+    /// `input_revision`. Reused across the several LSP requests one keystroke
+    /// triggers (so picante's authoring-query memo is hit); rebuilt via the
+    /// provider when the revision or content dir changes.
+    pub async fn current_snapshot(
+        &self,
+        dirs: &AuthoringDirs,
+    ) -> Result<Arc<dodeca::authoring_model::AuthoringSnapshot>> {
+        {
             let state = self.state.lock().unwrap();
-            state
-                .world_cache
-                .as_ref()
-                .filter(|cached| {
-                    cached.content_dir == dirs.content_dir
-                        && cached.input_revision == state.input_revision
+            if let Some(held) = state.held_snapshot.as_ref()
+                && held.content_dir == dirs.content_dir
+                && held.input_revision == state.input_revision
+            {
+                return Ok(held.snapshot.clone());
+            }
+        }
+
+        let provider = self
+            .state
+            .lock()
+            .unwrap()
+            .project_provider
+            .clone()
+            .ok_or_else(|| eyre!("authoring server has no project provider"))?;
+        let (overlays, revision) = {
+            let state = self.state.lock().unwrap();
+            let overlays = state
+                .documents
+                .iter()
+                .filter_map(|(uri, content)| {
+                    Some((
+                        lsp_file_uri_to_utf8_path(uri).ok()?.to_string(),
+                        content.clone(),
+                    ))
                 })
-                .map(|cached| cached.world.clone())
+                .collect::<Vec<_>>();
+            (overlays, state.input_revision)
         };
-        if let Some(world) = cached {
-            return Ok(world);
-        }
-
-        // Shared path: build the project from the host's live db (snapshot +
-        // open-document overlays) instead of a disk workspace.
-        let provider = self.state.lock().unwrap().project_provider.clone();
-        if let Some(provider) = provider {
-            let (overlays, revision) = {
-                let state = self.state.lock().unwrap();
-                let overlays = state
-                    .documents
-                    .iter()
-                    .filter_map(|(uri, content)| {
-                        Some((
-                            lsp_file_uri_to_utf8_path(uri).ok()?.to_string(),
-                            content.clone(),
-                        ))
-                    })
-                    .collect::<Vec<_>>();
-                (overlays, state.input_revision)
-            };
-            let snapshot = provider.snapshot(overlays).await?;
-            let project = snapshot.project().await?;
-            let content_graph = ContentAuthoringGraph {
-                routes: snapshot.content_graph().await?,
-            };
-            let world = AuthoringWorld::with_content_graph(project, content_graph)?;
-            let mut state = self.state.lock().unwrap();
-            if state.input_revision == revision {
-                state.world_cache = Some(CachedAuthoringWorld {
-                    content_dir: dirs.content_dir.clone(),
-                    input_revision: revision,
-                    world: world.clone(),
-                });
-            }
-            return Ok(world);
-        }
-
-        let (inputs, inputs_revision) = {
-            let mut state = self.state.lock().unwrap();
-            let revision = state.input_revision;
-            let needs_workspace = state
-                .workspace
-                .as_ref()
-                .is_none_or(|workspace| workspace.content_dir() != dirs.content_dir);
-
-            if needs_workspace {
-                state.workspace = Some(AuthoringWorkspace::new(&workspace_sources(
-                    &dirs.content_dir,
-                ))?);
-                state.applied_input_revision = None;
-                state.world_cache = None;
-            }
-
-            if state.applied_input_revision != Some(revision) {
-                let documents = state.documents.clone();
-                let workspace = state
-                    .workspace
-                    .as_mut()
-                    .expect("authoring workspace initialized");
-                let overlays = documents
-                    .iter()
-                    .filter_map(|(uri, content)| {
-                        let path = lsp_file_uri_to_utf8_path(uri).ok()?;
-                        let input_path = workspace.input_path_for_absolute_path(&path).ok()??;
-                        Some(AuthoringDocumentOverlay {
-                            path: input_path,
-                            content: content.clone(),
-                        })
-                    })
-                    .collect::<Vec<_>>();
-                state
-                    .workspace
-                    .as_mut()
-                    .expect("authoring workspace initialized")
-                    .apply_overlays(&overlays)?;
-                state.applied_input_revision = Some(revision);
-            }
-
-            (
-                state
-                    .workspace
-                    .as_ref()
-                    .expect("authoring workspace initialized")
-                    .inputs(),
-                revision,
-            )
-        };
-
-        let project = inputs.project().await?;
-        let world = AuthoringWorld::new(project)?;
-
+        let snapshot = Arc::new(provider.snapshot(overlays).await?);
         let mut state = self.state.lock().unwrap();
-        if state.input_revision == inputs_revision {
-            state.world_cache = Some(CachedAuthoringWorld {
+        if state.input_revision == revision {
+            state.held_snapshot = Some(HeldSnapshot {
                 content_dir: dirs.content_dir.clone(),
-                input_revision: inputs_revision,
-                world: world.clone(),
+                input_revision: revision,
+                snapshot: snapshot.clone(),
             });
         }
+        Ok(snapshot)
+    }
 
-        Ok(world)
+    pub async fn current_world(&self, dirs: &AuthoringDirs) -> Result<AuthoringWorld> {
+        let snapshot = self.current_snapshot(dirs).await?;
+        // Every part of the world is a memoized picante query against the held
+        // snapshot — there is no hand-rolled world cache.
+        Ok(AuthoringWorld {
+            project: snapshot.project().await?,
+            content_graph: ContentAuthoringGraph {
+                routes: snapshot.content_graph().await?,
+            },
+            template_index: snapshot.template_index().await?,
+            source_document_targets: snapshot.frontmatter_targets().await?,
+        })
     }
 
     pub async fn code_actions(&self, params: CodeActionParams) -> Result<CodeActionResponse> {

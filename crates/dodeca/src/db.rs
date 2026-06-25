@@ -634,6 +634,8 @@ pub struct AllRenderedHtml {
         crate::knowledge::page_chunks_embedded,
         crate::authoring_graph::authoring_project,
         crate::authoring_graph::content_graph,
+        crate::authoring_templates::template_authoring_index,
+        crate::authoring_templates::source_frontmatter_targets,
     ),
     db_trait(Db)
 )]
