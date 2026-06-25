@@ -182,6 +182,65 @@ pub fn rule_coverage_hover_markdown(
     md
 }
 
+/// Whether a path is a code file the coverage system scans (has a tree-sitter
+/// grammar), as opposed to a markdown/template document.
+pub fn is_coverage_code_path(path: &Utf8Path) -> bool {
+    path.extension()
+        .is_some_and(dodeca::coverage::has_tree_sitter_grammar)
+}
+
+/// Coverage diagnostics for a code buffer: each `r[verb rule.id]` pointing at a
+/// rule not defined in any spec is a `Warning`, plus marq's malformed-marker
+/// warnings. Reuses `CoverageReport::compute` for the exact valid/invalid
+/// classification the global report uses.
+pub fn code_coverage_diagnostics(
+    path: &Utf8Path,
+    content: &str,
+    report: &dodeca::coverage::CoverageReport,
+) -> Vec<Diagnostic> {
+    let known: std::collections::HashSet<dodeca::coverage::RuleId> = report
+        .covered_rules
+        .iter()
+        .chain(report.uncovered_rules.iter())
+        .cloned()
+        .collect();
+    let reqs = dodeca::coverage::extract_references(path.as_std_path(), content);
+    let buffer_report = dodeca::coverage::CoverageReport::compute("buffer", &known, &reqs);
+
+    let mut diagnostics = Vec::new();
+    for invalid in &buffer_report.invalid_references {
+        diagnostics.push(Diagnostic {
+            range: byte_range_to_lsp_range(
+                content,
+                invalid.span.offset,
+                invalid.span.offset + invalid.span.length,
+            ),
+            severity: Some(DiagnosticSeverity::WARNING),
+            source: Some("dodeca-coverage".to_string()),
+            message: format!(
+                "`r[{} {}]` references a rule not defined in any spec",
+                invalid.verb.as_str(),
+                invalid.req_id.canonical()
+            ),
+            ..Default::default()
+        });
+    }
+    for warning in &reqs.warnings {
+        diagnostics.push(Diagnostic {
+            range: byte_range_to_lsp_range(
+                content,
+                warning.span.offset,
+                warning.span.offset + warning.span.length,
+            ),
+            severity: Some(DiagnosticSeverity::WARNING),
+            source: Some("dodeca-coverage".to_string()),
+            message: "malformed requirement reference".to_string(),
+            ..Default::default()
+        });
+    }
+    diagnostics
+}
+
 /// `Hint`-severity diagnostics for rules *defined* in this markdown document
 /// that have no `r[impl …]` site yet (uncovered). Subtle, not a wall of warnings.
 pub fn coverage_hint_diagnostics(
@@ -1624,6 +1683,31 @@ impl Backend {
                 return;
             }
         };
+        let path = match lsp_file_uri_to_utf8_path(&uri) {
+            Ok(path) => path,
+            Err(err) => {
+                self.client
+                    .log_message(MessageType::ERROR, err.to_string())
+                    .await;
+                self.client.publish_diagnostics(uri, Vec::new(), None).await;
+                return;
+            }
+        };
+        // Code files carry `r[impl …]` annotations, not markdown/templates — flag
+        // references to rules that don't exist in any spec, without building the
+        // authoring world.
+        if is_coverage_code_path(&path) {
+            let mut diagnostics = Vec::new();
+            if let Ok(snapshot) = self.current_snapshot(&dirs).await
+                && let Ok(report) = snapshot.coverage_report().await
+            {
+                diagnostics = code_coverage_diagnostics(&path, &content, &report);
+            }
+            self.client
+                .publish_diagnostics(uri, diagnostics, None)
+                .await;
+            return;
+        }
         let world = match self.current_world(&dirs).await {
             Ok(world) => world,
             Err(err) => {
@@ -1643,16 +1727,6 @@ impl Backend {
             }
         };
         let project = &world.project;
-        let path = match lsp_file_uri_to_utf8_path(&uri) {
-            Ok(path) => path,
-            Err(err) => {
-                self.client
-                    .log_message(MessageType::ERROR, err.to_string())
-                    .await;
-                self.client.publish_diagnostics(uri, Vec::new(), None).await;
-                return;
-            }
-        };
         if let Some(template_file) =
             template_file_for_path(&dirs.content_dir, &path).unwrap_or(None)
         {
