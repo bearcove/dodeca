@@ -182,6 +182,38 @@ pub fn rule_coverage_hover_markdown(
     md
 }
 
+/// The requirement reference (`r[verb rule.id]`) the cursor is on in a code
+/// buffer, if any.
+pub fn code_ref_at_position(
+    path: &Utf8Path,
+    content: &str,
+    position: Position,
+) -> Option<dodeca::coverage::ReqReference> {
+    let offset = position_to_byte_offset(content, position)?;
+    dodeca::coverage::extract_references(path.as_std_path(), content)
+        .references
+        .into_iter()
+        .find(|r| r.span.offset <= offset && offset <= r.span.offset + r.span.length)
+}
+
+/// Index of every rule *defined* across the project's markdown sources →
+/// (source-file key, 1-based line). Reflects unsaved spec edits via
+/// `project.source_contents`.
+pub fn rule_definition_sites(
+    project: &AuthoringProject,
+) -> std::collections::HashMap<String, (String, u32)> {
+    let mut sites = std::collections::HashMap::new();
+    for (source_file, content) in &project.source_contents {
+        for marker in markdown_rule_markers(content) {
+            let (line, _) = byte_to_line_column(content, marker.byte_start);
+            sites
+                .entry(marker.rule_id.canonical())
+                .or_insert((source_file.clone(), line));
+        }
+    }
+    sites
+}
+
 /// Whether a path is a code file the coverage system scans (has a tree-sitter
 /// grammar), as opposed to a markdown/template document.
 pub fn is_coverage_code_path(path: &Utf8Path) -> bool {
@@ -1171,6 +1203,31 @@ impl Backend {
         let dirs = self.dirs_for_uri(uri)?;
         let content = self.document_content(uri)?;
         let path = lsp_file_uri_to_utf8_path(uri)?;
+
+        // Code file: hover a `r[verb rule.id]` reference to see the rule's
+        // coverage status + its other implementation sites.
+        if is_coverage_code_path(&path) {
+            let Some(reference) = code_ref_at_position(&path, &content, position) else {
+                return Ok(None);
+            };
+            let snapshot = self.current_snapshot(&dirs).await?;
+            let report = snapshot.coverage_report().await?;
+            let impls = snapshot.rule_impls().await?;
+            let sites = impls
+                .get(&reference.req_id.canonical())
+                .map(Vec::as_slice)
+                .unwrap_or_default();
+            let range = byte_range_to_lsp_range(
+                &content,
+                reference.span.offset,
+                reference.span.offset + reference.span.length,
+            );
+            return Ok(Some(markdown_hover(
+                rule_coverage_hover_markdown(&reference.req_id, &report, sites),
+                range,
+            )));
+        }
+
         let world = self.current_world(&dirs).await?;
         let project = &world.project;
         if let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? {
@@ -1380,9 +1437,37 @@ impl Backend {
     ) -> Result<Option<Location>> {
         let dirs = self.dirs_for_uri(uri)?;
         let content = self.document_content(uri)?;
+        let path = lsp_file_uri_to_utf8_path(uri)?;
+
+        // Code file: jump from a `r[impl rule.id]` reference to where the rule is
+        // defined in a markdown spec.
+        if is_coverage_code_path(&path) {
+            let Some(reference) = code_ref_at_position(&path, &content, position) else {
+                return Ok(None);
+            };
+            let project = self.current_project(&dirs).await?;
+            let Some((source_file, line)) =
+                rule_definition_sites(&project).remove(&reference.req_id.canonical())
+            else {
+                return Ok(None);
+            };
+            let uri = Url::from_file_path(dirs.content_dir.join(&source_file))
+                .map_err(|_| eyre!("could not convert spec source path to URI: {source_file}"))?;
+            let pos = Position {
+                line: line.saturating_sub(1),
+                character: 0,
+            };
+            return Ok(Some(Location {
+                uri,
+                range: Range {
+                    start: pos,
+                    end: pos,
+                },
+            }));
+        }
+
         let world = self.current_world(&dirs).await?;
         let project = &world.project;
-        let path = lsp_file_uri_to_utf8_path(uri)?;
 
         if let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? {
             let template_index = &world.template_index;
@@ -1478,6 +1563,21 @@ impl Backend {
         let dirs = self.dirs_for_uri(uri)?;
         let content = self.document_content(uri)?;
         let path = lsp_file_uri_to_utf8_path(uri)?;
+
+        // Code file: references of a `r[verb rule.id]` are the rule's other
+        // implementation sites.
+        if is_coverage_code_path(&path) {
+            let Some(reference) = code_ref_at_position(&path, &content, position) else {
+                return Ok(Vec::new());
+            };
+            let snapshot = self.current_snapshot(&dirs).await?;
+            let impls = snapshot.rule_impls().await?;
+            return Ok(impls
+                .get(&reference.req_id.canonical())
+                .map(|sites| rule_impl_locations(sites))
+                .unwrap_or_default());
+        }
+
         let world = self.current_world(&dirs).await?;
         let project = &world.project;
         if let Some(template_file) = template_file_for_path(&dirs.content_dir, &path)? {
