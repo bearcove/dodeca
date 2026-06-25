@@ -269,6 +269,9 @@ rust-version = "1.92"
 [patch.crates-io]
 aasvg = { path = "libs/aasvg" }
 pikru = { path = "libs/pikru" }
+# Vendored to derive facet::Facet on Position/Range so authoring analysis types
+# flow through picante tracked queries (libs/lsp-types).
+lsp-types = { path = "libs/lsp-types" }
 # facet-solver = { path = "../facet/facet-solver" }
 # facet-toml = { path = "../facet/facet-toml" }
 # facet-value = { path = "../facet/facet-value" }
