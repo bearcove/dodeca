@@ -528,11 +528,13 @@ impl AuthoringWorkspaceInputs {
 /// (it has the `SiteServer`); the LSP Backend calls it via this trait — same
 /// inversion of control as the LSP runner, breaking the crate cycle.
 pub trait AuthoringProjectProvider: Send + Sync {
-    /// `overlays` are open documents as `(absolute_path, content)`.
-    fn project<'a>(
+    /// Hand back an overlaid [`AuthoringSnapshot`] — an isolated db snapshot with
+    /// `overlays` (open documents as `(absolute_path, content)`) applied. The LSP
+    /// runs the authoring tracked queries + the project builder against it.
+    fn snapshot<'a>(
         &'a self,
         overlays: Vec<(String, String)>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<AuthoringProject>> + Send + 'a>>;
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<AuthoringSnapshot>> + Send + 'a>>;
 }
 
 /// Map an absolute on-disk path to its mount-prefixed source key (inverse of
@@ -550,22 +552,30 @@ fn source_key_for_path(sources: &[crate::config::ResolvedSource], abs: &str) -> 
     None
 }
 
-/// Build an [`AuthoringProject`] from a live db, overlaying the editor's open
-/// documents (`(abs_path, buffer)`) onto an isolated [`DatabaseSnapshot`] — this
-/// is dodeca's VFS. The snapshot is private to this call, so queries see the
-/// unsaved buffers without touching the real db; picante reuses the host's
-/// memoized renders, so only the edited file's dependents recompute.
+/// An overlaid snapshot of a project db — dodeca's VFS handle. Holds the real
+/// db (so `TASK_DB`-scoped cell RPC reaches the live hub), an isolated
+/// [`DatabaseSnapshot`] with the editor's open buffers overlaid as `SourceFile`
+/// inputs, and the workspace's primary content dir. The authoring tracked
+/// queries + the project builder run against `snapshot`; picante memoizes within
+/// it, and the snapshot's inherited render cells make unchanged pages free.
+pub struct AuthoringSnapshot {
+    db: std::sync::Arc<crate::db::Database>,
+    snapshot: crate::db::DatabaseSnapshot,
+    content_dir: Utf8PathBuf,
+}
+
+/// Build an overlaid [`AuthoringSnapshot`] from a live db: snapshot it (isolated),
+/// then overlay the editor's open documents (`(abs_path, buffer)`) as `SourceFile`
+/// inputs — this is dodeca's VFS. The snapshot is private to the caller, so
+/// queries see the unsaved buffers without touching the real db.
 ///
 /// Shared by the in-process (browser-editor) LSP and the standalone `ddc lsp`.
-pub async fn authoring_project_from_db(
+pub async fn overlay_snapshot(
     db: &std::sync::Arc<crate::db::Database>,
     sources_list: &[crate::config::ResolvedSource],
     overlays: Vec<(String, String)>,
-) -> Result<AuthoringProject> {
-    use crate::db::{
-        DataRegistry, DatabaseSnapshot, SourceFile, SourceRegistry, StaticRegistry,
-        TemplateRegistry,
-    };
+) -> Result<AuthoringSnapshot> {
+    use crate::db::{DatabaseSnapshot, SourceFile, SourceRegistry};
 
     let content_dir = sources_list
         .first()
@@ -602,40 +612,67 @@ pub async fn authoring_project_from_db(
     }
     SourceRegistry::set(&snapshot, sources).map_err(|e| eyre::eyre!("set overlays: {e:?}"))?;
 
-    let db = db.clone();
-    crate::db::TASK_DB
-        .scope(db, async move {
-            let sources = SourceRegistry::sources(&snapshot)
+    Ok(AuthoringSnapshot {
+        db: db.clone(),
+        snapshot,
+        content_dir,
+    })
+}
+
+impl AuthoringSnapshot {
+    /// The overlaid snapshot db — run authoring tracked queries against this.
+    pub fn db(&self) -> &crate::db::DatabaseSnapshot {
+        &self.snapshot
+    }
+
+    pub fn content_dir(&self) -> &Utf8Path {
+        &self.content_dir
+    }
+
+    /// Run `fut` with `TASK_DB` scoped to the real db, so render queries reach
+    /// the live cell hub even though they execute against the snapshot.
+    pub async fn scoped<T>(&self, fut: impl std::future::Future<Output = T> + Send) -> T {
+        crate::db::TASK_DB.scope(self.db.clone(), fut).await
+    }
+
+    /// Build the [`AuthoringProject`] from this overlaid snapshot.
+    pub async fn project(&self) -> Result<AuthoringProject> {
+        use crate::db::{DataRegistry, SourceRegistry, StaticRegistry, TemplateRegistry};
+
+        let snapshot = &self.snapshot;
+        let content_dir = &self.content_dir;
+        self.scoped(async move {
+            let sources = SourceRegistry::sources(snapshot)
                 .ok()
                 .flatten()
                 .unwrap_or_default()
                 .into_iter()
-                .filter_map(|f| Some(((*f.path(&snapshot).ok()?).clone(), f)))
+                .filter_map(|f| Some(((*f.path(snapshot).ok()?).clone(), f)))
                 .collect();
-            let templates = TemplateRegistry::templates(&snapshot)
+            let templates = TemplateRegistry::templates(snapshot)
                 .ok()
                 .flatten()
                 .unwrap_or_default()
                 .into_iter()
-                .filter_map(|f| Some(((*f.path(&snapshot).ok()?).clone(), f)))
+                .filter_map(|f| Some(((*f.path(snapshot).ok()?).clone(), f)))
                 .collect();
-            let static_files = StaticRegistry::files(&snapshot)
+            let static_files = StaticRegistry::files(snapshot)
                 .ok()
                 .flatten()
                 .unwrap_or_default()
                 .into_iter()
-                .filter_map(|f| Some(((*f.path(&snapshot).ok()?).clone(), f)))
+                .filter_map(|f| Some(((*f.path(snapshot).ok()?).clone(), f)))
                 .collect();
-            let data_files = DataRegistry::files(&snapshot)
+            let data_files = DataRegistry::files(snapshot)
                 .ok()
                 .flatten()
                 .unwrap_or_default()
                 .into_iter()
-                .filter_map(|f| Some(((*f.path(&snapshot).ok()?).clone(), f)))
+                .filter_map(|f| Some(((*f.path(snapshot).ok()?).clone(), f)))
                 .collect();
             build_authoring_project_on_db(ProjectBuildInputs {
-                db: &snapshot,
-                content_dir: &content_dir,
+                db: snapshot,
+                content_dir,
                 sources: &sources,
                 templates: &templates,
                 static_files: &static_files,
@@ -644,23 +681,24 @@ pub async fn authoring_project_from_db(
             .await
         })
         .await
+    }
 }
 
 /// An [`AuthoringProjectProvider`] over a standalone db (not a `SiteServer`) —
 /// for the `ddc lsp` editor integration. Owns the loaded db + its sources; VFS
-/// comes from [`authoring_project_from_db`].
+/// comes from [`overlay_snapshot`].
 pub struct DbAuthoringProvider {
     pub db: std::sync::Arc<crate::db::Database>,
     pub sources: Vec<crate::config::ResolvedSource>,
 }
 
 impl AuthoringProjectProvider for DbAuthoringProvider {
-    fn project<'a>(
+    fn snapshot<'a>(
         &'a self,
         overlays: Vec<(String, String)>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<AuthoringProject>> + Send + 'a>>
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<AuthoringSnapshot>> + Send + 'a>>
     {
-        Box::pin(async move { authoring_project_from_db(&self.db, &self.sources, overlays).await })
+        Box::pin(async move { overlay_snapshot(&self.db, &self.sources, overlays).await })
     }
 }
 

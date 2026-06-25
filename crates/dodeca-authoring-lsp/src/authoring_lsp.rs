@@ -882,7 +882,7 @@ impl Backend {
                     .collect::<Vec<_>>();
                 (overlays, state.input_revision)
             };
-            let project = provider.project(overlays).await?;
+            let project = provider.snapshot(overlays).await?.project().await?;
             let world = AuthoringWorld::new(project)?;
             let mut state = self.state.lock().unwrap();
             if state.input_revision == revision {

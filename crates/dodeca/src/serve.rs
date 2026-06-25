@@ -226,17 +226,18 @@ struct HostAuthoringProvider {
 }
 
 impl crate::authoring_model::AuthoringProjectProvider for HostAuthoringProvider {
-    fn project<'a>(
+    fn snapshot<'a>(
         &'a self,
         overlays: Vec<(String, String)>,
     ) -> std::pin::Pin<
         Box<
-            dyn std::future::Future<Output = eyre::Result<crate::authoring_model::AuthoringProject>>
-                + Send
+            dyn std::future::Future<
+                    Output = eyre::Result<crate::authoring_model::AuthoringSnapshot>,
+                > + Send
                 + 'a,
         >,
     > {
-        Box::pin(async move { self.server.authoring_project_overlay(overlays).await })
+        Box::pin(async move { self.server.authoring_snapshot(overlays).await })
     }
 }
 
@@ -1725,18 +1726,19 @@ impl SiteServer {
         EditList::Ok { entries }
     }
 
-    /// Build an authoring project from a **snapshot** of the live db with the
-    /// given source overlays applied (open documents). Reuses the host's already
-    /// computed + memoized renders — only the overlaid sources' dependents
-    /// recompute. Powers the in-process LSP without re-loading from disk.
-    pub async fn authoring_project_overlay(
+    /// Hand back an overlaid [`AuthoringSnapshot`](crate::authoring_model::AuthoringSnapshot)
+    /// of the live db with the given source overlays applied (open documents).
+    /// Reuses the host's already computed + memoized renders — only the overlaid
+    /// sources' dependents recompute. Powers the in-process LSP without re-loading
+    /// from disk.
+    pub async fn authoring_snapshot(
         &self,
         overlays: Vec<(String, String)>,
-    ) -> Result<crate::authoring_model::AuthoringProject> {
-        // VFS + db→project is the same lifted logic the standalone `ddc lsp`
+    ) -> Result<crate::authoring_model::AuthoringSnapshot> {
+        // VFS over the live db is the same lifted logic the standalone `ddc lsp`
         // uses; here it just sources the workspace list from the live server.
         let sources = self.status_sources.read().unwrap().clone();
-        crate::authoring_model::authoring_project_from_db(&self.db, &sources, overlays).await
+        crate::authoring_model::overlay_snapshot(&self.db, &sources, overlays).await
     }
 
     /// Editor: live preview of `buffer` overlaid on `source_key`, isolated.
