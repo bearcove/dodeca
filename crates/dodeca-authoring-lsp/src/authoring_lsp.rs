@@ -40,45 +40,14 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 // now lives in `dodeca::authoring_graph`; re-export so the rest of this module
 // (and `ddc`) keep referencing the items unqualified.
 pub use dodeca::authoring_graph::*;
+// Template analysis types + span/range helpers now live in
+// `dodeca::authoring_templates`; re-export so the rest of this module is unchanged.
 pub use dodeca::authoring_model::{AuthoringDiagnostic, AuthoringDiagnosticKind};
 use dodeca::authoring_model::{
     AuthoringDocumentOverlay, AuthoringInputPath, AuthoringPage, AuthoringPageKind,
-    AuthoringProject, AuthoringWorkspace, RenderedHref, RenderedHrefOrigin, TextPosition,
-    TextRange,
+    AuthoringProject, AuthoringWorkspace, RenderedHref, RenderedHrefOrigin,
 };
-
-/// Convert dodeca's Facet-able [`TextPosition`] to a tower_lsp `Position` at the
-/// protocol boundary.
-fn to_lsp_position(position: TextPosition) -> Position {
-    Position {
-        line: position.line,
-        character: position.character,
-    }
-}
-
-/// Convert dodeca's Facet-able [`TextRange`] to a tower_lsp `Range`.
-fn to_lsp_range(range: TextRange) -> Range {
-    Range {
-        start: to_lsp_position(range.start),
-        end: to_lsp_position(range.end),
-    }
-}
-
-/// Convert a tower_lsp `Position` to dodeca's Facet-able [`TextPosition`].
-fn to_text_position(position: Position) -> TextPosition {
-    TextPosition {
-        line: position.line,
-        character: position.character,
-    }
-}
-
-/// Convert a tower_lsp `Range` to dodeca's Facet-able [`TextRange`].
-fn to_text_range(range: Range) -> TextRange {
-    TextRange {
-        start: to_text_position(range.start),
-        end: to_text_position(range.end),
-    }
-}
+pub use dodeca::authoring_templates::*;
 use dodeca::config::{ResolvedConfig, ResolvedSource};
 use dodeca::queries::{Frontmatter, default_title_from_source_path};
 
@@ -1884,32 +1853,6 @@ pub fn lsp_file_uri_to_utf8_path(uri: &Url) -> Result<Utf8PathBuf> {
         .map_err(|path| eyre!("LSP workspace path is not UTF-8: {}", path.display()))
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TemplateRouteReference {
-    pub target: String,
-    pub target_route: String,
-    pub source_range: Range,
-}
-
-#[derive(Debug, Clone)]
-pub struct TemplateBlockOccurrence {
-    pub name: String,
-    pub source_range: Range,
-}
-
-#[derive(Debug, Clone)]
-pub struct TemplateMacroOccurrence {
-    pub name: String,
-    pub source_range: Range,
-}
-
-#[derive(Debug, Clone)]
-pub struct TemplateMacroCallOccurrence {
-    pub target_template_file: String,
-    pub macro_name: String,
-    pub source_range: Range,
-}
-
 #[derive(Debug, Clone)]
 pub struct TemplateAuthoringIndex {
     pub templates: HashMap<String, IndexedTemplate>,
@@ -1929,31 +1872,6 @@ pub struct IndexedTemplate {
     pub blocks: Vec<TemplateBlockOccurrence>,
     pub macros: Vec<TemplateMacroOccurrence>,
     pub macro_calls: Vec<TemplateMacroCallOccurrence>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TemplateBlockReferenceTarget {
-    pub path: Utf8PathBuf,
-    pub range: Range,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TemplateDocumentReferenceTarget {
-    pub path: Utf8PathBuf,
-    pub range: Range,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TemplateMacroReferenceQuery {
-    pub target_template_file: String,
-    pub macro_name: String,
-    pub source_range: Range,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TemplateMacroReferenceTarget {
-    pub path: Utf8PathBuf,
-    pub range: Range,
 }
 
 /// tower_lsp `Range` for an [`AuthoringDiagnostic`] (the type now lives in
@@ -6260,21 +6178,6 @@ pub fn route_segments(route: &str) -> Vec<&str> {
         .collect()
 }
 
-pub fn byte_range_to_lsp_range(content: &str, byte_start: usize, byte_end: usize) -> Range {
-    let (line, column) = byte_to_line_column(content, byte_start);
-    let (line_end, column_end) = byte_to_line_column(content, byte_end);
-    Range {
-        start: Position {
-            line: line.saturating_sub(1),
-            character: column.saturating_sub(1),
-        },
-        end: Position {
-            line: line_end.saturating_sub(1),
-            character: column_end.saturating_sub(1),
-        },
-    }
-}
-
 pub fn lsp_position_to_byte_offset(content: &str, position: Position) -> Option<usize> {
     position_to_byte_offset(content, position)
 }
@@ -6517,105 +6420,6 @@ pub struct FrontmatterCompletionContext {
     pub replace_range: Range,
     pub present_fields: HashSet<String>,
     pub current_table: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FrontmatterDocumentKind {
-    Template,
-    StaticAsset,
-    DataFile,
-}
-
-impl FrontmatterDocumentKind {
-    pub fn label(self) -> &'static str {
-        match self {
-            FrontmatterDocumentKind::Template => "template",
-            FrontmatterDocumentKind::StaticAsset => "static asset",
-            FrontmatterDocumentKind::DataFile => "data file",
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct FrontmatterDocumentTarget {
-    pub kind: FrontmatterDocumentKind,
-    pub path: String,
-    pub target_path: Utf8PathBuf,
-    pub source_range: Range,
-}
-
-impl FrontmatterDocumentTarget {
-    pub fn target_uri(&self) -> Result<Url> {
-        Url::from_file_path(self.target_path.as_std_path()).map_err(|_| {
-            eyre!(
-                "could not convert {} path to URI: {}",
-                self.kind.label(),
-                self.target_path
-            )
-        })
-    }
-
-    pub fn tooltip(&self) -> String {
-        format!("Open Dodeca {} `{}`", self.kind.label(), self.path)
-    }
-
-    pub fn hover_markdown(&self) -> String {
-        format!(
-            "**Dodeca {}**\n\n`{}`\n\nSource: `{}`",
-            self.kind.label(),
-            self.path,
-            self.target_path
-        )
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TemplateDocumentKind {
-    Extends,
-    Include,
-    Import,
-}
-
-impl TemplateDocumentKind {
-    pub fn label(self) -> &'static str {
-        match self {
-            TemplateDocumentKind::Extends => "extends",
-            TemplateDocumentKind::Include => "include",
-            TemplateDocumentKind::Import => "import",
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct TemplateDocumentTarget {
-    pub kind: TemplateDocumentKind,
-    pub path: String,
-    pub target_path: Utf8PathBuf,
-    pub source_range: Range,
-}
-
-impl TemplateDocumentTarget {
-    pub fn target_uri(&self) -> Result<Url> {
-        Url::from_file_path(self.target_path.as_std_path()).map_err(|_| {
-            eyre!(
-                "could not convert template path to URI: {}",
-                self.target_path
-            )
-        })
-    }
-
-    pub fn tooltip(&self) -> String {
-        format!("Open Dodeca template {} `{}`", self.kind.label(), self.path)
-    }
-
-    pub fn hover_markdown(&self) -> String {
-        format!(
-            "**Dodeca template {}**\n\n`{}`\n\nSource: `{}`",
-            self.kind.label(),
-            self.path,
-            self.target_path
-        )
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -7034,22 +6838,6 @@ pub fn push_template_document_target(
         target_path: target_path.clone(),
         source_range: template_string_range(content, path),
     });
-}
-
-pub fn template_string_range(content: &str, string: &StringLit) -> Range {
-    byte_range_to_lsp_range(
-        content,
-        string.span.offset(),
-        string.span.offset() + string.span.len(),
-    )
-}
-
-pub fn template_ident_range(content: &str, ident: &Ident) -> Range {
-    byte_range_to_lsp_range(
-        content,
-        ident.span.offset(),
-        ident.span.offset() + ident.span.len(),
-    )
 }
 
 #[allow(deprecated)]
@@ -9209,20 +8997,6 @@ pub fn authoring_diagnostic_to_lsp(diagnostic: &AuthoringDiagnostic) -> Diagnost
 
 pub fn ranges_overlap(left: &Range, right: &Range) -> bool {
     position_le(left.start, right.end) && position_le(right.start, left.end)
-}
-
-pub fn range_contains_position(range: &Range, position: Position) -> bool {
-    position_le(range.start, position) && position_le(position, range.end)
-}
-
-pub fn position_le(left: Position, right: Position) -> bool {
-    left.line < right.line || (left.line == right.line && left.character <= right.character)
-}
-
-pub fn position_cmp(left: Position, right: Position) -> std::cmp::Ordering {
-    left.line
-        .cmp(&right.line)
-        .then_with(|| left.character.cmp(&right.character))
 }
 
 pub fn source_file_for_new_route(route: &str) -> Option<String> {

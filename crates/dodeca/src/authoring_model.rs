@@ -27,35 +27,6 @@ pub struct AuthoringDocumentOverlay {
     pub content: String,
 }
 
-/// A Facet-able mirror of tower_lsp's `Position` (zero-based line + UTF-16
-/// character offset). Lets authoring analysis carry source positions through
-/// picante tracked queries without depending on tower_lsp; the editor crate
-/// converts at the protocol boundary.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, facet::Facet)]
-pub struct TextPosition {
-    pub line: u32,
-    pub character: u32,
-}
-
-/// A Facet-able mirror of tower_lsp's `Range`. See [`TextPosition`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, facet::Facet)]
-pub struct TextRange {
-    pub start: TextPosition,
-    pub end: TextPosition,
-}
-
-impl TextPosition {
-    pub fn new(line: u32, character: u32) -> Self {
-        Self { line, character }
-    }
-}
-
-impl TextRange {
-    pub fn new(start: TextPosition, end: TextPosition) -> Self {
-        Self { start, end }
-    }
-}
-
 /// A dead-link / authoring diagnostic, with a one-based line/column span (the
 /// editor crate converts to a tower_lsp range at the boundary). Lives here so
 /// the diagnostics analysis can flow through picante tracked queries.

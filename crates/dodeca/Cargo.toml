@@ -130,6 +130,10 @@ if-addrs.workspace = true
 ignore.workspace = true
 include_dir.workspace = true
 globset.workspace = true
+# lsp-types (vendored, patched to derive Facet on Position/Range): dodeca owns
+# the authoring analysis types, which embed lsp_types::Range. A protocol crate
+# in the engine is a known layering smell — see libs/lsp-types.
+lsp-types = "0.94.1"
 marq.workspace = true
 notify.workspace = true
 pulldown-cmark.workspace = true
@@ -138,6 +142,7 @@ open.workspace = true
 owo-colors.workspace = true
 picante.workspace = true
 ratatui.workspace = true
+url.workspace = true
 vox.workspace = true
 rapidhash.workspace = true
 arboard = { version = "3", default-features = false }
