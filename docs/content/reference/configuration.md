@@ -117,6 +117,10 @@ disk) or `checkout` (a repo directory, optionally with a `content` subpath and a
 `git` URL to clone). A mounted source composes its own `source {}`, read from its
 `.config/dodeca.styx`.
 
+An optional `repo` (view-source base URL) may be set on the mount directly: it
+**overrides** the composed value, and lets a vendored / same-monorepo mount —
+which has no config of its own to compose from — still carry a view-source URL.
+
 ```styx
 source {
     content content
@@ -127,6 +131,7 @@ mounts (
         name guide
         path /guide
         local ../guide/content
+        repo "https://github.com/you/guide"
     }
     {
         name api

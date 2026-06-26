@@ -570,7 +570,12 @@ fn resolve_mount(root: &Utf8Path, def: &MountDef) -> Result<ResolvedSource> {
         content_dir,
         checkout_dir,
         git: def.git.clone(),
-        repo: composed.as_ref().and_then(|s| s.repo.clone()),
+        // The mount's explicit `repo` wins; otherwise compose it from the
+        // mounted source's own config (the cloned-independent-repo case).
+        repo: def
+            .repo
+            .clone()
+            .or_else(|| composed.as_ref().and_then(|s| s.repo.clone())),
         impls: composed
             .as_ref()
             .map(|s| resolve_impls(&s.impls))
@@ -1002,6 +1007,17 @@ mod tests {
             Some(Utf8Path::new("/proj/../vixen"))
         );
         assert_eq!(sources[0].git.as_deref(), Some("g.git"));
+    }
+
+    #[test]
+    fn mount_repo_is_carried_through() {
+        // A vendored mount with no config of its own to compose from still
+        // carries its explicit `repo` (`/proj/content` doesn't exist, so there
+        // is nothing to compose).
+        let mut m = mount("x", "/x", Some("content"));
+        m.repo = Some("https://example.com/x".into());
+        let sources = resolve(None, Some(vec![m])).unwrap();
+        assert_eq!(sources[0].repo.as_deref(), Some("https://example.com/x"));
     }
 
     #[test]

@@ -352,6 +352,14 @@ pub struct MountDef {
     /// `git pull` from on a webhook/poll. Only meaningful with `checkout`.
     #[facet(default)]
     pub git: Option<String>,
+
+    /// Browsable repository URL for "view source" links, e.g.
+    /// `https://github.com/facet-rs/facet`. An override: when set it wins;
+    /// otherwise `repo` composes from the mounted source's own `source {}`. Lets
+    /// a same-monorepo / vendored mount (which has no config of its own to
+    /// compose from) still carry a view-source URL.
+    #[facet(default)]
+    pub repo: Option<String>,
 }
 
 /// One implementation of a source's spec: a named set of code files scanned for
