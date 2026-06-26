@@ -42,7 +42,12 @@ pub struct DodecaConfig {
 
     /// Whole-site config (output, base URL, link checking, code execution, …).
     /// Always the assembling site's; never composed from a mounted source.
-    pub site: SiteConfig,
+    ///
+    /// Optional in the schema so a *mount-only* sub-config (composed solely for
+    /// its `source {}`) needn't carry a `site` it would never use. The config
+    /// actually being built must have one — that's enforced at resolve time.
+    #[facet(default)]
+    pub site: Option<SiteConfig>,
 
     /// Aggregator: content sources merged into one site, each mounted under a
     /// URL `path`, composing that source's `source {}`.

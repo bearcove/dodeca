@@ -338,6 +338,9 @@ fn resolve_dirs(
                 repo: None,
                 impls: Vec::new(),
                 skip_domains: Vec::new(),
+                project_dir: c.parent().map(Utf8Path::to_owned).unwrap_or_else(|| c.clone()),
+                build_steps: Default::default(),
+                page_types: Default::default(),
             }],
             skip_domains: vec![],
             rate_limit_ms: None,
@@ -373,6 +376,9 @@ fn resolve_dirs(
                     repo: None,
                     impls: Vec::new(),
                     skip_domains: Vec::new(),
+                    project_dir: root.clone(),
+                    build_steps: Default::default(),
+                    page_types: Default::default(),
                 }]
             } else {
                 cfg.sources

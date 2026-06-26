@@ -490,6 +490,9 @@ impl BuildContext {
                 repo: None,
                 impls: Vec::new(),
                 skip_domains: Vec::new(),
+                project_dir: content_dir.parent().unwrap_or(content_dir).to_owned(),
+                build_steps: Default::default(),
+                page_types: Default::default(),
             }],
             output_dir: output_dir.to_owned(),
             sources: BTreeMap::new(),
@@ -882,6 +885,9 @@ mod tests {
             repo: None,
             impls: Vec::new(),
             skip_domains: Vec::new(),
+            project_dir: Utf8PathBuf::from(content_dir),
+            build_steps: Default::default(),
+            page_types: Default::default(),
         }
     }
 

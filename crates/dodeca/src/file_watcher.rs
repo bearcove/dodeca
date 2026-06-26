@@ -595,6 +595,9 @@ mod tests {
             repo: None,
             impls: Vec::new(),
             skip_domains: Vec::new(),
+            project_dir: Utf8PathBuf::from(content_dir),
+            build_steps: Default::default(),
+            page_types: Default::default(),
         }
     }
 

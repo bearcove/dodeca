@@ -90,6 +90,9 @@ pub struct RenderContext {
     db: Arc<Database>,
     /// The site tree for template functions like get_section
     site_tree: Arc<SiteTree>,
+    /// Route currently being rendered, e.g. `/wiki/page/`. Lets source-scoped
+    /// host functions (like `build()`) resolve which source owns this render.
+    route: String,
 }
 
 impl RenderContext {
@@ -98,11 +101,13 @@ impl RenderContext {
         templates: HashMap<String, String>,
         db: Arc<Database>,
         site_tree: Arc<SiteTree>,
+        route: String,
     ) -> Self {
         Self {
             templates,
             db,
             site_tree,
+            route,
         }
     }
 }
@@ -406,7 +411,17 @@ impl TemplateHost for TemplateHostImpl {
                         }
                     };
 
-                    let result = executor.execute(&step_name, &params).await;
+                    // Build steps are source-scoped: resolve which source owns the
+                    // route being rendered, so `build("git_hash")` runs that
+                    // source's step in its own dir.
+                    let mount = crate::config::global_config()
+                        .map(|cfg| {
+                            crate::build_context::source_for_route(&context.route, &cfg.sources)
+                                .to_string()
+                        })
+                        .unwrap_or_else(|| "/".to_string());
+
+                    let result = executor.execute(&mount, &step_name, &params).await;
                     match result {
                         crate::build_steps::BuildStepResult::Success(bytes) => {
                             match String::from_utf8(bytes) {

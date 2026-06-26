@@ -143,6 +143,18 @@ pub struct ResolvedSource {
     /// External domains this source asks the link checker to skip. Unioned into
     /// the site's [`skip_domains`](ResolvedConfig::skip_domains).
     pub skip_domains: Vec<String>,
+    /// Directory this source's build steps run in and resolve file params
+    /// against — its own project root (where its `.config` lives), the checkout
+    /// dir for a git mount, or the content dir as a last resort.
+    pub project_dir: Utf8PathBuf,
+    /// This source's build step definitions (composed from its own `source {}`).
+    /// A `build("step")` call from this source's templates resolves here and runs
+    /// in [`project_dir`](Self::project_dir).
+    pub build_steps: std::collections::HashMap<String, dodeca_config::BuildStepDef>,
+    /// This source's frontmatter schemas. Merged into the site-wide
+    /// [`page_types`](ResolvedConfig::page_types); a type name may be defined by
+    /// only one source.
+    pub page_types: std::collections::HashMap<String, PageTypeSchema>,
 }
 
 /// A code implementation to scan for requirement references (resolved from
@@ -194,9 +206,8 @@ pub struct ResolvedConfig {
     pub light_theme_css: String,
     /// Generated CSS for dark theme
     pub dark_theme_css: String,
-    /// Build step definitions from config
-    pub build_steps: Option<std::collections::HashMap<String, dodeca_config::BuildStepDef>>,
-    /// Frontmatter schemas keyed by page type.
+    /// Frontmatter schemas keyed by page type. The federated union of every
+    /// source's `page_types` (a type name is owned by exactly one source).
     pub page_types: Option<std::collections::HashMap<String, PageTypeSchema>>,
     /// Auth config. `Some` ⇒ gate `/_dodeca/*` on a forwarded identity; `None`
     /// ⇒ open (local dev, no proxy).
@@ -378,6 +389,12 @@ fn resolve_config(root: &Utf8Path, config: DodecaConfig) -> Result<ResolvedConfi
         mounts,
     } = config;
 
+    // `site` is optional in the schema (a mount-only sub-config omits it), but
+    // the config being built must declare one — that's where `output` lives.
+    let site = site.ok_or_else(|| {
+        eyre!("config must have a `site` section (with at least an `output` dir)")
+    })?;
+
     let sources = resolve_sources(root, source.as_ref(), mounts.as_deref())?;
     let content_dir = sources
         .first()
@@ -430,10 +447,11 @@ fn resolve_config(root: &Utf8Path, config: DodecaConfig) -> Result<ResolvedConfi
 
     warn_orphaned_nested_configs(root, &sources);
 
-    // Build steps + page types are source-scoped; for now take the root source's
-    // (per-mount composition of these is a follow-up).
-    let build_steps = source.as_ref().and_then(|s| s.build_steps.clone());
-    let page_types = source.as_ref().and_then(|s| s.page_types.clone());
+    // Build steps are source-scoped: each `ResolvedSource` carries its own, and
+    // `build()` resolves against the rendering page's source (see the build-step
+    // executor) — there is no whole-site build-steps map.
+
+    let page_types = merge_page_types(&sources)?;
 
     Ok(ResolvedConfig {
         _root: root.to_owned(),
@@ -448,7 +466,6 @@ fn resolve_config(root: &Utf8Path, config: DodecaConfig) -> Result<ResolvedConfi
         code_execution: site.code_execution.unwrap_or_default(),
         light_theme_css,
         dark_theme_css,
-        build_steps,
         page_types,
         auth: site.auth,
     })
@@ -475,6 +492,10 @@ fn resolve_sources(
             repo: src.repo.clone(),
             impls: resolve_impls(&src.impls),
             skip_domains: src.skip_domains.clone(),
+            // The root source runs build steps in the project root.
+            project_dir: root.to_owned(),
+            build_steps: src.build_steps.clone().unwrap_or_default(),
+            page_types: src.page_types.clone().unwrap_or_default(),
         });
     }
 
@@ -533,8 +554,16 @@ fn resolve_mount(root: &Utf8Path, def: &MountDef) -> Result<ResolvedSource> {
         }
     };
 
-    // Compose the mounted source's own `source {}` for its behavior.
+    // Compose the mounted source's own `source {}` for its behavior. The dir
+    // holding that config is the source's project root (where its build steps
+    // run); without one, fall back to the checkout dir, then the content dir.
     let composed = discover_source_config(&content_dir);
+    let project_dir = composed
+        .as_ref()
+        .map(|(dir, _)| dir.clone())
+        .or_else(|| checkout_dir.clone())
+        .unwrap_or_else(|| content_dir.clone());
+    let composed = composed.map(|(_, s)| s);
     Ok(ResolvedSource {
         name: def.name.clone(),
         mount,
@@ -546,7 +575,19 @@ fn resolve_mount(root: &Utf8Path, def: &MountDef) -> Result<ResolvedSource> {
             .as_ref()
             .map(|s| resolve_impls(&s.impls))
             .unwrap_or_default(),
-        skip_domains: composed.map(|s| s.skip_domains).unwrap_or_default(),
+        skip_domains: composed
+            .as_ref()
+            .map(|s| s.skip_domains.clone())
+            .unwrap_or_default(),
+        project_dir,
+        build_steps: composed
+            .as_ref()
+            .and_then(|s| s.build_steps.clone())
+            .unwrap_or_default(),
+        page_types: composed
+            .as_ref()
+            .and_then(|s| s.page_types.clone())
+            .unwrap_or_default(),
     })
 }
 
@@ -554,7 +595,7 @@ fn resolve_mount(root: &Utf8Path, def: &MountDef) -> Result<ResolvedSource> {
 /// `.config/dodeca.styx` at or above it — for composition. Parse-only (no nested
 /// resolve), and best-effort: a source with no config of its own just has no
 /// composed behavior.
-fn discover_source_config(content_dir: &Utf8Path) -> Option<SourceConfig> {
+fn discover_source_config(content_dir: &Utf8Path) -> Option<(Utf8PathBuf, SourceConfig)> {
     let mut current = content_dir;
     loop {
         let styx_file = current.join(CONFIG_DIR).join(CONFIG_FILE_STYX);
@@ -562,7 +603,8 @@ fn discover_source_config(content_dir: &Utf8Path) -> Option<SourceConfig> {
             let parsed = fs::read_to_string(&styx_file)
                 .ok()
                 .and_then(|content| facet_styx::from_str::<DodecaConfig>(&content).ok());
-            return parsed.and_then(|c| c.source);
+            // The dir holding `.config/` is this source's own project root.
+            return parsed.and_then(|c| c.source).map(|s| (current.to_owned(), s));
         }
         current = current.parent()?;
     }
@@ -601,6 +643,38 @@ fn warn_orphaned_nested_configs(_root: &Utf8Path, sources: &[ResolvedSource]) {
             );
         }
     }
+}
+
+/// Federate every source's frontmatter `page_types` into one site-wide map.
+///
+/// Typed cross-source links resolve against this single index, so the types form
+/// one namespace; a type name may therefore be defined by only one source, and a
+/// collision is a hard error (silently picking one would mis-validate the
+/// other's pages). `None` when no source declares any types.
+fn merge_page_types(
+    sources: &[ResolvedSource],
+) -> Result<Option<std::collections::HashMap<String, PageTypeSchema>>> {
+    let mut page_types: std::collections::HashMap<String, PageTypeSchema> =
+        std::collections::HashMap::new();
+    let mut owner: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for src in sources {
+        let label = if src.mount == "/" {
+            "the root source".to_string()
+        } else {
+            format!("mount `{}` (at `{}`)", src.name, src.mount)
+        };
+        for (name, schema) in &src.page_types {
+            if let Some(prev) = owner.get(name) {
+                return Err(eyre!(
+                    "frontmatter type `{name}` is defined by both {prev} and {label}; \
+                     define each type in exactly one source"
+                ));
+            }
+            page_types.insert(name.clone(), schema.clone());
+            owner.insert(name.clone(), label.clone());
+        }
+    }
+    Ok((!page_types.is_empty()).then_some(page_types))
 }
 
 /// Resolve `ImplDef`s (config schema) into `ResolvedImpl`s.
@@ -648,10 +722,10 @@ static RESOLVED_CONFIG: ArcSwapOption<ResolvedConfig> = ArcSwapOption::const_emp
 /// swaps the config in. Safe to call more than once: a later call supersedes
 /// the earlier config for all *new* `global_config()` reads.
 pub fn set_global_config(config: ResolvedConfig) -> Result<()> {
-    // Initialize build step executor
+    // Initialize the build step executor with every source's steps (each runs in
+    // its own project dir; `build()` resolves against the rendering source).
     let executor = std::sync::Arc::new(crate::build_steps::BuildStepExecutor::new(
-        config.build_steps.clone(),
-        config._root.clone(),
+        &config.sources,
     ));
     crate::host::Host::get().set_build_step_executor(executor);
 
@@ -709,6 +783,54 @@ mod tests {
         resolve_sources(Utf8Path::new("/proj"), source.as_ref(), mounts.as_deref())
     }
 
+    /// A `ResolvedSource` at `mount` declaring frontmatter types `type_names`
+    /// (each a trivial `@bool` schema), everything else empty.
+    fn source_with_page_types(mount: &str, type_names: &[&str]) -> ResolvedSource {
+        ResolvedSource {
+            name: mount.trim_matches('/').to_string(),
+            mount: mount.to_string(),
+            content_dir: Utf8PathBuf::from("/proj/content"),
+            checkout_dir: None,
+            git: None,
+            repo: None,
+            impls: Vec::new(),
+            skip_domains: Vec::new(),
+            project_dir: Utf8PathBuf::from("/proj"),
+            build_steps: Default::default(),
+            page_types: type_names
+                .iter()
+                .map(|n| (n.to_string(), PageTypeSchema::Bool))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn merge_page_types_unions_across_sources() {
+        let sources = [
+            source_with_page_types("/", &["Decision"]),
+            source_with_page_types("/wiki/", &["Vision"]),
+        ];
+        let merged = merge_page_types(&sources).unwrap().unwrap();
+        assert_eq!(merged.len(), 2);
+        assert!(merged.contains_key("Decision"));
+        assert!(merged.contains_key("Vision"));
+    }
+
+    #[test]
+    fn merge_page_types_rejects_duplicate_name_across_sources() {
+        let sources = [
+            source_with_page_types("/", &["Decision"]),
+            source_with_page_types("/wiki/", &["Decision"]),
+        ];
+        assert!(merge_page_types(&sources).is_err());
+    }
+
+    #[test]
+    fn merge_page_types_is_none_when_no_source_declares_any() {
+        let sources = [source_with_page_types("/", &[])];
+        assert!(merge_page_types(&sources).unwrap().is_none());
+    }
+
     #[test]
     fn root_source_carries_impls() {
         let mut src = src_cfg(Some("docs/content"));
@@ -746,7 +868,6 @@ mod tests {
             code_execution: Default::default(),
             light_theme_css: String::new(),
             dark_theme_css: String::new(),
-            build_steps: None,
             page_types: None,
             auth: None,
         }

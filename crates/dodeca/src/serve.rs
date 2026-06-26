@@ -2605,7 +2605,12 @@ impl SiteServer {
         }
 
         // Create render context for the cell (handles template loading and data resolution)
-        let render_context = RenderContext::new(templates, self.db.clone(), Arc::new(site_tree));
+        let render_context = RenderContext::new(
+            templates,
+            self.db.clone(),
+            Arc::new(site_tree),
+            route.as_str().to_string(),
+        );
         let guard = RenderContextGuard::new(render_context);
 
         // Convert context to Value

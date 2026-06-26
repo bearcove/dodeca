@@ -768,7 +768,8 @@ pub async fn try_render_template(
     })?;
 
     // Create render context with templates and site_tree
-    let context = RenderContext::new(templates, db, Arc::new(site_tree.clone()));
+    let context =
+        RenderContext::new(templates, db, Arc::new(site_tree.clone()), route.as_str().to_string());
     let guard = RenderContextGuard::new(context);
 
     // Build initial context

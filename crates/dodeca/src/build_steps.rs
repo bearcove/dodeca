@@ -16,6 +16,9 @@ use tokio::process::Command;
 /// Cache key for a build step invocation.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct CacheKey {
+    /// Mount of the source whose steps were invoked (steps are source-scoped, so
+    /// two sources may define a same-named step with different commands).
+    mount: String,
     /// Name of the build step
     step_name: String,
     /// Parameter values (sorted for consistency)
@@ -33,24 +36,46 @@ pub enum BuildStepResult {
     Error(String),
 }
 
-/// Executor for build steps with caching.
-pub struct BuildStepExecutor {
-    /// Build step definitions from config
+/// One source's build steps and the directory they run in.
+#[derive(Debug, Clone)]
+struct SourceSteps {
     steps: HashMap<String, BuildStepDef>,
-    /// Project root for resolving relative paths
-    project_root: Utf8PathBuf,
-    /// Cache of execution results
+    project_dir: Utf8PathBuf,
+}
+
+/// Executor for build steps with caching. Build steps are source-scoped: each
+/// content source contributes its own steps, which run in that source's project
+/// dir. A `build("step")` call resolves against the *rendering* source's bucket
+/// (keyed by mount), so a mounted sub-repo's `git_hash` reflects *its* HEAD.
+pub struct BuildStepExecutor {
+    /// Per-source steps, keyed by normalized mount (`/`, `/wiki/`, …).
+    by_mount: HashMap<String, SourceSteps>,
+    /// Cache of execution results (keyed by mount + step + params).
     cache: DashMap<CacheKey, BuildStepResult>,
 }
 
 impl BuildStepExecutor {
-    /// Create a new executor with build step definitions.
-    pub fn new(steps: Option<HashMap<String, BuildStepDef>>, project_root: Utf8PathBuf) -> Self {
-        let steps = steps.unwrap_or_default();
-        tracing::debug!(num_steps = steps.len(), steps = ?steps.keys().collect::<Vec<_>>(), "BuildStepExecutor initialized");
+    /// Build an executor from every source's steps + project dir.
+    pub fn new(sources: &[crate::config::ResolvedSource]) -> Self {
+        let by_mount: HashMap<String, SourceSteps> = sources
+            .iter()
+            .map(|s| {
+                (
+                    s.mount.clone(),
+                    SourceSteps {
+                        steps: s.build_steps.clone(),
+                        project_dir: s.project_dir.clone(),
+                    },
+                )
+            })
+            .collect();
+        tracing::debug!(
+            sources = by_mount.len(),
+            total_steps = by_mount.values().map(|s| s.steps.len()).sum::<usize>(),
+            "BuildStepExecutor initialized"
+        );
         Self {
-            steps,
-            project_root,
+            by_mount,
             cache: DashMap::new(),
         }
     }
@@ -61,16 +86,23 @@ impl BuildStepExecutor {
         self.cache.clear();
     }
 
-    /// Execute a build step with the given parameters.
+    /// Execute a build step (for the source mounted at `mount`) with the given
+    /// parameters.
     pub async fn execute(
         &self,
+        mount: &str,
         step_name: &str,
         params: &HashMap<String, String>,
     ) -> BuildStepResult {
-        tracing::debug!(step_name, ?params, "executing build step");
+        tracing::debug!(mount, step_name, ?params, "executing build step");
+
+        let Some(source) = self.by_mount.get(mount) else {
+            return BuildStepResult::Error(format!("No source mounted at '{}'", mount));
+        };
+        let project_root = &source.project_dir;
 
         // Look up the step definition
-        let step_def = match self.steps.get(step_name) {
+        let step_def = match source.steps.get(step_name) {
             Some(def) => def,
             None => {
                 return BuildStepResult::Error(format!("Unknown build step: {}", step_name));
@@ -90,7 +122,10 @@ impl BuildStepExecutor {
         }
 
         // Build cache key
-        let cache_key = match self.build_cache_key(step_name, step_def, params).await {
+        let cache_key = match self
+            .build_cache_key(mount, project_root, step_name, step_def, params)
+            .await
+        {
             Ok(key) => key,
             Err(e) => return BuildStepResult::Error(e),
         };
@@ -103,7 +138,9 @@ impl BuildStepExecutor {
 
         // Execute the step
         tracing::info!(step = %step_name, "Executing build step");
-        let result = self.execute_inner(step_name, step_def, params).await;
+        let result = self
+            .execute_inner(project_root, step_name, step_def, params)
+            .await;
         tracing::info!(step = %step_name, ?result, "Build step result");
 
         // Cache the result
@@ -115,6 +152,8 @@ impl BuildStepExecutor {
     /// Build the cache key for a step invocation.
     async fn build_cache_key(
         &self,
+        mount: &str,
+        project_root: &Utf8Path,
         step_name: &str,
         step_def: &BuildStepDef,
         params: &HashMap<String, String>,
@@ -127,7 +166,7 @@ impl BuildStepExecutor {
         let mut file_hashes = Vec::new();
         for param_name in step_def.file_params() {
             if let Some(file_path) = params.get(param_name) {
-                let full_path = self.project_root.join(file_path);
+                let full_path = project_root.join(file_path);
                 let hash = hash_file(&full_path).await.map_err(|e| {
                     format!(
                         "Failed to hash file '{}' for parameter '{}': {}",
@@ -140,6 +179,7 @@ impl BuildStepExecutor {
         file_hashes.sort_by(|a, b| a.0.cmp(&b.0));
 
         Ok(CacheKey {
+            mount: mount.to_string(),
             step_name: step_name.to_string(),
             params: sorted_params,
             file_hashes,
@@ -149,6 +189,7 @@ impl BuildStepExecutor {
     /// Execute the build step (no caching).
     async fn execute_inner(
         &self,
+        project_root: &Utf8Path,
         step_name: &str,
         step_def: &BuildStepDef,
         params: &HashMap<String, String>,
@@ -156,11 +197,13 @@ impl BuildStepExecutor {
         match &step_def.command {
             Some(cmd_args) => {
                 // Execute command
-                self.execute_command(step_name, cmd_args, params).await
+                self.execute_command(project_root, step_name, cmd_args, params)
+                    .await
             }
             None => {
                 // No command = read file from first @file param
-                self.read_file_param(step_name, step_def, params).await
+                self.read_file_param(project_root, step_name, step_def, params)
+                    .await
             }
         }
     }
@@ -168,6 +211,7 @@ impl BuildStepExecutor {
     /// Execute a command with parameter interpolation.
     async fn execute_command(
         &self,
+        project_root: &Utf8Path,
         step_name: &str,
         cmd_args: &[String],
         params: &HashMap<String, String>,
@@ -195,7 +239,7 @@ impl BuildStepExecutor {
         // Execute the command
         let output = match Command::new(program)
             .args(args)
-            .current_dir(&self.project_root)
+            .current_dir(project_root)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .output()
@@ -222,6 +266,7 @@ impl BuildStepExecutor {
     /// Read file content when no command is specified.
     async fn read_file_param(
         &self,
+        project_root: &Utf8Path,
         step_name: &str,
         step_def: &BuildStepDef,
         params: &HashMap<String, String>,
@@ -248,7 +293,7 @@ impl BuildStepExecutor {
             }
         };
 
-        let full_path = self.project_root.join(file_path);
+        let full_path = project_root.join(file_path);
         match tokio::fs::read(&full_path).await {
             Ok(contents) => BuildStepResult::Success(contents),
             Err(e) => BuildStepResult::Error(format!("Failed to read file '{}': {}", full_path, e)),

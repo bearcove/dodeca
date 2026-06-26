@@ -128,7 +128,10 @@ async fn render_one_shortcode(
         }
     };
 
-    let context = RenderContext::new(templates.clone(), db, Arc::new(site_tree.clone()));
+    // The page route isn't threaded into shortcode rendering, so a source-scoped
+    // host function (`build()`) called from inside a shortcode resolves to the
+    // root source (`/`). Threading the owning route here is a follow-up.
+    let context = RenderContext::new(templates.clone(), db, Arc::new(site_tree.clone()), "/".to_string());
     let guard = RenderContextGuard::new(context);
 
     let initial_context = build_shortcode_context(args_proto.as_ref(), body);

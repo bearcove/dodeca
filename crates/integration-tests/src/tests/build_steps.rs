@@ -383,3 +383,22 @@ pub async fn build_step_missing_param_error() {
         &body[..body.len().min(500)]
     );
 }
+
+/// Build steps are source-scoped: the root and the `/wiki` mount each define
+/// their own `which_version` step (`cat VERSION`), and each runs in its OWN
+/// project dir. The root reads `<root>/VERSION` (`root-version`); the wiki reads
+/// `<root>/wiki/VERSION` (`wiki-version`). This proves both the per-source step
+/// *definition* and the per-source working *directory*.
+pub async fn build_steps_are_source_scoped() {
+    let site = TestSite::new("per-source-build-site");
+
+    let root = site.get("/").await;
+    root.assert_ok();
+    root.assert_contains("root-version");
+    root.assert_not_contains("wiki-version");
+
+    let wiki = site.get("/wiki/").await;
+    wiki.assert_ok();
+    wiki.assert_contains("wiki-version");
+    wiki.assert_not_contains("root-version");
+}

@@ -1033,6 +1033,12 @@ fn collect_tests() -> Vec<Test> {
             func: || boxed(build_steps::build_step_missing_param_error()),
             ignored: false,
         },
+        Test {
+            name: "build_steps_are_source_scoped",
+            module: "build_steps",
+            func: || boxed(build_steps::build_steps_are_source_scoped()),
+            ignored: false,
+        },
         // search tests
         Test {
             name: "search_index_answers_queries",

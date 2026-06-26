@@ -1,0 +1,7 @@
+source {
+    build_steps {
+        which_version {
+            command (cat VERSION)
+        }
+    }
+}

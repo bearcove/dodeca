@@ -1,0 +1,25 @@
+// Each source defines its OWN `which_version` build step that runs `cat VERSION`
+// in that source's project dir — proving build steps are source-scoped (both the
+// definition and the working directory). The root reads <root>/VERSION; the wiki
+// reads <root>/wiki/VERSION.
+source {
+    content main/content
+
+    build_steps {
+        which_version {
+            command (cat VERSION)
+        }
+    }
+}
+
+mounts (
+    {
+        name wiki
+        path /wiki
+        local wiki/content
+    }
+)
+
+site {
+    output public
+}
