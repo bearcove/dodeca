@@ -269,8 +269,34 @@ enum Command {
     Lsp(LspArgs),
     /// Print authoring diagnostics
     Diagnostics(DiagnosticsArgs),
+    /// Inspect or migrate `.config/dodeca.styx`
+    Config(ConfigArgs),
     /// Record terminal session as HTML
     Term(TermArgs),
+}
+
+#[derive(Facet, Debug)]
+struct ConfigArgs {
+    #[facet(args::subcommand)]
+    command: ConfigCommand,
+}
+
+#[derive(Facet, Debug)]
+#[repr(u8)]
+enum ConfigCommand {
+    /// Rewrite a deprecated v1 config to the `source`/`site`/`mounts` format
+    Migrate(MigrateArgs),
+}
+
+#[derive(Facet, Debug)]
+struct MigrateArgs {
+    /// Project dir or path to a `.config/dodeca.styx` (default: discover from CWD)
+    #[facet(args::positional, default)]
+    path: Option<String>,
+
+    /// Write the migrated config back in place instead of printing to stdout
+    #[facet(args::named, args::short = 'w', default)]
+    write: bool,
 }
 
 /// Resolved configuration for a build
@@ -673,8 +699,63 @@ async fn async_main(command: Command) -> Result<()> {
 
             init::run_init(args.name, args.template, !args.skip_git_init).await
         }
+        Command::Config(args) => {
+            logging::init_standard_tracing();
+            match args.command {
+                ConfigCommand::Migrate(margs) => run_config_migrate(margs),
+            }
+        }
         Command::Term(args) => run_term(args).await,
     }
+}
+
+/// `ddc config migrate` — rewrite a deprecated v1 config to the new format.
+fn run_config_migrate(args: MigrateArgs) -> Result<()> {
+    // Resolve the config file: an explicit `.styx` file, a project dir, or
+    // discover from CWD.
+    let config_path = match args.path {
+        Some(p) => {
+            let p = Utf8PathBuf::from(p);
+            if p.extension() == Some("styx") {
+                p
+            } else {
+                p.join(".config").join("dodeca.styx")
+            }
+        }
+        None => dodeca::config::find_config_file()?
+            .ok_or_else(|| eyre!("no .config/dodeca.styx found (pass a path)"))?,
+    };
+    if !config_path.exists() {
+        return Err(eyre!("config not found: {config_path}"));
+    }
+
+    let content = std::fs::read_to_string(&config_path)?;
+    let (modern, legacy) = dodeca_config::parse_config(&content)
+        .map_err(|e| eyre!("failed to parse {config_path}: {e}"))?;
+    if !legacy {
+        println!("{config_path} is already in the new format; nothing to migrate.");
+        return Ok(());
+    }
+
+    // Serialize with `omit_none` (drop absent options instead of writing them as
+    // `@`, which is noise and doesn't round-trip), then pretty-reformat the text.
+    let serialized = facet_styx::to_string_with_options(
+        &modern,
+        &facet_styx::SerializeOptions::default().omit_none(),
+    )
+    .map_err(|e| eyre!("failed to serialize migrated config: {e}"))?;
+    let body = facet_styx::format_source(&serialized, facet_styx::SerializeOptions::default().pretty(80));
+    let migrated = format!("@schema {{id crate:dodeca-config@1, cli ddc}}\n\n{body}");
+
+    if args.write {
+        std::fs::write(&config_path, &migrated)?;
+        eprintln!(
+            "migrated {config_path} to the new format (comments were not preserved; review the diff)."
+        );
+    } else {
+        print!("{migrated}");
+    }
+    Ok(())
 }
 
 async fn run_diagnostics(args: DiagnosticsArgs) -> Result<()> {

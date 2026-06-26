@@ -506,3 +506,210 @@ impl BuildStepDef {
             .unwrap_or_default()
     }
 }
+
+// ============================================================================
+// v1 (legacy) config format + migration
+// ============================================================================
+
+/// The deprecated **v1** config shape: a flat top level with `content`/`sources`
+/// and the whole-site settings inline. Kept only so existing configs keep
+/// building (via [`parse_config`], which converts them) and so `ddc config
+/// migrate` can rewrite them. New configs use [`DodecaConfig`]'s
+/// `source`/`site`/`mounts`.
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "snake_case")]
+pub struct LegacyConfig {
+    #[facet(default)]
+    pub base_url: Option<String>,
+    /// Single-source leaf: the content dir, mounted at `/`.
+    #[facet(default)]
+    pub content: Option<String>,
+    pub output: String,
+    /// Aggregator: sources merged into one site (mutually exclusive with `content`).
+    #[facet(default)]
+    pub sources: Option<Vec<LegacySourceDef>>,
+    /// Coverage impls for the single-source (`content`) form.
+    #[facet(default)]
+    pub impls: Option<Vec<ImplDef>>,
+    #[facet(default)]
+    pub link_check: Option<LinkCheckConfig>,
+    #[facet(default)]
+    pub stable_assets: Option<Vec<String>>,
+    #[facet(default)]
+    pub code_execution: Option<CodeExecutionConfig>,
+    #[facet(default)]
+    pub syntax_highlight: Option<SyntaxHighlightConfig>,
+    #[facet(default)]
+    pub auth: Option<AuthConfig>,
+    #[facet(default)]
+    pub build_steps: Option<HashMap<String, BuildStepDef>>,
+    #[facet(default, alias = "page-types")]
+    pub page_types: Option<HashMap<String, PageTypeSchema>>,
+}
+
+/// A v1 `sources (...)` entry: a mount with its `repo`/`impls` inline (the new
+/// format moves those to the mounted source's own config / the `repo` override).
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "snake_case")]
+pub struct LegacySourceDef {
+    pub name: String,
+    pub mount: String,
+    #[facet(default)]
+    pub local: Option<String>,
+    #[facet(default)]
+    pub checkout: Option<String>,
+    #[facet(default)]
+    pub content: Option<String>,
+    #[facet(default)]
+    pub git: Option<String>,
+    #[facet(default)]
+    pub repo: Option<String>,
+    #[facet(default)]
+    pub impls: Option<Vec<ImplDef>>,
+}
+
+impl LegacyConfig {
+    /// Translate a v1 config to the modern [`DodecaConfig`].
+    pub fn into_modern(self) -> DodecaConfig {
+        let LegacyConfig {
+            base_url,
+            content,
+            output,
+            sources,
+            impls,
+            link_check,
+            stable_assets,
+            code_execution,
+            syntax_highlight,
+            auth,
+            build_steps,
+            page_types,
+        } = self;
+
+        let site = SiteConfig {
+            output,
+            base_url,
+            link_check,
+            stable_assets,
+            code_execution,
+            syntax_highlight,
+            auth,
+        };
+
+        match sources {
+            // Aggregator form: the `/`-mounted source becomes the root `source`,
+            // every other becomes a `mounts` entry.
+            Some(defs) => {
+                let mut source: Option<SourceConfig> = None;
+                let mut mounts: Vec<MountDef> = Vec::new();
+                for d in defs {
+                    if d.mount.trim_matches('/').is_empty() {
+                        // The root source: top-level `build_steps`/`page_types`
+                        // were site-wide in v1, so they ride along here (the
+                        // federated/per-source home in the new model).
+                        source = Some(SourceConfig {
+                            content: d.local.or(d.content),
+                            repo: d.repo,
+                            impls: d.impls.unwrap_or_default(),
+                            page_types: page_types.clone(),
+                            build_steps: build_steps.clone(),
+                            skip_domains: Vec::new(),
+                        });
+                    } else {
+                        mounts.push(MountDef {
+                            name: d.name,
+                            path: d.mount,
+                            local: d.local,
+                            checkout: d.checkout,
+                            content: d.content,
+                            git: d.git,
+                            repo: d.repo,
+                        });
+                    }
+                }
+                DodecaConfig {
+                    source,
+                    site: Some(site),
+                    mounts: Some(mounts),
+                }
+            }
+            // Single-source leaf: `content` + the (formerly top-level) coverage
+            // impls / build steps / page types become the root `source`.
+            None => DodecaConfig {
+                source: Some(SourceConfig {
+                    content,
+                    repo: None,
+                    impls: impls.unwrap_or_default(),
+                    page_types,
+                    build_steps,
+                    skip_domains: Vec::new(),
+                }),
+                site: Some(site),
+                mounts: None,
+            },
+        }
+    }
+}
+
+/// Parse a `.config/dodeca.styx`, accepting both the modern and the deprecated
+/// v1 format. Returns the modern config plus whether it came from v1 (so callers
+/// can emit a deprecation warning).
+///
+/// Detection: a modern config has at least one of `source` / `site` / `mounts`;
+/// a v1 config has none of those (its `content`/`output`/`sources` are unknown
+/// to the modern struct and ignored), so an all-`None` modern parse is re-parsed
+/// as v1 and converted.
+pub fn parse_config(text: &str) -> Result<(DodecaConfig, bool), facet_styx::DeserializeError> {
+    let modern: DodecaConfig = facet_styx::from_str(text)?;
+    if modern.source.is_some() || modern.site.is_some() || modern.mounts.is_some() {
+        return Ok((modern, false));
+    }
+    let legacy: LegacyConfig = facet_styx::from_str(text)?;
+    Ok((legacy.into_modern(), true))
+}
+
+#[cfg(test)]
+mod legacy_tests {
+    use super::*;
+
+    #[test]
+    fn single_source_v1_converts() {
+        let text = "content docs/content\noutput public\n";
+        let (cfg, legacy) = parse_config(text).unwrap();
+        assert!(legacy, "should be detected as v1");
+        let src = cfg.source.expect("root source");
+        assert_eq!(src.content.as_deref(), Some("docs/content"));
+        assert_eq!(cfg.site.expect("site").output, "public");
+        assert!(cfg.mounts.is_none());
+    }
+
+    #[test]
+    fn aggregator_v1_converts_root_and_mounts() {
+        let text = "output public\n\
+            sources (\n\
+              { name facet, mount /, local docs/content, repo \"https://r/facet\" }\n\
+              { name styx, mount /styx, local styx-docs/content, repo \"https://r/styx\" }\n\
+            )\n";
+        let (cfg, legacy) = parse_config(text).unwrap();
+        assert!(legacy);
+        // root `/` source
+        let src = cfg.source.expect("root source");
+        assert_eq!(src.content.as_deref(), Some("docs/content"));
+        assert_eq!(src.repo.as_deref(), Some("https://r/facet"));
+        // the one mount
+        let mounts = cfg.mounts.expect("mounts");
+        assert_eq!(mounts.len(), 1);
+        assert_eq!(mounts[0].name, "styx");
+        assert_eq!(mounts[0].path, "/styx");
+        assert_eq!(mounts[0].local.as_deref(), Some("styx-docs/content"));
+        assert_eq!(mounts[0].repo.as_deref(), Some("https://r/styx"));
+    }
+
+    #[test]
+    fn modern_config_is_not_flagged_legacy() {
+        let text = "source {\n  content content\n}\nsite {\n  output public\n}\n";
+        let (cfg, legacy) = parse_config(text).unwrap();
+        assert!(!legacy, "modern config must not be treated as v1");
+        assert_eq!(cfg.source.unwrap().content.as_deref(), Some("content"));
+    }
+}

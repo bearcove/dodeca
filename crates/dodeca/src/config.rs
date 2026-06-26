@@ -331,7 +331,8 @@ pub fn config_file_path(root: &Utf8Path) -> Utf8PathBuf {
     root.join(CONFIG_DIR).join(CONFIG_FILE_STYX)
 }
 
-fn find_config_file() -> Result<Option<Utf8PathBuf>> {
+/// Discover the nearest `.config/dodeca.styx` walking up from the current dir.
+pub fn find_config_file() -> Result<Option<Utf8PathBuf>> {
     let cwd = env::current_dir()?;
     let cwd = Utf8PathBuf::try_from(cwd).map_err(|e| {
         eyre!(
@@ -364,8 +365,16 @@ fn find_config_file() -> Result<Option<Utf8PathBuf>> {
 fn load_config(config_path: &Utf8Path) -> Result<ResolvedConfig> {
     let content = fs::read_to_string(config_path)?;
 
-    let config: DodecaConfig = facet_styx::from_str(&content)
+    let (config, legacy) = dodeca_config::parse_config(&content)
         .map_err(|e| eyre!("Failed to parse {}: {}", config_path, e))?;
+    if legacy {
+        tracing::warn!(
+            config = %config_path,
+            "this config uses the deprecated v1 format (top-level `output` / `content` / \
+             `sources`); run `ddc config migrate` to update it to `source {{}}` / `site {{}}` / \
+             `mounts (...)`. v1 support will be removed in a future release."
+        );
+    }
 
     // Project root is the parent of .config/
     let config_dir = config_path
@@ -617,11 +626,12 @@ fn discover_source_config(
         if styx_file.exists() {
             // The dir holding `.config/` is this source's own project root. A
             // config that's present but unparseable is surfaced (not silently
-            // dropped) — composition is meant to be load-bearing.
+            // dropped) — composition is meant to be load-bearing. Accepts the
+            // deprecated v1 format too (via `parse_config`).
             let source = fs::read_to_string(&styx_file)
                 .ok()
-                .and_then(|content| match facet_styx::from_str::<DodecaConfig>(&content) {
-                    Ok(cfg) => cfg.source,
+                .and_then(|content| match dodeca_config::parse_config(&content) {
+                    Ok((cfg, _legacy)) => cfg.source,
                     Err(e) => {
                         tracing::warn!(
                             config = %styx_file,

@@ -27,6 +27,7 @@ cell-term-proto = { path = "../../cells/cell-term-proto" }
 cell-tui-proto = { path = "../../cells/cell-tui-proto" }
 dodeca = { path = "../dodeca" }
 dodeca-authoring-lsp = { path = "../dodeca-authoring-lsp" }
+dodeca-config = { path = "../dodeca-config" }
 dodeca-debug = { path = "../dodeca-debug" }
 arboard = { version = "3", default-features = false }
 arc-swap.workspace = true
@@ -35,6 +36,7 @@ chrono.workspace = true
 eyre.workspace = true
 facet.workspace = true
 facet-json.workspace = true
+facet-styx.workspace = true
 figue.workspace = true
 if-addrs.workspace = true
 ignore.workspace = true
