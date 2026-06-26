@@ -557,7 +557,7 @@ fn resolve_mount(root: &Utf8Path, def: &MountDef) -> Result<ResolvedSource> {
     // Compose the mounted source's own `source {}` for its behavior. The dir
     // holding that config is the source's project root (where its build steps
     // run); without one, fall back to the checkout dir, then the content dir.
-    let composed = discover_source_config(&content_dir);
+    let composed = discover_source_config(&content_dir, root);
     let project_dir = composed
         .as_ref()
         .map(|(dir, _)| dir.clone())
@@ -600,18 +600,44 @@ fn resolve_mount(root: &Utf8Path, def: &MountDef) -> Result<ResolvedSource> {
 /// `.config/dodeca.styx` at or above it — for composition. Parse-only (no nested
 /// resolve), and best-effort: a source with no config of its own just has no
 /// composed behavior.
-fn discover_source_config(content_dir: &Utf8Path) -> Option<(Utf8PathBuf, SourceConfig)> {
+fn discover_source_config(
+    content_dir: &Utf8Path,
+    root: &Utf8Path,
+) -> Option<(Utf8PathBuf, SourceConfig)> {
     let mut current = content_dir;
     loop {
+        // Stop at the aggregator's own root: a mount composes a config within its
+        // own subtree, never the assembling site's. (Without this, an in-tree
+        // mount with no config of its own would walk up and compose the
+        // aggregator's `source {}` — leaking its impls/page_types onto the mount.)
+        if current == root {
+            return None;
+        }
         let styx_file = current.join(CONFIG_DIR).join(CONFIG_FILE_STYX);
         if styx_file.exists() {
-            let parsed = fs::read_to_string(&styx_file)
+            // The dir holding `.config/` is this source's own project root. A
+            // config that's present but unparseable is surfaced (not silently
+            // dropped) — composition is meant to be load-bearing.
+            let source = fs::read_to_string(&styx_file)
                 .ok()
-                .and_then(|content| facet_styx::from_str::<DodecaConfig>(&content).ok());
-            // The dir holding `.config/` is this source's own project root.
-            return parsed.and_then(|c| c.source).map(|s| (current.to_owned(), s));
+                .and_then(|content| match facet_styx::from_str::<DodecaConfig>(&content) {
+                    Ok(cfg) => cfg.source,
+                    Err(e) => {
+                        tracing::warn!(
+                            config = %styx_file,
+                            error = %e,
+                            "mounted source config failed to parse; its `source {{}}` \
+                             won't be composed"
+                        );
+                        None
+                    }
+                });
+            return source.map(|s| (current.to_owned(), s));
         }
-        current = current.parent()?;
+        match current.parent() {
+            Some(parent) => current = parent,
+            None => return None,
+        }
     }
 }
 

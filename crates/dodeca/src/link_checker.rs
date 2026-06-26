@@ -205,13 +205,18 @@ pub async fn check_external_links(
     db: &Database,
     extracted: &ExtractedLinks,
     date: NaiveDate,
-    _options: &ExternalLinkOptions,
+    options: &ExternalLinkOptions,
 ) -> (Vec<BrokenLink>, usize) {
     use futures_util::future::join_all;
 
-    // Deduplicate URLs and track which links use each URL
+    // Deduplicate URLs and track which links use each URL, dropping any whose
+    // host is in `skip_domains` (anti-bot 403s, known-flaky) — those are neither
+    // checked nor reported.
     let mut unique_urls: HashMap<&str, Vec<&ExtractedLink>> = HashMap::new();
     for link in &extracted.external {
+        if is_skipped_domain(&link.href, &options.skip_domains) {
+            continue;
+        }
         unique_urls.entry(&link.href).or_default().push(link);
     }
 
@@ -270,6 +275,29 @@ pub async fn check_external_links(
     }
 
     (broken, checked_count)
+}
+
+/// The host of an `scheme://host[:port]/…` URL (no userinfo, no port).
+fn url_host(url: &str) -> Option<&str> {
+    let after_scheme = url.split_once("://")?.1;
+    let authority = after_scheme.split(['/', '?', '#']).next()?;
+    let host = authority.rsplit('@').next()?; // strip any userinfo
+    let host = host.split(':').next()?; // strip any port
+    (!host.is_empty()).then_some(host)
+}
+
+/// Whether `url`'s host matches a `skip_domains` entry, as the apex domain or
+/// any subdomain of it (`patreon.com` skips `patreon.com` and `www.patreon.com`).
+fn is_skipped_domain(url: &str, skip_domains: &HashSet<String>) -> bool {
+    if skip_domains.is_empty() {
+        return false;
+    }
+    let Some(host) = url_host(url) else {
+        return false;
+    };
+    skip_domains
+        .iter()
+        .any(|d| host == d || host.ends_with(&format!(".{d}")))
 }
 
 /// Check if an internal link is valid
@@ -486,6 +514,24 @@ mod tests {
         let result = check_internal_links(&extracted);
         assert!(result.is_ok(), "broken: {:?}", result.broken_links);
         assert_eq!(result.external_links, 1);
+    }
+
+    #[test]
+    fn test_url_host() {
+        assert_eq!(url_host("https://patreon.com/fasterthanlime"), Some("patreon.com"));
+        assert_eq!(url_host("https://www.patreon.com:443/x?a=b#c"), Some("www.patreon.com"));
+        assert_eq!(url_host("http://user:pw@host.example/x"), Some("host.example"));
+        assert_eq!(url_host("not-a-url"), None);
+    }
+
+    #[test]
+    fn test_is_skipped_domain() {
+        let skip: HashSet<String> = ["patreon.com".to_string()].into_iter().collect();
+        assert!(is_skipped_domain("https://patreon.com/x", &skip));
+        assert!(is_skipped_domain("https://www.patreon.com/x", &skip)); // subdomain
+        assert!(!is_skipped_domain("https://notpatreon.com/x", &skip)); // not a suffix match
+        assert!(!is_skipped_domain("https://example.com/x", &skip));
+        assert!(!is_skipped_domain("https://patreon.com/x", &HashSet::new())); // empty = nothing skipped
     }
 
     #[test]
