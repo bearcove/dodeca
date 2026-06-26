@@ -15,6 +15,9 @@ able to parse any URI, such as `urn:isbn:0451450523`.
 
 */
 #![allow(non_upper_case_globals)]
+// Vendored LSP types crate: many protocol structs are part of the API surface
+// but unused by dodeca's own usage.
+#![allow(dead_code)]
 #![forbid(unsafe_code)]
 #[macro_use]
 extern crate bitflags;

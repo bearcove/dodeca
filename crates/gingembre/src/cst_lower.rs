@@ -26,7 +26,10 @@ fn ident(name: &str, node: &ResolvedNode) -> Ident {
         .find(|t| t.kind() == gingembre_syntax::SyntaxKind::Ident && t.text() == name)
         .map(|t| ast::span(usize::from(t.text_range().start()), t.text().len()))
         .unwrap_or_else(|| sp(node));
-    Ident { name: name.to_string(), span }
+    Ident {
+        name: name.to_string(),
+        span,
+    }
 }
 
 /// Lower a typed-CST expression to an engine `Expr`.
@@ -35,8 +38,14 @@ pub fn lower_expr(e: &cst::Expr) -> Expr {
     let span = sp(node);
     match e {
         cst::Expr::Literal(l) => Expr::Literal(lower_literal(l, span)),
-        cst::Expr::Var(v) => Expr::Var(Ident { name: v.name().unwrap_or_default().to_string(), span }),
-        cst::Expr::Paren(p) => p.inner().map(|i| lower_expr(&i)).unwrap_or(Expr::Literal(ast::Literal::None(ast::NoneLit { span }))),
+        cst::Expr::Var(v) => Expr::Var(Ident {
+            name: v.name().unwrap_or_default().to_string(),
+            span,
+        }),
+        cst::Expr::Paren(p) => p
+            .inner()
+            .map(|i| lower_expr(&i))
+            .unwrap_or(Expr::Literal(ast::Literal::None(ast::NoneLit { span }))),
         cst::Expr::Field(f) => Expr::Field(ast::FieldExpr {
             base: Box::new(opt_expr(f.base(), span)),
             field: ident(f.field().unwrap_or_default(), node),
@@ -117,7 +126,11 @@ pub fn lower_expr(e: &cst::Expr) -> Expr {
             span,
         })),
         cst::Expr::Dict(d) => Expr::Literal(ast::Literal::Dict(ast::DictLit {
-            entries: d.entries().iter().map(|(k, v)| (lower_expr(k), lower_expr(v))).collect(),
+            entries: d
+                .entries()
+                .iter()
+                .map(|(k, v)| (lower_expr(k), lower_expr(v)))
+                .collect(),
             span,
         })),
     }
@@ -139,7 +152,9 @@ fn lower_literal(l: &cst::Literal, span: Span) -> ast::Literal {
 }
 
 fn lower_args(args: Option<cst::ArgList>) -> (Vec<Expr>, Vec<(Ident, Expr)>) {
-    let Some(args) = args else { return (Vec::new(), Vec::new()) };
+    let Some(args) = args else {
+        return (Vec::new(), Vec::new());
+    };
     let pos = args.positional().map(|e| lower_expr(&e)).collect();
     let kw = args
         .keyword()
@@ -174,8 +189,7 @@ fn compute_trim(src: &str) -> HashMap<usize, (bool, bool)> {
     for (i, lx) in lex.iter().enumerate() {
         if lx.kind == Text {
             let lead = i > 0 && matches!(lex[i - 1].kind, CloseStmtTrim | CloseExprTrim);
-            let trail =
-                i + 1 < lex.len() && matches!(lex[i + 1].kind, OpenStmtTrim | OpenExprTrim);
+            let trail = i + 1 < lex.len() && matches!(lex[i + 1].kind, OpenStmtTrim | OpenExprTrim);
             map.insert(offset, (lead, trail));
         }
         offset += lx.text.len();
@@ -194,7 +208,7 @@ pub fn parse_template(
     let src = src.as_ref();
     let (ast, errors) = parse_to_template(src);
     if let Some(e) = errors.first() {
-        let ts = crate::error::TemplateSource::new(&name.into(), src);
+        let ts = crate::error::TemplateSource::new(name.into(), src);
         return Err(crate::error::SyntaxError {
             found: "end of input".to_string(),
             expected: e.message.clone(),
@@ -248,7 +262,13 @@ pub fn parse_to_template(src: &str) -> (crate::ast::Template, Vec<gingembre_synt
         .map(|t| lower_items(&t.items()))
         .unwrap_or_default();
     TRIM.with(|t| t.borrow_mut().clear());
-    (crate::ast::Template { body, span: ast::span(0, src.len()) }, parse.errors)
+    (
+        crate::ast::Template {
+            body,
+            span: ast::span(0, src.len()),
+        },
+        parse.errors,
+    )
 }
 
 fn lower_items(items: &[cst::Item]) -> Vec<Node> {
@@ -261,7 +281,8 @@ fn lower_items(items: &[cst::Item]) -> Vec<Node> {
                 }
                 // Whitespace control via flat-adjacency trim flags (keyed by offset).
                 let off = usize::from(tok.text_range().start());
-                let (lead, trail) = TRIM.with(|t| t.borrow().get(&off).copied().unwrap_or((false, false)));
+                let (lead, trail) =
+                    TRIM.with(|t| t.borrow().get(&off).copied().unwrap_or((false, false)));
                 let mut text = tok.text();
                 if lead {
                     text = text.trim_start();
@@ -273,7 +294,10 @@ fn lower_items(items: &[cst::Item]) -> Vec<Node> {
                 if text.is_empty() {
                     continue;
                 }
-                out.push(Node::Text(TextNode { text: text.to_string(), span: ast::span(0, text.len()) }));
+                out.push(Node::Text(TextNode {
+                    text: text.to_string(),
+                    span: ast::span(0, text.len()),
+                }));
             }
             other => {
                 if let Some(node) = lower_item(other) {
@@ -306,7 +330,10 @@ fn lower_item(item: &cst::Item) -> Option<Node> {
         }
         cst::Item::Interpolation(i) => {
             let span = sp(i.syntax());
-            Node::Print(PrintNode { expr: opt_expr(i.expr(), span), span })
+            Node::Print(PrintNode {
+                expr: opt_expr(i.expr(), span),
+                span,
+            })
         }
         cst::Item::If(iff) => {
             let span = sp(iff.syntax());
@@ -329,9 +356,15 @@ fn lower_item(item: &cst::Item) -> Option<Node> {
             let span = sp(f.syntax());
             let names = f.targets();
             let target = if names.len() == 1 {
-                Target::Single { name: names[0].clone(), span }
+                Target::Single {
+                    name: names[0].clone(),
+                    span,
+                }
             } else {
-                Target::Tuple { names: names.into_iter().map(|n| (n, span)).collect(), span }
+                Target::Tuple {
+                    names: names.into_iter().map(|n| (n, span)).collect(),
+                    span,
+                }
             };
             Node::For(ForNode {
                 target,
@@ -392,12 +425,19 @@ fn lower_item(item: &cst::Item) -> Option<Node> {
             let span = sp(im.syntax());
             Node::Import(ImportNode {
                 path: str_lit(im.path(), span),
-                alias: Ident { name: im.alias().unwrap_or_default(), span },
+                alias: Ident {
+                    name: im.alias().unwrap_or_default(),
+                    span,
+                },
                 span,
             })
         }
-        cst::Item::Break(b) => Node::Break(crate::ast::BreakNode { span: sp(b.syntax()) }),
-        cst::Item::Continue(c) => Node::Continue(crate::ast::ContinueNode { span: sp(c.syntax()) }),
+        cst::Item::Break(b) => Node::Break(crate::ast::BreakNode {
+            span: sp(b.syntax()),
+        }),
+        cst::Item::Continue(c) => Node::Continue(crate::ast::ContinueNode {
+            span: sp(c.syntax()),
+        }),
     })
 }
 
@@ -448,8 +488,15 @@ mod tests {
     fn lower(src: &str) -> Expr {
         let p = gingembre_syntax::parse(&format!("{{{{ {src} }}}}"));
         assert!(p.errors.is_empty(), "{:?}", p.errors);
-        let interp = p.syntax().children().find(|n| n.kind() == SyntaxKind::Interpolation).unwrap();
-        let cst_expr = cst::Interpolation::cast(interp.clone()).unwrap().expr().unwrap();
+        let interp = p
+            .syntax()
+            .children()
+            .find(|n| n.kind() == SyntaxKind::Interpolation)
+            .unwrap();
+        let cst_expr = cst::Interpolation::cast(interp.clone())
+            .unwrap()
+            .expr()
+            .unwrap();
         lower_expr(&cst_expr)
     }
 
@@ -459,10 +506,14 @@ mod tests {
         assert!(matches!(lower("a + b"), Expr::Binary(b) if b.op == BinaryOp::Add));
         assert!(matches!(lower("x not in xs"), Expr::Binary(b) if b.op == BinaryOp::NotIn));
         assert!(matches!(lower("page.title"), Expr::Field(_)));
-        assert!(matches!(lower("f(a.b, k=c)"), Expr::Call(c) if c.args.len() == 1 && c.kwargs.len() == 1));
+        assert!(
+            matches!(lower("f(a.b, k=c)"), Expr::Call(c) if c.args.len() == 1 && c.kwargs.len() == 1)
+        );
         assert!(matches!(lower("x | upper | safe"), Expr::Filter(_)));
         assert!(matches!(lower("width?"), Expr::Optional(_)));
         assert!(matches!(lower("a if c else b"), Expr::Ternary(_)));
-        assert!(matches!(lower("[1, 2]"), Expr::Literal(ast::Literal::List(l)) if l.elements.len() == 2));
+        assert!(
+            matches!(lower("[1, 2]"), Expr::Literal(ast::Literal::List(l)) if l.elements.len() == 2)
+        );
     }
 }

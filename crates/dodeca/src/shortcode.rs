@@ -31,12 +31,8 @@ pub async fn resolve_shortcodes(
     const OPEN: &str = "<dodeca-shortcode ";
     const CLOSE: &str = "</dodeca-shortcode>";
 
-    loop {
-        // Find the first closing tag — this is always the innermost shortcode.
-        let Some(close_pos) = html.find(CLOSE) else {
-            break;
-        };
-
+    // The first closing tag is always the innermost shortcode; resolve until none remain.
+    while let Some(close_pos) = html.find(CLOSE) {
         // Find the matching opening tag by scanning backward from close_pos.
         let prefix = &html[..close_pos];
         let Some(open_rel) = prefix.rfind(OPEN) else {
@@ -75,7 +71,7 @@ pub async fn resolve_shortcodes(
 /// Extract the value of an HTML attribute from an attributes string.
 ///
 /// Handles `key="value"` and `key='value'` forms. Returns `None` if not found.
-fn parse_attr<'a>(attrs: &'a str, key: &str) -> Option<String> {
+fn parse_attr(attrs: &str, key: &str) -> Option<String> {
     let search = format!("{key}=\"");
     let start = attrs.find(&search)? + search.len();
     let end = attrs[start..].find('"')? + start;
@@ -131,7 +127,12 @@ async fn render_one_shortcode(
     // The page route isn't threaded into shortcode rendering, so a source-scoped
     // host function (`build()`) called from inside a shortcode resolves to the
     // root source (`/`). Threading the owning route here is a follow-up.
-    let context = RenderContext::new(templates.clone(), db, Arc::new(site_tree.clone()), "/".to_string());
+    let context = RenderContext::new(
+        templates.clone(),
+        db,
+        Arc::new(site_tree.clone()),
+        "/".to_string(),
+    );
     let guard = RenderContextGuard::new(context);
 
     let initial_context = build_shortcode_context(args_proto.as_ref(), body);

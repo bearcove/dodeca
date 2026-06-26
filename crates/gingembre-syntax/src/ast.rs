@@ -164,7 +164,9 @@ pub enum LitValue {
 impl Literal {
     pub fn value(&self) -> LitValue {
         let tok = self.0.first_token();
-        let Some(tok) = tok else { return LitValue::None };
+        let Some(tok) = tok else {
+            return LitValue::None;
+        };
         match tok.kind() {
             Int => LitValue::Int(tok.text().parse().unwrap_or(0)),
             Float => LitValue::Float(tok.text().parse().unwrap_or(0.0)),
@@ -198,7 +200,9 @@ impl IndexExpr {
     }
     /// `true` when this is a slice (`a[:n]` / `a[a:b]`) rather than a plain index.
     pub fn is_slice(&self) -> bool {
-        self.0.children_with_tokens().any(|e| e.into_token().is_some_and(|t| t.kind() == Colon))
+        self.0
+            .children_with_tokens()
+            .any(|e| e.into_token().is_some_and(|t| t.kind() == Colon))
     }
     /// The index expression (for a plain index), i.e. the second expression child.
     pub fn index(&self) -> Option<Expr> {
@@ -239,8 +243,12 @@ impl ArgList {
         typed_children::<Arg>(&self.0).filter_map(|a| first_expr(a.syntax()))
     }
     pub fn keyword(&self) -> impl Iterator<Item = (String, Expr)> + '_ {
-        typed_children::<KwArg>(&self.0)
-            .filter_map(|k| Some((token_text(k.syntax(), Ident)?.to_owned(), first_expr(k.syntax())?)))
+        typed_children::<KwArg>(&self.0).filter_map(|k| {
+            Some((
+                token_text(k.syntax(), Ident)?.to_owned(),
+                first_expr(k.syntax())?,
+            ))
+        })
     }
 }
 
@@ -262,7 +270,9 @@ impl TestExpr {
         first_expr(&self.0)
     }
     pub fn negated(&self) -> bool {
-        self.0.children_with_tokens().any(|e| e.into_token().is_some_and(|t| t.kind() == NotKw))
+        self.0
+            .children_with_tokens()
+            .any(|e| e.into_token().is_some_and(|t| t.kind() == NotKw))
     }
     pub fn name(&self) -> Option<&str> {
         // Test name is an Ident, or the `none` keyword.
@@ -292,9 +302,24 @@ impl TernaryExpr {
 /// A binary operator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinOp {
-    Add, Sub, Mul, Div, FloorDiv, Mod, Pow, Concat,
-    Eq, Ne, Lt, Le, Gt, Ge,
-    And, Or, In, NotIn,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    FloorDiv,
+    Mod,
+    Pow,
+    Concat,
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    And,
+    Or,
+    In,
+    NotIn,
 }
 
 impl BinaryExpr {
@@ -307,15 +332,20 @@ impl BinaryExpr {
     pub fn op(&self) -> Option<BinOp> {
         // `not in` is the only binary carrying a `not` token; detect it first.
         let has = |k: SyntaxKind| {
-            self.0.children_with_tokens().any(|e| e.into_token().is_some_and(|t| t.kind() == k))
+            self.0
+                .children_with_tokens()
+                .any(|e| e.into_token().is_some_and(|t| t.kind() == k))
         };
         if has(NotKw) && has(InKw) {
             return Some(BinOp::NotIn);
         }
-        let k = first_token_kind(&self.0, &[
-            Plus, Minus, Star, Slash, SlashSlash, Percent, StarStar, Tilde,
-            EqEq, Neq, Lt, Le, Gt, Ge, AndKw, OrKw, InKw,
-        ])?;
+        let k = first_token_kind(
+            &self.0,
+            &[
+                Plus, Minus, Star, Slash, SlashSlash, Percent, StarStar, Tilde, EqEq, Neq, Lt, Le,
+                Gt, Ge, AndKw, OrKw, InKw,
+            ],
+        )?;
         Some(match k {
             Plus => BinOp::Add,
             Minus => BinOp::Sub,
@@ -374,8 +404,15 @@ impl ListLit {
 impl DictLit {
     /// (key, value) pairs in source order.
     pub fn entries(&self) -> Vec<(Expr, Expr)> {
-        let exprs: Vec<Expr> = self.0.children().filter_map(|c| Expr::cast(c.clone())).collect();
-        exprs.chunks_exact(2).map(|c| (c[0].clone(), c[1].clone())).collect()
+        let exprs: Vec<Expr> = self
+            .0
+            .children()
+            .filter_map(|c| Expr::cast(c.clone()))
+            .collect();
+        exprs
+            .chunks_exact(2)
+            .map(|c| (c[0].clone(), c[1].clone()))
+            .collect()
     }
 }
 
@@ -478,17 +515,23 @@ impl Item {
     /// Whether this item's leading delimiter is a trim variant (`{%-`/`{{-`) —
     /// trims trailing whitespace of the text run before it.
     pub fn opens_with_trim(&self) -> bool {
-        self.node()
-            .and_then(|n| n.first_token())
-            .is_some_and(|t| matches!(t.kind(), SyntaxKind::OpenStmtTrim | SyntaxKind::OpenExprTrim))
+        self.node().and_then(|n| n.first_token()).is_some_and(|t| {
+            matches!(
+                t.kind(),
+                SyntaxKind::OpenStmtTrim | SyntaxKind::OpenExprTrim
+            )
+        })
     }
 
     /// Whether this item's trailing delimiter is a trim variant (`-%}`/`-}}`) —
     /// trims leading whitespace of the text run after it.
     pub fn closes_with_trim(&self) -> bool {
-        self.node()
-            .and_then(|n| n.last_token())
-            .is_some_and(|t| matches!(t.kind(), SyntaxKind::CloseStmtTrim | SyntaxKind::CloseExprTrim))
+        self.node().and_then(|n| n.last_token()).is_some_and(|t| {
+            matches!(
+                t.kind(),
+                SyntaxKind::CloseStmtTrim | SyntaxKind::CloseExprTrim
+            )
+        })
     }
 }
 
@@ -599,9 +642,16 @@ impl MacroStmt {
         token_text(&self.0, Ident).map(str::to_owned)
     }
     pub fn params(&self) -> Vec<(String, Option<Expr>)> {
-        let Some(list) = typed_child::<ParamList>(&self.0) else { return Vec::new() };
+        let Some(list) = typed_child::<ParamList>(&self.0) else {
+            return Vec::new();
+        };
         typed_children::<Param>(list.syntax())
-            .filter_map(|p| Some((token_text(p.syntax(), Ident)?.to_owned(), first_expr(p.syntax()))))
+            .filter_map(|p| {
+                Some((
+                    token_text(p.syntax(), Ident)?.to_owned(),
+                    first_expr(p.syntax()),
+                ))
+            })
             .collect()
     }
     pub fn body(&self) -> Option<Body> {
@@ -677,20 +727,28 @@ mod tests {
         let p = parse_expr_str(src);
         assert!(p.errors.is_empty(), "errors: {:?}", p.errors);
         // Template → Interpolation → Expr
-        let interp = p.syntax().children().find(|n| n.kind() == SyntaxKind::Interpolation).unwrap();
+        let interp = p
+            .syntax()
+            .children()
+            .find(|n| n.kind() == SyntaxKind::Interpolation)
+            .unwrap();
         first_expr(interp).expect("an expression")
     }
 
     #[test]
     fn literals() {
-        assert_eq!(matches!(expr_of("42"), Expr::Literal(l) if l.value() == LitValue::Int(42)), true);
-        assert_eq!(matches!(expr_of("\"a\\nb\""), Expr::Literal(l) if l.value() == LitValue::Str("a\nb".into())), true);
+        assert!(matches!(expr_of("42"), Expr::Literal(l) if l.value() == LitValue::Int(42)));
+        assert!(
+            matches!(expr_of("\"a\\nb\""), Expr::Literal(l) if l.value() == LitValue::Str("a\nb".into()))
+        );
         assert!(matches!(expr_of("true"), Expr::Literal(l) if l.value() == LitValue::Bool(true)));
     }
 
     #[test]
     fn binary_op_and_operands() {
-        let Expr::Binary(b) = expr_of("a + b") else { panic!() };
+        let Expr::Binary(b) = expr_of("a + b") else {
+            panic!()
+        };
         assert_eq!(b.op(), Some(BinOp::Add));
         assert!(matches!(b.lhs(), Some(Expr::Var(_))));
         assert!(matches!(b.rhs(), Some(Expr::Var(_))));
@@ -698,13 +756,17 @@ mod tests {
 
     #[test]
     fn not_in_operator() {
-        let Expr::Binary(b) = expr_of("x not in xs") else { panic!() };
+        let Expr::Binary(b) = expr_of("x not in xs") else {
+            panic!()
+        };
         assert_eq!(b.op(), Some(BinOp::NotIn));
     }
 
     #[test]
     fn call_with_field_arg_and_kwarg() {
-        let Expr::Call(c) = expr_of("f(a.b, k=c)") else { panic!() };
+        let Expr::Call(c) = expr_of("f(a.b, k=c)") else {
+            panic!()
+        };
         let args = c.args().unwrap();
         assert_eq!(args.positional().count(), 1);
         let kw: Vec<_> = args.keyword().collect();
@@ -715,14 +777,18 @@ mod tests {
 
     #[test]
     fn field_and_optional() {
-        let Expr::Field(f) = expr_of("page.title") else { panic!() };
+        let Expr::Field(f) = expr_of("page.title") else {
+            panic!()
+        };
         assert_eq!(f.field(), Some("title"));
         assert!(matches!(expr_of("width?"), Expr::Optional(_)));
     }
 
     #[test]
     fn slice_detected() {
-        let Expr::Index(i) = expr_of("xs[:3]") else { panic!() };
+        let Expr::Index(i) = expr_of("xs[:3]") else {
+            panic!()
+        };
         assert!(i.is_slice());
     }
 
@@ -735,7 +801,9 @@ mod tests {
     #[test]
     fn if_elif_else_structure() {
         let t = template("{% if a %}x{% elif b %}y{% else %}z{% endif %}");
-        let Item::If(iff) = &t.items()[0] else { panic!("{:?}", t.items()) };
+        let Item::If(iff) = &t.items()[0] else {
+            panic!("{:?}", t.items())
+        };
         assert!(matches!(iff.condition(), Some(Expr::Var(_))));
         assert!(iff.then_body().is_some());
         assert_eq!(iff.elif_clauses().count(), 1);
@@ -745,7 +813,9 @@ mod tests {
     #[test]
     fn for_targets_and_iter() {
         let t = template("{% for a, b in items %}{{ a }}{% endfor %}");
-        let Item::For(f) = &t.items()[0] else { panic!() };
+        let Item::For(f) = &t.items()[0] else {
+            panic!()
+        };
         assert_eq!(f.targets(), vec!["a".to_string(), "b".to_string()]);
         assert!(matches!(f.iter_expr(), Some(Expr::Var(_))));
         assert!(f.body().is_some());
@@ -754,7 +824,9 @@ mod tests {
     #[test]
     fn macro_params() {
         let t = template("{% macro m(a, b=1) %}{{ a }}{% endmacro %}");
-        let Item::Macro(m) = &t.items()[0] else { panic!() };
+        let Item::Macro(m) = &t.items()[0] else {
+            panic!()
+        };
         assert_eq!(m.name().as_deref(), Some("m"));
         let params = m.params();
         assert_eq!(params.len(), 2);
@@ -767,12 +839,16 @@ mod tests {
     #[test]
     fn set_assign_vs_block() {
         let t = template("{% set x = 1 %}");
-        let Item::Set(s) = &t.items()[0] else { panic!() };
+        let Item::Set(s) = &t.items()[0] else {
+            panic!()
+        };
         assert_eq!(s.name().as_deref(), Some("x"));
         assert!(s.value().is_some());
 
         let t2 = template("{% set y %}hi{% endset %}");
-        let Item::Set(s2) = &t2.items()[0] else { panic!() };
+        let Item::Set(s2) = &t2.items()[0] else {
+            panic!()
+        };
         assert!(s2.value().is_none());
         assert!(s2.body().is_some());
     }
