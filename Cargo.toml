@@ -78,18 +78,18 @@ hotmeal = { path = "libs/hotmeal/hotmeal" }
 hotmeal-server = { path = "libs/hotmeal/hotmeal-server", features = ["tracing"] }
 hotmeal-wasm = { path = "libs/hotmeal/hotmeal-wasm" }
 
-facet = { version = "0.50.0-rc.0", features = ["camino"] }
-facet-default = "0.50.0-rc.0"
-facet-format = "0.50.0-rc.0"
-facet-json = "0.50.0-rc.0"
-facet-postcard = "0.50.0-rc.0"
-facet-toml = "0.50.0-rc.0"
-facet-value = "0.50.0-rc.0"
-facet-yaml = "0.50.0-rc.0"
+facet = { version = "0.50.0-rc.4", features = ["camino"] }
+facet-default = "0.50.0-rc.4"
+facet-format = "0.50.0-rc.4"
+facet-json = "0.50.0-rc.4"
+facet-postcard = "0.50.0-rc.4"
+facet-toml = "0.50.0-rc.4"
+facet-value = "0.50.0-rc.4"
+facet-yaml = "0.50.0-rc.4"
 
-facet-styx = "5.0.0-rc.0"
-styx-embed = "5.0.0-rc.0"
-styx-tree = "5.0.0-rc.0"
+facet-styx = "5.0.0-rc.4"
+styx-embed = "5.0.0-rc.4"
+styx-tree = "5.0.0-rc.4"
 
 figue = "5.0.0-rc.0"
 
@@ -220,10 +220,10 @@ hakoniwa = "1.2"
 [workspace.package]
 rust-version = "1.92"
 
-# Force all transitive facet dependencies to use local version for development
-# No [patch.crates-io] for facet: everything is on crates.io facet 0.46.x now.
+# Force all direct and transitive Facet dependencies to use the local checkout
+# while developing against unreleased facet-styx fixes.
 
-# Uncomment to use local facet for development
+# Previous local Facet override examples:
 # cinereus = { path = "../hotmeal/cinereus" }
 # facet-dom = { path = "../facet-xml/facet-dom" }
 # facet-svg = { path = "../facet-xml/facet-svg" }
@@ -244,7 +244,7 @@ rust-version = "1.92"
 # facet-xml = { path = "../facet/facet-xml" }
 # facet-yaml = { path = "../facet/facet-yaml" }
 
-# Uncomment to use local figue for development
+# Previous local Figue override example:
 # [patch."https://github.com/bearcove/figue"]
 # figue = { path = "../figue/crates/figue" }
 
@@ -272,11 +272,6 @@ pikru = { path = "libs/pikru" }
 # Vendored to derive facet::Facet on Position/Range so authoring analysis types
 # flow through picante tracked queries (libs/lsp-types).
 lsp-types = { path = "libs/lsp-types" }
-# facet-solver = { path = "../facet/facet-solver" }
-# facet-toml = { path = "../facet/facet-toml" }
-# facet-value = { path = "../facet/facet-value" }
-# facet-xml = { path = "../facet/facet-xml" }
-# facet-yaml = { path = "../facet/facet-yaml" }
 
 # Patch git dependencies to use local facet
 # [patch."https://github.com/facet-rs/facet"]
