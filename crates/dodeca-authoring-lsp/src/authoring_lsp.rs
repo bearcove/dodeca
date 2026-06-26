@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use eyre::{Result, eyre};
-use gingembre::ast::{Expr, Ident, Node};
+use gingembre::ast::{Expr, Ident, Node, SetValue};
 use gingembre::semantic::{
     TemplateReferenceAccess, TemplateReferenceKind, TemplateSemanticIndex, TemplateSymbol,
     TemplateSymbolKind, TemplateSymbolOrigin,
@@ -6321,14 +6321,24 @@ pub fn collect_template_definition_targets(
                     );
                 }
             }
-            Node::Set(node) => collect_expr_definition_targets(
-                project,
-                template_file,
-                content,
-                &node.value,
-                imports,
-                targets,
-            ),
+            Node::Set(node) => match &node.value {
+                SetValue::Expr(expr) => collect_expr_definition_targets(
+                    project,
+                    template_file,
+                    content,
+                    expr,
+                    imports,
+                    targets,
+                ),
+                SetValue::Body(body) => collect_template_definition_targets(
+                    project,
+                    template_file,
+                    content,
+                    body,
+                    imports,
+                    targets,
+                ),
+            },
             Node::CallBlock(node) => {
                 for (_, expr) in &node.kwargs {
                     collect_expr_definition_targets(

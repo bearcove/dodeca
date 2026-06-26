@@ -8,7 +8,8 @@ use std::collections::{HashMap, HashSet};
 
 use crate::ast::{
     BinaryExpr, CallExpr, DictLit, Expr, FilterExpr, Ident, IfNode, ListLit, Literal,
-    MacroCallExpr, MacroNode, Node, Span, Target, Template, TernaryExpr, TestExpr, UnaryExpr,
+    MacroCallExpr, MacroNode, Node, SetValue, Span, Target, Template, TernaryExpr, TestExpr,
+    UnaryExpr,
 };
 use facet::Facet;
 
@@ -359,12 +360,17 @@ impl SemanticBuilder {
                     kind: TemplateSemanticTokenKind::String,
                 }),
                 Node::Set(node) => {
-                    self.collect_expr(&node.value, scope);
-                    self.define_set_binding(
-                        scope,
-                        &node.name,
-                        expr_path(&node.value).map(TemplateSymbolOrigin::ExpressionPath),
-                    );
+                    let origin = match &node.value {
+                        SetValue::Expr(expr) => {
+                            self.collect_expr(expr, scope);
+                            expr_path(expr).map(TemplateSymbolOrigin::ExpressionPath)
+                        }
+                        SetValue::Body(body) => {
+                            self.collect_nodes(body, scope);
+                            None
+                        }
+                    };
+                    self.define_set_binding(scope, &node.name, origin);
                 }
                 Node::Import(node) => {
                     self.index.tokens.push(TemplateSemanticToken {

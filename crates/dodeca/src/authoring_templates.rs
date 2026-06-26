@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet};
 use camino::{Utf8Path, Utf8PathBuf};
 use eyre::{Result, eyre};
 use facet::{Facet, NumericType, PrimitiveType, Type, UserType};
-use gingembre::ast::{Expr, Ident, Node, StringLit};
+use gingembre::ast::{Expr, Ident, Node, SetValue, StringLit};
 use gingembre::semantic::{TemplateSemanticIndex, TemplateSemanticTokenKind};
 use gingembre::{BuiltinItemInfo, builtin_filter, builtin_test};
 use lsp_types::{Location, Position, Range, SemanticToken, SemanticTokens};
@@ -636,13 +636,22 @@ pub fn collect_template_macro_call_occurrences(
                 &node.body,
                 occurrences,
             ),
-            Node::Set(node) => collect_expr_macro_call_occurrences(
-                template_file,
-                content,
-                imports,
-                &node.value,
-                occurrences,
-            ),
+            Node::Set(node) => match &node.value {
+                SetValue::Expr(expr) => collect_expr_macro_call_occurrences(
+                    template_file,
+                    content,
+                    imports,
+                    expr,
+                    occurrences,
+                ),
+                SetValue::Body(body) => collect_template_macro_call_occurrences(
+                    template_file,
+                    content,
+                    imports,
+                    body,
+                    occurrences,
+                ),
+            },
             Node::Macro(node) => collect_template_macro_call_occurrences(
                 template_file,
                 content,
@@ -1171,14 +1180,25 @@ pub fn collect_template_diagnostics(
                     );
                 }
             }
-            Node::Set(node) => collect_template_expr_diagnostics(
-                project,
-                template_file,
-                content,
-                &node.value,
-                imports,
-                diagnostics,
-            ),
+            Node::Set(node) => match &node.value {
+                SetValue::Expr(expr) => collect_template_expr_diagnostics(
+                    project,
+                    template_file,
+                    content,
+                    expr,
+                    imports,
+                    diagnostics,
+                ),
+                SetValue::Body(body) => collect_template_diagnostics(
+                    project,
+                    template_file,
+                    content,
+                    body,
+                    parent_file,
+                    imports,
+                    diagnostics,
+                ),
+            },
             Node::CallBlock(node) => {
                 for (_, expr) in &node.kwargs {
                     collect_template_expr_diagnostics(

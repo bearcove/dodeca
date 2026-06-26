@@ -153,7 +153,7 @@ fn lower_args(args: Option<cst::ArgList>) -> (Vec<Expr>, Vec<(Ident, Expr)>) {
 
 use crate::ast::{
     BlockNode, ElifBranch, ExtendsNode, ForNode, IfNode, ImportNode, IncludeNode, MacroNode,
-    MacroParam, Node, PrintNode, SetNode, StringLit, Target, TextNode,
+    MacroParam, Node, PrintNode, SetNode, SetValue, StringLit, Target, TextNode,
 };
 
 use std::cell::RefCell;
@@ -343,10 +343,15 @@ fn lower_item(item: &cst::Item) -> Option<Node> {
         }
         cst::Item::Set(s) => {
             let span = sp(s.syntax());
-            // Only the assignment form maps to SetNode; the block form is a follow-up.
+            // `{% set x = expr %}` binds an expression; `{% set x %}…{% endset %}`
+            // binds the rendered body.
+            let value = match s.value() {
+                Some(expr) => SetValue::Expr(lower_expr(&expr)),
+                None => SetValue::Body(lower_body(s.body())),
+            };
             Node::Set(SetNode {
                 name: ident(&s.name().unwrap_or_default(), s.syntax()),
-                value: opt_expr(s.value(), span),
+                value,
                 span,
             })
         }

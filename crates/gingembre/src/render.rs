@@ -632,9 +632,26 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
                 }
                 // r[impl stmt.set.scope]
                 Node::Set(set_node) => {
-                    let eval = Evaluator::new(&self.ctx, &self.source);
-                    let value = eval.eval(&set_node.value).await?;
-                    self.ctx.set(set_node.name.name.clone(), value);
+                    match &set_node.value {
+                        crate::ast::SetValue::Expr(expr) => {
+                            let eval = Evaluator::new(&self.ctx, &self.source);
+                            let value = eval.eval(expr).await?;
+                            self.ctx.set(set_node.name.name.clone(), value);
+                        }
+                        crate::ast::SetValue::Body(body) => {
+                            // Render the body into a fresh buffer and bind the
+                            // resulting string (Jinja `{% set x %}…{% endset %}`).
+                            // The inner `{{ }}` were already escaped while
+                            // rendering, so the assembled markup is bound *safe* —
+                            // printing `{{ x }}` emits it without double-escaping.
+                            let mut captured = String::new();
+                            std::mem::swap(self.output, &mut captured);
+                            let _ = self.render_nodes(body).await?;
+                            std::mem::swap(self.output, &mut captured);
+                            self.ctx
+                                .set_safe(set_node.name.name.clone(), Value::from(captured.as_str()));
+                        }
+                    }
                 }
                 Node::Import(import) => {
                     // Load macros from the imported template
@@ -1048,6 +1065,22 @@ mod tests {
         let t = Template::parse("test", "{% set x = 2 + 3 %}{{ x }}").unwrap();
         let result = t.render(&Context::new()).await.unwrap();
         assert_eq!(result, "5");
+    }
+
+    // r[verify stmt.set.block]
+    #[tokio::test]
+    async fn test_set_block_captures_rendered_body() {
+        // `{% set x %}…{% endset %}` renders the body and binds the string —
+        // the body itself emits nothing inline.
+        let t = Template::parse(
+            "test",
+            "{% set x %}<b>{{ name }}</b>{% endset %}[{{ x }}]",
+        )
+        .unwrap();
+        let mut ctx = Context::new();
+        ctx.set("name", Value::from("hi"));
+        let result = t.render(&ctx).await.unwrap();
+        assert_eq!(result, "[<b>hi</b>]");
     }
 
     // r[verify macro.def.syntax]

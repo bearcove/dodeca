@@ -51,12 +51,11 @@
             <p>Cache-busted URLs, subsetted fonts, optimized images. What you see in dev is exactly what you deploy.</p>
         </div>
         <div class="feature-visual">
-            {% call highlight(lang="html") %}
-            <link rel="stylesheet" href="/_/a3f7c2e1b904d6.css">
-            <script type="module" src="/_/8b1d4f6e3a09c5.js"></script>
-            <img src="/_/e7a2c8f1d305b9.webp" width="1200" height="630">
-            <link rel="preload" as="font" href="/_/4d8b1f2a6e73c0.woff2">
-            {% endcall %}
+            {% set html_snippet %}<link rel="stylesheet" href="/_/a3f7c2e1b904d6.css">
+<script type="module" src="/_/8b1d4f6e3a09c5.js"></script>
+<img src="/_/e7a2c8f1d305b9.webp" width="1200" height="630">
+<link rel="preload" as="font" href="/_/4d8b1f2a6e73c0.woff2">{% endset %}
+            {{ highlight(lang="html", body=html_snippet) | safe }}
         </div>
     </div>
 
@@ -79,15 +78,14 @@
                 tree-sitter grammars. Accurate, fast, and beautiful.</p>
         </div>
         <div class="feature-visual">
-            {% call highlight(lang="rust") %}
-            #[derive(Facet)]
-            pub struct Page {
-            pub title: String,
-            pub date: DateTime,
-            pub tags: Vec<String>,
-                pub content: String,
-                }
-                {% endcall %}
+            {% set rust_snippet %}#[derive(Facet)]
+pub struct Page {
+    pub title: String,
+    pub date: DateTime,
+    pub tags: Vec<String>,
+    pub content: String,
+}{% endset %}
+            {{ highlight(lang="rust", body=rust_snippet) | safe }}
         </div>
     </div>
 

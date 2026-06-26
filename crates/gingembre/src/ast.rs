@@ -180,12 +180,21 @@ pub struct CommentNode {
     pub span: Span,
 }
 
-/// Set statement: {% set var = expr %}
+/// Set statement: `{% set var = expr %}` or `{% set var %}…{% endset %}`.
 #[derive(Debug, Clone)]
 pub struct SetNode {
     pub name: Ident,
-    pub value: Expr,
+    pub value: SetValue,
     pub span: Span,
+}
+
+/// What a `{% set %}` binds its variable to.
+#[derive(Debug, Clone)]
+pub enum SetValue {
+    /// `{% set x = expr %}` — bind the evaluated expression.
+    Expr(Expr),
+    /// `{% set x %}…{% endset %}` — render the body and bind the resulting string.
+    Body(Vec<Node>),
 }
 
 /// Import statement: {% import "path" as name %}
