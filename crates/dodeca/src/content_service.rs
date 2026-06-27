@@ -145,6 +145,24 @@ impl ContentService for HostContentService {
                 generation,
             };
         }
+        if path == "/_dodeca/annotations" || path == "/_dodeca/annotations.html" {
+            let response = self.server.annotation_index().await;
+            let body = crate::annotations::render_html(&response).await;
+            return ServeContent::StaticNoCache {
+                content: body.into_bytes(),
+                mime: "text/html; charset=utf-8".to_string(),
+                generation,
+            };
+        }
+        if path == "/_dodeca/annotations.md" {
+            let response = self.server.annotation_index().await;
+            let body = crate::annotations::render_markdown(&response);
+            return ServeContent::StaticNoCache {
+                content: body.into_bytes(),
+                mime: "text/markdown; charset=utf-8".to_string(),
+                generation,
+            };
+        }
 
         // In-browser editor shell. Fail closed: mint a token only for a verified
         // editor; anyone else is treated as if the page doesn't exist (we don't

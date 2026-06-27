@@ -127,6 +127,191 @@ pub async fn index<DB: Db>(db: &DB) -> PicanteResult<AnnotationIndex> {
     })
 }
 
+pub async fn render_html(index: &AnnotationIndex) -> String {
+    let threads = render_threads_html(index).await;
+    format!(
+        "<!doctype html><html><head><meta charset=utf-8>\
+<meta name=viewport content=\"width=device-width,initial-scale=1\">\
+<title>dodeca annotations</title>\
+<style>\
+:root{{--bg:#fff;--panel:#f8fafc;--text:#111827;--muted:#6b7280;--border:#d1d5db;--accent:#2563eb;--ok:#0f766e;--bad:#b91c1c}}\
+@media(prefers-color-scheme:dark){{:root{{--bg:#10131a;--panel:#171b24;--text:#e5e7eb;--muted:#9ca3af;--border:#374151;--accent:#60a5fa;--ok:#34d399;--bad:#f87171}}}}\
+*{{box-sizing:border-box}}body{{font:14px/1.5 system-ui,sans-serif;max-width:76rem;margin:0 auto;padding:24px;color:var(--text);background:var(--bg)}}\
+a{{color:var(--accent);text-decoration:none}}a:hover{{text-decoration:underline}}\
+header{{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px}}\
+h1{{font-size:1.35rem;line-height:1.2;margin:0}}h2{{font-size:.95rem;margin:0 0 6px}}\
+.meta,.muted{{color:var(--muted)}}.nav{{display:flex;gap:10px;flex-wrap:wrap}}\
+.nav a,.pill{{border:1px solid var(--border);border-radius:999px;padding:4px 9px;background:var(--panel);color:var(--text)}}\
+.counts{{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 18px}}\
+.toolbar{{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 14px}}\
+input[type=search]{{flex:1;min-width:220px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);padding:7px 9px;font:inherit}}\
+label{{display:inline-flex;gap:6px;align-items:center;color:var(--muted)}}\
+.thread{{border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:8px;margin:10px 0;background:var(--bg);overflow:hidden}}\
+.thread[data-resolved=true]{{opacity:.72}}.thread-head{{display:flex;gap:10px;justify-content:space-between;padding:10px 12px;background:var(--panel);border-bottom:1px solid var(--border)}}\
+.thread-title{{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}}.thread-title strong{{font-size:.98rem}}\
+.tag{{font-size:.72rem;text-transform:uppercase;font-weight:700;color:var(--accent)}}.resolved{{color:var(--ok)}}\
+.thread-body{{padding:10px 12px}}.quote{{margin:0 0 9px;color:var(--muted);border-left:3px solid var(--accent);padding-left:8px}}\
+.comment{{padding:8px 0;border-top:1px solid var(--border)}}.comment:first-of-type{{border-top:0;padding-top:0}}\
+.comment-meta{{display:flex;gap:8px;flex-wrap:wrap;color:var(--muted);font-size:.78rem;margin-bottom:4px}}\
+.comment-body>:first-child{{margin-top:0}}.comment-body>:last-child{{margin-bottom:0}}\
+code{{background:var(--panel);border:1px solid var(--border);border-radius:4px;padding:0 4px}}\
+.empty{{padding:22px;border:1px solid var(--border);border-radius:8px;background:var(--panel);color:var(--muted)}}\
+@media(max-width:700px){{body{{padding:16px}}header,.thread-head{{display:block}}.nav{{margin-top:10px}}}}\
+</style></head><body>\
+<header><div><h1>dodeca annotations</h1><p class=meta>{} open · {} resolved · {} total</p></div>\
+<nav class=nav><a href=\"/_dodeca/status\">status</a><a href=\"/_dodeca/annotations.json\">json</a><a href=\"/_dodeca/annotations.md\">markdown</a></nav></header>\
+<section class=counts><span class=pill>{} open</span><span class=pill>{} resolved</span><span class=pill>{} total</span></section>\
+<section class=toolbar><input id=q type=search placeholder=\"Filter annotations\"><label><input id=resolved type=checkbox> resolved</label></section>\
+<main id=list>{threads}</main>\
+<script>\
+const q=document.querySelector('#q'),r=document.querySelector('#resolved'),items=[...document.querySelectorAll('.thread')];\
+function f(){{const s=q.value.toLowerCase(),show=r.checked;for(const item of items){{const ok=(!s||item.dataset.search.includes(s))&&(show||item.dataset.resolved!=='true');item.hidden=!ok;}}}}\
+q.addEventListener('input',f);r.addEventListener('change',f);f();\
+</script></body></html>",
+        index.open, index.resolved, index.total, index.open, index.resolved, index.total
+    )
+}
+
+pub fn render_markdown(index: &AnnotationIndex) -> String {
+    let mut out = format!(
+        "# dodeca annotations\n\n{} open, {} resolved, {} total.\n\n",
+        index.open, index.resolved, index.total
+    );
+    if index.threads.is_empty() {
+        out.push_str("No annotations.\n");
+        return out;
+    }
+    for thread in &index.threads {
+        let state = if thread.resolved { "resolved" } else { "open" };
+        out.push_str(&format!(
+            "## [{}]({}) - {} ({})\n\n",
+            thread.title, thread.route, thread.kind, state
+        ));
+        out.push_str(&format!(
+            "- id: `{}`\n- source: `{}:{}`\n",
+            thread.id, thread.source_file, thread.line
+        ));
+        if !thread.quote.is_empty() {
+            out.push_str(&format!("- quote: `{}`\n", thread.quote));
+        }
+        out.push('\n');
+        for comment in &thread.comments {
+            out.push_str(&format!(
+                "### {}{}{}\n\n{}\n\n",
+                if comment.author.is_empty() {
+                    "anon"
+                } else {
+                    &comment.author
+                },
+                if comment.created.is_empty() {
+                    ""
+                } else {
+                    " - "
+                },
+                comment.created,
+                comment.body
+            ));
+        }
+    }
+    out
+}
+
+async fn render_threads_html(index: &AnnotationIndex) -> String {
+    if index.threads.is_empty() {
+        return "<div class=empty>No annotations.</div>".to_string();
+    }
+
+    let mut out = String::new();
+    for thread in &index.threads {
+        let mut comments = String::new();
+        for comment in &thread.comments {
+            let author = if comment.author.is_empty() {
+                "anon"
+            } else {
+                &comment.author
+            };
+            let body = render_comment_body(&comment.body).await;
+            comments.push_str(&format!(
+                "<section class=comment><div class=comment-meta><b>{}</b><span>{}</span><span>{}</span><span>line {}</span></div><div class=comment-body>{}</div></section>",
+                html_escape(author),
+                html_escape(&comment.kind),
+                html_escape(&comment.created),
+                comment.line,
+                body
+            ));
+        }
+
+        let status = if thread.resolved {
+            "<span class=\"resolved\">resolved</span>"
+        } else {
+            "<span>open</span>"
+        };
+        let quote = if thread.quote.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "<blockquote class=quote>{}</blockquote>",
+                html_escape(&thread.quote)
+            )
+        };
+        let search = thread_search_text(thread);
+        out.push_str(&format!(
+            "<article class=thread data-resolved=\"{}\" data-search=\"{}\">\
+<div class=thread-head><div class=thread-title><strong><a href=\"{}\">{}</a></strong><span class=tag>{}</span>{}</div>\
+<div class=muted><code>{}:{}</code> · <a href=\"{}\">edit</a></div></div>\
+<div class=thread-body>{quote}{comments}</div></article>",
+            thread.resolved,
+            attr_escape(&search),
+            attr_escape(&thread.route),
+            html_escape(&thread.title),
+            html_escape(&thread.kind),
+            status,
+            html_escape(&thread.source_file),
+            thread.line,
+            attr_escape(&edit_href(&thread.route)),
+        ));
+    }
+    out
+}
+
+async fn render_comment_body(body: &str) -> String {
+    let options = marq::RenderOptions::new();
+    match marq::render(body, &options).await {
+        Ok(doc) => doc.html,
+        Err(_) => format!("<pre>{}</pre>", html_escape(body)),
+    }
+}
+
+fn thread_search_text(thread: &AnnotationThread) -> String {
+    let mut search = format!(
+        "{} {} {} {} {} {}",
+        thread.id, thread.route, thread.title, thread.source_file, thread.kind, thread.quote
+    );
+    for comment in &thread.comments {
+        search.push(' ');
+        search.push_str(&comment.author);
+        search.push(' ');
+        search.push_str(&comment.kind);
+        search.push(' ');
+        search.push_str(&comment.body);
+    }
+    search.to_lowercase()
+}
+
+fn edit_href(route: &str) -> String {
+    format!("/_dodeca/edit/{}", route.trim_start_matches('/'))
+}
+
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+fn attr_escape(s: &str) -> String {
+    html_escape(s).replace('"', "&quot;").replace('\'', "&#39;")
+}
+
 async fn route_meta_by_source<DB: Db>(db: &DB) -> PicanteResult<HashMap<String, RouteMeta>> {
     let mut out = HashMap::new();
     let Ok(tree) = build_tree(db).await? else {

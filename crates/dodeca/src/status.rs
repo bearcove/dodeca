@@ -129,6 +129,10 @@ code{{background:#f5f5f5;padding:0 .25rem;border-radius:3px}}\
 </style></head><body>\
 <h1>dodeca status</h1>\
 <p class=meta>revision <b>{}</b> · {total_pages} pages · uptime {uptime} · auto-refreshing</p>\
+<h2>Authoring</h2>\
+<p><a href=\"/_dodeca/annotations\">Annotations</a> · \
+<a href=\"/_dodeca/annotations.json\">annotations.json</a> · \
+<a href=\"/_dodeca/annotations.md\">annotations.md</a></p>\
 <h2>Sources</h2>\
 <table><thead><tr><th>name</th><th>mount</th><th>kind</th><th>state</th>\
 <th class=num>pages</th><th>location</th></tr></thead><tbody>{source_rows_html}</tbody></table>\
