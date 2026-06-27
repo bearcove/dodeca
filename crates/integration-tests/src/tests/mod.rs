@@ -9,6 +9,7 @@ pub mod build_steps;
 pub mod cache_busting;
 pub mod code_execution;
 pub mod content;
+pub mod coverage;
 pub mod dead_links;
 pub mod editor;
 pub mod error_detection;

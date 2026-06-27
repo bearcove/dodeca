@@ -592,6 +592,32 @@ impl SiteServer {
         crate::knowledge::graph(&*self.db, route, k).await
     }
 
+    /// Coverage query surface for `/_dodeca/coverage/*.json|*.md`.
+    pub async fn coverage_output(
+        &self,
+        endpoint: crate::coverage::CoverageEndpoint,
+        format: crate::coverage::CoverageOutputFormat,
+    ) -> Option<crate::coverage::CoverageOutput> {
+        let report = match crate::db::TASK_DB
+            .scope(self.db.clone(), crate::queries::coverage_report(&*self.db))
+            .await
+        {
+            Ok(report) => report,
+            Err(err) => {
+                tracing::warn!(error = ?err, "coverage report unavailable");
+                return None;
+            }
+        };
+
+        match crate::coverage::coverage_output(&report, endpoint, format) {
+            Ok(output) => output,
+            Err(err) => {
+                tracing::warn!(error = %err, "coverage output serialization failed");
+                None
+            }
+        }
+    }
+
     pub async fn annotation_index(&self) -> crate::annotations::AnnotationIndex {
         let snapshot = DatabaseSnapshot::from_database(&self.db).await;
         crate::annotations::index(&snapshot)

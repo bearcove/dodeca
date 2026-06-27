@@ -195,6 +195,95 @@ enum DiagnosticsFormat {
     Json,
 }
 
+/// Coverage command arguments
+#[derive(Facet, Debug)]
+struct CoverageArgs {
+    #[facet(args::subcommand)]
+    command: CoverageCommand,
+}
+
+#[derive(Facet, Debug)]
+#[repr(u8)]
+enum CoverageCommand {
+    /// Print coverage summary
+    Status(CoverageQueryArgs),
+    /// List rules without implementation references
+    Uncovered(CoverageQueryArgs),
+    /// List rules without verification references
+    Untested(CoverageQueryArgs),
+    /// List references to older rule versions
+    Stale(CoverageQueryArgs),
+    /// List references that do not resolve to a known rule
+    Invalid(CoverageQueryArgs),
+    /// Print coverage for one rule
+    Rule(CoverageRuleArgs),
+    /// Validate coverage and exit non-zero on failure
+    Validate(CoverageValidateArgs),
+}
+
+#[derive(Facet, Debug)]
+struct CoverageQueryArgs {
+    #[facet(flatten)]
+    common: CoverageCommonArgs,
+}
+
+#[derive(Facet, Debug)]
+struct CoverageRuleArgs {
+    /// Rule id to inspect
+    #[facet(args::positional)]
+    id: String,
+
+    #[facet(flatten)]
+    common: CoverageCommonArgs,
+}
+
+#[derive(Facet, Debug)]
+struct CoverageValidateArgs {
+    #[facet(flatten)]
+    common: CoverageCommonArgs,
+
+    /// Minimum implementation coverage percentage
+    #[facet(args::named, default)]
+    threshold: Option<u8>,
+}
+
+#[derive(Facet, Debug)]
+struct CoverageCommonArgs {
+    /// Project directory (looks for .config/dodeca.styx here)
+    #[facet(args::positional, default)]
+    path: Option<String>,
+
+    /// Content directory (uses .config/dodeca.styx if not specified)
+    #[facet(args::named, args::short = 'c', default)]
+    content: Option<String>,
+
+    /// Output directory (uses .config/dodeca.styx if not specified)
+    #[facet(args::named, args::short = 'o', default)]
+    output: Option<String>,
+
+    /// Output format
+    #[facet(args::named, default)]
+    format: CoverageCliFormat,
+}
+
+#[derive(Facet, Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[facet(rename_all = "snake_case")]
+#[repr(u8)]
+enum CoverageCliFormat {
+    Json,
+    #[default]
+    Markdown,
+}
+
+impl From<CoverageCliFormat> for dodeca::coverage::CoverageOutputFormat {
+    fn from(format: CoverageCliFormat) -> Self {
+        match format {
+            CoverageCliFormat::Json => dodeca::coverage::CoverageOutputFormat::Json,
+            CoverageCliFormat::Markdown => dodeca::coverage::CoverageOutputFormat::Markdown,
+        }
+    }
+}
+
 /// Static file server arguments
 #[derive(Facet, Debug)]
 struct StaticArgs {
@@ -269,6 +358,8 @@ enum Command {
     Lsp(LspArgs),
     /// Print authoring diagnostics
     Diagnostics(DiagnosticsArgs),
+    /// Query requirement coverage
+    Coverage(CoverageArgs),
     /// Inspect or migrate `.config/dodeca.styx`
     Config(ConfigArgs),
     /// Record terminal session as HTML
@@ -364,7 +455,10 @@ fn resolve_dirs(
                 repo: None,
                 impls: Vec::new(),
                 skip_domains: Vec::new(),
-                project_dir: c.parent().map(Utf8Path::to_owned).unwrap_or_else(|| c.clone()),
+                project_dir: c
+                    .parent()
+                    .map(Utf8Path::to_owned)
+                    .unwrap_or_else(|| c.clone()),
                 build_steps: Default::default(),
                 page_types: Default::default(),
             }],
@@ -675,6 +769,10 @@ async fn async_main(command: Command) -> Result<()> {
             logging::init_standard_tracing();
             run_diagnostics(args).await
         }
+        Command::Coverage(args) => {
+            logging::init_standard_tracing();
+            run_coverage(args).await
+        }
         Command::Static(args) => {
             let path = Utf8PathBuf::from(&args.path);
             if !path.exists() {
@@ -744,7 +842,10 @@ fn run_config_migrate(args: MigrateArgs) -> Result<()> {
         &facet_styx::SerializeOptions::default().omit_none(),
     )
     .map_err(|e| eyre!("failed to serialize migrated config: {e}"))?;
-    let body = facet_styx::format_source(&serialized, facet_styx::SerializeOptions::default().pretty(80));
+    let body = facet_styx::format_source(
+        &serialized,
+        facet_styx::SerializeOptions::default().pretty(80),
+    );
     let migrated = format!("@schema {{id crate:dodeca-config@1, cli ddc}}\n\n{body}");
 
     if args.write {
@@ -789,6 +890,80 @@ async fn run_diagnostics(args: DiagnosticsArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+async fn run_coverage(args: CoverageArgs) -> Result<()> {
+    let (endpoint, common, validate_threshold) = coverage_command_parts(args.command);
+    let (db, _) = load_lsp_db(common.path, common.content, common.output)?;
+    let report = db::TASK_DB
+        .scope(db.clone(), queries::coverage_report(&*db))
+        .await?;
+    let format = common.format.into();
+    let output = dodeca::coverage::coverage_output(&report, endpoint, format)
+        .map_err(|err| eyre!("failed to render coverage output: {err}"))?
+        .ok_or_else(|| eyre!("coverage query did not match any rule"))?;
+    print!("{}", output.body);
+    if !output.body.ends_with('\n') {
+        println!();
+    }
+
+    if let Some(threshold) = validate_threshold {
+        let status = dodeca::coverage::status_response(&report);
+        let passing = report.invalid_references.is_empty()
+            && report.stale_references.is_empty()
+            && status.implementation_coverage_percent >= f64::from(threshold);
+        if !passing {
+            return Err(eyre!("coverage validation failed"));
+        }
+    }
+
+    Ok(())
+}
+
+fn coverage_command_parts(
+    command: CoverageCommand,
+) -> (
+    dodeca::coverage::CoverageEndpoint,
+    CoverageCommonArgs,
+    Option<u8>,
+) {
+    match command {
+        CoverageCommand::Status(args) => (
+            dodeca::coverage::CoverageEndpoint::Status,
+            args.common,
+            None,
+        ),
+        CoverageCommand::Uncovered(args) => (
+            dodeca::coverage::CoverageEndpoint::Uncovered,
+            args.common,
+            None,
+        ),
+        CoverageCommand::Untested(args) => (
+            dodeca::coverage::CoverageEndpoint::Untested,
+            args.common,
+            None,
+        ),
+        CoverageCommand::Stale(args) => {
+            (dodeca::coverage::CoverageEndpoint::Stale, args.common, None)
+        }
+        CoverageCommand::Invalid(args) => (
+            dodeca::coverage::CoverageEndpoint::Invalid,
+            args.common,
+            None,
+        ),
+        CoverageCommand::Rule(args) => (
+            dodeca::coverage::CoverageEndpoint::Rule { id: args.id },
+            args.common,
+            None,
+        ),
+        CoverageCommand::Validate(args) => (
+            dodeca::coverage::CoverageEndpoint::Validate {
+                threshold: args.threshold,
+            },
+            args.common,
+            Some(args.threshold.unwrap_or(0)),
+        ),
+    }
 }
 
 fn is_dead_link_diagnostic(kind: AuthoringDiagnosticKind) -> bool {

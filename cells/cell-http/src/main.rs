@@ -100,11 +100,12 @@ pub fn build_router(ctx: Arc<dyn RouterContext>) -> axum::Router {
         request: Request,
     ) -> Response {
         // Most routes match on the bare path (and page routes must not carry a
-        // `?…` into route lookup), but the knowledge endpoint needs its query
-        // string, so include it just for that prefix.
+        // `?…` into route lookup), but query APIs need their query string.
         let path = {
             let uri = request.uri();
-            if uri.path().starts_with("/_dodeca/knowledge/") {
+            if uri.path().starts_with("/_dodeca/knowledge/")
+                || uri.path().starts_with("/_dodeca/coverage/")
+            {
                 uri.path_and_query()
                     .map(|pq| pq.as_str().to_string())
                     .unwrap_or_else(|| uri.path().to_string())

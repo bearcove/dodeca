@@ -1052,6 +1052,13 @@ fn collect_tests() -> Vec<Test> {
             func: || boxed(search::search_runtime_assets_served()),
             ignored: false,
         },
+        // coverage tests
+        Test {
+            name: "coverage_suffix_endpoints_serve_markdown_and_json",
+            module: "coverage",
+            func: || boxed(coverage::coverage_suffix_endpoints_serve_markdown_and_json()),
+            ignored: false,
+        },
         // editor tests (in-browser editor SAVE over vox-websocket; proves the
         // fetch-before-push fix in serve.rs commit_as_user)
         Test {

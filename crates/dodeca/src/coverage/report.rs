@@ -1,9 +1,18 @@
 //! Coverage analysis and reporting
 
 use super::lexer::{RefVerb, ReqReference, Reqs};
-use super::rule_id::RuleId;
+use super::rule_id::{RuleId, RuleIdMatch, classify_reference_for_rule};
 use facet::Facet;
 use std::collections::{HashMap, HashSet};
+
+/// A reference that points at an older version of a known rule.
+#[derive(Debug, Clone, Facet)]
+pub struct StaleReference {
+    /// Current rule definition that supersedes the reference.
+    pub current_rule_id: RuleId,
+    /// Reference found in code.
+    pub reference: ReqReference,
+}
 
 /// Coverage analysis results for a single spec
 #[derive(Debug, Clone, Facet)]
@@ -22,6 +31,9 @@ pub struct CoverageReport {
 
     /// References to rules that don't exist in the spec
     pub invalid_references: Vec<ReqReference>,
+
+    /// References to older versions of known rules
+    pub stale_references: Vec<StaleReference>,
 
     /// All valid references, grouped by rule ID
     pub references_by_rule: HashMap<RuleId, Vec<ReqReference>>,
@@ -45,6 +57,7 @@ impl CoverageReport {
         let spec_name = spec_name.into();
         let mut covered_rules = HashSet::new();
         let mut invalid_references = Vec::new();
+        let mut stale_references = Vec::new();
         let mut references_by_rule: HashMap<RuleId, Vec<ReqReference>> = HashMap::new();
         let mut references_by_verb: HashMap<RefVerb, HashMap<RuleId, Vec<ReqReference>>> =
             HashMap::new();
@@ -65,7 +78,23 @@ impl CoverageReport {
                     .or_default()
                     .push(reference.clone());
             } else {
-                invalid_references.push(reference.clone());
+                let current_rule_id = known_rule_ids
+                    .iter()
+                    .filter(|rule_id| {
+                        classify_reference_for_rule(rule_id, &reference.req_id)
+                            == RuleIdMatch::Stale
+                    })
+                    .max_by_key(|rule_id| rule_id.version)
+                    .cloned();
+
+                if let Some(current_rule_id) = current_rule_id {
+                    stale_references.push(StaleReference {
+                        current_rule_id,
+                        reference: reference.clone(),
+                    });
+                } else {
+                    invalid_references.push(reference.clone());
+                }
             }
         }
 
@@ -78,6 +107,7 @@ impl CoverageReport {
             covered_rules,
             uncovered_rules,
             invalid_references,
+            stale_references,
             references_by_rule,
             references_by_verb,
         }
@@ -95,6 +125,8 @@ impl CoverageReport {
 
     /// Whether the coverage is "passing" (no invalid refs, >= threshold coverage)
     pub fn is_passing(&self, threshold: f64) -> bool {
-        self.invalid_references.is_empty() && self.coverage_percent() >= threshold
+        self.invalid_references.is_empty()
+            && self.stale_references.is_empty()
+            && self.coverage_percent() >= threshold
     }
 }

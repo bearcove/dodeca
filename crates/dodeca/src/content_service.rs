@@ -8,6 +8,7 @@ use std::sync::Arc;
 use cell_http_proto::{ContentService, Identity, ServeContent};
 use dodeca_protocol::{EvalResult, ScopeEntry};
 
+use crate::coverage::{CoverageEndpoint, CoverageOutputFormat};
 use crate::serve::{SiteServer, get_devtools_asset};
 
 /// ContentService implementation that wraps SiteServer
@@ -164,6 +165,24 @@ impl ContentService for HostContentService {
             };
         }
 
+        // Coverage query API: suffix chooses representation (`.json` for typed
+        // DTOs, `.md` for agent/human-readable output).
+        if let Some(rest) = path.strip_prefix("/_dodeca/coverage/") {
+            if let Some((endpoint, format)) = parse_coverage_endpoint(rest) {
+                if let Some(output) = self.server.coverage_output(endpoint, format).await {
+                    return ServeContent::StaticNoCache {
+                        content: output.body.into_bytes(),
+                        mime: output.format.mime().to_string(),
+                        generation,
+                    };
+                }
+            }
+            return ServeContent::NotFound {
+                html: "<!doctype html><title>not found</title>not found".to_string(),
+                generation,
+            };
+        }
+
         // In-browser editor shell. Fail closed: mint a token only for a verified
         // editor; anyone else is treated as if the page doesn't exist (we don't
         // reveal that it's editable). Unauthenticated requests behind the proxy
@@ -294,6 +313,37 @@ fn parse_query_string(s: &str) -> std::collections::HashMap<String, String> {
         map.insert(percent_decode(k), percent_decode(v));
     }
     map
+}
+
+fn parse_coverage_endpoint(rest: &str) -> Option<(CoverageEndpoint, CoverageOutputFormat)> {
+    let (path, query) = rest.split_once('?').unwrap_or((rest, ""));
+    let params = parse_query_string(query);
+    let (path, format) = strip_coverage_suffix(path)?;
+    let endpoint = match path {
+        "status" => CoverageEndpoint::Status,
+        "uncovered" => CoverageEndpoint::Uncovered,
+        "untested" => CoverageEndpoint::Untested,
+        "stale" => CoverageEndpoint::Stale,
+        "invalid" => CoverageEndpoint::Invalid,
+        "validate" => CoverageEndpoint::Validate {
+            threshold: params.get("threshold").and_then(|v| v.parse().ok()),
+        },
+        rule if rule.starts_with("rule/") => CoverageEndpoint::Rule {
+            id: percent_decode(rule.trim_start_matches("rule/")),
+        },
+        _ => return None,
+    };
+    Some((endpoint, format))
+}
+
+fn strip_coverage_suffix(path: &str) -> Option<(&str, CoverageOutputFormat)> {
+    if let Some(path) = path.strip_suffix(".json") {
+        Some((path, CoverageOutputFormat::Json))
+    } else if let Some(path) = path.strip_suffix(".md") {
+        Some((path, CoverageOutputFormat::Markdown))
+    } else {
+        None
+    }
 }
 
 fn percent_decode(s: &str) -> String {

@@ -5,6 +5,7 @@
 //! produce coverage. The text lexer handles extensions with no registered
 //! tree-sitter grammar; `code_units` handles the rest.
 
+mod api;
 mod code_units;
 mod languages;
 mod lexer;
@@ -13,12 +14,16 @@ mod positions;
 mod report;
 mod rule_id;
 
+pub use api::{
+    CoverageEndpoint, CoverageOutput, CoverageOutputFormat, CoverageRuleResponse,
+    CoverageStatusResponse, coverage_output, status_response,
+};
 pub use code_units::{
     CodeUnit, CodeUnitKind, CodeUnits, ExtractedRefs, extract, extract_refs,
     extract_refs_with_warnings,
 };
 pub use lexer::{ParseWarning, RefVerb, ReqReference, Reqs, SourceSpan, WarningKind};
-pub use report::CoverageReport;
+pub use report::{CoverageReport, StaleReference};
 pub use rule_id::{
     RuleId, RuleIdMatch, classify_reference_for_rule, classify_reference_for_rule_str,
     parse_rule_id,
