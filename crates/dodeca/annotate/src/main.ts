@@ -212,42 +212,69 @@ html.dn-show-resolved .dn-gutter-mark.dn-resolved { display: block; opacity: 0.5
 
 /* ── create popup ── */
 .dn-selection-actions {
-  position: absolute; z-index: 2147483646; display: flex; gap: 4px;
-  padding: 4px; border-radius: 8px; background: var(--dn-bg); color: var(--dn-text);
-  border: 1px solid var(--dn-border); box-shadow: var(--dn-shadow-soft);
+  position: absolute; z-index: 2147483646; display: inline-flex; align-items: center; gap: 2px;
+  padding: 3px; border-radius: 999px;
+  background: color-mix(in srgb, var(--dn-bg) 92%, transparent); color: var(--dn-text);
+  border: 1px solid color-mix(in srgb, var(--dn-border) 78%, transparent);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.22);
+  -webkit-backdrop-filter: saturate(145%) blur(12px);
+  backdrop-filter: saturate(145%) blur(12px);
 }
 .dn-selection-actions[hidden] { display: none; }
 .dn-selection-action {
-  width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid transparent; border-radius: 6px; cursor: pointer;
+  width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid transparent; border-radius: 999px; cursor: pointer;
   background: transparent; color: var(--dn-text);
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease, transform 0.12s ease;
 }
 .dn-selection-action:hover {
-  background: var(--dn-panel); border-color: var(--dn-border);
+  transform: translateY(-1px);
+}
+.dn-selection-action:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--dn-note) 46%, transparent);
+  outline-offset: 2px;
+}
+.dn-selection-action.dn-action-note {
+  background: var(--dn-note); color: white;
+  border-color: color-mix(in srgb, var(--dn-note) 76%, white);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--dn-note) 34%, transparent);
+}
+.dn-selection-action.dn-action-note:hover {
+  background: color-mix(in srgb, var(--dn-note) 88%, white);
+}
+.dn-selection-action.dn-action-page {
+  color: var(--dn-muted);
+}
+.dn-selection-action.dn-action-page:hover {
+  background: var(--dn-panel); color: var(--dn-text); border-color: var(--dn-border);
 }
 .dn-create {
-  position: absolute; z-index: 2147483646; width: min(360px, calc(100vw - 16px));
-  padding: 10px; border-radius: 8px;
-  background: var(--dn-bg); color: var(--dn-text);
-  border: 1px solid var(--dn-border);
-  box-shadow: var(--dn-shadow); font: 13px/1.4 system-ui, sans-serif;
+  position: absolute; z-index: 2147483646; width: min(384px, calc(100vw - 16px));
+  padding: 12px; border-radius: 8px;
+  background: color-mix(in srgb, var(--dn-bg) 96%, var(--dn-panel)); color: var(--dn-text);
+  border: 1px solid color-mix(in srgb, var(--dn-border) 88%, transparent);
+  border-top: 3px solid var(--dn-note);
+  box-shadow: var(--dn-shadow); font: 13px/1.45 system-ui, sans-serif;
 }
 .dn-create[hidden] { display: none; }
-.dn-create .dn-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+.dn-create .dn-row { display: flex; gap: 8px; align-items: stretch; margin: 8px 0; }
 .dn-create input {
-  background: var(--dn-panel); color: var(--dn-text); border: 1px solid var(--dn-border);
-  border-radius: 6px; padding: 5px 7px; font: inherit; min-width: 0;
+  background: var(--dn-bg); color: var(--dn-text); border: 1px solid var(--dn-border);
+  border-radius: 6px; padding: 6px 8px; font: inherit; min-width: 0;
 }
-.dn-create .dn-author { flex: 1; }
+.dn-create .dn-author { flex: 0 0 126px; }
 .dn-create .dn-quote {
-  flex: 1; color: var(--dn-muted); font-style: italic; overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+  flex: 1; color: var(--dn-muted); overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; min-width: 0; padding: 6px 8px;
+  background: var(--dn-panel); border-left: 3px solid var(--dn-note); border-radius: 6px;
 }
 .dn-create textarea {
-  width: 100%; box-sizing: border-box; resize: vertical; min-height: 64px; border-radius: 6px;
-  background: var(--dn-panel); color: var(--dn-text); border: 1px solid var(--dn-border);
-  padding: 8px; font: inherit;
+  width: 100%; box-sizing: border-box; resize: vertical; min-height: 82px; border-radius: 6px;
+  background: var(--dn-bg); color: var(--dn-text); border: 1px solid var(--dn-border);
+  padding: 9px; font: inherit; line-height: 1.45;
 }
+.dn-create textarea::placeholder,
+.dn-create input::placeholder { color: color-mix(in srgb, var(--dn-muted) 74%, transparent); }
 .dn-create textarea:focus,
 .dn-create input:focus,
 .dn-reply textarea:focus,
@@ -263,7 +290,7 @@ html.dn-show-resolved .dn-gutter-mark.dn-resolved { display: block; opacity: 0.5
 .dn-pagepicker { width: min(360px, calc(100vw - 16px)); }
 .dn-pp-head { font-size: 12px; color: var(--dn-muted); margin-bottom: 6px; }
 .dn-pp-filter {
-  width: 100%; box-sizing: border-box; background: var(--dn-panel); color: var(--dn-text);
+  width: 100%; box-sizing: border-box; background: var(--dn-bg); color: var(--dn-text);
   border: 1px solid var(--dn-border); border-radius: 6px; padding: 6px 8px; font: inherit;
 }
 .dn-pp-list { max-height: 220px; overflow-y: auto; margin-top: 6px; }
@@ -276,28 +303,34 @@ html.dn-show-resolved .dn-gutter-mark.dn-resolved { display: block; opacity: 0.5
 .dn-pp-path { color: var(--dn-muted); font-size: 11px; white-space: nowrap; }
 
 /* segmented kind picker */
-.dn-seg { display: flex; gap: 0; overflow: hidden; border: 1px solid var(--dn-border); border-radius: 7px; }
+.dn-seg {
+  display: flex; gap: 2px; overflow: hidden; border: 1px solid var(--dn-border);
+  border-radius: 999px; padding: 2px; background: var(--dn-panel);
+}
 .dn-seg-btn {
   flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px;
-  padding: 6px 8px; cursor: pointer; border: none; border-right: 1px solid var(--dn-border);
-  background: var(--dn-panel); color: var(--dn-text); font: 650 12px system-ui, sans-serif;
+  padding: 6px 8px; cursor: pointer; border: none; border-radius: 999px;
+  background: transparent; color: var(--dn-muted); font: 650 12px system-ui, sans-serif;
 }
-.dn-seg-btn:last-child { border-right: none; }
-.dn-seg-btn:hover { background: var(--dn-panel-hover); }
+.dn-seg-btn:hover { background: var(--dn-panel-hover); color: var(--dn-text); }
 .dn-seg-btn.dn-on { color: white; }
 .dn-seg-btn.dn-on[data-kind="note"] { background: var(--dn-note); }
 .dn-seg-btn.dn-on[data-kind="question"] { background: var(--dn-question); }
 .dn-seg-btn.dn-on[data-kind="todo"] { background: var(--dn-todo); }
 
 /* action buttons */
-.dn-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+.dn-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 9px; }
 .dn-btn {
   display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
-  border: 1px solid transparent; border-radius: 6px; padding: 7px 10px; font: 650 12px system-ui, sans-serif;
+  min-height: 32px; border: 1px solid transparent; border-radius: 6px; padding: 7px 11px;
+  font: 650 12px system-ui, sans-serif;
 }
 .dn-btn-ghost { background: transparent; color: var(--dn-muted); border-color: var(--dn-border); }
 .dn-btn-ghost:hover { color: var(--dn-text); background: var(--dn-panel); border-color: var(--dn-border-strong); }
-.dn-btn-save { background: var(--dn-note); color: white; border-color: var(--dn-note); }
+.dn-btn-save {
+  background: var(--dn-note); color: white; border-color: var(--dn-note);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--dn-note) 26%, transparent);
+}
 .dn-btn-save:hover { filter: brightness(1.1); }
 `;
 
@@ -984,8 +1017,8 @@ function targetForSelection(sel: Selection): Target | null {
   return sid ? { sid, text } : null;
 }
 
-// Kinds with their Alt-key shortcut. `code` matches the physical key (reliable
-// across layouts / the Mac Option-composes-characters problem).
+// Kinds with their Alt-key shortcut. `code` matches the physical key so Option
+// composition on macOS does not decide which shortcut fired.
 const KINDS: { kind: string; code: string; label: string; hint: string }[] = [
   { kind: "note", code: "KeyN", label: "note", hint: "⌥N" },
   { kind: "question", code: "KeyQ", label: "question", hint: "⌥Q" },
@@ -1073,6 +1106,13 @@ function installCreateUI(layer: HTMLElement): void {
 
   const isCoarse = () =>
     typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+  const isEditableTarget = (target: EventTarget | null) => {
+    const el = target instanceof Element ? target : null;
+    if (!el) return false;
+    if (el.closest("input, textarea, select")) return true;
+    const editable = el.closest<HTMLElement>("[contenteditable]");
+    return !!editable && editable.contentEditable !== "false";
+  };
 
   const placeNearSelection = (el: HTMLElement, width: number) => {
     if (!pendingRect) return;
@@ -1115,15 +1155,18 @@ function installCreateUI(layer: HTMLElement): void {
     return target;
   };
 
-  // Selection itself should stay a normal browser selection: copying must still
-  // copy the selected prose. We only show a small unfocused action bar here.
-  const openActionsForSelection = (evtTarget: EventTarget | null): boolean => {
+  // Mouse-opened selection stays a normal browser selection: copying must still
+  // copy the selected prose. The keyboard shortcut focuses the first action.
+  const openActionsForSelection = (evtTarget: EventTarget | null, focusFirst = false): boolean => {
     if (!captureSelection(evtTarget)) return false;
     ui.hidden = true;
     picker.hidden = true;
     actions.hidden = false;
     if (pendingRange) showPendingHighlight(pendingRange, false);
-    placeNearSelection(actions, 84);
+    placeNearSelection(actions, 76);
+    if (focusFirst) {
+      (actions.querySelector(".dn-action-note") as HTMLButtonElement).focus({ preventScroll: true });
+    }
     return true;
   };
 
@@ -1148,6 +1191,27 @@ function installCreateUI(layer: HTMLElement): void {
     const t = e.target as Element | null;
     if (t?.closest?.(".dodeca-annotate-ui")) return;
     if (!openActionsForSelection(e.target) && pending) hide();
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.defaultPrevented) return;
+    if (e.key === "Escape" && pending && !isEditableTarget(e.target)) {
+      e.preventDefault();
+      hide();
+      return;
+    }
+    if (
+      e.altKey &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      !e.shiftKey &&
+      e.code === "KeyA" &&
+      !isEditableTarget(e.target) &&
+      openActionsForSelection(e.target, true)
+    ) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
   });
 
   // Mobile only: long-press / selection-handle selection never fires `mouseup`, so
