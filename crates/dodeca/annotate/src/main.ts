@@ -16,7 +16,7 @@
 //   - highlights are the affordance; click one to open its note card,
 //   - a note index (top-right) lists every note and scrolls to it,
 //   - gutter markers by the scrollbar show where notes are,
-//   - selecting text opens a popup to author a new note (⌘↵ to save).
+//   - selecting text opens a compact action bar; choosing note opens the composer.
 //
 // It's a standalone bundle with its own vox connection — independent of the
 // WASM devtools and the Monaco editor.
@@ -211,6 +211,20 @@ html.dn-show-resolved .dn-gutter-mark.dn-resolved { display: block; opacity: 0.5
 .dn-btn-resolve:hover { color: var(--dn-text); background: var(--dn-bg); border-color: var(--dn-border-strong); }
 
 /* ── create popup ── */
+.dn-selection-actions {
+  position: absolute; z-index: 2147483646; display: flex; gap: 4px;
+  padding: 4px; border-radius: 8px; background: var(--dn-bg); color: var(--dn-text);
+  border: 1px solid var(--dn-border); box-shadow: var(--dn-shadow-soft);
+}
+.dn-selection-actions[hidden] { display: none; }
+.dn-selection-action {
+  width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid transparent; border-radius: 6px; cursor: pointer;
+  background: transparent; color: var(--dn-text);
+}
+.dn-selection-action:hover {
+  background: var(--dn-panel); border-color: var(--dn-border);
+}
 .dn-create {
   position: absolute; z-index: 2147483646; width: min(360px, calc(100vw - 16px));
   padding: 10px; border-radius: 8px;
@@ -584,7 +598,7 @@ function clearPendingHighlight(): void {
   pendingHighlightMarks = [];
 }
 
-function showPendingHighlight(range: Range): void {
+function showPendingHighlight(range: Range, allowDomFallback = true): void {
   clearPendingHighlight();
   const highlight = (globalThis as unknown as { Highlight?: HighlightCtor }).Highlight;
   const registry = cssHighlightRegistry();
@@ -593,6 +607,7 @@ function showPendingHighlight(range: Range): void {
     registry.set(PENDING_HIGHLIGHT, new highlight(snapshot));
     return;
   }
+  if (!allowDomFallback) return;
   pendingHighlightMarks = wrapTextRuns(snapshot, () => document.createElement("dodeca-pending"));
 }
 
@@ -978,6 +993,15 @@ const KINDS: { kind: string; code: string; label: string; hint: string }[] = [
 ];
 
 function installCreateUI(layer: HTMLElement): void {
+  const actions = document.createElement("div");
+  actions.className = "dn-selection-actions";
+  actions.hidden = true;
+  actions.innerHTML = `
+    <button type="button" class="dn-selection-action dn-action-note" title="Add note" aria-label="Add note">${NOTES_ICON}</button>
+    <button type="button" class="dn-selection-action dn-action-page" title="Create page" aria-label="Create page">${PAGE_ICON}</button>
+  `;
+  layer.appendChild(actions);
+
   const ui = document.createElement("div");
   ui.className = "dn-create";
   ui.hidden = true;
@@ -1035,87 +1059,112 @@ function installCreateUI(layer: HTMLElement): void {
   for (const b of segBtns) b.addEventListener("click", () => setKind(b.dataset.kind!));
 
   let pending: Target | null = null;
+  let pendingRect: DOMRect | null = null;
+  let pendingRange: Range | null = null;
   const hide = () => {
+    actions.hidden = true;
     ui.hidden = true;
     picker.hidden = true;
     pending = null;
+    pendingRect = null;
+    pendingRange = null;
     clearPendingHighlight();
   };
 
   const isCoarse = () =>
     typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
 
-  // Open (or reposition) the create-popup for the current selection. Returns whether a
-  // valid annotation target was found. Never hides — callers decide when to clear, so the
-  // mobile triggers below can't dismiss the popup when focusing it collapses the selection.
-  const openForSelection = (evtTarget: EventTarget | null): boolean => {
+  const placeNearSelection = (el: HTMLElement, width: number) => {
+    if (!pendingRect) return;
+    if (isCoarse()) {
+      el.style.position = "fixed";
+      el.style.top = "auto";
+      el.style.bottom = "12px";
+      if (width > 120) {
+        el.style.left = "8px";
+        el.style.right = "8px";
+        el.style.width = "auto";
+        el.style.transform = "";
+      } else {
+        el.style.left = "50%";
+        el.style.right = "auto";
+        el.style.width = "";
+        el.style.transform = "translateX(-50%)";
+      }
+    } else {
+      el.style.position = "absolute";
+      el.style.top = `${window.scrollY + pendingRect.bottom + 8}px`;
+      el.style.bottom = "auto";
+      el.style.right = "auto";
+      el.style.width = "";
+      el.style.transform = "";
+      el.style.left = `${Math.max(8, window.scrollX + Math.min(pendingRect.left, window.innerWidth - width))}px`;
+    }
+  };
+
+  const captureSelection = (evtTarget: EventTarget | null): Target | null => {
     const t = evtTarget as Element | null;
-    if (t?.closest?.(".dodeca-annotate-ui")) return false;
+    if (t?.closest?.(".dodeca-annotate-ui")) return null;
     const sel = window.getSelection();
     const target = sel && targetForSelection(sel);
-    if (!target) return false;
+    if (!target) return null;
     const range = sel!.getRangeAt(0).cloneRange();
-    const rect = range.getBoundingClientRect();
     pending = target;
-    quoteEl.textContent = target.text.length > 80 ? `${target.text.slice(0, 77)}…` : target.text;
+    pendingRange = range;
+    pendingRect = range.getBoundingClientRect();
+    return target;
+  };
+
+  // Selection itself should stay a normal browser selection: copying must still
+  // copy the selected prose. We only show a small unfocused action bar here.
+  const openActionsForSelection = (evtTarget: EventTarget | null): boolean => {
+    if (!captureSelection(evtTarget)) return false;
+    ui.hidden = true;
+    picker.hidden = true;
+    actions.hidden = false;
+    if (pendingRange) showPendingHighlight(pendingRange, false);
+    placeNearSelection(actions, 84);
+    return true;
+  };
+
+  const openComposer = () => {
+    if (!pending || !pendingRange) return;
+    quoteEl.textContent = pending.text.length > 80 ? `${pending.text.slice(0, 77)}…` : pending.text;
     bodyEl.value = "";
     statusEl.textContent = "";
     setKind("note");
+    actions.hidden = true;
     picker.hidden = true;
     ui.hidden = false;
-    showPendingHighlight(range);
-    if (isCoarse()) {
-      // The native iOS edit menu (Copy / Look Up / …) hugs the selection and can't be
-      // suppressed from the web. Anchoring our popup to the same rect makes the two
-      // collide, so on touch we dock to the bottom of the viewport instead — well clear
-      // of the selection-hugging menu.
-      ui.style.position = "fixed";
-      ui.style.top = "auto";
-      ui.style.bottom = "12px";
-      ui.style.left = "8px";
-      ui.style.right = "8px";
-      ui.style.width = "auto";
-      // Don't steal focus: it pops the on-screen keyboard and collapses the native
-      // selection handles mid-gesture. Let the user tap the field when they're ready.
-    } else {
-      ui.style.position = "absolute";
-      ui.style.top = `${window.scrollY + rect.bottom + 8}px`;
-      ui.style.bottom = "auto";
-      ui.style.right = "auto";
-      ui.style.width = "";
-      ui.style.left = `${Math.max(8, window.scrollX + Math.min(rect.left, window.innerWidth - 368))}px`;
+    showPendingHighlight(pendingRange);
+    placeNearSelection(ui, 368);
+    if (!isCoarse()) {
       bodyEl.focus({ preventScroll: true });
     }
-    return true;
   };
 
   // Desktop: a finished mouse selection fires `mouseup` — open, or clear on empty.
   document.addEventListener("mouseup", (e) => {
     const t = e.target as Element | null;
     if (t?.closest?.(".dodeca-annotate-ui")) return;
-    if (!openForSelection(e.target) && pending) hide();
+    if (!openActionsForSelection(e.target) && pending) hide();
   });
 
   // Mobile only: long-press / selection-handle selection never fires `mouseup`, so
-  // watch `touchend` and a debounced `selectionchange` instead. On a fine pointer
-  // (desktop) `mouseup` already covers selection completely — and a debounced
-  // `selectionchange` firing mid-drag would open the popup and steal focus into the
-  // textarea, collapsing the in-progress selection (it never lands, double-click+drag
-  // vanishes). So arm these triggers on coarse pointers only.
+  // watch `touchend` and a debounced `selectionchange` instead. On a fine pointer,
+  // `mouseup` already covers selection completely; on touch, the action bar docks
+  // away from the native Copy / Look Up menu.
   if (isCoarse()) {
-    document.addEventListener("touchend", (e) => void openForSelection(e.target));
+    document.addEventListener("touchend", (e) => void openActionsForSelection(e.target));
     // On iOS *every* browser (Chrome included) is WebKit, and WebKit makes typing
     // in a <textarea>/<input> lag — by hundreds of ms — whenever a `selectionchange`
-    // listener is attached to `document`, however trivial the handler. (This is the
-    // iOS tax ProseMirror/CodeMirror/Draft.js all work around.) The early bail in
-    // `openForSelection` does NOT mitigate it: the cost is the listener's presence,
-    // not its body. The watcher only exists to catch mobile prose-selection, which
-    // never happens while the caret is in a field — so detach it on field focus and
-    // re-attach on blur.
+    // listener is attached to `document`, however trivial the handler. The watcher
+    // only exists to catch mobile prose-selection, which never happens while the
+    // caret is in a field — so detach it on field focus and re-attach on blur.
     let selTimer: number | undefined;
     const onSelectionChange = () => {
       window.clearTimeout(selTimer);
-      selTimer = window.setTimeout(() => void openForSelection(document.activeElement), 350);
+      selTimer = window.setTimeout(() => void openActionsForSelection(document.activeElement), 350);
     };
     const armSelectionWatch = () => document.addEventListener("selectionchange", onSelectionChange);
     const disarmSelectionWatch = () =>
@@ -1251,17 +1300,14 @@ function installCreateUI(layer: HTMLElement): void {
   const openPagePicker = async () => {
     if (!pending) return;
     ppTitle = pending.text;
+    actions.hidden = true;
     ui.hidden = true;
     picker.hidden = false;
     ppHead.textContent = `New page: “${ppTitle.length > 60 ? ppTitle.slice(0, 57) + "…" : ppTitle}”`;
     ppStatus.textContent = "";
     ppFilter.value = "";
-    picker.style.position = ui.style.position;
-    picker.style.top = ui.style.top;
-    picker.style.bottom = ui.style.bottom;
-    picker.style.left = ui.style.left;
-    picker.style.right = ui.style.right;
-    picker.style.width = ui.style.width;
+    if (pendingRange) showPendingHighlight(pendingRange);
+    placeNearSelection(picker, 368);
     ppFilter.focus();
     if (!sections) {
       ppList.innerHTML = "";
@@ -1285,6 +1331,10 @@ function installCreateUI(layer: HTMLElement): void {
       hide();
     }
   });
+  (actions.querySelector(".dn-action-note") as HTMLButtonElement).addEventListener("click", openComposer);
+  (actions.querySelector(".dn-action-page") as HTMLButtonElement).addEventListener("click", () =>
+    void openPagePicker(),
+  );
   (ui.querySelector(".dn-newpage") as HTMLButtonElement).addEventListener("click", () =>
     void openPagePicker(),
   );
