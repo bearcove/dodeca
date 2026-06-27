@@ -149,6 +149,9 @@ aside.dodeca-note { display: none !important; }
 }
 .dn-index-head .dn-head-count { color: var(--dn-muted); text-transform: uppercase; }
 .dn-index-head label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; color: var(--dn-muted); }
+.dn-index-head-actions { display: inline-flex; align-items: center; gap: 9px; margin-left: auto; }
+.dn-index-all { color: var(--dn-note); font-weight: 700; text-decoration: none; white-space: nowrap; }
+.dn-index-all:hover { text-decoration: underline; }
 .dn-index-item {
   display: block; width: 100%; text-align: left; cursor: pointer;
   background: transparent; border: none; color: inherit; font: inherit;
@@ -917,6 +920,13 @@ function buildIndex(layer: HTMLElement, notes: Note[], onPick: (n: Note) => void
   count.className = "dn-head-count";
   count.textContent = `${open.length} note${open.length === 1 ? "" : "s"}`;
   head.appendChild(count);
+  const headActions = document.createElement("span");
+  headActions.className = "dn-index-head-actions";
+  const allNotes = document.createElement("a");
+  allNotes.className = "dn-index-all";
+  allNotes.href = "/_dodeca/annotations";
+  allNotes.textContent = "All notes";
+  headActions.appendChild(allNotes);
   if (resolvedCount > 0) {
     const label = document.createElement("label");
     const cb = document.createElement("input");
@@ -927,8 +937,9 @@ function buildIndex(layer: HTMLElement, notes: Note[], onPick: (n: Note) => void
       localStorage.setItem(SHOW_RESOLVED_KEY, cb.checked ? "1" : "0");
     });
     label.append(cb, document.createTextNode(`show ${resolvedCount} resolved`));
-    head.appendChild(label);
+    headActions.appendChild(label);
   }
+  head.appendChild(headActions);
   panel.appendChild(head);
 
   if (notes.length === 0) {
