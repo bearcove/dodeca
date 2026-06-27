@@ -1,7 +1,7 @@
 [package]
 autobins = false
 name = "cell-vite"
-version = "0.6.1"
+version = "0.0.0"
 edition = "2024"
 
 [package.metadata]

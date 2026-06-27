@@ -1,7 +1,7 @@
 [package]
 autobins = false
 name = "cell-dialoguer"
-version = "0.6.1"
+version = "0.0.0"
 edition = "2024"
 rust-version = "1.91"
 description = "Interactive terminal prompts for dodeca"

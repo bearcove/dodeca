@@ -1586,7 +1586,7 @@ dependencies = [
 
 [[package]]
 name = "cell-code-execution"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "cell-code-execution-proto",
  "pulldown-cmark",
@@ -1597,7 +1597,7 @@ dependencies = [
 
 [[package]]
 name = "cell-code-execution-proto"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "facet",
  "facet-default",
@@ -1606,7 +1606,7 @@ dependencies = [
 
 [[package]]
 name = "cell-css"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "cell-css-proto",
  "lightningcss",
@@ -1614,14 +1614,14 @@ dependencies = [
 
 [[package]]
 name = "cell-css-proto"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "facet",
 ]
 
 [[package]]
 name = "cell-data"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "cell-data-proto",
  "facet-format",
@@ -1632,7 +1632,7 @@ dependencies = [
 
 [[package]]
 name = "cell-data-proto"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "facet",
  "facet-value",
@@ -1640,7 +1640,7 @@ dependencies = [
 
 [[package]]
 name = "cell-dialoguer"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "cell-dialoguer-proto",
  "dialoguer",
@@ -1649,14 +1649,14 @@ dependencies = [
 
 [[package]]
 name = "cell-dialoguer-proto"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "facet",
 ]
 
 [[package]]
 name = "cell-embed"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "brotli 8.0.4",
  "cell-embed-proto",
@@ -1666,14 +1666,14 @@ dependencies = [
 
 [[package]]
 name = "cell-embed-proto"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "facet",
 ]
 
 [[package]]
 name = "cell-fonts"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "cell-fonts-proto",
  "fontcull",
@@ -1682,14 +1682,14 @@ dependencies = [
 
 [[package]]
 name = "cell-fonts-proto"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "facet",
 ]
 
 [[package]]
 name = "cell-gingembre"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "cell-gingembre-proto",
  "dashmap 6.2.1",
@@ -1701,7 +1701,7 @@ dependencies = [
 
 [[package]]
 name = "cell-gingembre-proto"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "facet",
  "facet-value",
@@ -1710,7 +1710,7 @@ dependencies = [
 
 [[package]]
 name = "cell-html"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "cell-html-proto",
  "color-eyre",
@@ -1721,7 +1721,7 @@ dependencies = [
 
 [[package]]
 name = "cell-html-diff"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "cell-html-diff-proto",
  "facet-postcard",
@@ -1731,21 +1731,21 @@ dependencies = [
 
 [[package]]
 name = "cell-html-diff-proto"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "facet",
 ]
 
 [[package]]
 name = "cell-html-proto"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "facet",
 ]
 
 [[package]]
 name = "cell-http"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "axum",
  "cell-http-proto",
@@ -1762,7 +1762,7 @@ dependencies = [
 
 [[package]]
 name = "cell-http-proto"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "dodeca-protocol",
  "facet",
@@ -1770,7 +1770,7 @@ dependencies = [
 
 [[package]]
 name = "cell-image"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "base64 0.22.1",
  "cell-image-proto",
@@ -1780,14 +1780,14 @@ dependencies = [
 
 [[package]]
 name = "cell-image-proto"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "facet",
 ]
 
 [[package]]
 name = "cell-js"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "cell-js-proto",
  "oxc",
@@ -1795,14 +1795,14 @@ dependencies = [
 
 [[package]]
 name = "cell-js-proto"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "facet",
 ]
 
 [[package]]
 name = "cell-jxl"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "cell-jxl-proto",
  "jpegxl-rs",
@@ -1810,14 +1810,14 @@ dependencies = [
 
 [[package]]
 name = "cell-jxl-proto"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "facet",
 ]
 
 [[package]]
 name = "cell-linkcheck"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "cell-linkcheck-proto",
  "reqwest",
@@ -1828,14 +1828,14 @@ dependencies = [
 
 [[package]]
 name = "cell-linkcheck-proto"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "facet",
 ]
 
 [[package]]
 name = "cell-markdown"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "base64 0.22.1",
  "cell-markdown-proto",
@@ -1846,7 +1846,7 @@ dependencies = [
 
 [[package]]
 name = "cell-markdown-proto"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "facet",
  "facet-postcard",
@@ -1855,21 +1855,21 @@ dependencies = [
 
 [[package]]
 name = "cell-minify"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "cell-minify-proto",
 ]
 
 [[package]]
 name = "cell-minify-proto"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "facet",
 ]
 
 [[package]]
 name = "cell-sass"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "cell-sass-proto",
  "grass",
@@ -1877,14 +1877,14 @@ dependencies = [
 
 [[package]]
 name = "cell-sass-proto"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "facet",
 ]
 
 [[package]]
 name = "cell-search"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "cell-search-proto",
  "dodeca-search-format",
@@ -1894,14 +1894,14 @@ dependencies = [
 
 [[package]]
 name = "cell-search-proto"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "facet",
 ]
 
 [[package]]
 name = "cell-svgo"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "cell-svgo-proto",
  "svag",
@@ -1909,14 +1909,14 @@ dependencies = [
 
 [[package]]
 name = "cell-svgo-proto"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "facet",
 ]
 
 [[package]]
 name = "cell-term"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "anstyle-parse 0.2.7",
  "arboard",
@@ -1929,21 +1929,21 @@ dependencies = [
 
 [[package]]
 name = "cell-term-proto"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "facet",
 ]
 
 [[package]]
 name = "cell-tui-proto"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "facet",
 ]
 
 [[package]]
 name = "cell-vite"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "cell-vite-proto",
  "eyre",
@@ -1952,14 +1952,14 @@ dependencies = [
 
 [[package]]
 name = "cell-vite-proto"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "facet",
 ]
 
 [[package]]
 name = "cell-webp"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "cell-webp-proto",
  "webp",
@@ -1967,7 +1967,7 @@ dependencies = [
 
 [[package]]
 name = "cell-webp-proto"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "facet",
 ]
@@ -2574,7 +2574,7 @@ dependencies = [
 
 [[package]]
 name = "ddc"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "arboard",
  "arc-swap",
@@ -2733,7 +2733,7 @@ dependencies = [
 
 [[package]]
 name = "dodeca"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "aho-corasick",
  "arboard",
@@ -2873,7 +2873,7 @@ dependencies = [
 
 [[package]]
 name = "dodeca-authoring-lsp"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "camino",
  "cell-html-proto",
@@ -2890,7 +2890,7 @@ dependencies = [
 
 [[package]]
 name = "dodeca-config"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "cell-code-execution-proto",
  "facet",
@@ -2899,14 +2899,14 @@ dependencies = [
 
 [[package]]
 name = "dodeca-debug"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "libc",
 ]
 
 [[package]]
 name = "dodeca-devtools"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "dodeca-protocol",
  "getrandom 0.3.4",
@@ -2923,7 +2923,7 @@ dependencies = [
 
 [[package]]
 name = "dodeca-protocol"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "facet",
  "facet-postcard",
@@ -2932,7 +2932,7 @@ dependencies = [
 
 [[package]]
 name = "dodeca-sandbox"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "hakoniwa",
  "tempfile",
@@ -2941,7 +2941,7 @@ dependencies = [
 
 [[package]]
 name = "dodeca-search-format"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "facet",
  "facet-postcard",
@@ -2951,7 +2951,7 @@ dependencies = [
 
 [[package]]
 name = "dodeca-search-wasm"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "dodeca-search-format",
  "facet-json",
@@ -3833,7 +3833,7 @@ checksum = "e629b9b98ef3dd8afe6ca2bd0f89306cec16d43d907889945bc5d6687f2f13c7"
 
 [[package]]
 name = "gingembre"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "ariadne 0.6.0",
  "camino",
@@ -3848,7 +3848,7 @@ dependencies = [
 
 [[package]]
 name = "gingembre-syntax"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "cstree",
 ]
@@ -4604,7 +4604,7 @@ dependencies = [
 
 [[package]]
 name = "integration-tests"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "camino",
  "dodeca-protocol",
@@ -5005,7 +5005,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
 name = "livereload-client"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "dodeca-protocol",
  "hotmeal",
@@ -9950,7 +9950,7 @@ checksum = "ea6fc2961e4ef194dcbfe56bb845534d0dc8098940c7e5c012a258bfec6701bd"
 
 [[package]]
 name = "xtask"
-version = "0.6.1"
+version = "0.0.0"
 dependencies = [
  "camino",
  "dodeca-protocol",

@@ -1,6 +1,6 @@
 [package]
 name = "cell-vite-proto"
-version = "0.6.1"
+version = "0.0.0"
 edition = "2024"
 
 [package.metadata]

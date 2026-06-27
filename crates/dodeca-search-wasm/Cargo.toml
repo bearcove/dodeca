@@ -1,6 +1,6 @@
 [package]
 name = "dodeca-search-wasm"
-version = "0.6.1"
+version = "0.0.0"
 edition = "2024"
 rust-version = "1.91"
 description = "Browser-side query runtime for dodeca's from-scratch full-text search"

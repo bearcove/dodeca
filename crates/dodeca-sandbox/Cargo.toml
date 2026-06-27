@@ -1,6 +1,6 @@
 [package]
 name = "dodeca-sandbox"
-version = "0.6.1"
+version = "0.0.0"
 edition = "2024"
 rust-version = "1.91"
 description = "Cross-platform process sandboxing for dodeca"

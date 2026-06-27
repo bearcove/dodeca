@@ -1,6 +1,6 @@
 [package]
 name = "gingembre"
-version = "0.6.1"
+version = "0.0.0"
 edition = "2024"
 rust-version = "1.91"
 authors = ["Amos Wenger <amos@bearcove.eu>"]

@@ -1,6 +1,6 @@
 [package]
 name = "dodeca-devtools"
-version = "0.6.1"
+version = "0.0.0"
 edition = "2024"
 rust-version = "1.91"
 description = "Sycamore-powered devtools overlay for dodeca"
@@ -37,20 +37,20 @@ wasm-bindgen-futures = "0.4"
 [dependencies.web-sys]
 workspace = true
 features = [
-    "WebSocket",
-    "MessageEvent",
-    "ErrorEvent",
-    "CloseEvent",
-    "CssStyleDeclaration",
-    "Document",
-    "DomRect",
-    "Element",
-    "EventTarget",
-    "HtmlElement",
-    "KeyboardEvent",
-    "MouseEvent",
-    "Node",
-    "Window",
+  "WebSocket",
+  "MessageEvent",
+  "ErrorEvent",
+  "CloseEvent",
+  "CssStyleDeclaration",
+  "Document",
+  "DomRect",
+  "Element",
+  "EventTarget",
+  "HtmlElement",
+  "KeyboardEvent",
+  "MouseEvent",
+  "Node",
+  "Window",
 ]
 
 [dev-dependencies]
