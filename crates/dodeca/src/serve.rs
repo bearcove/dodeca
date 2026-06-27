@@ -592,6 +592,13 @@ impl SiteServer {
         crate::knowledge::graph(&*self.db, route, k).await
     }
 
+    pub async fn annotation_index(&self) -> crate::annotations::AnnotationIndex {
+        let snapshot = DatabaseSnapshot::from_database(&self.db).await;
+        crate::annotations::index(&snapshot)
+            .await
+            .unwrap_or_default()
+    }
+
     /// Attach an inline note to the markdown source backing `(route, sid)`.
     ///
     /// Resolves the source span via the page's source map, inserts a

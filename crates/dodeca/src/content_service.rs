@@ -136,6 +136,16 @@ impl ContentService for HostContentService {
             };
         }
 
+        if path == "/_dodeca/annotations.json" {
+            let response = self.server.annotation_index().await;
+            let body = facet_json::to_string(&response).unwrap_or_else(|_| "{}".to_string());
+            return ServeContent::StaticNoCache {
+                content: body.into_bytes(),
+                mime: "application/json; charset=utf-8".to_string(),
+                generation,
+            };
+        }
+
         // In-browser editor shell. Fail closed: mint a token only for a verified
         // editor; anyone else is treated as if the page doesn't exist (we don't
         // reveal that it's editable). Unauthenticated requests behind the proxy
