@@ -31,28 +31,78 @@ import { BrowserServiceDispatcher } from "./browser.generated";
 // production there is no overlay (and marq strips the marks), so none of this
 // applies; here it powers the dev annotation layer.
 const KIND_COLORS: Record<string, string> = {
-  note: "#89b4fa",
-  question: "#f9e2af",
-  todo: "#f38ba8",
+  note: "#3b82f6",
+  question: "#b45309",
+  todo: "#dc2626",
 };
-// Square, business-like (GitHub review comments). No border-radius anywhere.
+const NOTES_ICON = `<svg class="dn-icon" aria-hidden="true" viewBox="0 0 16 16"><path d="M4.5 2.5h7l1.5 1.6v9.4h-9v-11Z"/><path d="M6 6h5M6 8.5h5M6 11h3"/></svg>`;
+const PAGE_ICON = `<svg class="dn-icon" aria-hidden="true" viewBox="0 0 16 16"><path d="M4 2.5h5.8L12 4.8v8.7H4z"/><path d="M8 7v4M6 9h4"/></svg>`;
 const STYLES = `
-:root { --dn-note: #89b4fa; --dn-question: #f9e2af; --dn-todo: #f38ba8; }
+:root {
+  --dn-note: #3b82f6;
+  --dn-question: #b45309;
+  --dn-todo: #dc2626;
+  --dn-bg: #ffffff;
+  --dn-panel: #f8fafc;
+  --dn-panel-hover: #eef2f7;
+  --dn-text: #111827;
+  --dn-muted: #6b7280;
+  --dn-border: #d1d5db;
+  --dn-border-strong: #9ca3af;
+  --dn-shadow: 0 18px 50px rgba(15, 23, 42, 0.24);
+  --dn-shadow-soft: 0 8px 28px rgba(15, 23, 42, 0.18);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --dn-bg: #10131a;
+    --dn-panel: #171b24;
+    --dn-panel-hover: #222938;
+    --dn-text: #e5e7eb;
+    --dn-muted: #9ca3af;
+    --dn-border: #374151;
+    --dn-border-strong: #4b5563;
+    --dn-shadow: 0 18px 60px rgba(0, 0, 0, 0.52);
+    --dn-shadow-soft: 0 8px 34px rgba(0, 0, 0, 0.38);
+  }
+}
+
+::highlight(dodeca-pending-note) {
+  background: color-mix(in srgb, var(--dn-note) 24%, transparent);
+  text-decoration-line: underline;
+  text-decoration-color: var(--dn-note);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.12em;
+}
 
 /* The highlighted span: keep the (light) text readable; mark it with an accent
    underline + faint tint rather than a solid fill. */
+dodeca-mark,
+dodeca-pending {
+  border-radius: 3px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
 dodeca-mark {
+  background: rgba(59, 130, 246, 0.12);
   background: color-mix(in srgb, var(--dn-note) 12%, transparent);
   border-bottom: 2px solid var(--dn-note);
   cursor: pointer;
-  transition: background 0.12s ease;
+  transition: background 0.12s ease, border-color 0.12s ease;
 }
 dodeca-mark:hover, dodeca-mark.dn-active {
+  background: rgba(59, 130, 246, 0.24);
   background: color-mix(in srgb, var(--dn-note) 26%, transparent);
+}
+a dodeca-mark { cursor: inherit; }
+dodeca-pending {
+  background: rgba(59, 130, 246, 0.24);
+  background: color-mix(in srgb, var(--dn-note) 24%, transparent);
+  box-shadow: inset 0 -2px 0 var(--dn-note);
 }
 /* Resolved threads: highlight drops to plain text unless we're showing resolved. */
 dodeca-mark.dn-resolved { background: none; border-bottom: none; cursor: auto; }
 html.dn-show-resolved dodeca-mark.dn-resolved {
+  background: rgba(59, 130, 246, 0.07);
   background: color-mix(in srgb, var(--dn-note) 7%, transparent);
   border-bottom: 1px dashed var(--dn-note); cursor: pointer;
 }
@@ -63,47 +113,63 @@ aside.dodeca-note { display: none !important; }
 /* ── note index (top-right) ── */
 .dn-index {
   position: fixed; top: 12px; right: 12px; z-index: 2147483640;
-  font: 13px/1.4 system-ui, sans-serif; color: #cdd6f4;
+  font: 13px/1.4 system-ui, sans-serif; color: var(--dn-text);
+  pointer-events: none;
+}
+.dn-index > * { pointer-events: auto; }
+.dn-icon {
+  width: 16px; height: 16px; flex: 0 0 16px;
+  fill: none; stroke: currentColor; stroke-width: 1.7;
+  stroke-linecap: round; stroke-linejoin: round;
 }
 .dn-index-toggle {
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 6px 12px; border: none; border-radius: 2px; cursor: pointer;
-  background: #1e1e2e; color: #cdd6f4; font: 600 12px system-ui, sans-serif;
-  box-shadow: 0 3px 10px rgba(0,0,0,0.3);
+  min-height: 34px; padding: 6px 9px; border: 1px solid var(--dn-border);
+  border-radius: 6px; cursor: pointer;
+  background: var(--dn-bg); color: var(--dn-text); font: 650 12px system-ui, sans-serif;
+  box-shadow: var(--dn-shadow-soft);
 }
-.dn-index-toggle:hover { filter: brightness(1.12); }
+.dn-index-toggle:hover { background: var(--dn-panel); border-color: var(--dn-border-strong); }
+.dn-index-count {
+  display: inline-grid; place-items: center; min-width: 20px; height: 20px;
+  padding: 0 5px; border-radius: 999px;
+  background: var(--dn-note); color: white; font-size: 11px;
+}
 /* Absolute so opening the panel doesn't resize/shift the toggle. */
 .dn-index-panel {
-  position: absolute; right: 0; top: calc(100% + 4px);
-  width: 300px; max-height: 60vh; overflow-y: auto; border-radius: 2px;
-  background: #1e1e2e; box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+  position: absolute; right: 0; top: calc(100% + 6px);
+  width: min(360px, calc(100vw - 24px)); max-height: 60vh; overflow-y: auto;
+  border: 1px solid var(--dn-border); border-radius: 8px;
+  background: var(--dn-bg); box-shadow: var(--dn-shadow);
 }
 .dn-index-panel[hidden] { display: none; }
 .dn-index-head {
-  padding: 8px 10px; font-size: 11px; border-bottom: 1px solid #313244;
+  padding: 9px 10px; font-size: 11px; border-bottom: 1px solid var(--dn-border);
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
 }
-.dn-index-head .dn-head-count { opacity: 0.6; text-transform: uppercase; letter-spacing: 0.05em; }
-.dn-index-head label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; opacity: 0.85; }
+.dn-index-head .dn-head-count { color: var(--dn-muted); text-transform: uppercase; }
+.dn-index-head label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; color: var(--dn-muted); }
 .dn-index-item {
   display: block; width: 100%; text-align: left; cursor: pointer;
   background: transparent; border: none; color: inherit; font: inherit;
-  padding: 8px 10px; border-left: 3px solid var(--dn-note); border-bottom: 1px solid #26273a;
+  padding: 9px 10px; border-left: 3px solid var(--dn-note); border-bottom: 1px solid var(--dn-border);
 }
-.dn-index-item:hover { background: #313244; }
+.dn-index-item:hover { background: var(--dn-panel-hover); }
 .dn-index-item.dn-resolved { display: none; opacity: 0.55; }
 .dn-index-item.dn-resolved .dn-snip { text-decoration: line-through; }
 html.dn-show-resolved .dn-index-item.dn-resolved { display: block; }
-.dn-index-item .dn-meta { font-size: 11px; opacity: 0.6; display: flex; gap: 6px; }
-.dn-index-item .dn-snip { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
-.dn-empty { padding: 10px; opacity: 0.5; font-size: 12px; }
+.dn-index-item .dn-meta { font-size: 11px; color: var(--dn-muted); display: flex; gap: 6px; }
+.dn-index-item .dn-kind { color: var(--dn-note); font-weight: 700; text-transform: uppercase; }
+.dn-index-item .dn-date { margin-left: auto; }
+.dn-index-item .dn-snip { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.dn-empty { padding: 10px; color: var(--dn-muted); font-size: 12px; }
 
 /* ── gutter markers (right edge) ── */
 .dn-gutter { position: fixed; top: 0; right: 0; width: 10px; height: 100vh; z-index: 2147483639; pointer-events: none; }
 .dn-gutter-mark {
   position: absolute; right: 2px; width: 6px; height: 6px; border-radius: 2px;
   background: var(--dn-note); cursor: pointer; pointer-events: auto;
-  box-shadow: 0 0 0 1px rgba(0,0,0,0.15);
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.22);
 }
 .dn-gutter-mark:hover { transform: scale(1.6); }
 .dn-gutter-mark.dn-resolved { display: none; }
@@ -111,106 +177,163 @@ html.dn-show-resolved .dn-gutter-mark.dn-resolved { display: block; opacity: 0.5
 
 /* ── note card (anchored popover) ── */
 .dn-card {
-  position: absolute; z-index: 2147483641; width: 340px;
-  display: flex; flex-direction: column; max-height: 70vh; border-radius: 2px;
-  background: #1e1e2e; color: #cdd6f4;
-  box-shadow: 0 10px 40px rgba(0,0,0,0.45);
+  position: absolute; z-index: 2147483641; width: min(360px, calc(100vw - 16px));
+  display: flex; flex-direction: column; max-height: 70vh; border-radius: 8px;
+  background: var(--dn-bg); color: var(--dn-text);
+  box-shadow: var(--dn-shadow);
   border-left: 3px solid var(--dn-note);
+  border-top: 1px solid var(--dn-border);
+  border-right: 1px solid var(--dn-border);
+  border-bottom: 1px solid var(--dn-border);
   font: 13px/1.5 system-ui, sans-serif;
+  overflow: hidden;
 }
 /* Comments scroll; the footer (resolve + reply) stays put for long threads. */
 .dn-card-scroll { overflow-y: auto; flex: 1 1 auto; min-height: 0; }
-.dn-card-comment { padding: 10px 12px; border-bottom: 1px solid #313244; }
+.dn-card-comment { padding: 11px 12px; border-bottom: 1px solid var(--dn-border); }
 .dn-card-byline { display: flex; align-items: baseline; gap: 6px; margin-bottom: 4px; font-size: 11px; }
 .dn-card-author { font-weight: 700; }
-.dn-card-kind { text-transform: uppercase; letter-spacing: 0.05em; padding: 0 5px; background: #313244; }
-.dn-card-date { opacity: 0.5; margin-left: auto; }
+.dn-card-kind { text-transform: uppercase; padding: 1px 5px; background: var(--dn-panel); border-radius: 999px; font-weight: 700; }
+.dn-card-date { color: var(--dn-muted); margin-left: auto; }
 .dn-card-body > :first-child { margin-top: 0; }
 .dn-card-body > :last-child { margin-bottom: 0; }
 .dn-card-body p { margin: 0.3em 0; }
-.dn-reply { padding: 8px 12px; background: #181825; flex: 0 0 auto; }
+.dn-reply { padding: 9px 12px 10px; background: var(--dn-panel); flex: 0 0 auto; }
 .dn-reply textarea {
-  width: 100%; box-sizing: border-box; resize: vertical; min-height: 44px; border-radius: 2px;
-  background: #11111b; color: #cdd6f4; border: 1px solid #45475a; padding: 6px; font: inherit;
+  width: 100%; box-sizing: border-box; resize: vertical; min-height: 48px; border-radius: 6px;
+  background: var(--dn-bg); color: var(--dn-text); border: 1px solid var(--dn-border);
+  padding: 7px 8px; font: inherit;
 }
 .dn-reply-row { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
-.dn-reply-author { flex: 1; border-radius: 2px; background: #313244; color: #cdd6f4; border: 1px solid #45475a; padding: 3px 5px; font: inherit; }
-.dn-reply-status { min-height: 1em; margin-top: 4px; opacity: 0.7; font-size: 11px; }
-.dn-btn-resolve { background: transparent; color: #cdd6f4; opacity: 0.7; border: 1px solid #45475a; }
-.dn-btn-resolve:hover { opacity: 1; background: #313244; }
+.dn-reply-author { flex: 1; border-radius: 6px; background: var(--dn-bg); color: var(--dn-text); border: 1px solid var(--dn-border); padding: 5px 7px; font: inherit; min-width: 0; }
+.dn-reply-status { min-height: 1em; margin-top: 4px; color: var(--dn-muted); font-size: 11px; }
+.dn-btn-resolve { background: transparent; color: var(--dn-muted); border: 1px solid var(--dn-border); }
+.dn-btn-resolve:hover { color: var(--dn-text); background: var(--dn-bg); border-color: var(--dn-border-strong); }
 
 /* ── create popup ── */
 .dn-create {
-  position: absolute; z-index: 2147483646; width: 340px; padding: 8px; border-radius: 2px;
-  background: #1e1e2e; color: #cdd6f4;
-  box-shadow: 0 8px 30px rgba(0,0,0,0.35); font: 13px/1.4 system-ui, sans-serif;
+  position: absolute; z-index: 2147483646; width: min(360px, calc(100vw - 16px));
+  padding: 10px; border-radius: 8px;
+  background: var(--dn-bg); color: var(--dn-text);
+  border: 1px solid var(--dn-border);
+  box-shadow: var(--dn-shadow); font: 13px/1.4 system-ui, sans-serif;
 }
 .dn-create[hidden] { display: none; }
 .dn-create .dn-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
 .dn-create input {
-  background: #313244; color: #cdd6f4; border: 1px solid #45475a; border-radius: 2px; padding: 3px 5px; font: inherit;
+  background: var(--dn-panel); color: var(--dn-text); border: 1px solid var(--dn-border);
+  border-radius: 6px; padding: 5px 7px; font: inherit; min-width: 0;
 }
 .dn-create .dn-author { flex: 1; }
-.dn-create .dn-quote { flex: 1; opacity: 0.55; font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dn-create textarea {
-  width: 100%; box-sizing: border-box; resize: vertical; min-height: 56px; border-radius: 2px;
-  background: #11111b; color: #cdd6f4; border: 1px solid #45475a; padding: 6px; font: inherit;
+.dn-create .dn-quote {
+  flex: 1; color: var(--dn-muted); font-style: italic; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; min-width: 0;
 }
-.dn-create .dn-status { min-height: 1.2em; margin-top: 4px; opacity: 0.7; font-size: 12px; }
+.dn-create textarea {
+  width: 100%; box-sizing: border-box; resize: vertical; min-height: 64px; border-radius: 6px;
+  background: var(--dn-panel); color: var(--dn-text); border: 1px solid var(--dn-border);
+  padding: 8px; font: inherit;
+}
+.dn-create textarea:focus,
+.dn-create input:focus,
+.dn-reply textarea:focus,
+.dn-reply-author:focus,
+.dn-pp-filter:focus {
+  outline: 2px solid color-mix(in srgb, var(--dn-note) 46%, transparent);
+  outline-offset: 1px;
+  border-color: var(--dn-note);
+}
+.dn-create .dn-status { min-height: 1.2em; margin-top: 4px; color: var(--dn-muted); font-size: 12px; }
 
 /* create-page picker */
-.dn-pagepicker { width: 340px; }
-.dn-pp-head { font-size: 12px; opacity: 0.85; margin-bottom: 6px; }
+.dn-pagepicker { width: min(360px, calc(100vw - 16px)); }
+.dn-pp-head { font-size: 12px; color: var(--dn-muted); margin-bottom: 6px; }
 .dn-pp-filter {
-  width: 100%; box-sizing: border-box; background: #313244; color: #cdd6f4;
-  border: 1px solid #45475a; border-radius: 2px; padding: 5px 7px; font: inherit;
+  width: 100%; box-sizing: border-box; background: var(--dn-panel); color: var(--dn-text);
+  border: 1px solid var(--dn-border); border-radius: 6px; padding: 6px 8px; font: inherit;
 }
 .dn-pp-list { max-height: 220px; overflow-y: auto; margin-top: 6px; }
 .dn-pp-item {
   display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
   width: 100%; text-align: left; background: transparent; border: none;
-  color: inherit; font: inherit; padding: 5px 7px; cursor: pointer; border-radius: 2px;
+  color: inherit; font: inherit; padding: 6px 7px; cursor: pointer; border-radius: 6px;
 }
-.dn-pp-item:hover { background: #313244; }
-.dn-pp-path { opacity: 0.5; font-size: 11px; white-space: nowrap; }
+.dn-pp-item:hover { background: var(--dn-panel-hover); }
+.dn-pp-path { color: var(--dn-muted); font-size: 11px; white-space: nowrap; }
 
 /* segmented kind picker */
-.dn-seg { display: flex; gap: 0; overflow: hidden; border: 1px solid #45475a; border-radius: 2px; }
+.dn-seg { display: flex; gap: 0; overflow: hidden; border: 1px solid var(--dn-border); border-radius: 7px; }
 .dn-seg-btn {
   flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px;
-  padding: 5px 8px; cursor: pointer; border: none; border-right: 1px solid #45475a;
-  background: #313244; color: #cdd6f4; font: 600 12px system-ui, sans-serif;
+  padding: 6px 8px; cursor: pointer; border: none; border-right: 1px solid var(--dn-border);
+  background: var(--dn-panel); color: var(--dn-text); font: 650 12px system-ui, sans-serif;
 }
 .dn-seg-btn:last-child { border-right: none; }
-.dn-seg-btn:hover { background: #3b3d52; }
-.dn-seg-btn.dn-on { color: #11111b; }
+.dn-seg-btn:hover { background: var(--dn-panel-hover); }
+.dn-seg-btn.dn-on { color: white; }
 .dn-seg-btn.dn-on[data-kind="note"] { background: var(--dn-note); }
 .dn-seg-btn.dn-on[data-kind="question"] { background: var(--dn-question); }
 .dn-seg-btn.dn-on[data-kind="todo"] { background: var(--dn-todo); }
 
-/* keycap hints + action buttons */
-kbd.dn-kbd {
-  font: 600 10px ui-monospace, monospace; line-height: 1;
-  padding: 2px 4px; border-radius: 2px; background: rgba(0,0,0,0.25);
-  border: 1px solid rgba(255,255,255,0.12); opacity: 0.85;
-}
-.dn-seg-btn.dn-on kbd.dn-kbd { background: rgba(0,0,0,0.18); border-color: rgba(0,0,0,0.2); }
+/* action buttons */
 .dn-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 6px; }
 .dn-btn {
   display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
-  border: none; border-radius: 2px; padding: 6px 12px; font: 600 12px system-ui, sans-serif;
+  border: 1px solid transparent; border-radius: 6px; padding: 7px 10px; font: 650 12px system-ui, sans-serif;
 }
-.dn-btn-ghost { background: transparent; color: #cdd6f4; opacity: 0.7; }
-.dn-btn-ghost:hover { opacity: 1; background: #313244; }
-.dn-btn-save { background: #89b4fa; color: #11111b; }
+.dn-btn-ghost { background: transparent; color: var(--dn-muted); border-color: var(--dn-border); }
+.dn-btn-ghost:hover { color: var(--dn-text); background: var(--dn-panel); border-color: var(--dn-border-strong); }
+.dn-btn-save { background: var(--dn-note); color: white; border-color: var(--dn-note); }
 .dn-btn-save:hover { filter: brightness(1.1); }
 `;
+
+function validCssColor(value: string | null | undefined): string | null {
+  const v = value?.trim();
+  if (!v) return null;
+  const probe = document.createElement("span");
+  probe.style.color = v;
+  return probe.style.color ? v : null;
+}
+
+function siteAccentColor(): string | null {
+  const metaNames = ["dodeca-accent-color", "theme-color"];
+  for (const name of metaNames) {
+    const meta = document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`);
+    const color = validCssColor(meta?.content);
+    if (color) return color;
+  }
+
+  const varNames = [
+    "--dodeca-accent-color",
+    "--dodeca-accent",
+    "--site-accent",
+    "--accent-color",
+    "--accent",
+  ];
+  for (const el of [document.documentElement, document.body]) {
+    if (!el) continue;
+    const style = getComputedStyle(el);
+    for (const name of varNames) {
+      const color = validCssColor(style.getPropertyValue(name));
+      if (color) return color;
+    }
+  }
+  return null;
+}
+
+function applyThemeVariables(): void {
+  const accent = siteAccentColor();
+  if (!accent) return;
+  KIND_COLORS.note = accent;
+  document.documentElement.style.setProperty("--dn-note", accent);
+}
 
 function injectStyles(): void {
   const style = document.createElement("style");
   style.dataset.dodecaAnnotate = "";
   style.textContent = STYLES;
   document.head.appendChild(style);
+  applyThemeVariables();
 }
 
 // ── connection (lazy; the UI never blocks on it) ────────────────────────────
@@ -396,6 +519,14 @@ function highlightQuote(block: HTMLElement, quote: string, id: string): HTMLElem
 /// Wrap every text-node run a `range` covers in its own `<dodeca-mark>`. Capture
 /// all boundaries before mutating, since `splitText` updates live ranges.
 function wrapRange(range: Range, id: string): HTMLElement[] {
+  return wrapTextRuns(range, () => {
+    const mark = document.createElement("dodeca-mark");
+    mark.setAttribute("data-note-id", id);
+    return mark;
+  });
+}
+
+function wrapTextRuns(range: Range, makeWrapper: () => HTMLElement): HTMLElement[] {
   const scope = range.commonAncestorContainer;
   const root = scope.nodeType === Node.TEXT_NODE ? scope.parentNode! : scope;
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
@@ -414,13 +545,55 @@ function wrapRange(range: Range, id: string): HTMLElement[] {
     let target = node;
     if (start > 0) target = target.splitText(start);
     if (end - start < target.data.length) target.splitText(end - start);
-    const mark = document.createElement("dodeca-mark");
-    mark.setAttribute("data-note-id", id);
+    const mark = makeWrapper();
     target.parentNode!.insertBefore(mark, target);
     mark.appendChild(target);
     marks.push(mark);
   }
   return marks;
+}
+
+function unwrapElements(elements: HTMLElement[]): void {
+  for (const el of elements) {
+    const parent = el.parentNode;
+    if (!parent) continue;
+    while (el.firstChild) parent.insertBefore(el.firstChild, el);
+    parent.removeChild(el);
+    parent.normalize();
+  }
+}
+
+const PENDING_HIGHLIGHT = "dodeca-pending-note";
+type CssHighlightRegistry = {
+  set(name: string, highlight: unknown): void;
+  delete(name: string): void;
+};
+type HighlightCtor = new (...ranges: Range[]) => unknown;
+let pendingHighlightMarks: HTMLElement[] = [];
+
+function cssHighlightRegistry(): CssHighlightRegistry | null {
+  return (
+    (globalThis as unknown as { CSS?: { highlights?: CssHighlightRegistry } }).CSS?.highlights ??
+    null
+  );
+}
+
+function clearPendingHighlight(): void {
+  cssHighlightRegistry()?.delete(PENDING_HIGHLIGHT);
+  unwrapElements(pendingHighlightMarks);
+  pendingHighlightMarks = [];
+}
+
+function showPendingHighlight(range: Range): void {
+  clearPendingHighlight();
+  const highlight = (globalThis as unknown as { Highlight?: HighlightCtor }).Highlight;
+  const registry = cssHighlightRegistry();
+  const snapshot = range.cloneRange();
+  if (highlight && registry) {
+    registry.set(PENDING_HIGHLIGHT, new highlight(snapshot));
+    return;
+  }
+  pendingHighlightMarks = wrapTextRuns(snapshot, () => document.createElement("dodeca-pending"));
 }
 
 function fmtDate(rfc: string): string {
@@ -434,6 +607,17 @@ function fmtDate(rfc: string): string {
 
 function kindColor(kind: string): string {
   return KIND_COLORS[kind] ?? KIND_COLORS.note;
+}
+
+function textFromHTML(html: string): string {
+  const t = document.createElement("template");
+  t.innerHTML = html;
+  return t.content.textContent ?? "";
+}
+
+function noteSnippet(note: Note): string {
+  const first = note.comments[0];
+  return collapseWs(note.quote || textFromHTML(first?.bodyHTML ?? "")).trim();
 }
 
 // ── main ────────────────────────────────────────────────────────────────────
@@ -496,7 +680,7 @@ function main(): void {
     resolve.textContent = note.resolved ? "Reopen" : "Resolve";
     const send = document.createElement("button");
     send.className = "dn-btn dn-btn-save";
-    send.innerHTML = `Reply <kbd class="dn-kbd">⌘↵</kbd>`;
+    send.textContent = "Reply";
     const status = document.createElement("div");
     status.className = "dn-reply-status";
     row.append(author, resolve, send);
@@ -641,6 +825,7 @@ function main(): void {
       m.addEventListener("mouseenter", () => openNote(note, false));
       m.addEventListener("mouseleave", closeSoon);
       m.addEventListener("click", (e) => {
+        if (m.closest("a[href]")) return;
         e.preventDefault();
         e.stopPropagation();
         openNote(note, true);
@@ -667,10 +852,16 @@ function buildIndex(layer: HTMLElement, notes: Note[], onPick: (n: Note) => void
   const resolvedCount = notes.length - open.length;
   const toggle = document.createElement("button");
   toggle.className = "dn-index-toggle";
-  toggle.innerHTML = `📝 <span>${open.length}</span>`;
+  toggle.type = "button";
+  toggle.setAttribute("aria-expanded", "false");
+  toggle.innerHTML =
+    `${NOTES_ICON}<span class="dn-index-label">Notes</span>` +
+    `<span class="dn-index-count">${open.length}</span>`;
   const panel = document.createElement("div");
   panel.className = "dn-index-panel";
+  panel.id = "dodeca-notes-panel";
   panel.hidden = true;
+  toggle.setAttribute("aria-controls", panel.id);
 
   const head = document.createElement("div");
   head.className = "dn-index-head";
@@ -695,21 +886,34 @@ function buildIndex(layer: HTMLElement, notes: Note[], onPick: (n: Note) => void
   if (notes.length === 0) {
     const empty = document.createElement("div");
     empty.className = "dn-empty";
-    empty.textContent = "No notes on this page yet — select text to add one.";
+    empty.textContent = "No notes on this page.";
     panel.appendChild(empty);
   }
   for (const note of notes) {
     const first = note.comments[0];
     const item = document.createElement("button");
+    item.type = "button";
     item.className = note.resolved ? "dn-index-item dn-resolved" : "dn-index-item";
     item.style.borderLeftColor = kindColor(first?.kind ?? "note");
-    const snippet = (note.quote || first?.bodyHTML || "").replace(/<[^>]*>/g, "").trim();
-    item.innerHTML =
-      `<span class="dn-meta"><b>${first?.author || "anon"}</b><span>${first?.kind ?? ""}</span>` +
-      `<span style="margin-left:auto;opacity:.7">${fmtDate(first?.created ?? "")}</span></span>` +
-      `<span class="dn-snip">${snippet || "(note)"}</span>`;
+    const meta = document.createElement("span");
+    meta.className = "dn-meta";
+    const author = document.createElement("b");
+    author.textContent = first?.author || "anon";
+    const kind = document.createElement("span");
+    kind.className = "dn-kind";
+    kind.textContent = first?.kind ?? "";
+    kind.style.color = kindColor(first?.kind ?? "note");
+    const date = document.createElement("span");
+    date.className = "dn-date";
+    date.textContent = fmtDate(first?.created ?? "");
+    meta.append(author, kind, date);
+    const snip = document.createElement("span");
+    snip.className = "dn-snip";
+    snip.textContent = noteSnippet(note) || "(note)";
+    item.append(meta, snip);
     item.addEventListener("click", () => {
       panel.hidden = true;
+      toggle.setAttribute("aria-expanded", "false");
       onPick(note);
     });
     panel.appendChild(item);
@@ -717,6 +921,7 @@ function buildIndex(layer: HTMLElement, notes: Note[], onPick: (n: Note) => void
 
   toggle.addEventListener("click", () => {
     panel.hidden = !panel.hidden;
+    toggle.setAttribute("aria-expanded", String(!panel.hidden));
   });
   wrap.append(toggle, panel);
   layer.appendChild(wrap);
@@ -738,7 +943,7 @@ function buildGutter(layer: HTMLElement, notes: Note[], onPick: (n: Note) => voi
       mark.className = note.resolved ? "dn-gutter-mark dn-resolved" : "dn-gutter-mark";
       mark.style.top = `${(top / docH) * 100}vh`;
       mark.style.background = kindColor(note.comments[0]?.kind ?? "note");
-      mark.title = `${note.comments[0]?.author || "anon"}: ${(note.quote || note.comments[0]?.bodyHTML || "").replace(/<[^>]*>/g, "").slice(0, 40)}`;
+      mark.title = `${note.comments[0]?.author || "anon"}: ${noteSnippet(note).slice(0, 40)}`;
       mark.addEventListener("click", () => onPick(note));
       gutter.appendChild(mark);
     }
@@ -777,9 +982,7 @@ function installCreateUI(layer: HTMLElement): void {
   ui.className = "dn-create";
   ui.hidden = true;
   const segs = KINDS.map(
-    (k) =>
-      `<button class="dn-seg-btn" data-kind="${k.kind}">${k.label}` +
-      `<kbd class="dn-kbd">${k.hint}</kbd></button>`,
+    (k) => `<button type="button" class="dn-seg-btn" data-kind="${k.kind}">${k.label}</button>`,
   ).join("");
   ui.innerHTML = `
     <div class="dn-seg">${segs}</div>
@@ -789,9 +992,9 @@ function installCreateUI(layer: HTMLElement): void {
     </div>
     <textarea class="dn-body" placeholder="Write a note…"></textarea>
     <div class="dn-actions">
-      <button class="dn-btn dn-btn-ghost dn-newpage" title="Create a page titled with the selection">📄 New page</button>
-      <button class="dn-btn dn-btn-ghost dn-cancel">Cancel <kbd class="dn-kbd">Esc</kbd></button>
-      <button class="dn-btn dn-btn-save dn-save">Save <kbd class="dn-kbd">⌘↵</kbd></button>
+      <button type="button" class="dn-btn dn-btn-ghost dn-newpage" title="Create a page titled with the selection">${PAGE_ICON}Page</button>
+      <button type="button" class="dn-btn dn-btn-ghost dn-cancel">Cancel</button>
+      <button type="button" class="dn-btn dn-btn-save dn-save">Save</button>
     </div>
     <div class="dn-status"></div>
   `;
@@ -836,6 +1039,7 @@ function installCreateUI(layer: HTMLElement): void {
     ui.hidden = true;
     picker.hidden = true;
     pending = null;
+    clearPendingHighlight();
   };
 
   const isCoarse = () =>
@@ -850,6 +1054,8 @@ function installCreateUI(layer: HTMLElement): void {
     const sel = window.getSelection();
     const target = sel && targetForSelection(sel);
     if (!target) return false;
+    const range = sel!.getRangeAt(0).cloneRange();
+    const rect = range.getBoundingClientRect();
     pending = target;
     quoteEl.textContent = target.text.length > 80 ? `${target.text.slice(0, 77)}…` : target.text;
     bodyEl.value = "";
@@ -857,6 +1063,7 @@ function installCreateUI(layer: HTMLElement): void {
     setKind("note");
     picker.hidden = true;
     ui.hidden = false;
+    showPendingHighlight(range);
     if (isCoarse()) {
       // The native iOS edit menu (Copy / Look Up / …) hugs the selection and can't be
       // suppressed from the web. Anchoring our popup to the same rect makes the two
@@ -871,14 +1078,13 @@ function installCreateUI(layer: HTMLElement): void {
       // Don't steal focus: it pops the on-screen keyboard and collapses the native
       // selection handles mid-gesture. Let the user tap the field when they're ready.
     } else {
-      const r = sel!.getRangeAt(0).getBoundingClientRect();
       ui.style.position = "absolute";
-      ui.style.top = `${window.scrollY + r.bottom + 8}px`;
+      ui.style.top = `${window.scrollY + rect.bottom + 8}px`;
       ui.style.bottom = "auto";
       ui.style.right = "auto";
       ui.style.width = "";
-      ui.style.left = `${Math.max(8, window.scrollX + Math.min(r.left, window.innerWidth - 360))}px`;
-      bodyEl.focus();
+      ui.style.left = `${Math.max(8, window.scrollX + Math.min(rect.left, window.innerWidth - 368))}px`;
+      bodyEl.focus({ preventScroll: true });
     }
     return true;
   };
@@ -1005,15 +1211,23 @@ function installCreateUI(layer: HTMLElement): void {
     const items = (sections ?? []).filter((s) => fuzzy(q, s.path) || fuzzy(q, s.title));
     ppList.innerHTML = "";
     if (items.length === 0) {
-      ppList.innerHTML = `<div class="dn-empty">no matching section</div>`;
+      const empty = document.createElement("div");
+      empty.className = "dn-empty";
+      empty.textContent = "no matching section";
+      ppList.appendChild(empty);
       return;
     }
     for (const sec of items) {
       const b = document.createElement("button");
+      b.type = "button";
       b.className = "dn-pp-item";
-      b.innerHTML =
-        `<span class="dn-pp-title">${sec.title}</span>` +
-        `<span class="dn-pp-path">${sec.path || "/"}</span>`;
+      const title = document.createElement("span");
+      title.className = "dn-pp-title";
+      title.textContent = sec.title;
+      const path = document.createElement("span");
+      path.className = "dn-pp-path";
+      path.textContent = sec.path || "/";
+      b.append(title, path);
       b.addEventListener("click", () => void createInto(sec.path));
       ppList.appendChild(b);
     }
@@ -1050,7 +1264,11 @@ function installCreateUI(layer: HTMLElement): void {
     picker.style.width = ui.style.width;
     ppFilter.focus();
     if (!sections) {
-      ppList.innerHTML = `<div class="dn-empty">loading sections…</div>`;
+      ppList.innerHTML = "";
+      const loading = document.createElement("div");
+      loading.className = "dn-empty";
+      loading.textContent = "loading sections…";
+      ppList.appendChild(loading);
       try {
         sections = await withClient((c) => c.listSections());
       } catch {
