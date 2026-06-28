@@ -331,6 +331,7 @@ fn parse_coverage_endpoint(
         "status" => CoverageEndpoint::Status,
         "uncovered" => CoverageEndpoint::Uncovered,
         "untested" => CoverageEndpoint::Untested,
+        "unmapped" => CoverageEndpoint::Unmapped,
         "stale" => CoverageEndpoint::Stale,
         "invalid" => CoverageEndpoint::Invalid,
         "validate" => CoverageEndpoint::Validate {

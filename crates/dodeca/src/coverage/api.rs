@@ -8,6 +8,7 @@ pub enum CoverageEndpoint {
     Status,
     Uncovered,
     Untested,
+    Unmapped,
     Stale,
     Invalid,
     Validate { threshold: Option<u8> },
@@ -140,6 +141,23 @@ pub struct CoverageRuleListResponse {
 
 #[derive(Debug, Clone, Facet)]
 #[facet(rename_all = "camelCase")]
+pub struct CoverageUnmappedResponse {
+    pub spec_name: String,
+    pub units: Vec<CoverageUnmappedUnit>,
+}
+
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct CoverageUnmappedUnit {
+    pub file: String,
+    pub line: usize,
+    pub end_line: usize,
+    pub kind: String,
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
 pub struct CoverageValidationResponse {
     pub spec_name: String,
     pub passing: bool,
@@ -191,6 +209,16 @@ pub fn coverage_output(
                     "Rules without verification references.",
                     &response,
                 ),
+            }
+        }
+        CoverageEndpoint::Unmapped => {
+            let response = CoverageUnmappedResponse {
+                spec_name: report.spec_name.clone(),
+                units: unmapped_units(report),
+            };
+            match format {
+                CoverageOutputFormat::Json => json(&response)?,
+                CoverageOutputFormat::Markdown => render_unmapped_markdown(&response),
             }
         }
         CoverageEndpoint::Stale => {
@@ -401,6 +429,20 @@ fn stale_reference(stale: &StaleReference) -> CoverageStaleReference {
     }
 }
 
+fn unmapped_units(report: &CoverageReport) -> Vec<CoverageUnmappedUnit> {
+    report
+        .unmapped_units
+        .iter()
+        .map(|unit| CoverageUnmappedUnit {
+            file: unit.file.clone(),
+            line: unit.line,
+            end_line: unit.end_line,
+            kind: unit.kind.clone(),
+            name: unit.name.clone(),
+        })
+        .collect()
+}
+
 fn percent(count: usize, total: usize) -> f64 {
     if total == 0 {
         100.0
@@ -444,6 +486,7 @@ fn render_status_markdown(report: &CoverageReport) -> String {
     let next = [
         ("Uncovered", "uncovered.md"),
         ("Untested", "untested.md"),
+        ("Unmapped", "unmapped.md"),
         ("Stale", "stale.md"),
         ("Invalid", "invalid.md"),
         ("Validate", "validate.md"),
@@ -475,6 +518,26 @@ fn render_rule_list_markdown(
         out.push_str(&format!(
             "| [`{}`](rule/{}.md) | {} | {} | {} |\n",
             rule.id, rule.id, rule.impl_refs, rule.verify_refs, rule.stale_refs
+        ));
+    }
+    out
+}
+
+fn render_unmapped_markdown(response: &CoverageUnmappedResponse) -> String {
+    let mut out = String::new();
+    out.push_str("# Unmapped Code Units\n\n");
+    out.push_str(&format!("Spec: `{}`\n\n", response.spec_name));
+    if response.units.is_empty() {
+        out.push_str("No unmapped code units found.\n");
+        return out;
+    }
+    out.push_str("| Unit | Kind | Location |\n");
+    out.push_str("| --- | --- | --- |\n");
+    for unit in &response.units {
+        let name = unit.name.as_deref().unwrap_or("(anonymous)");
+        out.push_str(&format!(
+            "| `{}` | `{}` | `{}`:{} |\n",
+            name, unit.kind, unit.file, unit.line
         ));
     }
     out

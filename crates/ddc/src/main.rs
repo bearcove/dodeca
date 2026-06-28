@@ -211,6 +211,8 @@ enum CoverageCommand {
     Uncovered(CoverageQueryArgs),
     /// List rules without verification references
     Untested(CoverageQueryArgs),
+    /// List code units without requirement references
+    Unmapped(CoverageQueryArgs),
     /// List references to older rule versions
     Stale(CoverageQueryArgs),
     /// List references that do not resolve to a known rule
@@ -953,6 +955,11 @@ fn coverage_command_parts(
         ),
         CoverageCommand::Untested(args) => (
             dodeca::coverage::CoverageEndpoint::Untested,
+            args.common,
+            None,
+        ),
+        CoverageCommand::Unmapped(args) => (
+            dodeca::coverage::CoverageEndpoint::Unmapped,
             args.common,
             None,
         ),

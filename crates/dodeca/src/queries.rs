@@ -2834,14 +2834,17 @@ pub struct CoverageWorkspace {
     known_by_source: HashMap<String, HashSet<crate::coverage::RuleId>>,
     global_reqs: crate::coverage::Reqs,
     global_test_impl_references: Vec<crate::coverage::ReqReference>,
+    global_unmapped_units: Vec<crate::coverage::UnmappedCodeUnit>,
     reqs_by_context: BTreeMap<(String, String), crate::coverage::Reqs>,
     test_impls_by_context: BTreeMap<(String, String), Vec<crate::coverage::ReqReference>>,
+    unmapped_by_context: BTreeMap<(String, String), Vec<crate::coverage::UnmappedCodeUnit>>,
 }
 
 impl CoverageWorkspace {
     pub fn global_report(&self) -> crate::coverage::CoverageReport {
         crate::coverage::CoverageReport::compute("coverage", &self.known_global, &self.global_reqs)
             .with_test_impl_references(self.global_test_impl_references.clone())
+            .with_unmapped_units(self.global_unmapped_units.clone())
     }
 
     pub fn report_for_selector(
@@ -2867,6 +2870,7 @@ impl CoverageWorkspace {
         let mut matched_context = false;
         let mut reqs = crate::coverage::Reqs::new();
         let mut test_impl_references = Vec::new();
+        let mut unmapped_units = Vec::new();
         for ((context_source, context_impl), context_reqs) in &self.reqs_by_context {
             if source_name.is_some_and(|source_name| source_name != context_source) {
                 continue;
@@ -2882,6 +2886,12 @@ impl CoverageWorkspace {
             {
                 test_impl_references.extend(refs.clone());
             }
+            if let Some(unmapped) = self
+                .unmapped_by_context
+                .get(&(context_source.clone(), context_impl.clone()))
+            {
+                unmapped_units.extend(unmapped.clone());
+            }
         }
         if impl_name.is_some() && !matched_context {
             return None;
@@ -2893,7 +2903,8 @@ impl CoverageWorkspace {
                 known,
                 &reqs,
             )
-            .with_test_impl_references(test_impl_references),
+            .with_test_impl_references(test_impl_references)
+            .with_unmapped_units(unmapped_units),
         )
     }
 }
@@ -2943,10 +2954,15 @@ pub async fn coverage_workspace<DB: Db>(db: &DB) -> PicanteResult<CoverageWorksp
 
     // References: scan every code file the `impls` globs collected.
     let mut reqs_by_path: HashMap<String, crate::coverage::Reqs> = HashMap::new();
+    let mut unmapped_by_path: HashMap<String, Vec<crate::coverage::UnmappedCodeUnit>> =
+        HashMap::new();
     let files = crate::db::CodeRegistry::files(db)?.unwrap_or_default();
     for cf in files {
         let path = cf.path(db)?.as_str().to_string();
+        let content = cf.content(db)?;
         let reqs = references_in_file(db, cf).await?;
+        let units = crate::coverage::extract(std::path::Path::new(&path), content.as_str());
+        unmapped_by_path.insert(path.clone(), unmapped_units(units));
         reqs_by_path.insert(path, reqs);
     }
 
@@ -2965,6 +2981,10 @@ pub async fn coverage_workspace<DB: Db>(db: &DB) -> PicanteResult<CoverageWorksp
     let mut reqs_by_context: BTreeMap<(String, String), crate::coverage::Reqs> = BTreeMap::new();
     let mut test_impls_by_context: BTreeMap<(String, String), Vec<crate::coverage::ReqReference>> =
         BTreeMap::new();
+    let mut unmapped_by_context: BTreeMap<
+        (String, String),
+        Vec<crate::coverage::UnmappedCodeUnit>,
+    > = BTreeMap::new();
     let entries = crate::db::CodeCoverageRegistry::entries(db)?.unwrap_or_default();
     for entry in entries {
         if entry.is_test {
@@ -2991,16 +3011,27 @@ pub async fn coverage_workspace<DB: Db>(db: &DB) -> PicanteResult<CoverageWorksp
                 .or_default()
                 .extend(context_reqs);
         }
+        if let Some(unmapped) = unmapped_by_path.get(entry.path.as_str()) {
+            unmapped_by_context
+                .entry((entry.source_name.clone(), entry.impl_name.clone()))
+                .or_default()
+                .extend(unmapped.clone());
+        }
     }
 
     let mut global_reqs = crate::coverage::Reqs::new();
+    let mut global_unmapped_units = Vec::new();
     for (path, reqs) in &reqs_by_path {
         if source_context_paths.contains(path) {
             global_reqs.extend(reqs.clone());
         } else if test_context_paths.contains(path) {
             global_reqs.extend(reqs_without_impl_references(reqs));
         }
+        if let Some(unmapped) = unmapped_by_path.get(path) {
+            global_unmapped_units.extend(unmapped.clone());
+        }
     }
+    sort_unmapped_units(&mut global_unmapped_units);
     let global_test_impl_references = test_impls_by_context
         .values()
         .flat_map(|refs| refs.iter().cloned())
@@ -3012,9 +3043,36 @@ pub async fn coverage_workspace<DB: Db>(db: &DB) -> PicanteResult<CoverageWorksp
         known_by_source,
         global_reqs,
         global_test_impl_references,
+        global_unmapped_units,
         reqs_by_context,
         test_impls_by_context,
+        unmapped_by_context,
     })
+}
+
+fn unmapped_units(units: crate::coverage::CodeUnits) -> Vec<crate::coverage::UnmappedCodeUnit> {
+    let mut units: Vec<_> = units
+        .uncovered()
+        .map(|unit| crate::coverage::UnmappedCodeUnit {
+            file: unit.file.display().to_string(),
+            line: unit.start_line,
+            end_line: unit.end_line,
+            kind: unit.kind.as_str().to_string(),
+            name: unit.name.clone(),
+        })
+        .collect();
+    sort_unmapped_units(&mut units);
+    units
+}
+
+fn sort_unmapped_units(units: &mut [crate::coverage::UnmappedCodeUnit]) {
+    units.sort_by(|a, b| {
+        a.file
+            .cmp(&b.file)
+            .then_with(|| a.line.cmp(&b.line))
+            .then_with(|| a.kind.cmp(&b.kind))
+            .then_with(|| a.name.cmp(&b.name))
+    });
 }
 
 fn reqs_without_impl_references(reqs: &crate::coverage::Reqs) -> crate::coverage::Reqs {

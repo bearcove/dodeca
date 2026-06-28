@@ -14,6 +14,16 @@ pub struct StaleReference {
     pub reference: ReqReference,
 }
 
+/// A code unit without any nearby requirement reference.
+#[derive(Debug, Clone, Facet)]
+pub struct UnmappedCodeUnit {
+    pub file: String,
+    pub line: usize,
+    pub end_line: usize,
+    pub kind: String,
+    pub name: Option<String>,
+}
+
 /// Coverage analysis results for a single spec
 #[derive(Debug, Clone, Facet)]
 pub struct CoverageReport {
@@ -37,6 +47,9 @@ pub struct CoverageReport {
 
     /// Implementation references found in files configured as test files.
     pub test_impl_references: Vec<ReqReference>,
+
+    /// Code units with no requirement references.
+    pub unmapped_units: Vec<UnmappedCodeUnit>,
 
     /// All valid references, grouped by rule ID
     pub references_by_rule: HashMap<RuleId, Vec<ReqReference>>,
@@ -112,6 +125,7 @@ impl CoverageReport {
             invalid_references,
             stale_references,
             test_impl_references: Vec::new(),
+            unmapped_units: Vec::new(),
             references_by_rule,
             references_by_verb,
         }
@@ -119,6 +133,11 @@ impl CoverageReport {
 
     pub fn with_test_impl_references(mut self, references: Vec<ReqReference>) -> Self {
         self.test_impl_references = references;
+        self
+    }
+
+    pub fn with_unmapped_units(mut self, units: Vec<UnmappedCodeUnit>) -> Self {
+        self.unmapped_units = units;
         self
     }
 

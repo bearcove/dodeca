@@ -89,6 +89,8 @@ pub fn root_rule() {}
 
 const API_CODE: &str = r#"// r[impl api.rule]
 pub fn api_rule() {}
+
+pub fn api_unmapped() {}
 "#;
 
 const API_TEST_CODE: &str = r#"// r[impl api.testonly]
@@ -177,6 +179,21 @@ pub async fn coverage_filters_by_source_and_impl() {
     validate.assert_ok();
     validate.assert_contains("Result: **failing**");
     validate.assert_contains("- Test impl references: `1`");
+
+    let unmapped = site
+        .get("/_dodeca/coverage/unmapped.md?source=api&impl=rust")
+        .await;
+    unmapped.assert_ok();
+    unmapped.assert_contains("# Unmapped Code Units");
+    unmapped.assert_contains("api_unmapped");
+    unmapped.assert_contains("api/code/lib.rs");
+
+    let unmapped_json = site
+        .get("/_dodeca/coverage/unmapped.json?source=api&impl=rust")
+        .await;
+    unmapped_json.assert_ok();
+    unmapped_json.assert_contains(r#""name": "api_unmapped""#);
+    unmapped_json.assert_contains(r#""file": "api/code/lib.rs""#);
 
     let missing = site
         .get("/_dodeca/coverage/status.md?source=api&impl=go")
