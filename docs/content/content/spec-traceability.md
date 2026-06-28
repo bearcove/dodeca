@@ -93,11 +93,17 @@ Percent-encode rule IDs in URLs when needed, for example `+` as `%2B`.
 Use `ddc coverage` when no dev server is running, especially in scripts and CI:
 
 ```sh
+ddc agent
 ddc coverage status .
 ddc coverage config . --source api --impl rust
 ddc coverage rule protocol.handshake . --source api --impl rust
 ddc coverage validate . --threshold 80
 ```
+
+`ddc agent` prints a bundled Markdown guide for agents and humans who need the
+Dodeca mental model before making changes. It explains where Dodeca looks like
+Zola, where it deliberately differs, and which live coverage endpoints to prefer
+while `ddc serve` is running.
 
 The CLI defaults to Markdown and accepts `--format json` for the same typed
 responses exposed by the live API. `validate` exits non-zero when coverage is

@@ -27,6 +27,8 @@ use std::collections::HashSet;
 use std::fs;
 use std::sync::Arc;
 
+const AGENT_GUIDE: &str = include_str!("agent_guide.md");
+
 /// ddc - Static site generator
 #[derive(Facet, Debug)]
 struct Args {
@@ -352,6 +354,10 @@ struct TermArgs {
     no_clipboard: bool,
 }
 
+/// Agent guide arguments
+#[derive(Facet, Debug)]
+struct AgentArgs {}
+
 /// Available commands
 #[derive(Facet, Debug)]
 #[repr(u8)]
@@ -372,6 +378,8 @@ enum Command {
     Diagnostics(DiagnosticsArgs),
     /// Query requirement coverage
     Coverage(CoverageArgs),
+    /// Print the bundled guide for agents working on Dodeca projects
+    Agent(AgentArgs),
     /// Inspect or migrate `.config/dodeca.styx`
     Config(ConfigArgs),
     /// Record terminal session as HTML
@@ -785,6 +793,7 @@ async fn async_main(command: Command) -> Result<()> {
             logging::init_standard_tracing();
             run_coverage(args).await
         }
+        Command::Agent(args) => run_agent(args),
         Command::Static(args) => {
             let path = Utf8PathBuf::from(&args.path);
             if !path.exists() {
@@ -817,6 +826,14 @@ async fn async_main(command: Command) -> Result<()> {
         }
         Command::Term(args) => run_term(args).await,
     }
+}
+
+fn run_agent(_args: AgentArgs) -> Result<()> {
+    print!("{AGENT_GUIDE}");
+    if !AGENT_GUIDE.ends_with('\n') {
+        println!();
+    }
+    Ok(())
 }
 
 /// `ddc config migrate` — rewrite a deprecated v1 config to the new format.

@@ -575,6 +575,9 @@ fn render_status_markdown(report: &CoverageReport) -> String {
     for (label, href) in next {
         out.push_str(&format!("- [{label}]({href})\n"));
     }
+    out.push_str(
+        "\n## Agent Guide\n\nAgents: run `ddc agent` for the Dodeca mental model, Zola differences, and coverage workflow.\n",
+    );
     out
 }
 
