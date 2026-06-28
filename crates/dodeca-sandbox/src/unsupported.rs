@@ -3,7 +3,6 @@
 //! This module provides stub implementations that return errors on platforms
 //! where sandboxing is not supported.
 
-use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
@@ -26,7 +25,7 @@ impl Sandbox {
     /// Create a command to run in this sandbox.
     pub fn command(&self, program: impl AsRef<Path>) -> Command {
         Command {
-            program: program.as_ref().to_path_buf(),
+            _program: program.as_ref().to_path_buf(),
         }
     }
 }
@@ -44,7 +43,7 @@ pub enum Stdio {
 
 /// A command (not supported on this platform).
 pub struct Command {
-    program: PathBuf,
+    _program: PathBuf,
 }
 
 impl Command {
