@@ -3,6 +3,127 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::{CoverageReport, RefVerb, ReqReference, RuleId, StaleReference};
 
+const COVERAGE_NAV_CSS: &str = r#"
+:root {
+  color-scheme: light dark;
+  --bg: #f7f7f5;
+  --panel: #ffffff;
+  --text: #171717;
+  --muted: #666;
+  --line: #d9d7d1;
+  --accent: #0f766e;
+  --warn: #a16207;
+  --bad: #b91c1c;
+  --code: #f0efeb;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #181818;
+    --panel: #222;
+    --text: #ededed;
+    --muted: #aaa;
+    --line: #3b3b3b;
+    --accent: #2dd4bf;
+    --warn: #facc15;
+    --bad: #f87171;
+    --code: #2d2d2d;
+  }
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+main { max-width: 1180px; margin: 0 auto; padding: 28px 20px 48px; }
+header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 22px; }
+h1 { font-size: 26px; margin: 0 0 6px; }
+h2 { font-size: 18px; margin: 30px 0 12px; }
+h3 { font-size: 15px; margin: 18px 0 8px; }
+.muted { color: var(--muted); }
+.views, .metrics { display: flex; gap: 8px; flex-wrap: wrap; }
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: var(--panel);
+  color: var(--text);
+  text-decoration: none;
+}
+.metric {
+  min-width: 130px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--panel);
+}
+.metric strong { display: block; font-size: 20px; }
+section { border-top: 1px solid var(--line); padding-top: 12px; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+th, td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+th {
+  font-size: 12px;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--panel), var(--line) 20%);
+}
+tr:last-child td { border-bottom: 0; }
+code { background: var(--code); padding: 1px 4px; border-radius: 4px; }
+a { color: var(--accent); }
+.bad { color: var(--bad); }
+.warn { color: var(--warn); }
+.ok { color: var(--accent); }
+.route { margin-bottom: 16px; }
+.empty { color: var(--muted); padding: 10px 0; }
+
+@media (max-width: 700px) {
+  main { padding: 20px 12px; }
+  header { display: block; }
+  table { display: block; overflow-x: auto; white-space: nowrap; }
+  .metric { flex: 1 1 120px; }
+}
+"#;
+
+const COVERAGE_MARKDOWN_CSS: &str = r#"
+body {
+  margin: 0;
+  background: #f7f7f5;
+  color: #171717;
+  font: 14px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+main { max-width: 1100px; margin: 0 auto; padding: 24px; }
+pre {
+  white-space: pre-wrap;
+  background: #fff;
+  border: 1px solid #d9d7d1;
+  border-radius: 8px;
+  padding: 16px;
+  overflow: auto;
+}
+@media (prefers-color-scheme: dark) {
+  body { background: #181818; color: #ededed; }
+  pre { background: #222; border-color: #3b3b3b; }
+}
+"#;
+
 /// Coverage route selected by the URL path or CLI subcommand.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CoverageEndpoint {
@@ -39,6 +160,7 @@ impl CoverageSelector {
 pub enum CoverageOutputFormat {
     Json,
     Markdown,
+    Html,
 }
 
 impl CoverageOutputFormat {
@@ -46,6 +168,7 @@ impl CoverageOutputFormat {
         match self {
             CoverageOutputFormat::Json => "application/json; charset=utf-8",
             CoverageOutputFormat::Markdown => "text/markdown; charset=utf-8",
+            CoverageOutputFormat::Html => "text/html; charset=utf-8",
         }
     }
 }
@@ -268,17 +391,24 @@ pub fn coverage_output(
             match format {
                 CoverageOutputFormat::Json => json(&response)?,
                 CoverageOutputFormat::Markdown => render_navigation_markdown(&response),
+                CoverageOutputFormat::Html => render_navigation_html(&response),
             }
         }
         CoverageEndpoint::Status => match format {
             CoverageOutputFormat::Json => json(&status_response(report))?,
             CoverageOutputFormat::Markdown => render_status_markdown(report),
+            CoverageOutputFormat::Html => {
+                render_markdown_html("Coverage Status", &render_status_markdown(report))
+            }
         },
         CoverageEndpoint::Config => {
             let response = config_response(report);
             match format {
                 CoverageOutputFormat::Json => json(&response)?,
                 CoverageOutputFormat::Markdown => render_config_markdown(&response),
+                CoverageOutputFormat::Html => {
+                    render_markdown_html("Coverage Config", &render_config_markdown(&response))
+                }
             }
         }
         CoverageEndpoint::Uncovered => {
@@ -296,6 +426,14 @@ pub fn coverage_output(
                     "Uncovered Rules",
                     "Rules without implementation references.",
                     &response,
+                ),
+                CoverageOutputFormat::Html => render_markdown_html(
+                    "Uncovered Rules",
+                    &render_rule_list_markdown(
+                        "Uncovered Rules",
+                        "Rules without implementation references.",
+                        &response,
+                    ),
                 ),
             }
         }
@@ -315,6 +453,14 @@ pub fn coverage_output(
                     "Rules without verification references.",
                     &response,
                 ),
+                CoverageOutputFormat::Html => render_markdown_html(
+                    "Untested Rules",
+                    &render_rule_list_markdown(
+                        "Untested Rules",
+                        "Rules without verification references.",
+                        &response,
+                    ),
+                ),
             }
         }
         CoverageEndpoint::Unmapped => {
@@ -325,6 +471,10 @@ pub fn coverage_output(
             match format {
                 CoverageOutputFormat::Json => json(&response)?,
                 CoverageOutputFormat::Markdown => render_unmapped_markdown(&response),
+                CoverageOutputFormat::Html => render_markdown_html(
+                    "Unmapped Code Units",
+                    &render_unmapped_markdown(&response),
+                ),
             }
         }
         CoverageEndpoint::Stale => {
@@ -335,6 +485,9 @@ pub fn coverage_output(
             match format {
                 CoverageOutputFormat::Json => json(&response)?,
                 CoverageOutputFormat::Markdown => render_stale_markdown(&response),
+                CoverageOutputFormat::Html => {
+                    render_markdown_html("Stale References", &render_stale_markdown(&response))
+                }
             }
         }
         CoverageEndpoint::Invalid => {
@@ -348,6 +501,14 @@ pub fn coverage_output(
                     "Invalid References",
                     "References that do not match a known current or older rule.",
                     &response,
+                ),
+                CoverageOutputFormat::Html => render_markdown_html(
+                    "Invalid References",
+                    &render_references_markdown(
+                        "Invalid References",
+                        "References that do not match a known current or older rule.",
+                        &response,
+                    ),
                 ),
             }
         }
@@ -368,6 +529,10 @@ pub fn coverage_output(
             match format {
                 CoverageOutputFormat::Json => json(&response)?,
                 CoverageOutputFormat::Markdown => render_validation_markdown(&response),
+                CoverageOutputFormat::Html => render_markdown_html(
+                    "Coverage Validation",
+                    &render_validation_markdown(&response),
+                ),
             }
         }
         CoverageEndpoint::Rule { id } => {
@@ -377,6 +542,10 @@ pub fn coverage_output(
             match format {
                 CoverageOutputFormat::Json => json(&response)?,
                 CoverageOutputFormat::Markdown => render_rule_markdown(&response),
+                CoverageOutputFormat::Html => render_markdown_html(
+                    &format!("Rule {}", response.id),
+                    &render_rule_markdown(&response),
+                ),
             }
         }
     };
@@ -923,6 +1092,210 @@ fn render_navigation_markdown(response: &CoverageNavigationResponse) -> String {
                 file.invalid_refs,
                 file.unmapped_units.len()
             ));
+        }
+    }
+    out
+}
+
+fn render_navigation_html(response: &CoverageNavigationResponse) -> String {
+    let mut out = String::new();
+    out.push_str("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">");
+    out.push_str("<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">");
+    out.push_str(&format!(
+        "<title>Coverage Navigation - {}</title>",
+        html_escape(&response.spec_name)
+    ));
+    out.push_str("<style>");
+    out.push_str(COVERAGE_NAV_CSS);
+    out.push_str("</style>");
+    out.push_str("</head><body><main>");
+    out.push_str("<header><div>");
+    out.push_str("<h1>Coverage Navigation</h1>");
+    out.push_str(&format!(
+        "<div class=\"muted\">Spec <code>{}</code></div>",
+        html_escape(&response.spec_name)
+    ));
+    out.push_str("</div><nav class=\"views\">");
+    for view in &response.views {
+        out.push_str(&format!(
+            "<a class=\"pill\" href=\"#{}\">{}</a>",
+            html_escape(&view.id),
+            html_escape(&view.title)
+        ));
+    }
+    out.push_str("<a class=\"pill\" href=\"nav.md\">Markdown</a>");
+    out.push_str("<a class=\"pill\" href=\"nav.json\">JSON</a>");
+    out.push_str("</nav></header>");
+
+    out.push_str("<div class=\"metrics\">");
+    render_metric(
+        &mut out,
+        "Implemented",
+        response.status.implemented_rules,
+        response.status.total_rules,
+        response.status.implementation_coverage_percent,
+        "ok",
+    );
+    render_metric(
+        &mut out,
+        "Verified",
+        response.status.verified_rules,
+        response.status.total_rules,
+        response.status.verification_coverage_percent,
+        "ok",
+    );
+    render_count_metric(
+        &mut out,
+        "Invalid refs",
+        response.status.invalid_references,
+        "bad",
+    );
+    render_count_metric(
+        &mut out,
+        "Stale refs",
+        response.status.stale_references,
+        "warn",
+    );
+    out.push_str("</div>");
+
+    render_spec_view_html(&mut out, response);
+    render_coverage_view_html(&mut out, response);
+    render_sources_view_html(&mut out, response);
+    out.push_str("</main></body></html>");
+    out
+}
+
+fn render_metric(out: &mut String, label: &str, count: usize, total: usize, pct: f64, class: &str) {
+    out.push_str(&format!(
+        "<div class=\"metric\"><span class=\"muted\">{}</span><strong class=\"{}\">{}/{}</strong><span>{:.1}%</span></div>",
+        html_escape(label),
+        class,
+        count,
+        total,
+        pct
+    ));
+}
+
+fn render_count_metric(out: &mut String, label: &str, count: usize, class: &str) {
+    out.push_str(&format!(
+        "<div class=\"metric\"><span class=\"muted\">{}</span><strong class=\"{}\">{}</strong></div>",
+        html_escape(label),
+        class,
+        count
+    ));
+}
+
+fn render_spec_view_html(out: &mut String, response: &CoverageNavigationResponse) {
+    out.push_str("<section id=\"spec\"><h2>Spec View</h2>");
+    if response.spec_routes.is_empty() {
+        out.push_str("<div class=\"empty\">No spec rules found.</div></section>");
+        return;
+    }
+    for route in &response.spec_routes {
+        out.push_str("<div class=\"route\">");
+        out.push_str(&format!(
+            "<h3><code>{}</code></h3>",
+            html_escape(&route.route)
+        ));
+        if !route.source_name.is_empty() {
+            out.push_str(&format!(
+                "<div class=\"muted\">Source <code>{}</code></div>",
+                html_escape(&route.source_name)
+            ));
+        }
+        out.push_str("<table><thead><tr><th>Rule</th><th>Line</th><th>Impl</th><th>Verify</th><th>Definition</th></tr></thead><tbody>");
+        for rule in &route.rules {
+            out.push_str(&format!(
+                "<tr><td><a href=\"{}\"><code>{}</code></a></td><td>{}</td><td>{}</td><td>{}</td><td><a href=\"{}\">route</a></td></tr>",
+                html_escape(&rule.rule_href),
+                html_escape(&rule.id),
+                rule.line,
+                status_word(rule.implemented),
+                status_word(rule.verified),
+                html_escape(&rule.route_href)
+            ));
+        }
+        out.push_str("</tbody></table></div>");
+    }
+    out.push_str("</section>");
+}
+
+fn render_coverage_view_html(out: &mut String, response: &CoverageNavigationResponse) {
+    out.push_str("<section id=\"coverage\"><h2>Coverage View</h2>");
+    if response.coverage_rules.is_empty() {
+        out.push_str("<div class=\"empty\">No rules found.</div></section>");
+        return;
+    }
+    out.push_str("<table><thead><tr><th>Rule</th><th>Impl refs</th><th>Verify refs</th><th>Stale refs</th></tr></thead><tbody>");
+    for rule in &response.coverage_rules {
+        out.push_str(&format!(
+            "<tr><td><a href=\"{}\"><code>{}</code></a></td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            html_escape(&rule_href(&rule.id)),
+            html_escape(&rule.id),
+            rule.impl_refs,
+            rule.verify_refs,
+            rule.stale_refs
+        ));
+    }
+    out.push_str("</tbody></table></section>");
+}
+
+fn render_sources_view_html(out: &mut String, response: &CoverageNavigationResponse) {
+    out.push_str("<section id=\"sources\"><h2>Sources View</h2>");
+    if response.source_files.is_empty() {
+        out.push_str("<div class=\"empty\">No source files found.</div></section>");
+        return;
+    }
+    out.push_str("<table><thead><tr><th>File</th><th>Rules</th><th>Refs</th><th>Impl</th><th>Verify</th><th>Stale</th><th>Invalid</th><th>Unmapped</th></tr></thead><tbody>");
+    for file in &response.source_files {
+        let rules = file
+            .rules
+            .iter()
+            .map(|rule| format!("<code>{}</code>", html_escape(rule)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.push_str(&format!(
+            "<tr><td><code>{}</code></td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            html_escape(&file.file),
+            rules,
+            file.total_references,
+            file.impl_refs,
+            file.verify_refs,
+            file.stale_refs,
+            file.invalid_refs,
+            file.unmapped_units.len()
+        ));
+    }
+    out.push_str("</tbody></table></section>");
+}
+
+fn render_markdown_html(title: &str, markdown: &str) -> String {
+    format!(
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{}</title><style>{}</style></head><body><main><pre>{}</pre></main></body></html>",
+        html_escape(title),
+        COVERAGE_MARKDOWN_CSS,
+        html_escape(markdown)
+    )
+}
+
+fn status_word(value: bool) -> &'static str {
+    if value {
+        "<span class=\"ok\">yes</span>"
+    } else {
+        "<span class=\"bad\">no</span>"
+    }
+}
+
+fn html_escape(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for ch in input.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            _ => out.push(ch),
         }
     }
     out

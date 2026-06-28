@@ -165,8 +165,16 @@ impl ContentService for HostContentService {
             };
         }
 
+        if path == "/_dodeca/coverage" {
+            return ServeContent::Redirect {
+                location: "/_dodeca/coverage/".to_string(),
+                generation,
+            };
+        }
+
         // Coverage query API: suffix chooses representation (`.json` for typed
-        // DTOs, `.md` for agent/human-readable output).
+        // DTOs, `.md` for agent/human-readable output, `.html` for the
+        // browser-facing navigation view).
         if let Some(rest) = path.strip_prefix("/_dodeca/coverage/") {
             if let Some((endpoint, format, selector)) = parse_coverage_endpoint(rest) {
                 if let Some(output) = self
@@ -324,7 +332,11 @@ fn parse_coverage_endpoint(
 ) -> Option<(CoverageEndpoint, CoverageOutputFormat, CoverageSelector)> {
     let (path, query) = rest.split_once('?').unwrap_or((rest, ""));
     let params = parse_query_string(query);
-    let (path, format) = strip_coverage_suffix(path)?;
+    let (path, format) = if path.is_empty() {
+        ("nav", CoverageOutputFormat::Html)
+    } else {
+        strip_coverage_suffix(path)?
+    };
     let selector =
         CoverageSelector::new(params.get("source").cloned(), params.get("impl").cloned());
     let endpoint = match path {
@@ -352,6 +364,8 @@ fn strip_coverage_suffix(path: &str) -> Option<(&str, CoverageOutputFormat)> {
         Some((path, CoverageOutputFormat::Json))
     } else if let Some(path) = path.strip_suffix(".md") {
         Some((path, CoverageOutputFormat::Markdown))
+    } else if let Some(path) = path.strip_suffix(".html") {
+        Some((path, CoverageOutputFormat::Html))
     } else {
         None
     }

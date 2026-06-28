@@ -36,6 +36,9 @@ curl "$DODECA_URL/_dodeca/coverage/nav.md"
 curl "$DODECA_URL/_dodeca/coverage/config.md"
 ```
 
+Humans can open `$DODECA_URL/_dodeca/coverage/` for the browser navigation
+view.
+
 Use `.json` or `--format json` only when a tool needs typed data. Dodeca code
 uses Facet and `facet_json`; do not hand-write JSON.
 

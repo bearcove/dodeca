@@ -67,6 +67,7 @@ server or a cold one-shot scan. Use the URL printed by `ddc serve`; the examples
 below assume the default `127.0.0.1:4000` binding.
 
 ```sh
+# Browser view: http://127.0.0.1:4000/_dodeca/coverage/
 curl http://127.0.0.1:4000/_dodeca/coverage/nav.md
 curl http://127.0.0.1:4000/_dodeca/coverage/status.md
 curl 'http://127.0.0.1:4000/_dodeca/coverage/status.md?source=api&impl=rust'
@@ -74,8 +75,9 @@ curl 'http://127.0.0.1:4000/_dodeca/coverage/validate.md?threshold=80'
 curl http://127.0.0.1:4000/_dodeca/coverage/rule/protocol.handshake.md
 ```
 
-Every endpoint supports `.md` for model- and human-facing output and `.json`
-for typed tooling output:
+Every endpoint supports `.md` for model- and human-facing output, `.json` for
+typed tooling output, and `.html` for browser-facing output. The root
+`/_dodeca/coverage/` URL serves `nav.html`:
 
 - `nav` — Tracey-style navigation map with spec, coverage, and sources views.
 - `status` — summary counts and links to the other queries.

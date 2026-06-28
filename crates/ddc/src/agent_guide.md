@@ -70,7 +70,8 @@ curl "$DODECA_URL/_dodeca/coverage/config.md"
 ```
 
 `DODECA_URL` is the URL printed by `ddc serve`, commonly
-`http://127.0.0.1:4000`.
+`http://127.0.0.1:4000`. Humans can open
+`$DODECA_URL/_dodeca/coverage/` for the browser navigation view.
 
 Use JSON only when a tool needs typed data:
 
@@ -134,6 +135,7 @@ Important coverage rules:
 
 Coverage endpoints support both `.md` and `.json`:
 
+- `/_dodeca/coverage/`
 - `/_dodeca/coverage/nav.md`
 - `/_dodeca/coverage/status.md`
 - `/_dodeca/coverage/config.md`
