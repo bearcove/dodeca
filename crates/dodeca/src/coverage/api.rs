@@ -65,6 +65,7 @@ pub struct CoverageStatusResponse {
     pub untested_rules: usize,
     pub invalid_references: usize,
     pub stale_references: usize,
+    pub test_impl_references: usize,
     pub reference_coverage_percent: f64,
     pub implementation_coverage_percent: f64,
     pub verification_coverage_percent: f64,
@@ -220,6 +221,7 @@ pub fn coverage_output(
             let status = status_response(report);
             let passing = report.invalid_references.is_empty()
                 && report.stale_references.is_empty()
+                && report.test_impl_references.is_empty()
                 && threshold
                     .map(|threshold| status.implementation_coverage_percent >= f64::from(threshold))
                     .unwrap_or(true);
@@ -278,6 +280,7 @@ pub fn status_response(report: &CoverageReport) -> CoverageStatusResponse {
         untested_rules: total_rules.saturating_sub(verified_rules),
         invalid_references: report.invalid_references.len(),
         stale_references: report.stale_references.len(),
+        test_impl_references: report.test_impl_references.len(),
         reference_coverage_percent: percent(referenced_rules, total_rules),
         implementation_coverage_percent: percent(implemented_rules, total_rules),
         verification_coverage_percent: percent(verified_rules, total_rules),
@@ -433,6 +436,10 @@ fn render_status_markdown(report: &CoverageReport) -> String {
         "| Stale refs | {} |  |\n",
         status.stale_references
     ));
+    out.push_str(&format!(
+        "| Test impl refs | {} |  |\n",
+        status.test_impl_references
+    ));
 
     let next = [
         ("Uncovered", "uncovered.md"),
@@ -546,6 +553,10 @@ fn render_validation_markdown(response: &CoverageValidationResponse) -> String {
     out.push_str(&format!(
         "- Stale references: `{}`\n",
         response.status.stale_references
+    ));
+    out.push_str(&format!(
+        "- Test impl references: `{}`\n",
+        response.status.test_impl_references
     ));
     out.push_str(&format!(
         "- Uncovered rules: `{}`\n",

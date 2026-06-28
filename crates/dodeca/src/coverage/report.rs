@@ -35,6 +35,9 @@ pub struct CoverageReport {
     /// References to older versions of known rules
     pub stale_references: Vec<StaleReference>,
 
+    /// Implementation references found in files configured as test files.
+    pub test_impl_references: Vec<ReqReference>,
+
     /// All valid references, grouped by rule ID
     pub references_by_rule: HashMap<RuleId, Vec<ReqReference>>,
 
@@ -108,9 +111,15 @@ impl CoverageReport {
             uncovered_rules,
             invalid_references,
             stale_references,
+            test_impl_references: Vec::new(),
             references_by_rule,
             references_by_verb,
         }
+    }
+
+    pub fn with_test_impl_references(mut self, references: Vec<ReqReference>) -> Self {
+        self.test_impl_references = references;
+        self
     }
 
     /// Coverage percentage (0.0 - 100.0)
@@ -127,6 +136,7 @@ impl CoverageReport {
     pub fn is_passing(&self, threshold: f64) -> bool {
         self.invalid_references.is_empty()
             && self.stale_references.is_empty()
+            && self.test_impl_references.is_empty()
             && self.coverage_percent() >= threshold
     }
 }

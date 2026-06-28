@@ -61,6 +61,7 @@ const MOUNT_CONFIG: &str = r#"source {
         {
             name rust
             include ("api/code/**/*.rs")
+            test_include ("api/tests/**/*.rs")
         }
     )
 }
@@ -78,6 +79,8 @@ title = "API Spec"
 +++
 
 r[api.rule] API rule.
+
+r[api.testonly] Test-only rule.
 "#;
 
 const ROOT_CODE: &str = r#"// r[impl root.rule]
@@ -86,6 +89,10 @@ pub fn root_rule() {}
 
 const API_CODE: &str = r#"// r[impl api.rule]
 pub fn api_rule() {}
+"#;
+
+const API_TEST_CODE: &str = r#"// r[impl api.testonly]
+pub fn api_rule_test() {}
 "#;
 
 pub async fn coverage_suffix_endpoints_serve_markdown_and_json() {
@@ -141,6 +148,7 @@ pub async fn coverage_filters_by_source_and_impl() {
             ("api/.config/dodeca.styx", MOUNT_CONFIG),
             ("api/content/api.md", API_SPEC),
             ("api/code/lib.rs", API_CODE),
+            ("api/tests/api_test.rs", API_TEST_CODE),
         ],
     );
 
@@ -149,17 +157,26 @@ pub async fn coverage_filters_by_source_and_impl() {
         .await;
     api.assert_ok();
     api.assert_contains("Spec: `api/rust`");
-    api.assert_contains("| Implemented | 1/1 | 100.0% |");
-    api.assert_contains("| Verified | 0/1 | 0.0% |");
+    api.assert_contains("| Implemented | 1/2 | 50.0% |");
+    api.assert_contains("| Verified | 0/2 | 0.0% |");
+    api.assert_contains("| Test impl refs | 1 |");
 
     let api_json = site
         .get("/_dodeca/coverage/status.json?source=api&impl=rust")
         .await;
     api_json.assert_ok();
     api_json.assert_contains(r#""specName": "api/rust""#);
-    api_json.assert_contains(r#""totalRules": 1"#);
+    api_json.assert_contains(r#""totalRules": 2"#);
     api_json.assert_contains(r#""implementedRules": 1"#);
     api_json.assert_contains(r#""verifiedRules": 0"#);
+    api_json.assert_contains(r#""testImplReferences": 1"#);
+
+    let validate = site
+        .get("/_dodeca/coverage/validate.md?source=api&impl=rust")
+        .await;
+    validate.assert_ok();
+    validate.assert_contains("Result: **failing**");
+    validate.assert_contains("- Test impl references: `1`");
 
     let missing = site
         .get("/_dodeca/coverage/status.md?source=api&impl=go")

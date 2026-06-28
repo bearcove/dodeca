@@ -2833,12 +2833,15 @@ pub struct CoverageWorkspace {
     known_global: HashSet<crate::coverage::RuleId>,
     known_by_source: HashMap<String, HashSet<crate::coverage::RuleId>>,
     global_reqs: crate::coverage::Reqs,
+    global_test_impl_references: Vec<crate::coverage::ReqReference>,
     reqs_by_context: BTreeMap<(String, String), crate::coverage::Reqs>,
+    test_impls_by_context: BTreeMap<(String, String), Vec<crate::coverage::ReqReference>>,
 }
 
 impl CoverageWorkspace {
     pub fn global_report(&self) -> crate::coverage::CoverageReport {
         crate::coverage::CoverageReport::compute("coverage", &self.known_global, &self.global_reqs)
+            .with_test_impl_references(self.global_test_impl_references.clone())
     }
 
     pub fn report_for_selector(
@@ -2863,6 +2866,7 @@ impl CoverageWorkspace {
 
         let mut matched_context = false;
         let mut reqs = crate::coverage::Reqs::new();
+        let mut test_impl_references = Vec::new();
         for ((context_source, context_impl), context_reqs) in &self.reqs_by_context {
             if source_name.is_some_and(|source_name| source_name != context_source) {
                 continue;
@@ -2872,16 +2876,25 @@ impl CoverageWorkspace {
             }
             matched_context = true;
             reqs.extend(context_reqs.clone());
+            if let Some(refs) = self
+                .test_impls_by_context
+                .get(&(context_source.clone(), context_impl.clone()))
+            {
+                test_impl_references.extend(refs.clone());
+            }
         }
         if impl_name.is_some() && !matched_context {
             return None;
         }
 
-        Some(crate::coverage::CoverageReport::compute(
-            coverage_report_name(source_name, impl_name),
-            known,
-            &reqs,
-        ))
+        Some(
+            crate::coverage::CoverageReport::compute(
+                coverage_report_name(source_name, impl_name),
+                known,
+                &reqs,
+            )
+            .with_test_impl_references(test_impl_references),
+        )
     }
 }
 
@@ -2929,13 +2942,11 @@ pub async fn coverage_workspace<DB: Db>(db: &DB) -> PicanteResult<CoverageWorksp
     }
 
     // References: scan every code file the `impls` globs collected.
-    let mut global_reqs = crate::coverage::Reqs::new();
     let mut reqs_by_path: HashMap<String, crate::coverage::Reqs> = HashMap::new();
     let files = crate::db::CodeRegistry::files(db)?.unwrap_or_default();
     for cf in files {
         let path = cf.path(db)?.as_str().to_string();
         let reqs = references_in_file(db, cf).await?;
-        global_reqs.extend(reqs.clone());
         reqs_by_path.insert(path, reqs);
     }
 
@@ -2949,24 +2960,77 @@ pub async fn coverage_workspace<DB: Db>(db: &DB) -> PicanteResult<CoverageWorksp
         .unwrap_or_default();
     source_names.extend(known_by_source.keys().cloned());
 
+    let mut source_context_paths = HashSet::new();
+    let mut test_context_paths = HashSet::new();
     let mut reqs_by_context: BTreeMap<(String, String), crate::coverage::Reqs> = BTreeMap::new();
+    let mut test_impls_by_context: BTreeMap<(String, String), Vec<crate::coverage::ReqReference>> =
+        BTreeMap::new();
     let entries = crate::db::CodeCoverageRegistry::entries(db)?.unwrap_or_default();
     for entry in entries {
+        if entry.is_test {
+            test_context_paths.insert(entry.path.as_str().to_string());
+        } else {
+            source_context_paths.insert(entry.path.as_str().to_string());
+        }
         if let Some(reqs) = reqs_by_path.get(entry.path.as_str()) {
+            let context_key = (entry.source_name.clone(), entry.impl_name.clone());
+            let context_reqs = if entry.is_test {
+                let impl_refs = impl_references(reqs);
+                if !impl_refs.is_empty() {
+                    test_impls_by_context
+                        .entry(context_key.clone())
+                        .or_default()
+                        .extend(impl_refs);
+                }
+                reqs_without_impl_references(reqs)
+            } else {
+                reqs.clone()
+            };
             reqs_by_context
-                .entry((entry.source_name.clone(), entry.impl_name.clone()))
+                .entry(context_key)
                 .or_default()
-                .extend(reqs.clone());
+                .extend(context_reqs);
         }
     }
+
+    let mut global_reqs = crate::coverage::Reqs::new();
+    for (path, reqs) in &reqs_by_path {
+        if source_context_paths.contains(path) {
+            global_reqs.extend(reqs.clone());
+        } else if test_context_paths.contains(path) {
+            global_reqs.extend(reqs_without_impl_references(reqs));
+        }
+    }
+    let global_test_impl_references = test_impls_by_context
+        .values()
+        .flat_map(|refs| refs.iter().cloned())
+        .collect();
 
     Ok(CoverageWorkspace {
         source_names,
         known_global,
         known_by_source,
         global_reqs,
+        global_test_impl_references,
         reqs_by_context,
+        test_impls_by_context,
     })
+}
+
+fn reqs_without_impl_references(reqs: &crate::coverage::Reqs) -> crate::coverage::Reqs {
+    let mut filtered = reqs.clone();
+    filtered
+        .references
+        .retain(|reference| reference.verb != crate::coverage::RefVerb::Impl);
+    filtered
+}
+
+fn impl_references(reqs: &crate::coverage::Reqs) -> Vec<crate::coverage::ReqReference> {
+    reqs.references
+        .iter()
+        .filter(|reference| reference.verb == crate::coverage::RefVerb::Impl)
+        .cloned()
+        .collect()
 }
 
 /// Per-rule implementation sites: for every rule referenced in code, the code
