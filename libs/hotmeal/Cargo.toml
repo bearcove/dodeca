@@ -13,10 +13,10 @@ homepage = "https://github.com/bearcove/hotmeal"
 
 [workspace.dependencies]
 # Facet dependencies
-facet = "0.50.0-rc.0"
-facet-error = "0.50.0-rc.0"
-facet-json = "0.50.0-rc.0"
-facet-testhelpers = "0.50.0-rc.0"
+facet = "0.50.0-rc.4"
+facet-error = "0.50.0-rc.4"
+facet-json = "0.50.0-rc.4"
+facet-testhelpers = "0.50.0-rc.4"
 
 # Local crates
 cinereus = { path = "cinereus", version = "3.0.0-rc.0" }
@@ -24,12 +24,12 @@ hotmeal = { path = "hotmeal", version = "3.0.0-rc.0" }
 hotmeal-server = { path = "hotmeal-server", version = "3.0.0-rc.0" }
 
 # Serialization
-facet-postcard = "0.50.0-rc.0"
+facet-postcard = "0.50.0-rc.4"
 
 # RPC
-vox = { version = "0.10.0-rc.0", default-features = false, features = ["runtime"] }
-vox-core = "0.10.0-rc.0"
-vox-websocket = "0.10.0-rc.0"
+vox = { version = "0.10.0-rc.4", default-features = false, features = ["runtime"] }
+vox-core = "0.10.0-rc.4"
+vox-websocket = "0.10.0-rc.4"
 
 # Data structures
 indextree = "4.7"
