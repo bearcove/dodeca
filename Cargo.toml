@@ -78,36 +78,36 @@ hotmeal = { path = "libs/hotmeal/hotmeal" }
 hotmeal-server = { path = "libs/hotmeal/hotmeal-server", features = ["tracing"] }
 hotmeal-wasm = { path = "libs/hotmeal/hotmeal-wasm" }
 
-facet = { version = "0.50.0-rc.4", features = ["camino"] }
-facet-default = "0.50.0-rc.4"
-facet-format = "0.50.0-rc.4"
-facet-json = "0.50.0-rc.4"
-facet-postcard = "0.50.0-rc.4"
-facet-toml = "0.50.0-rc.4"
-facet-value = "0.50.0-rc.4"
-facet-yaml = "0.50.0-rc.4"
-gingembre = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-gingembre-syntax = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
+facet = { version = "0.50.0-rc.5", features = ["camino"] }
+facet-default = "0.50.0-rc.5"
+facet-format = "0.50.0-rc.5"
+facet-json = "0.50.0-rc.5"
+facet-postcard = "0.50.0-rc.5"
+facet-toml = "0.50.0-rc.5"
+facet-value = "0.50.0-rc.5"
+facet-yaml = "0.50.0-rc.5"
+gingembre = "0.0.1"
+gingembre-syntax = "0.0.1"
 
-facet-styx = "5.0.0-rc.4"
-styx-embed = "5.0.0-rc.4"
-styx-tree = "5.0.0-rc.4"
+facet-styx = "5.0.0-rc.5"
+styx-embed = "5.0.0-rc.5"
+styx-tree = "5.0.0-rc.5"
 
-figue = "5.0.0-rc.4"
+figue = "5.0.0-rc.5"
 
 # RPC framework
 # Minimal by default: protocol crates and the DevTools bridge need the service
 # macro + runtime. Transports stay opt-in per crate so they do not leak back
 # into the in-process processors or wasm builds.
-vox = { version = "0.10.0-rc.4", default-features = false, features = ["runtime"] }
-vox-fdpass = "0.10.0-rc.4"
-vox-stream = "0.10.0-rc.4"
+vox = { version = "0.10.0-rc.5", default-features = false, features = ["runtime"] }
+vox-fdpass = "0.10.0-rc.5"
+vox-stream = "0.10.0-rc.5"
 
 # Process lifecycle
 ur-taking-me-with-you = { version = "8.0.1", features = ["tokio"] }
 
 # Incremental computation
-picante = "3.0.0-rc.4"
+picante = "3.0.0-rc.5"
 
 # File system
 fs-err = "3"
@@ -210,7 +210,7 @@ web-sys = { version = "0.3", features = [
 ] }
 libc = "0.2"
 rapidhash = "4"
-strid = "11.0.0-rc.4"
+strid = "11.0.0-rc.5"
 serde_json = "1.0.150"
 
 # Misc utilities
@@ -274,72 +274,6 @@ pikru = { path = "libs/pikru" }
 # Vendored to derive facet::Facet on Position/Range so authoring analysis types
 # flow through picante tracked queries (libs/lsp-types).
 lsp-types = { path = "libs/lsp-types" }
-
-facet = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-facet-core = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-facet-default = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-facet-dessert = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-facet-dom = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-facet-error = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-facet-format = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-facet-hash = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-facet-json = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-facet-macro-parse = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-facet-macro-types = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-facet-macros = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-facet-macros-impl = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-facet-path = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-facet-postcard = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-facet-pretty = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-facet-reflect = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-facet-singularize = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-facet-solver = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-facet-styx = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-facet-svg = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-facet-testhelpers = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-facet-testhelpers-macros = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-facet-toml = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-facet-value = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-facet-xml = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-facet-yaml = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-copypatch = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-figue = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-figue-attrs = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-margin = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-margin-term = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-phon = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-phon-codegen = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-phon-engine = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-phon-ir = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-phon-jit = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-phon-schema = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-picante = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-picante-macros = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-strid = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-strid-macros = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-styx-cst = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-styx-embed = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-styx-embed-macros = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-styx-format = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-styx-parse = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-styx-tokenizer = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-styx-tree = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-ur-taking-me-with-you = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-vox = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-vox-codegen = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-vox-core = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-vox-fdpass = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-vox-macros-core = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-vox-macros-parse = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-vox-rt = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-vox-rt-macros = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-vox-schema = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-vox-service-macros = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-vox-stream = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-vox-types = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-vox-phon = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-vox-websocket = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
-weavy = { git = "https://github.com/facet-rs/facet", rev = "c355c724830ad45a1a123cc0d79edf8f9bdef4fc" }
 
 # Patch git dependencies to use local facet
 # [patch."https://github.com/facet-rs/facet"]

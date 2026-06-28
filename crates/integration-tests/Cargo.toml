@@ -25,7 +25,7 @@ reqwest = { version = "0.13", default-features = false }
 # crates/dodeca-devtools, the browser editor). `runtime` carries the client
 # Driver/Caller/Session; vox-websocket gives the native (tokio-tungstenite) link.
 vox.workspace = true
-vox-websocket = "0.10.0-rc.4"
+vox-websocket = "0.10.0-rc.5"
 vox-fdpass.workspace = true
 vox-stream.workspace = true
 tempfile.workspace = true
