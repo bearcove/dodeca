@@ -3494,52 +3494,6 @@ pub fn devtools_urls() -> (String, String) {
     URLS.clone()
 }
 
-/// Embedded JS snippets required by Dioxus WASM
-const SNIPPETS: &[(&str, &str)] = &[
-    // (
-    //     "snippets/dioxus-cli-config-e5fab7f8a0eb9fbb/inline0.js",
-    //     include_str!(
-    //         "../../../crates/dodeca-devtools/pkg/snippets/dioxus-cli-config-e5fab7f8a0eb9fbb/inline0.js"
-    //     ),
-    // ),
-    // (
-    //     "snippets/dioxus-interpreter-js-267e64abc8a52eaa/inline0.js",
-    //     include_str!(
-    //         "../../../crates/dodeca-devtools/pkg/snippets/dioxus-interpreter-js-267e64abc8a52eaa/inline0.js"
-    //     ),
-    // ),
-    // (
-    //     "snippets/dioxus-interpreter-js-267e64abc8a52eaa/src/js/patch_console.js",
-    //     include_str!(
-    //         "../../../crates/dodeca-devtools/pkg/snippets/dioxus-interpreter-js-267e64abc8a52eaa/src/js/patch_console.js"
-    //     ),
-    // ),
-    // (
-    //     "snippets/dioxus-interpreter-js-267e64abc8a52eaa/src/js/hydrate.js",
-    //     include_str!(
-    //         "../../../crates/dodeca-devtools/pkg/snippets/dioxus-interpreter-js-267e64abc8a52eaa/src/js/hydrate.js"
-    //     ),
-    // ),
-    // (
-    //     "snippets/dioxus-interpreter-js-267e64abc8a52eaa/src/js/set_attribute.js",
-    //     include_str!(
-    //         "../../../crates/dodeca-devtools/pkg/snippets/dioxus-interpreter-js-267e64abc8a52eaa/src/js/set_attribute.js"
-    //     ),
-    // ),
-    // (
-    //     "snippets/dioxus-web-807c31b5ece9dd6a/inline0.js",
-    //     include_str!(
-    //         "../../../crates/dodeca-devtools/pkg/snippets/dioxus-web-807c31b5ece9dd6a/inline0.js"
-    //     ),
-    // ),
-    // (
-    //     "snippets/dioxus-web-807c31b5ece9dd6a/src/js/eval.js",
-    //     include_str!(
-    //         "../../../crates/dodeca-devtools/pkg/snippets/dioxus-web-807c31b5ece9dd6a/src/js/eval.js"
-    //     ),
-    // ),
-];
-
 // Built browser-editor assets (vite/Monaco bundle), generated at build time.
 // Maps each served path (e.g. `edit.js`, `edit.css`, hashed chunks) to bytes.
 // Empty when the editor wasn't built (no node/pnpm) — `/_/edit/*` then 404s.
@@ -3594,24 +3548,10 @@ pub fn get_devtools_asset(path: &str) -> Option<(Vec<u8>, &'static str)> {
     // Strip the /_/ prefix
     let asset_path = path.strip_prefix("/_/")?;
 
-    // Check for snippets
-    if let Some(snippet_path) = asset_path.strip_prefix("snippets/") {
-        let full_path = format!("snippets/{}", snippet_path);
-        for (p, content) in SNIPPETS {
-            if full_path == *p {
-                return Some((content.as_bytes().to_vec(), "application/javascript"));
-            }
-        }
-        return None;
-    }
-
     // Check for JS (cache-busted)
     if asset_path.ends_with(".js") {
         let js = load_devtools_js().expect("devtools JS is embedded at compile time");
-        return Some((
-            rewrite_devtools_js(&js).into_bytes(),
-            "application/javascript",
-        ));
+        return Some((js.into_bytes(), "application/javascript"));
     }
 
     // Check for WASM (cache-busted)
@@ -3621,15 +3561,6 @@ pub fn get_devtools_asset(path: &str) -> Option<(Vec<u8>, &'static str)> {
     }
 
     None
-}
-
-/// Rewrite relative snippet imports to absolute paths
-fn rewrite_devtools_js(js: &str) -> String {
-    // The generated JS has imports like:
-    //   import { X } from './snippets/foo/bar.js';
-    // We need to rewrite them to absolute paths:
-    //   import { X } from '/_/snippets/foo/bar.js';
-    js.replace("from './snippets/", "from '/_/snippets/")
 }
 
 fn markdown_route_from_path(path: &str) -> Option<Route> {

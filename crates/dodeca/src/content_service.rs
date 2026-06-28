@@ -267,7 +267,7 @@ impl ContentService for HostContentService {
             };
         }
 
-        // Check devtools assets first (/_/*.js, /_/*.wasm, /_/snippets/*)
+        // Check devtools assets first (/_/*.js, /_/*.wasm)
         if path.starts_with("/_/")
             && let Some((content, mime)) = get_devtools_asset(&path)
         {

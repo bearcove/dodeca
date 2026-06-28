@@ -1,25 +1,15 @@
 //! Devtools state management and vox RPC connection
 
 use std::cell::RefCell;
-use std::collections::HashMap;
 use sycamore::prelude::*;
 use wasm_bindgen::JsCast;
 
 use crate::protocol::{
     BrowserService, BrowserServiceDispatcher, DeadLinkTarget, DevtoolsEvent, DevtoolsServiceClient,
-    ErrorInfo, OpenSourceResult, ScopeEntry, ScopeValue,
+    ErrorInfo, OpenSourceResult,
 };
 use vox::FromVoxLane;
 use vox_websocket::WsLink;
-
-/// A single REPL entry with expression and result
-#[derive(Debug, Clone, PartialEq)]
-pub struct ReplEntry {
-    /// The expression that was evaluated
-    pub expression: String,
-    /// The result (None if still pending)
-    pub result: Option<Result<ScopeValue, String>>,
-}
 
 /// Global devtools state
 #[derive(Debug, Clone, Default)]
@@ -30,53 +20,8 @@ pub struct DevtoolsState {
     /// Active errors by route
     pub errors: Vec<ErrorInfo>,
 
-    /// Whether the devtools panel is visible
-    pub panel_visible: bool,
-
-    /// Panel size (normal or expanded)
-    pub panel_size: PanelSize,
-
-    /// Which tab is active in the panel
-    pub active_tab: DevtoolsTab,
-
-    /// REPL history entries (expression + result)
-    pub repl_history: Vec<ReplEntry>,
-
-    /// Current REPL input
-    pub repl_input: String,
-
-    /// Pending REPL evaluations: expression string
-    pub pending_evals: HashMap<String, ()>,
-
     /// WebSocket connection state
     pub connection_state: ConnectionState,
-
-    /// Scope entries for the current route (from server)
-    pub scope_entries: Vec<ScopeEntry>,
-
-    /// Whether we're waiting for scope data
-    pub scope_loading: bool,
-
-    /// Pending scope requests: path string
-    pub pending_scope_requests: HashMap<String, ()>,
-
-    /// Cached scope children by path (joined with ".")
-    pub scope_children: HashMap<String, Vec<ScopeEntry>>,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub enum DevtoolsTab {
-    #[default]
-    Errors,
-    Scope,
-    Repl,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub enum PanelSize {
-    #[default]
-    Normal,
-    Expanded,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -195,8 +140,6 @@ fn install_route_watcher() {
             if should_subscribe {
                 state.update(|s| {
                     s.current_route = route.clone();
-                    s.scope_entries.clear();
-                    s.scope_children.clear();
                 });
             }
             should_subscribe
@@ -312,183 +255,6 @@ pub async fn connect_websocket(state: Signal<DevtoolsState>) -> Result<(), Strin
     install_route_watcher();
 
     Ok(())
-}
-
-/// Request scope from the server for the current route
-pub fn request_scope() {
-    let Some(client) = get_client() else {
-        return;
-    };
-
-    wasm_bindgen_futures::spawn_local(async move {
-        STATE_SIGNAL.with(|cell| {
-            if let Some(state) = cell.borrow().as_ref() {
-                state.update(|s| s.scope_loading = true);
-            }
-        });
-
-        match client.get_scope(None).await {
-            Ok(scope) => {
-                STATE_SIGNAL.with(|cell| {
-                    if let Some(state) = cell.borrow().as_ref() {
-                        state.update(|s| {
-                            s.scope_loading = false;
-                            s.scope_entries = scope;
-                            s.scope_children.clear();
-                            tracing::info!(
-                                "[devtools] scope response: {} entries",
-                                s.scope_entries.len()
-                            );
-                        });
-                    }
-                });
-            }
-            Err(e) => {
-                tracing::error!("[devtools] get_scope failed: {:?}", e);
-                STATE_SIGNAL.with(|cell| {
-                    if let Some(state) = cell.borrow().as_ref() {
-                        state.update(|s| s.scope_loading = false);
-                    }
-                });
-            }
-        }
-    });
-}
-
-/// Request scope children at a specific path
-pub fn request_scope_children(path: Vec<String>) {
-    let Some(client) = get_client() else {
-        return;
-    };
-
-    let path_key = path.join(".");
-    wasm_bindgen_futures::spawn_local(async move {
-        match client.get_scope(Some(path.clone())).await {
-            Ok(scope) => {
-                STATE_SIGNAL.with(|cell| {
-                    if let Some(state) = cell.borrow().as_ref() {
-                        state.update(|s| {
-                            tracing::info!(
-                                "[devtools] scope children response for {}: {} entries",
-                                path_key,
-                                scope.len()
-                            );
-                            s.scope_children.insert(path_key.clone(), scope);
-                        });
-                    }
-                });
-            }
-            Err(e) => {
-                tracing::error!("[devtools] get_scope children failed: {:?}", e);
-            }
-        }
-    });
-}
-
-/// Evaluate an expression in a snapshot's context
-pub fn eval_expression(snapshot_id: String, expression: String) {
-    let Some(client) = get_client() else {
-        return;
-    };
-
-    let expr_clone = expression.clone();
-    wasm_bindgen_futures::spawn_local(async move {
-        // Add pending entry
-        STATE_SIGNAL.with(|cell| {
-            if let Some(state) = cell.borrow().as_ref() {
-                state.update(|s| {
-                    s.pending_evals.insert(expr_clone.clone(), ());
-                    s.repl_history.push(ReplEntry {
-                        expression: expr_clone.clone(),
-                        result: None,
-                    });
-                });
-            }
-        });
-
-        match client.eval(snapshot_id, expression.clone()).await {
-            Ok(eval_result) => {
-                STATE_SIGNAL.with(|cell| {
-                    if let Some(state) = cell.borrow().as_ref() {
-                        state.update(|s| {
-                            s.pending_evals.remove(&expression);
-                            // Find the entry in history and update it
-                            if let Some(entry) = s
-                                .repl_history
-                                .iter_mut()
-                                .find(|e| e.expression == expression && e.result.is_none())
-                            {
-                                entry.result = Some(eval_result.clone().into());
-                            }
-                            tracing::info!("[devtools] eval response: {:?}", eval_result);
-                        });
-                    }
-                });
-            }
-            Err(e) => {
-                STATE_SIGNAL.with(|cell| {
-                    if let Some(state) = cell.borrow().as_ref() {
-                        state.update(|s| {
-                            s.pending_evals.remove(&expression);
-                            // Update entry with error
-                            if let Some(entry) = s
-                                .repl_history
-                                .iter_mut()
-                                .find(|e| e.expression == expression && e.result.is_none())
-                            {
-                                entry.result = Some(Err(format!("RPC error: {:?}", e)));
-                            }
-                        });
-                    }
-                });
-            }
-        }
-    });
-}
-
-/// Dismiss an error
-pub fn dismiss_error(route: String) {
-    let Some(client) = get_client() else {
-        return;
-    };
-
-    wasm_bindgen_futures::spawn_local(async move {
-        if let Err(e) = client.dismiss_error(route).await {
-            tracing::error!("[devtools] dismiss_error failed: {:?}", e);
-        }
-    });
-}
-
-/// Open a source location in the host editor.
-pub fn open_source(source_file: String, line: u32) {
-    tracing::debug!(
-        source_file = %source_file,
-        line,
-        "[devtools] requesting open_source RPC"
-    );
-
-    let Some(client) = get_client() else {
-        tracing::warn!(
-            source_file,
-            line,
-            "[devtools] open_source requested before RPC client was ready"
-        );
-        return;
-    };
-
-    wasm_bindgen_futures::spawn_local(async move {
-        match client.open_source(source_file.clone(), line).await {
-            Ok(OpenSourceResult::Ok) => {
-                tracing::info!(source_file, line, "[devtools] open_source succeeded");
-            }
-            Ok(OpenSourceResult::Err(err)) => {
-                tracing::warn!(source_file, line, err, "[devtools] open_source failed");
-            }
-            Err(err) => {
-                tracing::error!(source_file, line, ?err, "[devtools] open_source RPC failed");
-            }
-        }
-    });
 }
 
 /// Open a rendered markdown element in the host editor.
@@ -660,18 +426,12 @@ fn handle_devtools_event(event: DevtoolsEvent) {
                     // Remove any existing error for this route
                     s.errors.retain(|e| e.route != error.route);
                     s.errors.insert(0, error);
-                    // Auto-show panel when errors occur
-                    s.panel_visible = true;
-                    s.active_tab = DevtoolsTab::Errors;
                 });
             }
 
             DevtoolsEvent::ErrorResolved { route } => {
                 state.update(|s| {
                     s.errors.retain(|e| e.route != route);
-                    if s.errors.is_empty() && s.active_tab == DevtoolsTab::Errors {
-                        s.panel_visible = false;
-                    }
                 });
             }
 
