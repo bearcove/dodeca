@@ -14,6 +14,8 @@ SEARCH_RUNTIME_DIR="crates/dodeca-search-wasm/pkg"
 for dir in "$DEVTOOLS_RUNTIME_DIR" "$DEVTOOLS_UI_DIR" "$SEARCH_UI_DIR" "$SEARCH_RUNTIME_DIR"; do
     if [[ ! -d "$dir" ]]; then
         echo "Missing browser asset directory: $dir" >&2
+        echo "Build browser assets first: scripts/build-browser-assets.sh" >&2
+        echo "Inspect lookup paths with: ddc assets" >&2
         exit 1
     fi
 done
@@ -29,3 +31,4 @@ cp "$SEARCH_RUNTIME_DIR/dodeca_search_wasm.js" \
    "$DEST/search/"
 
 echo "Staged browser assets in $DEST"
+echo "Verify this layout with: DODECA_ASSETS_DIR=$DEST ddc assets --packaged --fail"

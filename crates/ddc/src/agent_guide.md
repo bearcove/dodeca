@@ -32,6 +32,7 @@ Use these before making claims about the project:
 
 ```sh
 ddc agent
+ddc assets
 ddc diagnostics .
 ddc coverage nav .
 ddc coverage config .
@@ -61,6 +62,42 @@ ddc agent install --skills-cli --agent '*'
 ```
 
 That runs `pnpx skills add` when `pnpx` is available, falling back to `npx`.
+
+## Anchor: Browser Assets
+
+Dodeca ships browser JS/WASM assets on disk instead of embedding them into the
+Rust binary. `cargo check` should not need the browser toolchain, but packaged
+and browser-tested builds must stage `dodeca-assets/` beside `ddc`.
+
+Use the CLI report before guessing:
+
+```sh
+ddc assets
+ddc assets --format json
+ddc assets --fail
+ddc assets --packaged --fail
+```
+
+Lookup order is:
+
+- `DODECA_ASSETS_DIR`
+- `dodeca-assets/` next to the current `ddc` executable
+- `dodeca-assets/` one directory above the executable for Homebrew-style
+  prefixes
+- source checkout fallbacks under `crates/dodeca-devtools/pkg`,
+  `crates/dodeca-search-wasm/{ui,pkg}`, and `crates/dodeca/devtools-ui/dist`
+
+From a source checkout, repair missing assets with:
+
+```sh
+scripts/build-browser-assets.sh
+scripts/stage-browser-assets.sh dist/dodeca-assets
+DODECA_ASSETS_DIR=dist/dodeca-assets dist/ddc assets --packaged --fail
+```
+
+`ddc build` requires the production search runtime. `ddc serve` can start with
+missing browser assets, but it warns and `/_dodeca/status` shows the asset
+health.
 
 If a dev server is already running, prefer the live Markdown endpoints:
 

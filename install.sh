@@ -78,6 +78,9 @@ main() {
     if [ -d "$tmpdir/dodeca-assets" ]; then
         rm -rf "$install_dir/dodeca-assets"
         cp -R "$tmpdir/dodeca-assets" "$install_dir/"
+    else
+        echo "warning: archive did not contain dodeca-assets; browser search and DevTools assets will be missing" >&2
+        echo "warning: run 'ddc assets' after installation for lookup paths and repair commands" >&2
     fi
 
     echo ""

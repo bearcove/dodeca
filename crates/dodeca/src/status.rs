@@ -72,12 +72,59 @@ fn humanize_uptime(secs: u64) -> String {
     }
 }
 
-/// Render the status page HTML. Pure: no HTTP, no I/O beyond `Path::exists`
-/// checks for source presence. Auto-refreshes via `<meta refresh>`.
+fn browser_assets_html() -> String {
+    let report = crate::browser_assets::report();
+    let state = if report.ok {
+        "<span class=ok>complete</span>"
+    } else {
+        "<span class=bad>incomplete</span>"
+    };
+    let production = if report.production_ok {
+        "<span class=ok>ready</span>"
+    } else {
+        "<span class=bad>missing search runtime</span>"
+    };
+    let rows: String = report
+        .groups
+        .iter()
+        .map(|group| {
+            let state = if group.ok {
+                "<span class=ok>ok</span>".to_string()
+            } else {
+                let missing = group
+                    .files
+                    .iter()
+                    .filter(|file| file.status != "ok")
+                    .map(|file| file.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("<span class=bad>missing {}</span>", esc(&missing))
+            };
+            format!(
+                "<tr><td><code>{}</code></td><td>{}</td><td>{}</td></tr>",
+                esc(&group.name),
+                esc(&group.required_for.join(", ")),
+                state,
+            )
+        })
+        .collect();
+
+    format!(
+        "<p>Browser assets: {state}. Production build assets: {production}. \
+         Full lookup report: <code>ddc assets</code>.</p>\
+         <table><thead><tr><th>group</th><th>required for</th><th>state</th></tr>\
+         </thead><tbody>{rows}</tbody></table>"
+    )
+}
+
+/// Render the status page HTML. Pure: no HTTP; the renderer only inspects the
+/// local filesystem for source and browser asset health. Auto-refreshes via
+/// `<meta refresh>`.
 pub fn render_status_html(data: &StatusData) -> String {
     let rows = source_rows(data);
     let total_pages: usize = rows.iter().map(|r| r.pages).sum();
     let uptime = humanize_uptime(data.uptime_secs);
+    let browser_assets = browser_assets_html();
 
     let source_rows_html: String = rows
         .iter()
@@ -133,6 +180,7 @@ code{{background:#f5f5f5;padding:0 .25rem;border-radius:3px}}\
 <p><a href=\"/_dodeca/annotations\">Annotations</a> · \
 <a href=\"/_dodeca/annotations.json\">annotations.json</a> · \
 <a href=\"/_dodeca/annotations.md\">annotations.md</a></p>\
+<h2>Browser Assets</h2>{browser_assets}\
 <h2>Sources</h2>\
 <table><thead><tr><th>name</th><th>mount</th><th>kind</th><th>state</th>\
 <th class=num>pages</th><th>location</th></tr></thead><tbody>{source_rows_html}</tbody></table>\

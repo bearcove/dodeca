@@ -113,7 +113,7 @@ fi
 cat >> dodeca.rb << 'FORMULA_END'
   def install
     bin.install "ddc"
-    prefix.install "dodeca-assets" if Dir.exist?("dodeca-assets")
+    prefix.install "dodeca-assets"
   end
 
   test do

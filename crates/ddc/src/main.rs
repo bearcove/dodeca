@@ -199,6 +199,35 @@ enum DiagnosticsFormat {
     Json,
 }
 
+/// Browser asset diagnostics command arguments
+#[derive(Facet, Debug)]
+struct AssetsArgs {
+    /// Output format
+    #[facet(args::named, default)]
+    format: AssetsFormat,
+
+    /// Exit non-zero when required assets are missing
+    #[facet(args::named, default)]
+    fail: bool,
+
+    /// With --fail, only require assets needed by production `ddc build`
+    #[facet(args::named, default)]
+    production: bool,
+
+    /// Disable source checkout fallbacks; validate only installed/package paths
+    #[facet(args::named, default)]
+    packaged: bool,
+}
+
+#[derive(Facet, Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[facet(rename_all = "snake_case")]
+#[repr(u8)]
+enum AssetsFormat {
+    #[default]
+    Markdown,
+    Json,
+}
+
 /// Coverage command arguments
 #[derive(Facet, Debug)]
 struct CoverageArgs {
@@ -418,6 +447,8 @@ enum Command {
     Lsp(LspArgs),
     /// Print authoring diagnostics
     Diagnostics(DiagnosticsArgs),
+    /// Inspect browser JS/WASM asset lookup and packaging status
+    Assets(AssetsArgs),
     /// Query requirement coverage
     Coverage(CoverageArgs),
     /// Print the bundled guide for agents working on Dodeca projects
@@ -622,6 +653,7 @@ async fn async_main(command: Command) -> Result<()> {
 
             let cli_mode = args.link_check;
             let cfg = resolve_dirs(args.path, args.content, args.output)?;
+            ensure_browser_assets_for_build()?;
 
             // Run Vite build for every source that ships its own vite project
             // (the primary's content_dir.parent() plus each mounted source's,
@@ -831,6 +863,7 @@ async fn async_main(command: Command) -> Result<()> {
             logging::init_standard_tracing();
             run_diagnostics(args).await
         }
+        Command::Assets(args) => run_assets(args),
         Command::Coverage(args) => {
             logging::init_standard_tracing();
             run_coverage(args).await
@@ -916,6 +949,52 @@ fn install_agent_skill(args: AgentInstallArgs) -> Result<()> {
         "Use `ddc agent install --skills-cli --agent <name>` to delegate placement to the open `skills` CLI."
     );
     Ok(())
+}
+
+fn run_assets(args: AssetsArgs) -> Result<()> {
+    let report = dodeca::browser_assets::report_with_options(
+        dodeca::browser_assets::BrowserAssetReportOptions {
+            source_fallback: !args.packaged,
+        },
+    );
+    match args.format {
+        AssetsFormat::Markdown => print!(
+            "{}",
+            dodeca::browser_assets::render_markdown_report(&report)
+        ),
+        AssetsFormat::Json => {
+            let json = facet_json::to_string_pretty(&report)
+                .map_err(|err| eyre!("failed to serialize browser asset report: {err:?}"))?;
+            println!("{json}");
+        }
+    }
+
+    let passing = if args.production {
+        report.production_ok
+    } else {
+        report.ok
+    };
+    if args.fail && !passing {
+        return Err(eyre!("browser asset validation failed"));
+    }
+
+    Ok(())
+}
+
+fn ensure_browser_assets_for_build() -> Result<()> {
+    let report = dodeca::browser_assets::report();
+    if report.production_ok {
+        return Ok(());
+    }
+
+    let summary = dodeca::browser_assets::render_missing_summary(&report, true)
+        .unwrap_or_else(|| "Dodeca production browser assets are incomplete.".to_string());
+    Err(eyre!("{summary}"))
+}
+
+fn browser_asset_warning_for_serve() -> Option<String> {
+    let report = dodeca::browser_assets::report();
+    dodeca::browser_assets::render_missing_summary(&report, false)
 }
 
 fn write_agent_skill(skill_dir: &Utf8Path) -> Result<Utf8PathBuf> {
@@ -3355,6 +3434,9 @@ async fn serve_plain(
     // Clone any git-backed source that isn't checked out yet.
     ensure_git_sources(sources)?;
     print_source_banner(sources);
+    if let Some(warning) = browser_asset_warning_for_serve() {
+        eprintln!("{} {}", "warning:".yellow(), warning.trim_end());
+    }
     // The primary source's content dir (mount `/`) anchors templates/sass/cache.
     let content_dir = &sources[0].content_dir;
 
@@ -3707,6 +3789,11 @@ async fn serve_with_tui(
     let (progress_tx, mut progress_rx) = tui::progress_channel();
     let (server_tx, mut server_rx) = tui::server_status_channel();
     let (event_tx, event_rx) = tui::event_channel();
+    if let Some(warning) = browser_asset_warning_for_serve() {
+        for line in warning.lines() {
+            let _ = event_tx.send(LogEvent::warn(line.to_string()));
+        }
+    }
 
     // Initialize tracing with TUI layer - routes log events to Activity panel
     let filter_handle = logging::init_tui_tracing(event_tx.clone());

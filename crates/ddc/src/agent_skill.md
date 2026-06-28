@@ -24,9 +24,14 @@ changing project code. The most common follow-up commands are:
 
 ```sh
 ddc diagnostics .
+ddc assets
 ddc coverage nav .
 ddc coverage config .
 ```
+
+Use `ddc assets` before diagnosing missing browser search, live reload,
+DevTools, or packaged-install asset behavior. It prints the current lookup
+paths and the source/package repair commands.
 
 If `ddc serve` is already running, prefer the live Markdown endpoints from the
 server URL printed by `ddc serve`:

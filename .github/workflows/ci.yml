@@ -155,6 +155,7 @@ jobs:
           cp target/release/ddc dist/ddc
           chmod +x dist/ddc
           scripts/stage-browser-assets.sh dist/dodeca-assets
+          DODECA_ASSETS_DIR=dist/dodeca-assets dist/ddc assets --packaged --fail
           ls -laR dist
         shell: bash
       - name: Upload artifact

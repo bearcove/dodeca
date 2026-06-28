@@ -668,6 +668,7 @@ mkdir -p dist
 cp target/release/ddc dist/ddc
 chmod +x dist/ddc
 scripts/stage-browser-assets.sh dist/dodeca-assets
+DODECA_ASSETS_DIR=dist/dodeca-assets dist/ddc assets --packaged --fail
 ls -laR dist"#;
 
 const TEST_DDC_COMMAND: &str = r#"set -euo pipefail
@@ -1868,6 +1869,9 @@ main() {{
     if [ -d "$tmpdir/dodeca-assets" ]; then
         rm -rf "$install_dir/dodeca-assets"
         cp -R "$tmpdir/dodeca-assets" "$install_dir/"
+    else
+        echo "warning: archive did not contain dodeca-assets; browser search and DevTools assets will be missing" >&2
+        echo "warning: run 'ddc assets' after installation for lookup paths and repair commands" >&2
     fi
 
     echo ""
@@ -1966,6 +1970,9 @@ function Main {{
                 Remove-Item -Recurse -Force $installedAssets
             }}
             Copy-Item -Path $assetsDir -Destination $installDir -Recurse -Force
+        }} else {{
+            Write-Warning "Archive did not contain dodeca-assets; browser search and DevTools assets will be missing."
+            Write-Warning "Run 'ddc assets' after installation for lookup paths and repair commands."
         }}
 
         Write-Host ""
