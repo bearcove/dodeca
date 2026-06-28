@@ -1,6 +1,9 @@
 ---
 name: dodeca
 description: Use when working on a Dodeca site or the Dodeca CLI. This skill delegates to the installed ddc binary so guidance stays current.
+compatibility: Compatible with the open Agent Skills standard. Requires ddc on PATH.
+metadata:
+  source: dodeca-ddc
 ---
 
 # Dodeca
@@ -40,4 +43,6 @@ To refresh this installed skill from the current binary, run:
 
 ```sh
 ddc agent install
+ddc agent install --agent claude-code
+ddc agent install --skills-cli --agent '*'
 ```

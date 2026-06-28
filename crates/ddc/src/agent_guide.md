@@ -41,10 +41,26 @@ To install or refresh the thin agent skill from the current binary:
 
 ```sh
 ddc agent install
+ddc agent install --agent claude-code
+ddc agent install --global --agent codex
 ```
 
 The installed skill intentionally delegates back to `ddc agent` so copied skill
 files can stay small and stale copies still point to the current CLI.
+
+`ddc agent install` writes an open Agent Skills-compatible `dodeca/SKILL.md`.
+The default target is project-local `.agents/skills/dodeca`, which is the common
+directory used by the open skills ecosystem and Codex project skills. Use
+`--agent claude-code` for `.claude/skills/dodeca`, repeat `--agent` to install
+for multiple clients, and add `--global` for the user-level directories. For
+the long tail of clients supported by the ecosystem CLI, delegate placement:
+
+```sh
+ddc agent install --skills-cli --agent claude-code
+ddc agent install --skills-cli --agent '*'
+```
+
+That runs `pnpx skills add` when `pnpx` is available, falling back to `npx`.
 
 If a dev server is already running, prefer the live Markdown endpoints:
 

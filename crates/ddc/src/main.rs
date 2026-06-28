@@ -25,6 +25,7 @@ use ignore::WalkBuilder;
 use owo_colors::OwoColorize;
 use std::collections::HashSet;
 use std::fs;
+use std::process::{Command as StdCommand, Stdio};
 use std::sync::Arc;
 
 const AGENT_GUIDE: &str = include_str!("agent_guide.md");
@@ -376,9 +377,25 @@ struct AgentGuideArgs {}
 
 #[derive(Facet, Debug)]
 struct AgentInstallArgs {
-    /// Skill directory to write (defaults to $CODEX_HOME/skills/dodeca, then ~/.codex/skills/dodeca)
+    /// Skill directory to write directly (overrides --agent and --global)
     #[facet(args::named, default)]
     dir: Option<String>,
+
+    /// Agent target to install for, repeatable (`universal`, `claude-code`, `codex`, etc.)
+    #[facet(args::named, args::short = 'a', rename = "agent", default)]
+    agents: Vec<String>,
+
+    /// Install into user/global skill directories instead of project directories
+    #[facet(args::named, default)]
+    global: bool,
+
+    /// Delegate installation to `pnpx skills add` or `npx skills add`
+    #[facet(args::named, rename = "skills-cli", default)]
+    skills_cli: bool,
+
+    /// Runner for --skills-cli (`pnpx`, `npx`, `bunx`, etc.; defaults to pnpx, then npx)
+    #[facet(args::named, default)]
+    runner: Option<String>,
 }
 
 /// Available commands
@@ -865,31 +882,264 @@ fn run_agent(args: AgentArgs) -> Result<()> {
 }
 
 fn install_agent_skill(args: AgentInstallArgs) -> Result<()> {
-    let skill_dir = args
-        .dir
-        .map(Utf8PathBuf::from)
-        .map(Ok)
-        .unwrap_or_else(default_agent_skill_dir)?;
-    fs::create_dir_all(&skill_dir)?;
+    if let Some(dir) = args.dir {
+        let skill_path = write_agent_skill(Utf8Path::new(&dir))?;
+        println!("Installed Dodeca agent skill: {}", skill_path);
+        println!("The installed skill delegates to `ddc agent` for current guidance.");
+        return Ok(());
+    }
+
+    if args.skills_cli {
+        return install_agent_skill_with_skills_cli(args);
+    }
+
+    let targets = builtin_agent_targets(&args.agents)?;
+    let mut written_dirs: Vec<Utf8PathBuf> = Vec::new();
+
+    for target in targets {
+        let skill_dir = builtin_agent_skill_dir(target, args.global)?;
+        if !written_dirs.iter().any(|path| path == &skill_dir) {
+            write_agent_skill(&skill_dir)?;
+            written_dirs.push(skill_dir.clone());
+        }
+        println!(
+            "Installed Dodeca agent skill for {}: {}",
+            target,
+            skill_dir.join("SKILL.md")
+        );
+    }
+
+    println!("The installed skill delegates to `ddc agent` for current guidance.");
+    println!(
+        "Use `ddc agent install --skills-cli --agent <name>` to delegate placement to the open `skills` CLI."
+    );
+    Ok(())
+}
+
+fn write_agent_skill(skill_dir: &Utf8Path) -> Result<Utf8PathBuf> {
+    fs::create_dir_all(skill_dir)?;
     let skill_path = skill_dir.join("SKILL.md");
     fs::write(&skill_path, AGENT_SKILL)?;
-    println!("Installed Dodeca agent skill: {}", skill_path);
+    Ok(skill_path)
+}
+
+fn install_agent_skill_with_skills_cli(args: AgentInstallArgs) -> Result<()> {
+    let runner = match args.runner {
+        Some(runner) => runner,
+        None => default_skills_runner()?,
+    };
+    let source = export_agent_skill_collection()?;
+    let targets = skills_cli_agent_targets(&args.agents);
+
+    let mut command = StdCommand::new(&runner);
+    command
+        .arg("skills")
+        .arg("add")
+        .arg(source.as_str())
+        .arg("--skill")
+        .arg("dodeca")
+        .arg("--copy")
+        .arg("--yes");
+    if args.global {
+        command.arg("--global");
+    }
+    for target in &targets {
+        command.arg("--agent").arg(target);
+    }
+
+    let status = command
+        .status()
+        .map_err(|err| eyre!("failed to run {runner} skills add: {err}"))?;
+    if !status.success() {
+        return Err(eyre!("{runner} skills add failed with status {status}"));
+    }
+
+    println!(
+        "Installed Dodeca agent skill through `{runner} skills add` for {}.",
+        targets.join(", ")
+    );
     println!("The installed skill delegates to `ddc agent` for current guidance.");
     Ok(())
 }
 
-fn default_agent_skill_dir() -> Result<Utf8PathBuf> {
+fn default_skills_runner() -> Result<String> {
+    for candidate in ["pnpx", "npx"] {
+        let Ok(status) = StdCommand::new(candidate)
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+        else {
+            continue;
+        };
+        if status.success() {
+            return Ok(candidate.to_string());
+        }
+    }
+    Err(eyre!(
+        "could not find `pnpx` or `npx`; pass `--runner <command>` with --skills-cli"
+    ))
+}
+
+fn export_agent_skill_collection() -> Result<Utf8PathBuf> {
+    let temp_dir = Utf8PathBuf::from_path_buf(std::env::temp_dir())
+        .map_err(|path| eyre!("temporary directory is not UTF-8: {}", path.display()))?;
+    let root = temp_dir.join(format!("ddc-agent-skill-{}", std::process::id()));
+    let skill_dir = root.join("skills").join("dodeca");
+    write_agent_skill(&skill_dir)?;
+    Ok(root)
+}
+
+fn skills_cli_agent_targets(raw_targets: &[String]) -> Vec<String> {
+    if raw_targets.is_empty() {
+        return vec!["universal".to_string()];
+    }
+    raw_targets
+        .iter()
+        .map(|target| normalize_skills_cli_agent_target(target))
+        .collect()
+}
+
+fn normalize_skills_cli_agent_target(target: &str) -> String {
+    match normalized_agent_name(target).as_str() {
+        "all" => "*".to_string(),
+        "claude" => "claude-code".to_string(),
+        "gemini" => "gemini-cli".to_string(),
+        other => other.to_string(),
+    }
+}
+
+fn builtin_agent_targets(raw_targets: &[String]) -> Result<Vec<&'static str>> {
+    if raw_targets.is_empty() {
+        return Ok(vec!["universal"]);
+    }
+
+    let mut targets = Vec::new();
+    for raw in raw_targets {
+        let normalized = normalized_agent_name(raw);
+        if normalized == "*" || normalized == "all" {
+            for target in BUILTIN_AGENT_TARGETS {
+                push_unique_target(&mut targets, target);
+            }
+            continue;
+        }
+        let Some(target) = builtin_agent_target(&normalized) else {
+            return Err(eyre!(
+                "unknown built-in agent target `{raw}`; supported targets are: {}. Use `ddc agent install --skills-cli --agent {}` to delegate placement to the open `skills` CLI.",
+                BUILTIN_AGENT_TARGETS.join(", "),
+                normalized
+            ));
+        };
+        push_unique_target(&mut targets, target);
+    }
+    Ok(targets)
+}
+
+fn push_unique_target(targets: &mut Vec<&'static str>, target: &'static str) {
+    if !targets.contains(&target) {
+        targets.push(target);
+    }
+}
+
+fn normalized_agent_name(target: &str) -> String {
+    target.trim().to_ascii_lowercase().replace('_', "-")
+}
+
+const BUILTIN_AGENT_TARGETS: &[&str] = &[
+    "universal",
+    "amp",
+    "replit",
+    "codex",
+    "claude-code",
+    "cursor",
+    "opencode",
+    "gemini-cli",
+    "zed",
+    "cline",
+    "dexto",
+    "kimi-code-cli",
+    "loaf",
+    "warp",
+    "goose",
+    "github-copilot",
+];
+
+fn builtin_agent_target(target: &str) -> Option<&'static str> {
+    match target {
+        "universal" | "agents" | "standard" => Some("universal"),
+        "amp" => Some("amp"),
+        "replit" => Some("replit"),
+        "codex" => Some("codex"),
+        "claude" | "claude-code" => Some("claude-code"),
+        "cursor" => Some("cursor"),
+        "opencode" | "open-code" => Some("opencode"),
+        "gemini" | "gemini-cli" => Some("gemini-cli"),
+        "zed" => Some("zed"),
+        "cline" => Some("cline"),
+        "dexto" => Some("dexto"),
+        "kimi-code-cli" => Some("kimi-code-cli"),
+        "loaf" => Some("loaf"),
+        "warp" => Some("warp"),
+        "goose" => Some("goose"),
+        "github-copilot" | "copilot" => Some("github-copilot"),
+        _ => None,
+    }
+}
+
+fn builtin_agent_skill_dir(target: &str, global: bool) -> Result<Utf8PathBuf> {
+    if !global {
+        return Ok(project_agent_skill_dir(target).join("dodeca"));
+    }
+
+    match target {
+        "codex" => codex_global_skill_dir(),
+        "universal" | "amp" | "replit" => Ok(home_dir()?
+            .join(".config")
+            .join("agents")
+            .join("skills")
+            .join("dodeca")),
+        "claude-code" => Ok(home_dir()?.join(".claude").join("skills").join("dodeca")),
+        "cursor" => Ok(home_dir()?.join(".cursor").join("skills").join("dodeca")),
+        "opencode" => Ok(home_dir()?
+            .join(".config")
+            .join("opencode")
+            .join("skills")
+            .join("dodeca")),
+        "gemini-cli" => Ok(home_dir()?.join(".gemini").join("skills").join("dodeca")),
+        "zed" | "cline" | "dexto" | "kimi-code-cli" | "loaf" | "warp" => {
+            Ok(home_dir()?.join(".agents").join("skills").join("dodeca"))
+        }
+        "goose" => Ok(home_dir()?
+            .join(".config")
+            .join("goose")
+            .join("skills")
+            .join("dodeca")),
+        "github-copilot" => Ok(home_dir()?.join(".copilot").join("skills").join("dodeca")),
+        _ => Err(eyre!("unknown built-in agent target `{target}`")),
+    }
+}
+
+fn project_agent_skill_dir(target: &str) -> Utf8PathBuf {
+    match target {
+        "claude-code" => Utf8PathBuf::from(".claude").join("skills"),
+        "goose" => Utf8PathBuf::from(".goose").join("skills"),
+        _ => Utf8PathBuf::from(".agents").join("skills"),
+    }
+}
+
+fn codex_global_skill_dir() -> Result<Utf8PathBuf> {
     if let Ok(codex_home) = std::env::var("CODEX_HOME") {
         return Ok(Utf8PathBuf::from(codex_home).join("skills").join("dodeca"));
     }
+    Ok(home_dir()?.join(".codex").join("skills").join("dodeca"))
+}
+
+fn home_dir() -> Result<Utf8PathBuf> {
     if let Ok(home) = std::env::var("HOME") {
-        return Ok(Utf8PathBuf::from(home)
-            .join(".codex")
-            .join("skills")
-            .join("dodeca"));
+        return Ok(Utf8PathBuf::from(home));
     }
     Err(eyre!(
-        "could not infer a skills directory; pass `ddc agent install --dir <path>`"
+        "could not infer a home directory; pass `ddc agent install --dir <path>`"
     ))
 }
 

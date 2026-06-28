@@ -95,6 +95,8 @@ Use `ddc coverage` when no dev server is running, especially in scripts and CI:
 ```sh
 ddc agent
 ddc agent install
+ddc agent install --agent claude-code
+ddc agent install --skills-cli --agent '*'
 ddc coverage status .
 ddc coverage config . --source api --impl rust
 ddc coverage rule protocol.handshake . --source api --impl rust
@@ -103,8 +105,12 @@ ddc coverage validate . --threshold 80
 
 `ddc agent` prints a bundled Markdown guide for agents and humans who need the
 Dodeca mental model before making changes. `ddc agent install` writes a thin
-agent skill that delegates back to the current CLI, so installed skills do not
-need to duplicate the full workflow.
+open Agent Skills-compatible `dodeca/SKILL.md` that delegates back to the
+current CLI, so installed skills do not need to duplicate the full workflow.
+The default install is project-local `.agents/skills/dodeca`; use
+`--agent claude-code` for Claude Code's `.claude/skills/dodeca`, `--global` for
+user-level installs, and `--skills-cli` to delegate placement to the
+`pnpx`/`npx skills` ecosystem CLI.
 
 The CLI defaults to Markdown and accepts `--format json` for the same typed
 responses exposed by the live API. `validate` exits non-zero when coverage is
