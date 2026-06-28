@@ -67,6 +67,7 @@ server or a cold one-shot scan. Use the URL printed by `ddc serve`; the examples
 below assume the default `127.0.0.1:4000` binding.
 
 ```sh
+curl http://127.0.0.1:4000/_dodeca/coverage/nav.md
 curl http://127.0.0.1:4000/_dodeca/coverage/status.md
 curl 'http://127.0.0.1:4000/_dodeca/coverage/status.md?source=api&impl=rust'
 curl 'http://127.0.0.1:4000/_dodeca/coverage/validate.md?threshold=80'
@@ -76,6 +77,7 @@ curl http://127.0.0.1:4000/_dodeca/coverage/rule/protocol.handshake.md
 Every endpoint supports `.md` for model- and human-facing output and `.json`
 for typed tooling output:
 
+- `nav` — Tracey-style navigation map with spec, coverage, and sources views.
 - `status` — summary counts and links to the other queries.
 - `config` — configured source/impl globs.
 - `uncovered` — rules without implementation references.
@@ -97,6 +99,7 @@ ddc agent
 ddc agent install
 ddc agent install --agent claude-code
 ddc agent install --skills-cli --agent '*'
+ddc coverage nav .
 ddc coverage status .
 ddc coverage config . --source api --impl rust
 ddc coverage rule protocol.handshake . --source api --impl rust

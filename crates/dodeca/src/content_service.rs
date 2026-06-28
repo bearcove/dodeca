@@ -328,6 +328,7 @@ fn parse_coverage_endpoint(
     let selector =
         CoverageSelector::new(params.get("source").cloned(), params.get("impl").cloned());
     let endpoint = match path {
+        "nav" => CoverageEndpoint::Nav,
         "status" => CoverageEndpoint::Status,
         "config" => CoverageEndpoint::Config,
         "uncovered" => CoverageEndpoint::Uncovered,

@@ -209,6 +209,8 @@ struct CoverageArgs {
 #[derive(Facet, Debug)]
 #[repr(u8)]
 enum CoverageCommand {
+    /// Print Tracey-style coverage navigation views
+    Nav(CoverageQueryArgs),
     /// Print coverage summary
     Status(CoverageQueryArgs),
     /// Print configured coverage implementation globs
@@ -1270,6 +1272,7 @@ fn coverage_command_parts(
     Option<u8>,
 ) {
     match command {
+        CoverageCommand::Nav(args) => (dodeca::coverage::CoverageEndpoint::Nav, args.common, None),
         CoverageCommand::Status(args) => (
             dodeca::coverage::CoverageEndpoint::Status,
             args.common,

@@ -122,6 +122,26 @@ pub async fn coverage_suffix_endpoints_serve_markdown_and_json() {
     json.assert_contains(r#""implementedRules": 1"#);
     json.assert_contains(r#""staleReferences": 1"#);
 
+    let nav = site.get("/_dodeca/coverage/nav.md").await;
+    nav.assert_ok();
+    nav.assert_content_type("text/markdown");
+    nav.assert_contains("# Coverage Navigation");
+    nav.assert_contains("## Spec View");
+    nav.assert_contains("## Coverage View");
+    nav.assert_contains("## Sources View");
+    nav.assert_contains("[`api.live+2`](rule/api.live%2B2.md)");
+    nav.assert_contains("`code/lib.rs`");
+
+    let nav_json = site.get("/_dodeca/coverage/nav.json").await;
+    nav_json.assert_ok();
+    nav_json.assert_content_type("application/json");
+    nav_json.assert_contains(r#""id": "spec""#);
+    nav_json.assert_contains(r#""id": "coverage""#);
+    nav_json.assert_contains(r#""id": "sources""#);
+    nav_json.assert_contains(r#""specRoutes""#);
+    nav_json.assert_contains(r#""sourceFiles""#);
+    nav_json.assert_contains(r#""ruleHref": "rule/api.live%2B2.md""#);
+
     let uncovered = site.get("/_dodeca/coverage/uncovered.md").await;
     uncovered.assert_ok();
     uncovered.assert_contains("api.todo");

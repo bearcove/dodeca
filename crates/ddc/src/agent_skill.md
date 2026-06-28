@@ -24,7 +24,7 @@ changing project code. The most common follow-up commands are:
 
 ```sh
 ddc diagnostics .
-ddc coverage status .
+ddc coverage nav .
 ddc coverage config .
 ```
 
@@ -32,7 +32,7 @@ If `ddc serve` is already running, prefer the live Markdown endpoints from the
 server URL printed by `ddc serve`:
 
 ```sh
-curl "$DODECA_URL/_dodeca/coverage/status.md"
+curl "$DODECA_URL/_dodeca/coverage/nav.md"
 curl "$DODECA_URL/_dodeca/coverage/config.md"
 ```
 

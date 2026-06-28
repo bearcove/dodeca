@@ -1,10 +1,12 @@
 use facet::Facet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::{CoverageReport, RefVerb, ReqReference, RuleId, StaleReference};
 
 /// Coverage route selected by the URL path or CLI subcommand.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CoverageEndpoint {
+    Nav,
     Status,
     Config,
     Uncovered,
@@ -72,6 +74,65 @@ pub struct CoverageStatusResponse {
     pub implementation_coverage_percent: f64,
     pub verification_coverage_percent: f64,
     pub rules: Vec<CoverageRuleSummary>,
+}
+
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct CoverageNavigationResponse {
+    pub spec_name: String,
+    pub status: CoverageStatusResponse,
+    pub config: CoverageConfigResponse,
+    pub views: Vec<CoverageNavigationView>,
+    pub spec_routes: Vec<CoverageSpecRouteNav>,
+    pub coverage_rules: Vec<CoverageRuleSummary>,
+    pub source_files: Vec<CoverageSourceFileNav>,
+}
+
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct CoverageNavigationView {
+    pub id: String,
+    pub title: String,
+    pub markdown_href: String,
+    pub json_href: String,
+}
+
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct CoverageSpecRouteNav {
+    pub source_name: String,
+    pub route: String,
+    pub rules: Vec<CoverageSpecRuleNav>,
+}
+
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct CoverageSpecRuleNav {
+    pub id: String,
+    pub rule_href: String,
+    pub route_href: String,
+    pub anchor_id: String,
+    pub line: usize,
+    pub implemented: bool,
+    pub verified: bool,
+    pub stale_refs: usize,
+    pub raw: String,
+    pub html: String,
+}
+
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct CoverageSourceFileNav {
+    pub file: String,
+    pub rules: Vec<String>,
+    pub total_references: usize,
+    pub impl_refs: usize,
+    pub verify_refs: usize,
+    pub depends_refs: usize,
+    pub related_refs: usize,
+    pub invalid_refs: usize,
+    pub stale_refs: usize,
+    pub unmapped_units: Vec<CoverageUnmappedUnit>,
 }
 
 #[derive(Debug, Clone, Facet)]
@@ -202,6 +263,13 @@ pub fn coverage_output(
     format: CoverageOutputFormat,
 ) -> Result<Option<CoverageOutput>, String> {
     let body = match endpoint {
+        CoverageEndpoint::Nav => {
+            let response = navigation_response(report);
+            match format {
+                CoverageOutputFormat::Json => json(&response)?,
+                CoverageOutputFormat::Markdown => render_navigation_markdown(&response),
+            }
+        }
         CoverageEndpoint::Status => match format {
             CoverageOutputFormat::Json => json(&status_response(report))?,
             CoverageOutputFormat::Markdown => render_status_markdown(report),
@@ -374,6 +442,40 @@ pub fn config_response(report: &CoverageReport) -> CoverageConfigResponse {
     }
 }
 
+pub fn navigation_response(report: &CoverageReport) -> CoverageNavigationResponse {
+    let status = status_response(report);
+    let config = config_response(report);
+    let coverage_rules = status.rules.clone();
+    CoverageNavigationResponse {
+        spec_name: report.spec_name.clone(),
+        status,
+        config,
+        views: vec![
+            CoverageNavigationView {
+                id: "spec".to_string(),
+                title: "Spec View".to_string(),
+                markdown_href: "nav.md#spec-view".to_string(),
+                json_href: "nav.json".to_string(),
+            },
+            CoverageNavigationView {
+                id: "coverage".to_string(),
+                title: "Coverage View".to_string(),
+                markdown_href: "nav.md#coverage-view".to_string(),
+                json_href: "nav.json".to_string(),
+            },
+            CoverageNavigationView {
+                id: "sources".to_string(),
+                title: "Sources View".to_string(),
+                markdown_href: "nav.md#sources-view".to_string(),
+                json_href: "nav.json".to_string(),
+            },
+        ],
+        spec_routes: spec_routes(report),
+        coverage_rules,
+        source_files: source_files(report),
+    }
+}
+
 pub fn rule_response(report: &CoverageReport, id: &str) -> Option<CoverageRuleResponse> {
     let rule_id = super::parse_rule_id(id)?;
     if !report.covered_rules.contains(&rule_id) && !report.uncovered_rules.contains(&rule_id) {
@@ -425,6 +527,123 @@ fn rule_summary(report: &CoverageReport, id: &RuleId) -> CoverageRuleSummary {
             .filter(|stale| stale.current_rule_id == *id)
             .count(),
     }
+}
+
+fn spec_routes(report: &CoverageReport) -> Vec<CoverageSpecRouteNav> {
+    let mut routes: BTreeMap<(String, String), Vec<CoverageSpecRuleNav>> = BTreeMap::new();
+    for definitions in report.definitions_by_rule.values() {
+        for definition in definitions {
+            let summary = rule_summary(report, &definition.id);
+            let id = definition.id.to_string();
+            let route_href = if definition.anchor_id.is_empty() {
+                definition.route.clone()
+            } else {
+                format!("{}#{}", definition.route, definition.anchor_id)
+            };
+            routes
+                .entry((definition.source_name.clone(), definition.route.clone()))
+                .or_default()
+                .push(CoverageSpecRuleNav {
+                    rule_href: rule_href(&id),
+                    route_href,
+                    anchor_id: definition.anchor_id.clone(),
+                    line: definition.line,
+                    implemented: summary.implemented,
+                    verified: summary.verified,
+                    stale_refs: summary.stale_refs,
+                    raw: definition.raw.clone(),
+                    html: definition.html.clone(),
+                    id,
+                });
+        }
+    }
+
+    routes
+        .into_iter()
+        .map(|((source_name, route), mut rules)| {
+            rules.sort_by(|a, b| a.line.cmp(&b.line).then_with(|| a.id.cmp(&b.id)));
+            CoverageSpecRouteNav {
+                source_name,
+                route,
+                rules,
+            }
+        })
+        .collect()
+}
+
+#[derive(Debug, Default)]
+struct SourceFileNavBuilder {
+    rules: BTreeSet<String>,
+    total_references: usize,
+    impl_refs: usize,
+    verify_refs: usize,
+    depends_refs: usize,
+    related_refs: usize,
+    invalid_refs: usize,
+    stale_refs: usize,
+    unmapped_units: Vec<CoverageUnmappedUnit>,
+}
+
+fn source_files(report: &CoverageReport) -> Vec<CoverageSourceFileNav> {
+    let mut files: BTreeMap<String, SourceFileNavBuilder> = BTreeMap::new();
+
+    for refs in report.references_by_rule.values() {
+        for reference in refs {
+            let entry = files
+                .entry(reference.file.display().to_string())
+                .or_default();
+            entry.total_references += 1;
+            entry.rules.insert(reference.req_id.to_string());
+            match reference.verb {
+                RefVerb::Impl => entry.impl_refs += 1,
+                RefVerb::Verify => entry.verify_refs += 1,
+                RefVerb::Depends => entry.depends_refs += 1,
+                RefVerb::Related => entry.related_refs += 1,
+                RefVerb::Define => {}
+            }
+        }
+    }
+
+    for reference in &report.invalid_references {
+        let entry = files
+            .entry(reference.file.display().to_string())
+            .or_default();
+        entry.invalid_refs += 1;
+        entry.rules.insert(reference.req_id.to_string());
+    }
+
+    for stale in &report.stale_references {
+        let entry = files
+            .entry(stale.reference.file.display().to_string())
+            .or_default();
+        entry.stale_refs += 1;
+        entry.rules.insert(stale.current_rule_id.to_string());
+        entry.rules.insert(stale.reference.req_id.to_string());
+    }
+
+    for unit in unmapped_units(report) {
+        files
+            .entry(unit.file.clone())
+            .or_default()
+            .unmapped_units
+            .push(unit);
+    }
+
+    files
+        .into_iter()
+        .map(|(file, builder)| CoverageSourceFileNav {
+            file,
+            rules: builder.rules.into_iter().collect(),
+            total_references: builder.total_references,
+            impl_refs: builder.impl_refs,
+            verify_refs: builder.verify_refs,
+            depends_refs: builder.depends_refs,
+            related_refs: builder.related_refs,
+            invalid_refs: builder.invalid_refs,
+            stale_refs: builder.stale_refs,
+            unmapped_units: builder.unmapped_units,
+        })
+        .collect()
 }
 
 fn ref_count(report: &CoverageReport, id: &RuleId, verb: RefVerb) -> usize {
@@ -563,6 +782,7 @@ fn render_status_markdown(report: &CoverageReport) -> String {
     ));
 
     let next = [
+        ("Navigation", "nav.md"),
         ("Config", "config.md"),
         ("Uncovered", "uncovered.md"),
         ("Untested", "untested.md"),
@@ -579,6 +799,137 @@ fn render_status_markdown(report: &CoverageReport) -> String {
         "\n## Agent Guide\n\nAgents: run `ddc agent` for the Dodeca mental model, Zola differences, and coverage workflow. Run `ddc agent install` to install or refresh the thin skill.\n",
     );
     out
+}
+
+fn render_navigation_markdown(response: &CoverageNavigationResponse) -> String {
+    let mut out = String::new();
+    out.push_str("# Coverage Navigation\n\n");
+    out.push_str(&format!("Spec: `{}`\n\n", response.spec_name));
+    out.push_str("| Metric | Count | Percent |\n");
+    out.push_str("| --- | ---: | ---: |\n");
+    out.push_str(&format!(
+        "| Implemented | {}/{} | {:.1}% |\n",
+        response.status.implemented_rules,
+        response.status.total_rules,
+        response.status.implementation_coverage_percent
+    ));
+    out.push_str(&format!(
+        "| Verified | {}/{} | {:.1}% |\n",
+        response.status.verified_rules,
+        response.status.total_rules,
+        response.status.verification_coverage_percent
+    ));
+    out.push_str(&format!(
+        "| Invalid refs | {} |  |\n",
+        response.status.invalid_references
+    ));
+    out.push_str(&format!(
+        "| Stale refs | {} |  |\n",
+        response.status.stale_references
+    ));
+
+    out.push_str("\n## Views\n\n");
+    for view in &response.views {
+        out.push_str(&format!(
+            "- [{}]({}) (`{}`)\n",
+            view.title, view.markdown_href, view.id
+        ));
+    }
+
+    out.push_str("\n## Query Anchors\n\n");
+    let queries = [
+        ("Status", "status.md", "status.json"),
+        ("Config", "config.md", "config.json"),
+        ("Uncovered", "uncovered.md", "uncovered.json"),
+        ("Untested", "untested.md", "untested.json"),
+        ("Unmapped", "unmapped.md", "unmapped.json"),
+        ("Stale", "stale.md", "stale.json"),
+        ("Invalid", "invalid.md", "invalid.json"),
+        ("Validate", "validate.md", "validate.json"),
+    ];
+    for (label, md, json) in queries {
+        out.push_str(&format!("- {label}: [{md}]({md}) / [{json}]({json})\n"));
+    }
+
+    out.push_str("\n## Spec View\n\n");
+    if response.spec_routes.is_empty() {
+        out.push_str("No spec rules found.\n\n");
+    } else {
+        for route in &response.spec_routes {
+            out.push_str(&format!("### `{}`\n\n", route.route));
+            if !route.source_name.is_empty() {
+                out.push_str(&format!("Source: `{}`\n\n", route.source_name));
+            }
+            out.push_str("| Rule | Line | Impl | Verify | Definition |\n");
+            out.push_str("| --- | ---: | --- | --- | --- |\n");
+            for rule in &route.rules {
+                out.push_str(&format!(
+                    "| [`{}`]({}) | {} | {} | {} | [route]({}) |\n",
+                    rule.id,
+                    rule.rule_href,
+                    rule.line,
+                    yes_no(rule.implemented),
+                    yes_no(rule.verified),
+                    rule.route_href
+                ));
+            }
+            out.push('\n');
+        }
+    }
+
+    out.push_str("## Coverage View\n\n");
+    if response.coverage_rules.is_empty() {
+        out.push_str("No rules found.\n\n");
+    } else {
+        out.push_str("| Rule | Impl refs | Verify refs | Stale refs |\n");
+        out.push_str("| --- | ---: | ---: | ---: |\n");
+        for rule in &response.coverage_rules {
+            out.push_str(&format!(
+                "| [`{}`]({}) | {} | {} | {} |\n",
+                rule.id,
+                rule_href(&rule.id),
+                rule.impl_refs,
+                rule.verify_refs,
+                rule.stale_refs
+            ));
+        }
+        out.push('\n');
+    }
+
+    out.push_str("## Sources View\n\n");
+    if response.source_files.is_empty() {
+        out.push_str("No source files found.\n");
+    } else {
+        out.push_str("| File | Rules | Refs | Impl | Verify | Stale | Invalid | Unmapped |\n");
+        out.push_str("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |\n");
+        for file in &response.source_files {
+            let rules = if file.rules.is_empty() {
+                String::new()
+            } else {
+                file.rules
+                    .iter()
+                    .map(|rule| format!("`{rule}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            out.push_str(&format!(
+                "| `{}` | {} | {} | {} | {} | {} | {} | {} |\n",
+                file.file,
+                rules,
+                file.total_references,
+                file.impl_refs,
+                file.verify_refs,
+                file.stale_refs,
+                file.invalid_refs,
+                file.unmapped_units.len()
+            ));
+        }
+    }
+    out
+}
+
+fn yes_no(value: bool) -> &'static str {
+    if value { "yes" } else { "no" }
 }
 
 fn render_config_markdown(response: &CoverageConfigResponse) -> String {
@@ -632,8 +983,12 @@ fn render_rule_list_markdown(
     out.push_str("| --- | ---: | ---: | ---: |\n");
     for rule in &response.rules {
         out.push_str(&format!(
-            "| [`{}`](rule/{}.md) | {} | {} | {} |\n",
-            rule.id, rule.id, rule.impl_refs, rule.verify_refs, rule.stale_refs
+            "| [`{}`]({}) | {} | {} | {} |\n",
+            rule.id,
+            rule_href(&rule.id),
+            rule.impl_refs,
+            rule.verify_refs,
+            rule.stale_refs
         ));
     }
     out
@@ -671,9 +1026,9 @@ fn render_stale_markdown(response: &CoverageStaleListResponse) -> String {
     out.push_str("| --- | --- | --- |\n");
     for stale in &response.references {
         out.push_str(&format!(
-            "| [`{}`](rule/{}.md) | `{}` | `{}`:{} |\n",
+            "| [`{}`]({}) | `{}` | `{}`:{} |\n",
             stale.current_rule_id,
-            stale.current_rule_id,
+            rule_href(&stale.current_rule_id),
             stale.reference.rule_id,
             stale.reference.file,
             stale.reference.line
@@ -823,4 +1178,21 @@ fn render_rule_refs(out: &mut String, title: &str, refs: &[CoverageReference]) {
         ));
     }
     out.push('\n');
+}
+
+fn rule_href(id: &str) -> String {
+    format!("rule/{}.md", percent_encode_path_segment(id))
+}
+
+fn percent_encode_path_segment(input: &str) -> String {
+    let mut out = String::new();
+    for byte in input.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'.' | b'_' | b'-' => {
+                out.push(char::from(byte));
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
 }

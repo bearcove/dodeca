@@ -33,7 +33,7 @@ Use these before making claims about the project:
 ```sh
 ddc agent
 ddc diagnostics .
-ddc coverage status .
+ddc coverage nav .
 ddc coverage config .
 ```
 
@@ -65,7 +65,7 @@ That runs `pnpx skills add` when `pnpx` is available, falling back to `npx`.
 If a dev server is already running, prefer the live Markdown endpoints:
 
 ```sh
-curl "$DODECA_URL/_dodeca/coverage/status.md"
+curl "$DODECA_URL/_dodeca/coverage/nav.md"
 curl "$DODECA_URL/_dodeca/coverage/config.md"
 ```
 
@@ -75,8 +75,8 @@ curl "$DODECA_URL/_dodeca/coverage/config.md"
 Use JSON only when a tool needs typed data:
 
 ```sh
-curl "$DODECA_URL/_dodeca/coverage/status.json"
-ddc coverage status . --format json
+curl "$DODECA_URL/_dodeca/coverage/nav.json"
+ddc coverage nav . --format json
 ```
 
 ## Anchor: Coverage Workflow
@@ -116,6 +116,7 @@ Use `source` and `impl` selectors for mounted or multi-implementation sites:
 
 ```sh
 ddc coverage status . --source api --impl rust
+ddc coverage nav . --source api --impl rust
 ddc coverage rule protocol.handshake . --source api --impl rust
 curl "$DODECA_URL/_dodeca/coverage/rule/protocol.handshake.md?source=api&impl=rust"
 ```
@@ -133,6 +134,7 @@ Important coverage rules:
 
 Coverage endpoints support both `.md` and `.json`:
 
+- `/_dodeca/coverage/nav.md`
 - `/_dodeca/coverage/status.md`
 - `/_dodeca/coverage/config.md`
 - `/_dodeca/coverage/uncovered.md`
