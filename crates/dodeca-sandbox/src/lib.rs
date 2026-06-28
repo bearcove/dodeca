@@ -54,7 +54,9 @@ pub use unsupported::{Command, ExitStatus, Output, Sandbox, Stdio};
 /// Result type for sandbox operations.
 pub type Result<T> = std::result::Result<T, Error>;
 
-#[cfg(test)]
+// These tests exercise a real sandbox; on platforms with only the `unsupported`
+// stub (e.g. Windows) `Sandbox::new` always errors, so there is nothing to test.
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod tests {
     use super::*;
 

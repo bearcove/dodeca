@@ -1,3 +1,5 @@
+target-applies-to-host = false
+
 [alias]
 xtask = "run --package xtask --"
 
@@ -7,6 +9,12 @@ git-fetch-with-cli = true
 # Enable getrandom for WASM targets
 [target.wasm32-unknown-unknown]
 rustflags = ["--cfg", "getrandom_backend=\"wasm_js\""]
+
+# jpegxl-src hardcodes the static CRT (/MT) for libjxl on Windows MSVC
+# (CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded), so the rest of the build must
+# also use the static CRT or linking fails with LNK2038 RuntimeLibrary mismatch.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
 
 # # Unstable features (requires nightly or cargo +nightly)
 # [unstable]

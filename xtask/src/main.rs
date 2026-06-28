@@ -338,9 +338,11 @@ fn install_dev() -> bool {
 
     let release_dir = PathBuf::from("target/release");
 
-    // Copy ddc binary (remove first to avoid "text file busy" on Linux)
-    let ddc_src = release_dir.join("ddc");
-    let ddc_dst = cargo_bin.join("ddc");
+    // Copy ddc binary (remove first to avoid "text file busy" on Linux).
+    // EXE_SUFFIX is ".exe" on Windows and empty elsewhere.
+    let ddc_name = format!("ddc{}", env::consts::EXE_SUFFIX);
+    let ddc_src = release_dir.join(&ddc_name);
+    let ddc_dst = cargo_bin.join(&ddc_name);
     let _ = fs::remove_file(&ddc_dst);
     if let Err(e) = fs::copy(&ddc_src, &ddc_dst) {
         eprintln!("Failed to copy ddc: {e}");
@@ -504,7 +506,7 @@ fn run_integration_tests(no_build: bool, extra_args: &[&str]) -> bool {
         eprintln!("Using DODECA_BIN from environment: {}", env_bin);
         PathBuf::from(env_bin)
     } else {
-        let ddc_bin = target_dir.join("ddc");
+        let ddc_bin = target_dir.join(format!("ddc{}", env::consts::EXE_SUFFIX));
         if !ddc_bin.exists() {
             eprintln!(
                 "{}: ddc binary not found at {}",
