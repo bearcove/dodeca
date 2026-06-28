@@ -590,6 +590,7 @@ mod tests {
             name: name.to_string(),
             mount: mount.to_string(),
             content_dir: Utf8PathBuf::from(content_dir),
+            composed_config_path: None,
             checkout_dir: None,
             git: None,
             repo: None,

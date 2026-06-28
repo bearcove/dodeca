@@ -128,6 +128,8 @@ pub struct ResolvedSource {
     pub mount: String,
     /// Absolute path to this source's content directory.
     pub content_dir: Utf8PathBuf,
+    /// Source-local config composed for this source, if any.
+    pub composed_config_path: Option<Utf8PathBuf>,
     /// Absolute path to the repo checkout dir the service clones/pulls (the
     /// content dir lives within it). `None` for a direct `local` source.
     pub checkout_dir: Option<Utf8PathBuf>,
@@ -550,6 +552,7 @@ fn resolve_sources(
             name: String::new(),
             mount: "/".to_string(),
             content_dir: root.join(content),
+            composed_config_path: Some(root.join(CONFIG_DIR).join(CONFIG_FILE_STYX)),
             checkout_dir: None,
             git: None,
             repo: src.repo.clone(),
@@ -621,6 +624,9 @@ fn resolve_mount(root: &Utf8Path, def: &MountDef) -> Result<ResolvedSource> {
     // holding that config is the source's project root (where its build steps
     // run); without one, fall back to the checkout dir, then the content dir.
     let composed = discover_source_config(&content_dir, root);
+    let composed_config_path = composed
+        .as_ref()
+        .map(|(dir, _)| dir.join(CONFIG_DIR).join(CONFIG_FILE_STYX));
     let project_dir = composed
         .as_ref()
         .map(|(dir, _)| dir.clone())
@@ -631,6 +637,7 @@ fn resolve_mount(root: &Utf8Path, def: &MountDef) -> Result<ResolvedSource> {
         name: def.name.clone(),
         mount,
         content_dir,
+        composed_config_path,
         checkout_dir,
         git: def.git.clone(),
         // The mount's explicit `repo` wins; otherwise compose it from the
@@ -713,6 +720,12 @@ fn discover_source_config(
 /// content actually served (not the whole project), so unrelated sibling
 /// projects / fixtures don't trip it. Best-effort, never fatal.
 fn warn_orphaned_nested_configs(_root: &Utf8Path, sources: &[ResolvedSource]) {
+    let composed_configs = sources
+        .iter()
+        .filter_map(|source| source.composed_config_path.as_ref())
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+
     for source in sources {
         for entry in ignore::WalkBuilder::new(&source.content_dir)
             .hidden(false)
@@ -728,6 +741,9 @@ fn warn_orphaned_nested_configs(_root: &Utf8Path, sources: &[ResolvedSource]) {
             // Only flag configs strictly *within* served content; a source's own
             // config lives above its content dir, not inside it.
             if !path.starts_with(&source.content_dir) {
+                continue;
+            }
+            if composed_configs.contains(path) {
                 continue;
             }
             tracing::warn!(
@@ -883,6 +899,7 @@ mod tests {
             name: mount.trim_matches('/').to_string(),
             mount: mount.to_string(),
             content_dir: Utf8PathBuf::from("/proj/content"),
+            composed_config_path: None,
             checkout_dir: None,
             git: None,
             repo: None,
@@ -959,6 +976,43 @@ mod tests {
         assert_eq!(sources[0].mount, "/");
         assert_eq!(sources[0].impls.len(), 1);
         assert_eq!(sources[0].impls[0].include, vec!["rust/**/src/**/*.rs"]);
+    }
+
+    #[test]
+    fn mount_source_config_path_is_recorded() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(temp.path().to_path_buf()).unwrap();
+        let content = root.join("docs/picante-content");
+        std::fs::create_dir_all(content.join(CONFIG_DIR)).unwrap();
+        std::fs::write(
+            content.join(CONFIG_DIR).join(CONFIG_FILE_STYX),
+            r#"@schema {id crate:dodeca-config@1, cli ddc}
+
+source {
+    impls (
+        {
+            name rust
+            include ("picante/src/**/*.rs")
+        }
+    )
+}
+"#,
+        )
+        .unwrap();
+
+        let sources = resolve_sources(
+            &root,
+            None,
+            Some(&[mount("picante", "/picante", Some("docs/picante-content"))]),
+        )
+        .unwrap();
+
+        assert_eq!(sources.len(), 1);
+        assert_eq!(
+            sources[0].composed_config_path.as_ref().unwrap(),
+            &content.join(CONFIG_DIR).join(CONFIG_FILE_STYX)
+        );
+        assert_eq!(sources[0].impls[0].include, vec!["picante/src/**/*.rs"]);
     }
 
     #[test]

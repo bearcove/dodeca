@@ -2862,6 +2862,7 @@ dependencies = [
  "strid",
  "styx-embed",
  "styx-tree",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",

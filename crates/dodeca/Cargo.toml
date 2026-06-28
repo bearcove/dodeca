@@ -166,4 +166,5 @@ facet-styx.workspace = true
 vox-codegen = "0.10.0-rc.0"
 
 [dev-dependencies]
+tempfile.workspace = true
 tokio.workspace = true
