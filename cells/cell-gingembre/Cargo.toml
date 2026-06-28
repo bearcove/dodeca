@@ -23,5 +23,5 @@ cell-gingembre-proto = { path = "../cell-gingembre-proto" }
 dashmap.workspace = true
 facet-value.workspace = true
 futures.workspace = true
-gingembre = { path = "../../crates/gingembre" }
+gingembre.workspace = true
 tracing.workspace = true

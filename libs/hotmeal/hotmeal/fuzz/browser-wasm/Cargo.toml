@@ -10,8 +10,8 @@ crate-type = ["cdylib"]
 [dependencies]
 browser-proto = { path = "../browser-proto" }
 hotmeal-wasm = { path = "../../../hotmeal-wasm" }
-vox-core = "0.10.0-rc.0"
-vox-websocket = "0.10.0-rc.0"
+vox-core = "0.10.0-rc.5"
+vox-websocket = "0.10.0-rc.5"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = [

@@ -235,6 +235,20 @@ a { color: var(--accent); }
 .warn { color: var(--warn); }
 .ok { color: var(--accent); }
 .empty { color: var(--muted); padding: 10px 0; }
+.definition {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 12px;
+  margin-bottom: 12px;
+}
+.definition-body {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.definition-body > :first-child { margin-top: 0; }
+.definition-body > :last-child { margin-bottom: 0; }
 
 @media (max-width: 700px) {
   main { padding: 20px 12px; }

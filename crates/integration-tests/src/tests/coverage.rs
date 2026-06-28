@@ -188,6 +188,7 @@ pub async fn coverage_suffix_endpoints_serve_markdown_and_json() {
     rule_html.assert_contains("Current live rule.");
     rule_html.assert_contains("Implementation References");
     rule_html.assert_contains("Verification References");
+    rule_html.assert_contains("Stale References");
     rule_html.assert_contains("<code>code/lib.rs</code>:1");
     rule_html.assert_contains("api.live");
 }

@@ -27,7 +27,7 @@ cell-html-proto = { path = "../../cells/cell-html-proto" }
 dodeca = { path = "../dodeca" }
 eyre.workspace = true
 facet.workspace = true
-gingembre = { path = "../gingembre" }
+gingembre.workspace = true
 marq.workspace = true
 pulldown-cmark.workspace = true
 serde_json.workspace = true

@@ -125,7 +125,7 @@ styx-tree.workspace = true
 facet-value.workspace = true
 futures-util.workspace = true
 getrandom.workspace = true
-gingembre = { path = "../gingembre" }
+gingembre.workspace = true
 if-addrs.workspace = true
 ignore.workspace = true
 include_dir.workspace = true
@@ -163,7 +163,7 @@ dodeca-config = { path = "../dodeca-config" }
 dodeca-protocol = { path = "../dodeca-protocol" }
 facet-styx.workspace = true
 # Generates the browser editor's TypeScript vox client from DevtoolsService.
-vox-codegen = "0.10.0-rc.0"
+vox-codegen = "0.10.0-rc.5"
 
 [dev-dependencies]
 tempfile.workspace = true
