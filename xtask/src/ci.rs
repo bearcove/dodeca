@@ -76,8 +76,8 @@ impl CiPlatform {
         }
     }
 
-    /// The pinned stable toolchain version to use.
-    pub const RUST_TOOLCHAIN: &'static str = "1.95";
+    /// The pinned toolchain to use across all CI jobs.
+    pub const RUST_TOOLCHAIN: &'static str = "stable";
 
     /// Get the local cache action for this platform (for self-hosted runners).
     pub fn local_cache_action(&self) -> &'static str {
@@ -127,11 +127,17 @@ impl CiPlatform {
 /// Bearcove-hosted Linux runner for compile-heavy jobs.
 const GITHUB_LINUX_RUNNER: &str = "bearcove-ubuntu-24.04";
 
-/// Standard GitHub-hosted macOS arm64 runner.
-const GITHUB_MACOS_RUNNER: &str = "macos-15";
+/// Free GitHub-hosted macOS runner for every-commit compile checks.
+const GITHUB_MACOS_CHECK_RUNNER: &str = "macos-15";
 
-/// Blacksmith Windows runner for cheap compile checks.
-const GITHUB_WINDOWS_CHECK_RUNNER: &str = "blacksmith-2vcpu-windows-2025";
+/// Free GitHub-hosted Windows runner for every-commit compile checks.
+const GITHUB_WINDOWS_CHECK_RUNNER: &str = "windows-latest";
+
+/// Blacksmith macOS runner for tag-only release packaging (bigger = binaries ready sooner).
+const GITHUB_MACOS_PACKAGE_RUNNER: &str = "blacksmith-12vcpu-macos-15";
+
+/// Blacksmith Windows runner for tag-only release packaging.
+const GITHUB_WINDOWS_PACKAGE_RUNNER: &str = "blacksmith-8vcpu-windows-2025";
 
 /// Self-hosted runner labels for Forgejo macOS.
 const FORGEJO_MACOS_LABELS: &[&str] = &["mac"];
@@ -173,7 +179,7 @@ fn linux_runner(platform: CiPlatform) -> RunnerSpec {
 /// Get the macOS runner for a CI platform.
 fn macos_runner(platform: CiPlatform) -> RunnerSpec {
     match platform {
-        CiPlatform::GitHub => RunnerSpec::single(GITHUB_MACOS_RUNNER),
+        CiPlatform::GitHub => RunnerSpec::single(GITHUB_MACOS_CHECK_RUNNER),
         CiPlatform::Forgejo => RunnerSpec::labels(FORGEJO_MACOS_LABELS),
     }
 }
@@ -1183,26 +1189,66 @@ wasm-pack build crates/dodeca-search-wasm --target web --target-dir target/wasm-
             ]),
     );
 
+    // Every-commit compile checks on free GitHub-hosted macOS/Windows runners.
+    // Compile signal only, no packaging. dodeca embeds WASM via include_bytes!,
+    // so these depend on the Linux-built WASM bundles.
     if platform == CiPlatform::GitHub {
         jobs.insert(
-            "windows-check".to_string(),
-            Job::with_runner(RunnerSpec::single(GITHUB_WINDOWS_CHECK_RUNNER).to_runs_on())
-                .name("Check Windows")
+            "check-macos".to_string(),
+            Job::with_runner(RunnerSpec::single(GITHUB_MACOS_CHECK_RUNNER).to_runs_on())
+                .name("Check macOS")
                 .timeout(30)
+                .needs([wasm_job_id.clone()])
                 .steps([
                     checkout(platform),
                     install_rust(platform),
-                    rust_cache_with_targets(platform, false, linux_target),
+                    Step::uses("Download WASM", platform.download_artifact_action()).with_inputs([
+                        ("name", devtools_wasm_artifact.clone()),
+                        ("path", "crates/dodeca-devtools/pkg".into()),
+                    ]),
+                    Step::uses("Download search WASM", platform.download_artifact_action())
+                        .with_inputs([
+                            ("name", search_wasm_artifact.clone()),
+                            ("path", "crates/dodeca-search-wasm/pkg".into()),
+                        ]),
+                    Step::run("Check macOS", "cargo check --workspace --all-targets"),
+                ]),
+        );
+
+        jobs.insert(
+            "check-windows".to_string(),
+            Job::with_runner(RunnerSpec::single(GITHUB_WINDOWS_CHECK_RUNNER).to_runs_on())
+                .name("Check Windows")
+                .timeout(30)
+                .needs([wasm_job_id.clone()])
+                .steps([
+                    checkout(platform),
+                    install_rust(platform),
+                    Step::uses("Download WASM", platform.download_artifact_action()).with_inputs([
+                        ("name", devtools_wasm_artifact.clone()),
+                        ("path", "crates/dodeca-devtools/pkg".into()),
+                    ]),
+                    Step::uses("Download search WASM", platform.download_artifact_action())
+                        .with_inputs([
+                            ("name", search_wasm_artifact.clone()),
+                            ("path", "crates/dodeca-search-wasm/pkg".into()),
+                        ]),
                     Step::run("Check Windows", "cargo check --workspace --all-targets"),
                 ]),
         );
     }
 
+    // Linux carries the real validation on every commit: build ddc (needed by
+    // integration + browser tests), integration tests, and browser tests.
     for target in &targets {
+        if target.triple != "x86_64-unknown-linux-gnu" {
+            continue;
+        }
         let short = target.short_name();
+        let workspace_var = platform.context_var("workspace");
 
-        // Job 1: Build ddc (main binary)
-        // Depends on build-wasm because ddc embeds WASM bundles at compile time.
+        // Build ddc for integration + browser tests. No archive/upload here;
+        // release archives are produced by tag-only package jobs.
         let ddc_job_id = format!("build-ddc-{short}");
         jobs.insert(
             ddc_job_id.clone(),
@@ -1223,7 +1269,6 @@ wasm-pack build crates/dodeca-search-wasm --target web --target-dir target/wasm-
                     } else {
                         rust_cache_with_targets(platform, true, target)
                     },
-                    // Download WASM bundles embedded at compile time via include_bytes!.
                     Step::uses("Download WASM", platform.download_artifact_action()).with_inputs([
                         ("name", devtools_wasm_artifact.clone()),
                         ("path", "crates/dodeca-devtools/pkg".into()),
@@ -1236,35 +1281,16 @@ wasm-pack build crates/dodeca-search-wasm --target web --target-dir target/wasm-
                     Step::run("Build ddc", BUILD_DDC_COMMAND).shell("bash"),
                     Step::run("Test ddc", TEST_DDC_COMMAND).shell("bash"),
                     upload_artifact(platform, format!("ddc-{short}"), "target/release/ddc"),
-                    Step::run(
-                        "Install xz (macOS)",
-                        "if ! command -v xz >/dev/null 2>&1 && command -v brew >/dev/null 2>&1; then HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 brew install xz; fi",
-                    ),
-                    Step::run(
-                        "Assemble archive",
-                        format!("bash scripts/assemble-archive.sh {}", target.triple),
-                    ),
-                    upload_artifact(
-                        platform,
-                        format!("build-{short}"),
-                        format!("dodeca-{}.{}", target.triple, target.archive_ext),
-                    ),
                 ]),
         );
 
-        // Integration tests compile dodeca, which embeds WASM bundles at compile time.
         let integration_job_id = format!("integration-{short}");
-        let integration_needs = vec![ddc_job_id.clone(), wasm_job_id.clone()];
-
-        // Use platform-specific workspace variable
-        let workspace_var = platform.context_var("workspace");
-
         jobs.insert(
             integration_job_id.clone(),
             Job::with_runner(target.runs_on())
                 .name(format!("Integration ({short})"))
                 .timeout(30)
-                .needs(integration_needs)
+                .needs([ddc_job_id.clone(), wasm_job_id.clone()])
                 .steps([
                     checkout(platform),
                     install_rust(platform),
@@ -1278,7 +1304,6 @@ wasm-pack build crates/dodeca-search-wasm --target web --target-dir target/wasm-
                     } else {
                         rust_cache_with_targets(platform, true, target)
                     },
-                    // Download WASM bundles embedded at compile time via include_bytes!.
                     Step::uses("Download WASM", platform.download_artifact_action()).with_inputs([
                         ("name", devtools_wasm_artifact.clone()),
                         ("path", "crates/dodeca-devtools/pkg".into()),
@@ -1288,7 +1313,6 @@ wasm-pack build crates/dodeca-search-wasm --target web --target-dir target/wasm-
                             ("name", search_wasm_artifact.clone()),
                             ("path", "crates/dodeca-search-wasm/pkg".into()),
                         ]),
-                    // Build integration-tests binary (xtask will be built in debug, so build integration-tests in debug too)
                     Step::run(
                         "Build integration-tests",
                         "cargo build --package integration-tests",
@@ -1313,44 +1337,143 @@ wasm-pack build crates/dodeca-search-wasm --target web --target-dir target/wasm-
         all_release_needs.push(integration_job_id.clone());
 
         // Browser tests (Linux only) - tests livereload and DOM patching in real browser
-        if target.triple == "x86_64-unknown-linux-gnu" {
-            let browser_tests_job_id = format!("browser-tests-{short}");
-            let browser_tests_needs = vec![ddc_job_id.clone(), wasm_job_id.clone()];
-
-            jobs.insert(
-                browser_tests_job_id.clone(),
-                Job::with_runner(target.runs_on())
-                    .name(format!("Browser Tests ({short})"))
-                    .timeout(30)
-                    .needs(browser_tests_needs)
-                    .steps([
-                        checkout(platform),
-                        // Download ddc
-                        Step::uses("Download ddc", platform.download_artifact_action())
-                            .with_inputs([("name", format!("ddc-{short}")), ("path", "dist".into())]),
-                        // Download WASM devtools for the archive served in browser tests.
-                        Step::uses("Download WASM", platform.download_artifact_action()).with_inputs([
-                            ("name", devtools_wasm_artifact.clone()),
-                            ("path", "crates/dodeca-devtools/pkg".into()),
-                        ]),
-                        Step::run("Prepare artifacts", "chmod +x dist/ddc && ls -la dist/"),
-                        // Setup Node.js for Playwright
-                        Step::uses("Setup Node.js", "actions/setup-node@v4")
-                            .with_inputs([("node-version", "20")]),
-                        // Install Playwright dependencies
-                        Step::run(
-                            "Install browser test dependencies",
-                            "cd browser-tests && npm ci && npx playwright install chromium --with-deps",
-                        ),
-                        // Run browser tests
-                        Step::run(
-                            "Run browser tests",
-                            "cd browser-tests && npm test",
-                        )
-                        .with_env([("DODECA_BIN", format!("{}/dist/ddc", workspace_var))]),
+        let browser_tests_job_id = format!("browser-tests-{short}");
+        jobs.insert(
+            browser_tests_job_id,
+            Job::with_runner(target.runs_on())
+                .name(format!("Browser Tests ({short})"))
+                .timeout(30)
+                .needs([ddc_job_id.clone(), wasm_job_id.clone()])
+                .steps([
+                    checkout(platform),
+                    Step::uses("Download ddc", platform.download_artifact_action())
+                        .with_inputs([("name", format!("ddc-{short}")), ("path", "dist".into())]),
+                    Step::uses("Download WASM", platform.download_artifact_action()).with_inputs([
+                        ("name", devtools_wasm_artifact.clone()),
+                        ("path", "crates/dodeca-devtools/pkg".into()),
                     ]),
-            );
-        }
+                    Step::run("Prepare artifacts", "chmod +x dist/ddc && ls -la dist/"),
+                    Step::uses("Setup Node.js", "actions/setup-node@v4")
+                        .with_inputs([("node-version", "20")]),
+                    Step::run(
+                        "Install browser test dependencies",
+                        "cd browser-tests && npm ci && npx playwright install chromium --with-deps",
+                    ),
+                    Step::run("Run browser tests", "cd browser-tests && npm test")
+                        .with_env([("DODECA_BIN", format!("{}/dist/ddc", workspace_var))]),
+                ]),
+        );
+    }
+
+    // Tag-only packaging. Binaries should be ready soon, so macOS uses the bigger
+    // Blacksmith runner; Linux stays on the bearcove pool (fixed cost, already fast).
+    if platform == CiPlatform::GitHub {
+        let linux_pkg = "package-linux-x64".to_string();
+        jobs.insert(
+            linux_pkg.clone(),
+            Job::with_runner(linux_runner(platform).to_runs_on())
+                .name("Package (linux-x64)")
+                .timeout(30)
+                .needs([wasm_job_id.clone()])
+                .if_condition("startsWith(github.ref, 'refs/tags/')")
+                .steps([
+                    checkout(platform),
+                    install_rust(platform),
+                    rust_cache_with_targets(platform, true, linux_target),
+                    Step::uses("Download WASM", platform.download_artifact_action()).with_inputs([
+                        ("name", devtools_wasm_artifact.clone()),
+                        ("path", "crates/dodeca-devtools/pkg".into()),
+                    ]),
+                    Step::uses("Download search WASM", platform.download_artifact_action())
+                        .with_inputs([
+                            ("name", search_wasm_artifact.clone()),
+                            ("path", "crates/dodeca-search-wasm/pkg".into()),
+                        ]),
+                    Step::run("Build ddc", BUILD_DDC_COMMAND).shell("bash"),
+                    Step::run(
+                        "Assemble archive",
+                        "bash scripts/assemble-archive.sh x86_64-unknown-linux-gnu",
+                    ),
+                    upload_artifact(
+                        platform,
+                        "build-linux-x64",
+                        "dodeca-x86_64-unknown-linux-gnu.tar.xz",
+                    ),
+                ]),
+        );
+        all_release_needs.push(linux_pkg);
+
+        let mac_pkg = "package-macos-arm64".to_string();
+        jobs.insert(
+            mac_pkg.clone(),
+            Job::with_runner(RunnerSpec::single(GITHUB_MACOS_PACKAGE_RUNNER).to_runs_on())
+                .name("Package (macos-arm64)")
+                .timeout(30)
+                .needs([wasm_job_id.clone()])
+                .if_condition("startsWith(github.ref, 'refs/tags/')")
+                .steps([
+                    checkout(platform),
+                    install_rust(platform),
+                    Step::uses("Download WASM", platform.download_artifact_action()).with_inputs([
+                        ("name", devtools_wasm_artifact.clone()),
+                        ("path", "crates/dodeca-devtools/pkg".into()),
+                    ]),
+                    Step::uses("Download search WASM", platform.download_artifact_action())
+                        .with_inputs([
+                            ("name", search_wasm_artifact.clone()),
+                            ("path", "crates/dodeca-search-wasm/pkg".into()),
+                        ]),
+                    Step::run("Build ddc", BUILD_DDC_COMMAND).shell("bash"),
+                    Step::run(
+                        "Install xz (macOS)",
+                        "if ! command -v xz >/dev/null 2>&1 && command -v brew >/dev/null 2>&1; then HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 brew install xz; fi",
+                    ),
+                    Step::run(
+                        "Assemble archive",
+                        "bash scripts/assemble-archive.sh aarch64-apple-darwin",
+                    ),
+                    upload_artifact(
+                        platform,
+                        "build-macos-arm64",
+                        "dodeca-aarch64-apple-darwin.tar.xz",
+                    ),
+                ]),
+        );
+        all_release_needs.push(mac_pkg);
+
+        let win_pkg = "package-windows-x64".to_string();
+        jobs.insert(
+            win_pkg.clone(),
+            Job::with_runner(RunnerSpec::single(GITHUB_WINDOWS_PACKAGE_RUNNER).to_runs_on())
+                .name("Package (windows-x64)")
+                .timeout(30)
+                .needs([wasm_job_id.clone()])
+                .if_condition("startsWith(github.ref, 'refs/tags/')")
+                .steps([
+                    checkout(platform),
+                    install_rust(platform),
+                    Step::uses("Download WASM", platform.download_artifact_action()).with_inputs([
+                        ("name", devtools_wasm_artifact.clone()),
+                        ("path", "crates/dodeca-devtools/pkg".into()),
+                    ]),
+                    Step::uses("Download search WASM", platform.download_artifact_action())
+                        .with_inputs([
+                            ("name", search_wasm_artifact.clone()),
+                            ("path", "crates/dodeca-search-wasm/pkg".into()),
+                        ]),
+                    Step::run("Build ddc", BUILD_DDC_COMMAND).shell("bash"),
+                    Step::run(
+                        "Assemble archive",
+                        "bash scripts/assemble-archive.sh x86_64-pc-windows-msvc",
+                    ),
+                    upload_artifact(
+                        platform,
+                        "build-windows-x64",
+                        "dodeca-x86_64-pc-windows-msvc.zip",
+                    ),
+                ]),
+        );
+        all_release_needs.push(win_pkg);
     }
 
     // Release job (GitHub only - Forgejo uses build_forgejo_workflow)
@@ -2036,4 +2159,149 @@ pub fn generate_forgejo(repo_root: &Utf8Path, check: bool) -> Result<()> {
     )?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use camino::Utf8Path;
+
+    #[test]
+    fn github_release_needs_linux_integration_and_tag_only_packages() {
+        let workflow = build_ci_workflow(CiPlatform::GitHub, Utf8Path::new("."));
+
+        let release = workflow.jobs.get("release").expect("release job exists");
+        assert_eq!(
+            release.needs.as_ref(),
+            Some(&vec![
+                "integration-linux-x64".to_string(),
+                "package-linux-x64".to_string(),
+                "package-macos-arm64".to_string(),
+                "package-windows-x64".to_string(),
+            ])
+        );
+    }
+
+    #[test]
+    fn github_package_jobs_are_tag_only_on_intended_runners() {
+        let workflow = build_ci_workflow(CiPlatform::GitHub, Utf8Path::new("."));
+
+        let linux_pkg = workflow
+            .jobs
+            .get("package-linux-x64")
+            .expect("linux package job");
+        assert_eq!(
+            linux_pkg.runs_on.0,
+            vec!["bearcove-ubuntu-24.04".to_string()]
+        );
+        assert_eq!(
+            linux_pkg.if_condition.as_deref(),
+            Some("startsWith(github.ref, 'refs/tags/')")
+        );
+
+        let mac_pkg = workflow
+            .jobs
+            .get("package-macos-arm64")
+            .expect("mac package job");
+        assert_eq!(
+            mac_pkg.runs_on.0,
+            vec!["blacksmith-12vcpu-macos-15".to_string()]
+        );
+        assert_eq!(
+            mac_pkg.if_condition.as_deref(),
+            Some("startsWith(github.ref, 'refs/tags/')")
+        );
+
+        let win_pkg = workflow
+            .jobs
+            .get("package-windows-x64")
+            .expect("windows package job");
+        assert_eq!(
+            win_pkg.runs_on.0,
+            vec!["blacksmith-8vcpu-windows-2025".to_string()]
+        );
+        assert_eq!(
+            win_pkg.if_condition.as_deref(),
+            Some("startsWith(github.ref, 'refs/tags/')")
+        );
+    }
+
+    #[test]
+    fn github_every_commit_checks_on_free_runners() {
+        let workflow = build_ci_workflow(CiPlatform::GitHub, Utf8Path::new("."));
+
+        let mac = workflow.jobs.get("check-macos").expect("mac check job");
+        assert_eq!(mac.runs_on.0, vec!["macos-15".to_string()]);
+        assert!(mac.if_condition.is_none());
+        assert_eq!(
+            mac.steps
+                .iter()
+                .find(|s| s.name.as_deref() == Some("Check macOS"))
+                .and_then(|s| s.run.as_deref()),
+            Some("cargo check --workspace --all-targets")
+        );
+
+        let win = workflow
+            .jobs
+            .get("check-windows")
+            .expect("windows check job");
+        assert_eq!(win.runs_on.0, vec!["windows-latest".to_string()]);
+        assert!(win.if_condition.is_none());
+        let win_rust_toolchain = win
+            .steps
+            .iter()
+            .find(|s| s.name.as_deref() == Some("Install Rust"))
+            .and_then(|s| s.with.as_ref().and_then(|i| i.get("toolchain")));
+        assert_eq!(win_rust_toolchain, Some(&"stable".to_string()));
+        assert_eq!(
+            win.steps
+                .iter()
+                .find(|s| s.name.as_deref() == Some("Check Windows"))
+                .and_then(|s| s.run.as_deref()),
+            Some("cargo check --workspace --all-targets")
+        );
+    }
+
+    #[test]
+    fn github_no_macos_build_or_integration_on_commit() {
+        let workflow = build_ci_workflow(CiPlatform::GitHub, Utf8Path::new("."));
+        assert!(!workflow.jobs.contains_key("build-ddc-macos-arm64"));
+        assert!(!workflow.jobs.contains_key("integration-macos-arm64"));
+        assert!(!workflow.jobs.contains_key("release-macos-arm64"));
+    }
+
+    #[test]
+    fn github_linux_build_does_not_archive_on_commit() {
+        let workflow = build_ci_workflow(CiPlatform::GitHub, Utf8Path::new("."));
+        let build = workflow
+            .jobs
+            .get("build-ddc-linux-x64")
+            .expect("linux build job");
+        // No "Assemble archive" step on the every-commit build.
+        assert!(
+            !build
+                .steps
+                .iter()
+                .any(|s| s.name.as_deref() == Some("Assemble archive"))
+        );
+    }
+
+    #[test]
+    fn github_all_rust_install_steps_pin_stable() {
+        let workflow = build_ci_workflow(CiPlatform::GitHub, Utf8Path::new("."));
+        for (id, job) in &workflow.jobs {
+            for step in &job.steps {
+                if step.name.as_deref() == Some("Install Rust") {
+                    let toolchain = step
+                        .with
+                        .as_ref()
+                        .and_then(|i| i.get("toolchain"))
+                        .unwrap_or_else(|| {
+                            panic!("job {id} Install Rust step missing toolchain input")
+                        });
+                    assert_eq!(toolchain, "stable", "job {id} should pin stable toolchain");
+                }
+            }
+        }
+    }
 }
