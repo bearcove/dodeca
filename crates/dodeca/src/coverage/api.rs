@@ -165,6 +165,35 @@ section { border-top: 1px solid var(--line); padding-top: 18px; margin-top: 24px
   padding: 10px;
   background: var(--code);
 }
+.definition-list { display: grid; gap: 12px; }
+.reference-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+.reference-group {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  overflow: hidden;
+}
+.reference-group h3 {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--panel-alt);
+  border-bottom: 1px solid var(--line);
+}
+.reference-group table {
+  border: 0;
+  border-radius: 0;
+}
+.raw-definition summary {
+  cursor: pointer;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
 .badge {
   display: inline-flex;
   align-items: center;
@@ -656,10 +685,7 @@ pub fn coverage_output(
             match format {
                 CoverageOutputFormat::Json => json(&response)?,
                 CoverageOutputFormat::Markdown => render_rule_markdown(&response),
-                CoverageOutputFormat::Html => render_markdown_html(
-                    &format!("Rule {}", response.id),
-                    &render_rule_markdown(&response),
-                ),
+                CoverageOutputFormat::Html => render_rule_html(&response),
             }
         }
     };
@@ -1500,6 +1526,202 @@ fn render_sources_view_html(out: &mut String, response: &CoverageNavigationRespo
     out.push_str("</tbody></table></section>");
 }
 
+fn render_rule_html(response: &CoverageRuleResponse) -> String {
+    let mut out = String::new();
+    out.push_str("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">");
+    out.push_str("<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">");
+    out.push_str(&format!(
+        "<title>Coverage Rule - {}</title>",
+        html_escape(&response.id)
+    ));
+    out.push_str("<style>");
+    out.push_str(COVERAGE_NAV_CSS);
+    out.push_str("</style>");
+    out.push_str("</head><body><main>");
+    out.push_str("<header><div>");
+    out.push_str(&format!(
+        "<h1>Rule <code>{}</code></h1>",
+        html_escape(&response.id)
+    ));
+    out.push_str("<div class=\"muted\">Coverage details for one requirement</div>");
+    out.push_str("</div><nav class=\"views\">");
+    out.push_str("<a class=\"pill\" href=\"../nav.html\">Coverage nav</a>");
+    out.push_str(&format!(
+        "<a class=\"pill\" href=\"{}\">Markdown</a>",
+        html_escape(&rule_sibling_href(&response.id, "md"))
+    ));
+    out.push_str(&format!(
+        "<a class=\"pill\" href=\"{}\">JSON</a>",
+        html_escape(&rule_sibling_href(&response.id, "json"))
+    ));
+    out.push_str("</nav></header>");
+
+    out.push_str("<div class=\"metrics\">");
+    render_count_metric(&mut out, "Definitions", response.definitions.len(), "ok");
+    render_count_metric(
+        &mut out,
+        "Impl refs",
+        response.impl_refs.len(),
+        if response.implemented { "ok" } else { "bad" },
+    );
+    render_count_metric(
+        &mut out,
+        "Verify refs",
+        response.verify_refs.len(),
+        if response.verified { "ok" } else { "bad" },
+    );
+    render_count_metric(
+        &mut out,
+        "Stale refs",
+        response.stale_refs.len(),
+        if response.stale_refs.is_empty() {
+            "ok"
+        } else {
+            "warn"
+        },
+    );
+    out.push_str("</div>");
+
+    out.push_str("<section id=\"status\"><div class=\"section-head\"><h2>Status</h2>");
+    out.push_str("<div class=\"badges\">");
+    render_bool_badge(&mut out, "referenced", response.referenced);
+    render_bool_badge(&mut out, "impl", response.implemented);
+    render_bool_badge(&mut out, "verify", response.verified);
+    if !response.stale_refs.is_empty() {
+        out.push_str(&format!(
+            "<span class=\"badge warn\">{} stale</span>",
+            response.stale_refs.len()
+        ));
+    }
+    out.push_str("</div></div></section>");
+
+    render_rule_definitions_html(&mut out, response);
+    render_rule_reference_groups_html(&mut out, response);
+    render_rule_stale_refs_html(&mut out, response);
+
+    out.push_str("</main></body></html>");
+    out
+}
+
+fn render_rule_definitions_html(out: &mut String, response: &CoverageRuleResponse) {
+    out.push_str("<section id=\"definitions\"><div class=\"section-head\"><h2>Definitions</h2><span class=\"muted\">Rendered from the spec source</span></div>");
+    if response.definitions.is_empty() {
+        out.push_str("<div class=\"empty\">No definitions found.</div></section>");
+        return;
+    }
+
+    out.push_str("<div class=\"definition-list\">");
+    for definition in &response.definitions {
+        out.push_str(&format!(
+            "<article class=\"rule-card {}\">",
+            rule_state_class(
+                response.implemented,
+                response.verified,
+                response.stale_refs.len()
+            )
+        ));
+        out.push_str("<div class=\"rule-head\"><div>");
+        out.push_str(&format!(
+            "<div class=\"rule-title\"><code>{}</code>",
+            html_escape(&response.id)
+        ));
+        out.push_str("<div class=\"badges\">");
+        render_bool_badge(out, "impl", response.implemented);
+        render_bool_badge(out, "verify", response.verified);
+        out.push_str("</div></div>");
+        out.push_str(&format!(
+            "<div class=\"rule-meta\">route <code>{}</code> - line {}",
+            html_escape(&definition.route),
+            definition.line
+        ));
+        if !definition.source_name.is_empty() {
+            out.push_str(&format!(
+                " - source <code>{}</code>",
+                html_escape(&definition.source_name)
+            ));
+        }
+        if !definition.anchor_id.is_empty() {
+            out.push_str(&format!(
+                " - anchor <code>{}</code>",
+                html_escape(&definition.anchor_id)
+            ));
+        }
+        out.push_str("</div></div>");
+        out.push_str(&format!(
+            "<a class=\"pill\" href=\"{}\">Open source route</a>",
+            html_escape(&definition_route_href(definition))
+        ));
+        out.push_str("</div>");
+        if definition.html.trim().is_empty() {
+            out.push_str("<div class=\"rule-body empty\">No rendered definition body.</div>");
+        } else {
+            out.push_str("<div class=\"rule-body\">");
+            out.push_str(&definition.html);
+            out.push_str("</div>");
+        }
+        if !definition.raw.trim().is_empty() {
+            out.push_str("<div class=\"rule-body\"><details class=\"raw-definition\"><summary>Raw definition markdown</summary><pre><code>");
+            out.push_str(&html_escape(&definition.raw));
+            out.push_str("</code></pre></details></div>");
+        }
+        out.push_str("</article>");
+    }
+    out.push_str("</div></section>");
+}
+
+fn render_rule_reference_groups_html(out: &mut String, response: &CoverageRuleResponse) {
+    out.push_str("<section id=\"references\"><div class=\"section-head\"><h2>References</h2><span class=\"muted\">Code annotations grouped by verb</span></div>");
+    out.push_str("<div class=\"reference-grid\">");
+    render_rule_refs_html(out, "Implementation References", &response.impl_refs);
+    render_rule_refs_html(out, "Verification References", &response.verify_refs);
+    render_rule_refs_html(out, "Dependency References", &response.depends_refs);
+    render_rule_refs_html(out, "Related References", &response.related_refs);
+    out.push_str("</div></section>");
+}
+
+fn render_rule_refs_html(out: &mut String, title: &str, refs: &[CoverageReference]) {
+    out.push_str("<div class=\"reference-group\"><h3>");
+    out.push_str(&format!(
+        "<span>{}</span><span class=\"badge {}\">{}</span>",
+        html_escape(title),
+        if refs.is_empty() { "bad" } else { "ok" },
+        refs.len()
+    ));
+    out.push_str("</h3>");
+    if refs.is_empty() {
+        out.push_str("<div class=\"rule-body empty\">None.</div></div>");
+        return;
+    }
+    out.push_str("<table><thead><tr><th>Location</th><th>Verb</th></tr></thead><tbody>");
+    for reference in refs {
+        out.push_str(&format!(
+            "<tr><td><code>{}</code>:{}</td><td><code>{}</code></td></tr>",
+            html_escape(&reference.file),
+            reference.line,
+            html_escape(&reference.verb)
+        ));
+    }
+    out.push_str("</tbody></table></div>");
+}
+
+fn render_rule_stale_refs_html(out: &mut String, response: &CoverageRuleResponse) {
+    out.push_str("<section id=\"stale\"><div class=\"section-head\"><h2>Stale References</h2><span class=\"muted\">References to superseded versions of this rule</span></div>");
+    if response.stale_refs.is_empty() {
+        out.push_str("<div class=\"empty\">No stale references found.</div></section>");
+        return;
+    }
+    out.push_str("<table><thead><tr><th>Referenced rule</th><th>Location</th></tr></thead><tbody>");
+    for stale in &response.stale_refs {
+        out.push_str(&format!(
+            "<tr><td><code>{}</code></td><td><code>{}</code>:{}</td></tr>",
+            html_escape(&stale.reference.rule_id),
+            html_escape(&stale.reference.file),
+            stale.reference.line
+        ));
+    }
+    out.push_str("</tbody></table></section>");
+}
+
 fn rule_state_class(implemented: bool, verified: bool, stale_refs: usize) -> &'static str {
     if !implemented {
         "is-unimplemented"
@@ -1817,6 +2039,18 @@ fn rule_href(id: &str) -> String {
 
 fn rule_html_href(id: &str) -> String {
     format!("rule/{}.html", percent_encode_path_segment(id))
+}
+
+fn rule_sibling_href(id: &str, extension: &str) -> String {
+    format!("{}.{}", percent_encode_path_segment(id), extension)
+}
+
+fn definition_route_href(definition: &CoverageRuleDefinition) -> String {
+    if definition.anchor_id.is_empty() {
+        definition.route.clone()
+    } else {
+        format!("{}#{}", definition.route, definition.anchor_id)
+    }
 }
 
 fn percent_encode_path_segment(input: &str) -> String {

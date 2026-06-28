@@ -177,6 +177,19 @@ pub async fn coverage_suffix_endpoints_serve_markdown_and_json() {
     rule.assert_contains("## Implementation References");
     rule.assert_contains("## Verification References");
     rule.assert_contains("code/lib.rs");
+
+    let rule_html = site.get("/_dodeca/coverage/rule/api.live%2B2.html").await;
+    rule_html.assert_ok();
+    rule_html.assert_content_type("text/html");
+    rule_html.assert_contains("<h1>Rule <code>api.live+2</code></h1>");
+    rule_html.assert_contains("href=\"../nav.html\"");
+    rule_html.assert_contains("href=\"api.live%2B2.md\"");
+    rule_html.assert_contains("href=\"api.live%2B2.json\"");
+    rule_html.assert_contains("Current live rule.");
+    rule_html.assert_contains("Implementation References");
+    rule_html.assert_contains("Verification References");
+    rule_html.assert_contains("<code>code/lib.rs</code>:1");
+    rule_html.assert_contains("api.live");
 }
 
 pub async fn coverage_filters_by_source_and_impl() {

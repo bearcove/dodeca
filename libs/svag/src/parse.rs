@@ -1,7 +1,7 @@
 //! SVG parsing from XML.
 
-use quick_xml::Reader;
 use quick_xml::Decoder;
+use quick_xml::Reader;
 use quick_xml::events::{BytesStart, Event};
 
 use crate::ast::*;
@@ -71,9 +71,10 @@ fn parse_element(reader: &mut Reader<&[u8]>, start: &BytesStart) -> Result<Eleme
                     .push(Node::Element(parse_element(reader, &start)?));
             }
             Event::Empty(start) => {
-                element
-                    .children
-                    .push(Node::Element(parse_empty_element(&start, reader.decoder())?));
+                element.children.push(Node::Element(parse_empty_element(
+                    &start,
+                    reader.decoder(),
+                )?));
             }
             Event::End(_) => {
                 break;
