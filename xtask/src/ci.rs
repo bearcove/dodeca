@@ -130,6 +130,9 @@ const GITHUB_LINUX_RUNNER: &str = "bearcove-ubuntu-24.04";
 /// Standard GitHub-hosted macOS arm64 runner.
 const GITHUB_MACOS_RUNNER: &str = "macos-15";
 
+/// Blacksmith Windows runner for cheap compile checks.
+const GITHUB_WINDOWS_CHECK_RUNNER: &str = "blacksmith-2vcpu-windows-2025";
+
 /// Self-hosted runner labels for Forgejo macOS.
 const FORGEJO_MACOS_LABELS: &[&str] = &["mac"];
 
@@ -1179,6 +1182,21 @@ wasm-pack build crates/dodeca-search-wasm --target web --target-dir target/wasm-
                 ),
             ]),
     );
+
+    if platform == CiPlatform::GitHub {
+        jobs.insert(
+            "windows-check".to_string(),
+            Job::with_runner(RunnerSpec::single(GITHUB_WINDOWS_CHECK_RUNNER).to_runs_on())
+                .name("Check Windows")
+                .timeout(30)
+                .steps([
+                    checkout(platform),
+                    install_rust(platform),
+                    rust_cache_with_targets(platform, false, linux_target),
+                    Step::run("Check Windows", "cargo check --workspace --all-targets"),
+                ]),
+        );
+    }
 
     for target in &targets {
         let short = target.short_name();
