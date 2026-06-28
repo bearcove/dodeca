@@ -99,6 +99,7 @@ pub struct CoverageRuleResponse {
     pub depends_refs: Vec<CoverageReference>,
     pub related_refs: Vec<CoverageReference>,
     pub stale_refs: Vec<CoverageStaleReference>,
+    pub definitions: Vec<CoverageRuleDefinition>,
 }
 
 #[derive(Debug, Clone, Facet)]
@@ -116,6 +117,17 @@ pub struct CoverageReference {
 pub struct CoverageStaleReference {
     pub current_rule_id: String,
     pub reference: CoverageReference,
+}
+
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct CoverageRuleDefinition {
+    pub source_name: String,
+    pub route: String,
+    pub anchor_id: String,
+    pub line: usize,
+    pub raw: String,
+    pub html: String,
 }
 
 #[derive(Debug, Clone, Facet)]
@@ -343,6 +355,7 @@ pub fn rule_response(report: &CoverageReport, id: &str) -> Option<CoverageRuleRe
         depends_refs,
         related_refs,
         stale_refs,
+        definitions: rule_definitions(report, &rule_id),
     })
 }
 
@@ -427,6 +440,26 @@ fn stale_reference(stale: &StaleReference) -> CoverageStaleReference {
         current_rule_id: stale.current_rule_id.to_string(),
         reference: reference(&stale.reference),
     }
+}
+
+fn rule_definitions(report: &CoverageReport, id: &RuleId) -> Vec<CoverageRuleDefinition> {
+    report
+        .definitions_by_rule
+        .get(id)
+        .map(|definitions| {
+            definitions
+                .iter()
+                .map(|definition| CoverageRuleDefinition {
+                    source_name: definition.source_name.clone(),
+                    route: definition.route.clone(),
+                    anchor_id: definition.anchor_id.clone(),
+                    line: definition.line,
+                    raw: definition.raw.clone(),
+                    html: definition.html.clone(),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn unmapped_units(report: &CoverageReport) -> Vec<CoverageUnmappedUnit> {
@@ -642,6 +675,7 @@ fn render_rule_markdown(response: &CoverageRuleResponse) -> String {
     out.push_str(&format!("- Stale refs: `{}`\n", response.stale_refs.len()));
     out.push('\n');
 
+    render_rule_definitions(&mut out, &response.definitions);
     render_rule_refs(&mut out, "Implementation References", &response.impl_refs);
     render_rule_refs(&mut out, "Verification References", &response.verify_refs);
     render_rule_refs(&mut out, "Dependency References", &response.depends_refs);
@@ -661,6 +695,34 @@ fn render_rule_markdown(response: &CoverageRuleResponse) -> String {
     }
 
     out
+}
+
+fn render_rule_definitions(out: &mut String, definitions: &[CoverageRuleDefinition]) {
+    out.push_str("## Definitions\n\n");
+    if definitions.is_empty() {
+        out.push_str("None.\n\n");
+        return;
+    }
+    for definition in definitions {
+        out.push_str(&format!(
+            "- Route: [`{}`]({}#{})\n",
+            definition.route, definition.route, definition.anchor_id
+        ));
+        if !definition.source_name.is_empty() {
+            out.push_str(&format!("- Source: `{}`\n", definition.source_name));
+        }
+        out.push_str(&format!("- Line: `{}`\n\n", definition.line));
+        if definition.raw.is_empty() {
+            out.push_str("_No definition body._\n\n");
+        } else {
+            out.push_str("```markdown\n");
+            out.push_str(&definition.raw);
+            if !definition.raw.ends_with('\n') {
+                out.push('\n');
+            }
+            out.push_str("```\n\n");
+        }
+    }
 }
 
 fn render_rule_refs(out: &mut String, title: &str, refs: &[CoverageReference]) {

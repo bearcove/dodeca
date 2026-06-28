@@ -24,6 +24,18 @@ pub struct UnmappedCodeUnit {
     pub name: Option<String>,
 }
 
+/// A requirement definition as extracted from markdown.
+#[derive(Debug, Clone, Facet)]
+pub struct RuleDefinition {
+    pub id: RuleId,
+    pub source_name: String,
+    pub route: String,
+    pub anchor_id: String,
+    pub line: usize,
+    pub raw: String,
+    pub html: String,
+}
+
 /// Coverage analysis results for a single spec
 #[derive(Debug, Clone, Facet)]
 pub struct CoverageReport {
@@ -50,6 +62,9 @@ pub struct CoverageReport {
 
     /// Code units with no requirement references.
     pub unmapped_units: Vec<UnmappedCodeUnit>,
+
+    /// Rule definitions grouped by canonical rule ID.
+    pub definitions_by_rule: HashMap<RuleId, Vec<RuleDefinition>>,
 
     /// All valid references, grouped by rule ID
     pub references_by_rule: HashMap<RuleId, Vec<ReqReference>>,
@@ -126,6 +141,7 @@ impl CoverageReport {
             stale_references,
             test_impl_references: Vec::new(),
             unmapped_units: Vec::new(),
+            definitions_by_rule: HashMap::new(),
             references_by_rule,
             references_by_verb,
         }
@@ -138,6 +154,11 @@ impl CoverageReport {
 
     pub fn with_unmapped_units(mut self, units: Vec<UnmappedCodeUnit>) -> Self {
         self.unmapped_units = units;
+        self
+    }
+
+    pub fn with_definitions(mut self, definitions: HashMap<RuleId, Vec<RuleDefinition>>) -> Self {
+        self.definitions_by_rule = definitions;
         self
     }
 

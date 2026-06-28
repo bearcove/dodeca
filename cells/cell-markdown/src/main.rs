@@ -341,6 +341,9 @@ fn convert_req(r: marq::ReqDefinition) -> ReqDefinition {
     ReqDefinition {
         id: r.id.to_string(),
         anchor_id: r.anchor_id,
+        line: r.line,
+        raw: r.raw,
+        html: r.html,
     }
 }
 

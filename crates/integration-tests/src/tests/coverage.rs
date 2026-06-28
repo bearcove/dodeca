@@ -135,6 +135,8 @@ pub async fn coverage_suffix_endpoints_serve_markdown_and_json() {
     let rule = site.get("/_dodeca/coverage/rule/api.live%2B2.md").await;
     rule.assert_ok();
     rule.assert_contains("# Rule `api.live+2`");
+    rule.assert_contains("## Definitions");
+    rule.assert_contains("Current live rule.");
     rule.assert_contains("## Implementation References");
     rule.assert_contains("## Verification References");
     rule.assert_contains("code/lib.rs");

@@ -236,6 +236,12 @@ pub struct ReqDefinition {
     pub id: String,
     /// The anchor ID for linking (e.g., "r-channel.id.allocation")
     pub anchor_id: String,
+    /// Line number where this requirement is defined (1-indexed)
+    pub line: usize,
+    /// Raw markdown source of the requirement content, without the marker.
+    pub raw: String,
+    /// Rendered HTML of the requirement content.
+    pub html: String,
 }
 
 /// Markdown construct represented by a source-map entry.

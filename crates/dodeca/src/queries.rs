@@ -406,6 +406,9 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
         .map(|r| ReqDefinition {
             id: r.id,
             anchor_id: r.anchor_id,
+            line: r.line,
+            raw: r.raw,
+            html: r.html,
         })
         .collect();
     let source_map = convert_source_map(*source_map_raw);
@@ -2832,6 +2835,7 @@ pub struct CoverageWorkspace {
     source_names: HashSet<String>,
     known_global: HashSet<crate::coverage::RuleId>,
     known_by_source: HashMap<String, HashSet<crate::coverage::RuleId>>,
+    definitions_by_rule: HashMap<crate::coverage::RuleId, Vec<crate::coverage::RuleDefinition>>,
     global_reqs: crate::coverage::Reqs,
     global_test_impl_references: Vec<crate::coverage::ReqReference>,
     global_unmapped_units: Vec<crate::coverage::UnmappedCodeUnit>,
@@ -2845,6 +2849,7 @@ impl CoverageWorkspace {
         crate::coverage::CoverageReport::compute("coverage", &self.known_global, &self.global_reqs)
             .with_test_impl_references(self.global_test_impl_references.clone())
             .with_unmapped_units(self.global_unmapped_units.clone())
+            .with_definitions(self.definitions_for(&self.known_global, None))
     }
 
     pub fn report_for_selector(
@@ -2904,8 +2909,32 @@ impl CoverageWorkspace {
                 &reqs,
             )
             .with_test_impl_references(test_impl_references)
-            .with_unmapped_units(unmapped_units),
+            .with_unmapped_units(unmapped_units)
+            .with_definitions(self.definitions_for(known, source_name)),
         )
+    }
+
+    fn definitions_for(
+        &self,
+        known: &HashSet<crate::coverage::RuleId>,
+        source_name: Option<&str>,
+    ) -> HashMap<crate::coverage::RuleId, Vec<crate::coverage::RuleDefinition>> {
+        self.definitions_by_rule
+            .iter()
+            .filter(|(rule_id, _)| known.contains(rule_id))
+            .filter_map(|(rule_id, definitions)| {
+                let definitions: Vec<_> = definitions
+                    .iter()
+                    .filter(|definition| {
+                        source_name
+                            .map(|source_name| source_name == definition.source_name)
+                            .unwrap_or(true)
+                    })
+                    .cloned()
+                    .collect();
+                (!definitions.is_empty()).then(|| (rule_id.clone(), definitions))
+            })
+            .collect()
     }
 }
 
@@ -2918,6 +2947,22 @@ fn coverage_report_name(source_name: Option<&str>, impl_name: Option<&str>) -> S
     }
 }
 
+fn rule_definition(
+    source_name: &str,
+    route: &str,
+    req: &crate::db::ReqDefinition,
+) -> crate::coverage::RuleDefinition {
+    crate::coverage::RuleDefinition {
+        id: crate::coverage::parse_rule_id(&req.id).expect("caller parsed rule id"),
+        source_name: source_name.to_string(),
+        route: route.to_string(),
+        anchor_id: req.anchor_id.clone(),
+        line: req.line,
+        raw: req.raw.clone(),
+        html: req.html.clone(),
+    }
+}
+
 /// Coverage workspace carrying global rules plus per source/impl reference
 /// buckets. Consumers choose the report shape cheaply from this cached query.
 #[picante::tracked]
@@ -2925,6 +2970,10 @@ pub async fn coverage_workspace<DB: Db>(db: &DB) -> PicanteResult<CoverageWorksp
     // Known rules: every requirement *defined* in a markdown spec page.
     let mut known_global: HashSet<crate::coverage::RuleId> = HashSet::new();
     let mut known_by_source: HashMap<String, HashSet<crate::coverage::RuleId>> = HashMap::new();
+    let mut definitions_by_rule: HashMap<
+        crate::coverage::RuleId,
+        Vec<crate::coverage::RuleDefinition>,
+    > = HashMap::new();
     if let Ok(site_tree) = build_tree(db).await? {
         for (route, section) in &site_tree.sections {
             let source_name = source_name_of(route.as_str());
@@ -2934,7 +2983,11 @@ pub async fn coverage_workspace<DB: Db>(db: &DB) -> PicanteResult<CoverageWorksp
                     known_by_source
                         .entry(source_name.clone())
                         .or_default()
-                        .insert(rid);
+                        .insert(rid.clone());
+                    definitions_by_rule
+                        .entry(rid.clone())
+                        .or_default()
+                        .push(rule_definition(&source_name, route.as_str(), req));
                 }
             }
         }
@@ -2946,7 +2999,11 @@ pub async fn coverage_workspace<DB: Db>(db: &DB) -> PicanteResult<CoverageWorksp
                     known_by_source
                         .entry(source_name.clone())
                         .or_default()
-                        .insert(rid);
+                        .insert(rid.clone());
+                    definitions_by_rule
+                        .entry(rid.clone())
+                        .or_default()
+                        .push(rule_definition(&source_name, route.as_str(), req));
                 }
             }
         }
@@ -3041,6 +3098,7 @@ pub async fn coverage_workspace<DB: Db>(db: &DB) -> PicanteResult<CoverageWorksp
         source_names,
         known_global,
         known_by_source,
+        definitions_by_rule,
         global_reqs,
         global_test_impl_references,
         global_unmapped_units,
