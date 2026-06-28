@@ -18,6 +18,9 @@ The important differences are:
   responsive images, font subsetting, search artifacts, and rendered HTML come
   from the same pipeline as `ddc build`.
 - Configuration is Styx in `.config/dodeca.styx`, not TOML/YAML.
+- Sites can require a minimum CLI with `site.minimum_ddc_version`; if the
+  installed `ddc` is too old, config loading fails before the build or serve
+  pipeline runs.
 - Multi-source sites compose `source {}` blocks through `mounts (...)`;
   source-scoped settings travel with the mounted source.
 - Typed output is serialized through Facet and `facet_json`; do not hand-write
@@ -28,10 +31,20 @@ The important differences are:
 Use these before making claims about the project:
 
 ```sh
+ddc agent
 ddc diagnostics .
 ddc coverage status .
 ddc coverage config .
 ```
+
+To install or refresh the thin agent skill from the current binary:
+
+```sh
+ddc agent install
+```
+
+The installed skill intentionally delegates back to `ddc agent` so copied skill
+files can stay small and stale copies still point to the current CLI.
 
 If a dev server is already running, prefer the live Markdown endpoints:
 

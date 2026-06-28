@@ -99,6 +99,7 @@ source by its configured source name with `source=<name>` or `--source <name>`.
 ```styx
 site {
     output public          # Build output directory
+    minimum_ddc_version "0.1.0"  # Fail if the installed ddc is older
     base_url "https://example.com"
 
     syntax_highlight {
@@ -130,6 +131,22 @@ site {
     }
 }
 ```
+
+#### `minimum_ddc_version`
+
+`site.minimum_ddc_version` lets a site require a new enough `ddc` binary:
+
+```styx
+site {
+    output public
+    minimum_ddc_version "0.1.0"
+}
+```
+
+If the installed CLI is older than the required version, config loading fails
+before build, serve, diagnostics, coverage, or LSP-backed project loading can
+run. The version may be written with a leading `v`; release suffixes are ignored
+for the numeric floor.
 
 ### `mounts (...)` — aggregator
 

@@ -28,6 +28,7 @@ use std::fs;
 use std::sync::Arc;
 
 const AGENT_GUIDE: &str = include_str!("agent_guide.md");
+const AGENT_SKILL: &str = include_str!("agent_skill.md");
 
 /// ddc - Static site generator
 #[derive(Facet, Debug)]
@@ -356,7 +357,29 @@ struct TermArgs {
 
 /// Agent guide arguments
 #[derive(Facet, Debug)]
-struct AgentArgs {}
+struct AgentArgs {
+    #[facet(args::subcommand)]
+    command: Option<AgentCommand>,
+}
+
+#[derive(Facet, Debug)]
+#[repr(u8)]
+enum AgentCommand {
+    /// Print the bundled guide for agents working on Dodeca projects
+    Guide(AgentGuideArgs),
+    /// Install or refresh the bundled Dodeca agent skill
+    Install(AgentInstallArgs),
+}
+
+#[derive(Facet, Debug)]
+struct AgentGuideArgs {}
+
+#[derive(Facet, Debug)]
+struct AgentInstallArgs {
+    /// Skill directory to write (defaults to $CODEX_HOME/skills/dodeca, then ~/.codex/skills/dodeca)
+    #[facet(args::named, default)]
+    dir: Option<String>,
+}
 
 /// Available commands
 #[derive(Facet, Debug)]
@@ -828,12 +851,46 @@ async fn async_main(command: Command) -> Result<()> {
     }
 }
 
-fn run_agent(_args: AgentArgs) -> Result<()> {
+fn run_agent(args: AgentArgs) -> Result<()> {
+    match args.command {
+        Some(AgentCommand::Install(args)) => return install_agent_skill(args),
+        Some(AgentCommand::Guide(_)) | None => {}
+    }
+
     print!("{AGENT_GUIDE}");
     if !AGENT_GUIDE.ends_with('\n') {
         println!();
     }
     Ok(())
+}
+
+fn install_agent_skill(args: AgentInstallArgs) -> Result<()> {
+    let skill_dir = args
+        .dir
+        .map(Utf8PathBuf::from)
+        .map(Ok)
+        .unwrap_or_else(default_agent_skill_dir)?;
+    fs::create_dir_all(&skill_dir)?;
+    let skill_path = skill_dir.join("SKILL.md");
+    fs::write(&skill_path, AGENT_SKILL)?;
+    println!("Installed Dodeca agent skill: {}", skill_path);
+    println!("The installed skill delegates to `ddc agent` for current guidance.");
+    Ok(())
+}
+
+fn default_agent_skill_dir() -> Result<Utf8PathBuf> {
+    if let Ok(codex_home) = std::env::var("CODEX_HOME") {
+        return Ok(Utf8PathBuf::from(codex_home).join("skills").join("dodeca"));
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        return Ok(Utf8PathBuf::from(home)
+            .join(".codex")
+            .join("skills")
+            .join("dodeca"));
+    }
+    Err(eyre!(
+        "could not infer a skills directory; pass `ddc agent install --dir <path>`"
+    ))
 }
 
 /// `ddc config migrate` — rewrite a deprecated v1 config to the new format.

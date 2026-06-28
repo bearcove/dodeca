@@ -403,6 +403,7 @@ fn resolve_config(root: &Utf8Path, config: DodecaConfig) -> Result<ResolvedConfi
     let site = site.ok_or_else(|| {
         eyre!("config must have a `site` section (with at least an `output` dir)")
     })?;
+    enforce_minimum_ddc_version(site.minimum_ddc_version.as_deref())?;
 
     let sources = resolve_sources(root, source.as_ref(), mounts.as_deref())?;
     let content_dir = sources
@@ -414,7 +415,11 @@ fn resolve_config(root: &Utf8Path, config: DodecaConfig) -> Result<ResolvedConfi
     // skip_domains: the site-wide `link_check.skip_domains` base, with every
     // source's unioned in on top, deduped (order-stable).
     let mut skip_domains = Vec::new();
-    if let Some(base) = site.link_check.as_ref().and_then(|lc| lc.skip_domains.as_ref()) {
+    if let Some(base) = site
+        .link_check
+        .as_ref()
+        .and_then(|lc| lc.skip_domains.as_ref())
+    {
         for d in base {
             if !skip_domains.contains(d) {
                 skip_domains.push(d.clone());
@@ -478,6 +483,55 @@ fn resolve_config(root: &Utf8Path, config: DodecaConfig) -> Result<ResolvedConfi
         page_types,
         auth: site.auth,
     })
+}
+
+fn enforce_minimum_ddc_version(required: Option<&str>) -> Result<()> {
+    let Some(required) = required else {
+        return Ok(());
+    };
+    let current = crate::dodeca_version();
+    let required_version = parse_ddc_version(required)
+        .map_err(|err| eyre!("invalid `site.minimum_ddc_version` `{required}`: {err}"))?;
+    let current_version = parse_ddc_version(current)
+        .map_err(|err| eyre!("invalid current ddc version `{current}`: {err}"))?;
+    if current_version < required_version {
+        return Err(eyre!(
+            "site requires ddc >= {required}, but this binary is {current}; update ddc or lower `site.minimum_ddc_version`"
+        ));
+    }
+    Ok(())
+}
+
+fn parse_ddc_version(value: &str) -> Result<[u64; 3]> {
+    let trimmed = value.trim();
+    let without_v = trimmed.strip_prefix('v').unwrap_or(trimmed);
+    let core = without_v
+        .split(['-', '+'])
+        .next()
+        .unwrap_or(without_v)
+        .trim();
+    if core.is_empty() {
+        return Err(eyre!("expected a dotted numeric version"));
+    }
+
+    let mut out = [0_u64; 3];
+    let mut count = 0;
+    for (index, part) in core.split('.').enumerate() {
+        if index >= out.len() {
+            return Err(eyre!("expected at most three numeric components"));
+        }
+        if part.is_empty() {
+            return Err(eyre!("empty version component"));
+        }
+        out[index] = part
+            .parse()
+            .map_err(|_| eyre!("non-numeric version component `{part}`"))?;
+        count += 1;
+    }
+    if count == 0 {
+        return Err(eyre!("expected a dotted numeric version"));
+    }
+    Ok(out)
 }
 
 /// Assemble the resolved sources: the aggregator's own root `source` at `/`,
@@ -628,9 +682,8 @@ fn discover_source_config(
             // config that's present but unparseable is surfaced (not silently
             // dropped) — composition is meant to be load-bearing. Accepts the
             // deprecated v1 format too (via `parse_config`).
-            let source = fs::read_to_string(&styx_file)
-                .ok()
-                .and_then(|content| match dodeca_config::parse_config(&content) {
+            let source = fs::read_to_string(&styx_file).ok().and_then(|content| {
+                match dodeca_config::parse_config(&content) {
                     Ok((cfg, _legacy)) => cfg.source,
                     Err(e) => {
                         tracing::warn!(
@@ -641,7 +694,8 @@ fn discover_source_config(
                         );
                         None
                     }
-                });
+                }
+            });
             return source.map(|s| (current.to_owned(), s));
         }
         match current.parent() {
@@ -765,9 +819,7 @@ static RESOLVED_CONFIG: ArcSwapOption<ResolvedConfig> = ArcSwapOption::const_emp
 pub fn set_global_config(config: ResolvedConfig) -> Result<()> {
     // Initialize the build step executor with every source's steps (each runs in
     // its own project dir; `build()` resolves against the rendering source).
-    let executor = std::sync::Arc::new(crate::build_steps::BuildStepExecutor::new(
-        &config.sources,
-    ));
+    let executor = std::sync::Arc::new(crate::build_steps::BuildStepExecutor::new(&config.sources));
     crate::host::Host::get().set_build_step_executor(executor);
 
     RESOLVED_CONFIG.store(Some(std::sync::Arc::new(config)));
@@ -870,6 +922,27 @@ mod tests {
     fn merge_page_types_is_none_when_no_source_declares_any() {
         let sources = [source_with_page_types("/", &[])];
         assert!(merge_page_types(&sources).unwrap().is_none());
+    }
+
+    #[test]
+    fn ddc_version_parser_accepts_release_shapes() {
+        assert_eq!(parse_ddc_version("0.1").unwrap(), [0, 1, 0]);
+        assert_eq!(parse_ddc_version("v1.2.3").unwrap(), [1, 2, 3]);
+        assert_eq!(parse_ddc_version("1.2.3+meta").unwrap(), [1, 2, 3]);
+        assert_eq!(parse_ddc_version("1.2.3-rc.1").unwrap(), [1, 2, 3]);
+        assert!(parse_ddc_version("1.2.3.4").is_err());
+        assert!(parse_ddc_version("1.two.3").is_err());
+    }
+
+    #[test]
+    fn minimum_ddc_version_gate_rejects_future_version() {
+        let err = enforce_minimum_ddc_version(Some("9999.0.0")).unwrap_err();
+        assert!(err.to_string().contains("site requires ddc"));
+    }
+
+    #[test]
+    fn minimum_ddc_version_gate_accepts_current_floor() {
+        enforce_minimum_ddc_version(Some("0.0.0")).unwrap();
     }
 
     #[test]
@@ -989,7 +1062,11 @@ mod tests {
     fn mounts_alone_resolve() {
         let sources = resolve(
             None,
-            Some(vec![mount("build", "/spec/build", Some("../vixen/content"))]),
+            Some(vec![mount(
+                "build",
+                "/spec/build",
+                Some("../vixen/content"),
+            )]),
         )
         .unwrap();
         assert_eq!(sources.len(), 1);

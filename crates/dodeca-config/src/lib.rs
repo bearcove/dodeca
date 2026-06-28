@@ -101,6 +101,10 @@ pub struct SiteConfig {
     /// Output directory (relative to project root).
     pub output: String,
 
+    /// Minimum `ddc` CLI version required to build or serve this site.
+    #[facet(default)]
+    pub minimum_ddc_version: Option<String>,
+
     /// Base URL for the site (e.g. `https://example.com`); permalinks. For a
     /// mounted source, the URL prefix comes from its `path`, not its `base_url`.
     #[facet(default)]
@@ -588,6 +592,7 @@ impl LegacyConfig {
 
         let site = SiteConfig {
             output,
+            minimum_ddc_version: None,
             base_url,
             link_check,
             stable_assets,
