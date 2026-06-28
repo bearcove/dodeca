@@ -2340,10 +2340,7 @@ impl SiteServer {
             // Runtime assets (wasm core, loader, UI, CSS) live under a
             // content-versioned directory — safe to cache immutably.
             if let Some(bytes) = crate::search::runtime_asset(rel) {
-                return Some(ServeContent::Static(
-                    bytes.to_vec(),
-                    mime_from_extension(path),
-                ));
+                return Some(ServeContent::Static(bytes, mime_from_extension(path)));
             }
             // Index files (manifest, shards, fragments) live at stable paths
             // and are regenerated every build, so they MUST NOT be cached
@@ -3454,20 +3451,6 @@ enum ServeContent {
     StaticNoCache(Vec<u8>, &'static str),
 }
 
-/// Embedded devtools JavaScript (compiled at build time by wasm-pack)
-static DEVTOOLS_JS: &str = include_str!("../../dodeca-devtools/pkg/dodeca_devtools.js");
-
-/// Embedded devtools WebAssembly (compiled at build time by wasm-pack)
-static DEVTOOLS_WASM: &[u8] = include_bytes!("../../dodeca-devtools/pkg/dodeca_devtools_bg.wasm");
-
-fn load_devtools_js() -> Option<String> {
-    Some(DEVTOOLS_JS.to_string())
-}
-
-fn load_devtools_wasm() -> Option<Vec<u8>> {
-    Some(DEVTOOLS_WASM.to_vec())
-}
-
 /// Compute a short hash for cache busting
 fn compute_hash(data: &[u8]) -> String {
     use std::hash::{Hash, Hasher};
@@ -3477,27 +3460,12 @@ fn compute_hash(data: &[u8]) -> String {
 }
 
 /// Get cache-busted devtools URLs
-pub fn devtools_urls() -> (String, String) {
-    use std::sync::LazyLock;
-    static URLS: LazyLock<(String, String)> = LazyLock::new(|| {
-        let js_hash = load_devtools_js()
-            .map(|js| compute_hash(js.as_bytes()))
-            .unwrap_or_else(|| "missing".to_string());
-        let wasm_hash = load_devtools_wasm()
-            .map(|bytes| compute_hash(&bytes))
-            .unwrap_or_else(|| "missing".to_string());
-        (
-            format!("/_/{}.js", js_hash),
-            format!("/_/{}.wasm", wasm_hash),
-        )
-    });
-    URLS.clone()
+pub fn devtools_urls() -> Option<(String, String)> {
+    let assets = crate::browser_assets::devtools_runtime_assets()?;
+    let js_hash = compute_hash(&assets[0].bytes);
+    let wasm_hash = compute_hash(&assets[1].bytes);
+    Some((format!("/_/{js_hash}.js"), format!("/_/{wasm_hash}.wasm")))
 }
-
-// Built DevTools UI assets (vite bundle), generated at build time.
-// Maps each served path (e.g. `devtools.js`, `devtools.css`, hashed chunks) to
-// bytes. Empty when not built (no node/pnpm) — `/_/devtools/*` then 404s.
-include!(concat!(env!("OUT_DIR"), "/devtools_ui_assets.rs"));
 
 /// Serve a built DevTools UI asset for a `/_/devtools/<path>` request. Bare
 /// `/_/devtools/` resolves to the entry bundle. Any `?v=` cache-bust query is
@@ -3506,10 +3474,8 @@ pub fn get_devtools_ui_asset(path: &str) -> Option<(Vec<u8>, &'static str)> {
     let rel = path.strip_prefix("/_/devtools/")?;
     let rel = rel.split('?').next().unwrap_or(rel);
     let rel = if rel.is_empty() { "devtools.js" } else { rel };
-    DEVTOOLS_UI_ASSETS
-        .iter()
-        .find(|(name, _)| *name == rel)
-        .map(|(_, bytes)| (bytes.to_vec(), devtools_ui_asset_mime(rel)))
+    crate::browser_assets::read_devtools_ui_asset(rel)
+        .map(|bytes| (bytes, devtools_ui_asset_mime(rel)))
 }
 
 fn devtools_ui_asset_mime(path: &str) -> &'static str {
@@ -3531,17 +3497,19 @@ fn devtools_ui_asset_mime(path: &str) -> &'static str {
 /// Returns (content, mime_type) if found.
 pub fn get_devtools_asset(path: &str) -> Option<(Vec<u8>, &'static str)> {
     // Strip the /_/ prefix
-    let asset_path = path.strip_prefix("/_/")?;
+    let asset_path = path.strip_prefix("/_/")?.split('?').next().unwrap_or("");
+    let request_path = format!("/_/{asset_path}");
+    let (js_url, wasm_url) = devtools_urls()?;
 
     // Check for JS (cache-busted)
-    if asset_path.ends_with(".js") {
-        let js = load_devtools_js().expect("devtools JS is embedded at compile time");
-        return Some((js.into_bytes(), "application/javascript"));
+    if request_path == js_url {
+        let js = crate::browser_assets::read_devtools_runtime_asset("dodeca_devtools.js")?;
+        return Some((js, "application/javascript"));
     }
 
     // Check for WASM (cache-busted)
-    if asset_path.ends_with(".wasm") {
-        let bytes = load_devtools_wasm().expect("devtools WASM is embedded at compile time");
+    if request_path == wasm_url {
+        let bytes = crate::browser_assets::read_devtools_runtime_asset("dodeca_devtools_bg.wasm")?;
         return Some((bytes, "application/wasm"));
     }
 

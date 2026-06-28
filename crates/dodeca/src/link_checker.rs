@@ -518,9 +518,18 @@ mod tests {
 
     #[test]
     fn test_url_host() {
-        assert_eq!(url_host("https://patreon.com/fasterthanlime"), Some("patreon.com"));
-        assert_eq!(url_host("https://www.patreon.com:443/x?a=b#c"), Some("www.patreon.com"));
-        assert_eq!(url_host("http://user:pw@host.example/x"), Some("host.example"));
+        assert_eq!(
+            url_host("https://patreon.com/fasterthanlime"),
+            Some("patreon.com")
+        );
+        assert_eq!(
+            url_host("https://www.patreon.com:443/x?a=b#c"),
+            Some("www.patreon.com")
+        );
+        assert_eq!(
+            url_host("http://user:pw@host.example/x"),
+            Some("host.example")
+        );
         assert_eq!(url_host("not-a-url"), None);
     }
 

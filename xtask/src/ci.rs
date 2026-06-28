@@ -659,6 +659,17 @@ if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
   fi
 fi"#;
 
+const BUILD_BROWSER_ASSETS_COMMAND: &str = r#"set -euo pipefail
+scripts/build-browser-assets.sh"#;
+
+const PREPARE_DDC_DIST_COMMAND: &str = r#"set -euo pipefail
+rm -rf dist
+mkdir -p dist
+cp target/release/ddc dist/ddc
+chmod +x dist/ddc
+scripts/stage-browser-assets.sh dist/dodeca-assets
+ls -laR dist"#;
+
 const TEST_DDC_COMMAND: &str = r#"set -euo pipefail
 if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
   export DODECA_RELEASE_VERSION="${GITHUB_REF_NAME}"
@@ -1115,55 +1126,14 @@ pub fn build_ci_workflow(platform: CiPlatform, _repo_root: &Utf8Path) -> Workflo
         rust_cache_with_targets(platform, true, linux_target)
     };
 
-    // Build the WASM bundles that dodeca embeds at compile time via include_bytes!.
-    let wasm_job_id = "build-wasm".to_string();
-    let devtools_wasm_artifact = "dodeca-devtools-wasm".to_string();
-    let search_wasm_artifact = "dodeca-search-wasm".to_string();
-    jobs.insert(
-        wasm_job_id.clone(),
-        Job::with_runner(ci_linux.runner.to_runs_on())
-            .name("Build WASM")
-            .timeout(30)
-            .steps([
-                checkout(platform),
-                install_rust_with_target(platform, "wasm32-unknown-unknown"),
-                if ci_linux.runner.is_self_hosted() {
-                    Step::run("Add WASM target (noop)", "true")
-                } else {
-                    Step::run(
-                        "Add WASM target",
-                        "rustup target add wasm32-unknown-unknown",
-                    )
-                },
-                ci_linux_cache.clone(),
-                Step::uses("Install wasm-pack", platform.wasm_pack_action())
-                    .with_inputs([("version", "latest")]),
-                Step::run(
-                    "Build embedded WASM",
-                    r#"wasm-pack build crates/dodeca-devtools --target web --target-dir target/wasm-pack
-wasm-pack build crates/dodeca-search-wasm --target web --target-dir target/wasm-pack"#,
-                ),
-                upload_artifact(
-                    platform,
-                    devtools_wasm_artifact.clone(),
-                    "crates/dodeca-devtools/pkg",
-                ),
-                upload_artifact(
-                    platform,
-                    search_wasm_artifact.clone(),
-                    "crates/dodeca-search-wasm/pkg",
-                ),
-            ]),
-    );
-
-    // Clippy depends on WASM because dodeca embeds WASM bundles at compile time.
+    // Clippy is compile-only; browser JS/WASM assets are built only by jobs
+    // that run browser behavior or package archives.
     jobs.insert(
         "clippy".to_string(),
         Job::with_runner(ci_linux.runner.to_runs_on())
             .name("Clippy")
             .timeout(30)
             .continue_on_error(true)
-            .needs([wasm_job_id.clone()])
             .steps([
                 checkout(platform),
                 install_rust_with_components_and_target(
@@ -1172,16 +1142,6 @@ wasm-pack build crates/dodeca-search-wasm --target web --target-dir target/wasm-
                     "wasm32-unknown-unknown",
                 ),
                 ci_linux_cache.clone(),
-                // Download WASM bundles embedded at compile time via include_bytes!.
-                Step::uses("Download WASM", platform.download_artifact_action()).with_inputs([
-                    ("name", devtools_wasm_artifact.clone()),
-                    ("path", "crates/dodeca-devtools/pkg".into()),
-                ]),
-                Step::uses("Download search WASM", platform.download_artifact_action())
-                    .with_inputs([
-                        ("name", search_wasm_artifact.clone()),
-                        ("path", "crates/dodeca-search-wasm/pkg".into()),
-                    ]),
                 Step::run(
                     "Clippy",
                     "cargo clippy --all-features --all-targets -- -D warnings",
@@ -1190,27 +1150,16 @@ wasm-pack build crates/dodeca-search-wasm --target web --target-dir target/wasm-
     );
 
     // Every-commit compile checks on free GitHub-hosted macOS/Windows runners.
-    // Compile signal only, no packaging. dodeca embeds WASM via include_bytes!,
-    // so these depend on the Linux-built WASM bundles.
+    // Compile signal only, no packaging/browser asset work.
     if platform == CiPlatform::GitHub {
         jobs.insert(
             "check-macos".to_string(),
             Job::with_runner(RunnerSpec::single(GITHUB_MACOS_CHECK_RUNNER).to_runs_on())
                 .name("Check macOS")
                 .timeout(30)
-                .needs([wasm_job_id.clone()])
                 .steps([
                     checkout(platform),
                     install_rust(platform),
-                    Step::uses("Download WASM", platform.download_artifact_action()).with_inputs([
-                        ("name", devtools_wasm_artifact.clone()),
-                        ("path", "crates/dodeca-devtools/pkg".into()),
-                    ]),
-                    Step::uses("Download search WASM", platform.download_artifact_action())
-                        .with_inputs([
-                            ("name", search_wasm_artifact.clone()),
-                            ("path", "crates/dodeca-search-wasm/pkg".into()),
-                        ]),
                     Step::run("Check macOS", "cargo check --workspace --all-targets"),
                 ]),
         );
@@ -1220,19 +1169,9 @@ wasm-pack build crates/dodeca-search-wasm --target web --target-dir target/wasm-
             Job::with_runner(RunnerSpec::single(GITHUB_WINDOWS_CHECK_RUNNER).to_runs_on())
                 .name("Check Windows")
                 .timeout(30)
-                .needs([wasm_job_id.clone()])
                 .steps([
                     checkout(platform),
                     install_rust(platform),
-                    Step::uses("Download WASM", platform.download_artifact_action()).with_inputs([
-                        ("name", devtools_wasm_artifact.clone()),
-                        ("path", "crates/dodeca-devtools/pkg".into()),
-                    ]),
-                    Step::uses("Download search WASM", platform.download_artifact_action())
-                        .with_inputs([
-                            ("name", search_wasm_artifact.clone()),
-                            ("path", "crates/dodeca-search-wasm/pkg".into()),
-                        ]),
                     Step::run("Check Windows", "cargo check --workspace --all-targets"),
                 ]),
         );
@@ -1255,10 +1194,13 @@ wasm-pack build crates/dodeca-search-wasm --target web --target-dir target/wasm-
             Job::with_runner(target.runs_on())
                 .name(format!("Build ddc ({short})"))
                 .timeout(30)
-                .needs([wasm_job_id.clone()])
                 .steps([
                     checkout(platform),
                     install_rust(platform),
+                    Step::uses("Setup Node.js", "actions/setup-node@v4")
+                        .with_inputs([("node-version", "20")]),
+                    Step::uses("Install wasm-pack", platform.wasm_pack_action())
+                        .with_inputs([("version", "latest")]),
                     if target.is_self_hosted() {
                         local_cache_with_targets(
                             platform,
@@ -1269,18 +1211,12 @@ wasm-pack build crates/dodeca-search-wasm --target web --target-dir target/wasm-
                     } else {
                         rust_cache_with_targets(platform, true, target)
                     },
-                    Step::uses("Download WASM", platform.download_artifact_action()).with_inputs([
-                        ("name", devtools_wasm_artifact.clone()),
-                        ("path", "crates/dodeca-devtools/pkg".into()),
-                    ]),
-                    Step::uses("Download search WASM", platform.download_artifact_action())
-                        .with_inputs([
-                            ("name", search_wasm_artifact.clone()),
-                            ("path", "crates/dodeca-search-wasm/pkg".into()),
-                        ]),
+                    Step::run("Install pnpm", "npm install -g pnpm"),
                     Step::run("Build ddc", BUILD_DDC_COMMAND).shell("bash"),
                     Step::run("Test ddc", TEST_DDC_COMMAND).shell("bash"),
-                    upload_artifact(platform, format!("ddc-{short}"), "target/release/ddc"),
+                    Step::run("Build browser assets", BUILD_BROWSER_ASSETS_COMMAND).shell("bash"),
+                    Step::run("Prepare ddc dist", PREPARE_DDC_DIST_COMMAND).shell("bash"),
+                    upload_artifact(platform, format!("ddc-{short}"), "dist"),
                 ]),
         );
 
@@ -1290,7 +1226,7 @@ wasm-pack build crates/dodeca-search-wasm --target web --target-dir target/wasm-
             Job::with_runner(target.runs_on())
                 .name(format!("Integration ({short})"))
                 .timeout(30)
-                .needs([ddc_job_id.clone(), wasm_job_id.clone()])
+                .needs([ddc_job_id.clone()])
                 .steps([
                     checkout(platform),
                     install_rust(platform),
@@ -1304,15 +1240,6 @@ wasm-pack build crates/dodeca-search-wasm --target web --target-dir target/wasm-
                     } else {
                         rust_cache_with_targets(platform, true, target)
                     },
-                    Step::uses("Download WASM", platform.download_artifact_action()).with_inputs([
-                        ("name", devtools_wasm_artifact.clone()),
-                        ("path", "crates/dodeca-devtools/pkg".into()),
-                    ]),
-                    Step::uses("Download search WASM", platform.download_artifact_action())
-                        .with_inputs([
-                            ("name", search_wasm_artifact.clone()),
-                            ("path", "crates/dodeca-search-wasm/pkg".into()),
-                        ]),
                     Step::run(
                         "Build integration-tests",
                         "cargo build --package integration-tests",
@@ -1343,15 +1270,11 @@ wasm-pack build crates/dodeca-search-wasm --target web --target-dir target/wasm-
             Job::with_runner(target.runs_on())
                 .name(format!("Browser Tests ({short})"))
                 .timeout(30)
-                .needs([ddc_job_id.clone(), wasm_job_id.clone()])
+                .needs([ddc_job_id.clone()])
                 .steps([
                     checkout(platform),
                     Step::uses("Download ddc", platform.download_artifact_action())
                         .with_inputs([("name", format!("ddc-{short}")), ("path", "dist".into())]),
-                    Step::uses("Download WASM", platform.download_artifact_action()).with_inputs([
-                        ("name", devtools_wasm_artifact.clone()),
-                        ("path", "crates/dodeca-devtools/pkg".into()),
-                    ]),
                     Step::run("Prepare artifacts", "chmod +x dist/ddc && ls -la dist/"),
                     Step::uses("Setup Node.js", "actions/setup-node@v4")
                         .with_inputs([("node-version", "20")]),
@@ -1374,21 +1297,17 @@ wasm-pack build crates/dodeca-search-wasm --target web --target-dir target/wasm-
             Job::with_runner(linux_runner(platform).to_runs_on())
                 .name("Package (linux-x64)")
                 .timeout(30)
-                .needs([wasm_job_id.clone()])
                 .if_condition("startsWith(github.ref, 'refs/tags/')")
                 .steps([
                     checkout(platform),
                     install_rust(platform),
+                    Step::uses("Setup Node.js", "actions/setup-node@v4")
+                        .with_inputs([("node-version", "20")]),
+                    Step::uses("Install wasm-pack", platform.wasm_pack_action())
+                        .with_inputs([("version", "latest")]),
                     rust_cache_with_targets(platform, true, linux_target),
-                    Step::uses("Download WASM", platform.download_artifact_action()).with_inputs([
-                        ("name", devtools_wasm_artifact.clone()),
-                        ("path", "crates/dodeca-devtools/pkg".into()),
-                    ]),
-                    Step::uses("Download search WASM", platform.download_artifact_action())
-                        .with_inputs([
-                            ("name", search_wasm_artifact.clone()),
-                            ("path", "crates/dodeca-search-wasm/pkg".into()),
-                        ]),
+                    Step::run("Install pnpm", "npm install -g pnpm"),
+                    Step::run("Build browser assets", BUILD_BROWSER_ASSETS_COMMAND).shell("bash"),
                     Step::run("Build ddc", BUILD_DDC_COMMAND).shell("bash"),
                     Step::run(
                         "Assemble archive",
@@ -1409,20 +1328,16 @@ wasm-pack build crates/dodeca-search-wasm --target web --target-dir target/wasm-
             Job::with_runner(RunnerSpec::single(GITHUB_MACOS_PACKAGE_RUNNER).to_runs_on())
                 .name("Package (macos-arm64)")
                 .timeout(30)
-                .needs([wasm_job_id.clone()])
                 .if_condition("startsWith(github.ref, 'refs/tags/')")
                 .steps([
                     checkout(platform),
                     install_rust(platform),
-                    Step::uses("Download WASM", platform.download_artifact_action()).with_inputs([
-                        ("name", devtools_wasm_artifact.clone()),
-                        ("path", "crates/dodeca-devtools/pkg".into()),
-                    ]),
-                    Step::uses("Download search WASM", platform.download_artifact_action())
-                        .with_inputs([
-                            ("name", search_wasm_artifact.clone()),
-                            ("path", "crates/dodeca-search-wasm/pkg".into()),
-                        ]),
+                    Step::uses("Setup Node.js", "actions/setup-node@v4")
+                        .with_inputs([("node-version", "20")]),
+                    Step::uses("Install wasm-pack", platform.wasm_pack_action())
+                        .with_inputs([("version", "latest")]),
+                    Step::run("Install pnpm", "npm install -g pnpm"),
+                    Step::run("Build browser assets", BUILD_BROWSER_ASSETS_COMMAND).shell("bash"),
                     Step::run("Build ddc", BUILD_DDC_COMMAND).shell("bash"),
                     Step::run(
                         "Install xz (macOS)",
@@ -1447,20 +1362,16 @@ wasm-pack build crates/dodeca-search-wasm --target web --target-dir target/wasm-
             Job::with_runner(RunnerSpec::single(GITHUB_WINDOWS_PACKAGE_RUNNER).to_runs_on())
                 .name("Package (windows-x64)")
                 .timeout(30)
-                .needs([wasm_job_id.clone()])
                 .if_condition("startsWith(github.ref, 'refs/tags/')")
                 .steps([
                     checkout(platform),
                     install_rust(platform),
-                    Step::uses("Download WASM", platform.download_artifact_action()).with_inputs([
-                        ("name", devtools_wasm_artifact.clone()),
-                        ("path", "crates/dodeca-devtools/pkg".into()),
-                    ]),
-                    Step::uses("Download search WASM", platform.download_artifact_action())
-                        .with_inputs([
-                            ("name", search_wasm_artifact.clone()),
-                            ("path", "crates/dodeca-search-wasm/pkg".into()),
-                        ]),
+                    Step::uses("Setup Node.js", "actions/setup-node@v4")
+                        .with_inputs([("node-version", "20")]),
+                    Step::uses("Install wasm-pack", platform.wasm_pack_action())
+                        .with_inputs([("version", "latest")]),
+                    Step::run("Install pnpm", "npm install -g pnpm"),
+                    Step::run("Build browser assets", BUILD_BROWSER_ASSETS_COMMAND).shell("bash"),
                     Step::run("Build ddc", BUILD_DDC_COMMAND).shell("bash"),
                     Step::run(
                         "Assemble archive",
@@ -1595,14 +1506,10 @@ pub fn build_forgejo_workflow(_repo_root: &Utf8Path) -> Workflow {
             r#"rm -rf "$CARGO_TARGET_DIR"/release/incremental "$CARGO_TARGET_DIR"/debug/incremental
 "#
         };
-        let maybe_install_wasm_pack = if is_linux {
-            ""
-        } else {
-            r#"if ! command -v wasm-pack >/dev/null 2>&1; then
+        let maybe_install_wasm_pack = r#"if ! command -v wasm-pack >/dev/null 2>&1; then
   cargo install wasm-pack --locked
 fi
-"#
-        };
+"#;
         // The DevTools UI bundle serves /_/devtools/* with pnpm. vixen-ci ships
         // node but not pnpm, so without this build.rs silently ships an empty
         // DevTools/editor bundle and /_dodeca/edit/<page> is a blank page.
@@ -1612,17 +1519,6 @@ fi
             "npm install -g pnpm\n"
         } else {
             "command -v pnpm >/dev/null 2>&1 || npm install -g pnpm || corepack enable || true\n"
-        };
-        // The DevTools UI package file-links `hotmeal-wasm`, whose pkg is
-        // generated by wasm-pack. Build the absorbed Hotmeal wasm package before
-        // build.rs runs the UI bundle. Linux only: that's the platform the kb
-        // installs; macOS degrades to an empty UI (build still succeeds).
-        let maybe_build_hotmeal = if is_linux {
-            r#"HOTMEAL_DIR="$STABLE_SRC/libs/hotmeal"
-(cd "$HOTMEAL_DIR/hotmeal-wasm" && wasm-pack build --target web --dev --target-dir target-wasm)
-"#
-        } else {
-            ""
         };
         let maybe_browser_tests = if is_linux {
             r#"DODECA_BIN="$STABLE_SRC/target/release/ddc" \
@@ -1680,12 +1576,7 @@ echo "CARGO_TARGET_DIR=$CARGO_TARGET_DIR""#
 cd "$STABLE_SRC"
 {maybe_check_ci}
 rustup target add wasm32-unknown-unknown
-{maybe_install_wasm_pack}{maybe_install_pnpm}{maybe_build_hotmeal}# Force a clean wasm rebuild before compiling ddc (which embeds the search +
-# devtools wasm via include_bytes!). build.rs skips when pkg/ exists, and the
-# stable-src cache preserves a stale pkg/ across runs — that combination
-# shipped an out-of-date search reader in v0.14.4. Removing it makes build.rs
-# regenerate from the current source on every release.
-rm -rf crates/dodeca-devtools/pkg crates/dodeca-search-wasm/pkg
+{maybe_install_wasm_pack}{maybe_install_pnpm}scripts/build-browser-assets.sh
 cargo nextest run
 cargo xtask integration
 if [[ "${{GITHUB_REF_TYPE:-}}" == "tag" && -n "${{GITHUB_REF_NAME:-}}" ]]; then
@@ -1972,6 +1863,13 @@ main() {{
     cp "$tmpdir/ddc" "$install_dir/"
     chmod +x "$install_dir/ddc"
 
+    # Copy browser JS/WASM assets beside the binary. ddc also supports
+    # DODECA_ASSETS_DIR for custom package layouts.
+    if [ -d "$tmpdir/dodeca-assets" ]; then
+        rm -rf "$install_dir/dodeca-assets"
+        cp -R "$tmpdir/dodeca-assets" "$install_dir/"
+    fi
+
     echo ""
     echo "Successfully installed dodeca to $install_dir/ddc"
     echo ""
@@ -2060,6 +1958,15 @@ function Main {{
 
         Write-Host "Installing..."
         Copy-Item -Path (Join-Path $tempDir "ddc.exe") -Destination $installDir -Force
+
+        $assetsDir = Join-Path $tempDir "dodeca-assets"
+        if (Test-Path $assetsDir) {{
+            $installedAssets = Join-Path $installDir "dodeca-assets"
+            if (Test-Path $installedAssets) {{
+                Remove-Item -Recurse -Force $installedAssets
+            }}
+            Copy-Item -Path $assetsDir -Destination $installDir -Recurse -Force
+        }}
 
         Write-Host ""
         Write-Host "Successfully installed dodeca to $installDir\ddc.exe"

@@ -529,16 +529,15 @@ pub async fn inject_livereload_with_build_info(
         // Only inject dead link styles if there are actually dead links
         let styles = if has_dead_links { DEAD_LINK_STYLES } else { "" };
 
-        // Get cache-busted URLs for devtools assets
-        let (js_url, wasm_url) = crate::serve::devtools_urls();
-
-        // Load dodeca-devtools WASM runtime which handles:
-        // - WebSocket connection to /__dodeca
-        // - DOM patching for live updates
-        // - CSS hot reload
-        // - Source-open helpers
-        let devtools_script = format!(
-            r##"<script type="module">
+        let devtools_script = crate::serve::devtools_urls()
+            .map(|(js_url, wasm_url)| {
+                // Load dodeca-devtools WASM runtime which handles:
+                // - WebSocket connection to /__dodeca
+                // - DOM patching for live updates
+                // - CSS hot reload
+                // - Source-open helpers
+                format!(
+                    r##"<script type="module">
 (async function() {{
     try {{
         const {{ default: init, mount_devtools }} = await import('{js_url}');
@@ -550,7 +549,9 @@ pub async fn inject_livereload_with_build_info(
     }}
 }})();
 </script>"##
-        );
+                )
+            })
+            .unwrap_or_default();
         let devtools_ui_script = r##"<link rel="stylesheet" href="/_/devtools/devtools.css"><script type="module" src="/_/devtools/devtools.js"></script>"##;
 
         // Inject styles and scripts into <head>

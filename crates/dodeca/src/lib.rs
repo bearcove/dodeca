@@ -9,6 +9,7 @@ pub mod authoring_model;
 pub mod authoring_templates;
 pub mod authz;
 pub mod boot_state;
+pub mod browser_assets;
 pub mod build_context;
 pub mod build_steps;
 pub mod cache_bust;

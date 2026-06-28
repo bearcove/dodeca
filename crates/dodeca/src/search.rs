@@ -4,11 +4,11 @@
 //! resulting assets under `/search/`. Two kinds of file land there:
 //!
 //! - **Runtime assets** — the WASM query core, its wasm-bindgen loader, the UI
-//!   script and the stylesheet. These change only when `ddc` itself does, so
-//!   they live under a content-versioned directory (`/search/asset/<v>/…`) and
-//!   are cached immutably. The version segment also means every cross-reference
-//!   between the JS files is a plain *relative* URL that inherits `<v>` for
-//!   free — no path rewriting.
+//!   script and the stylesheet. These are read from disk and live under a
+//!   content-versioned directory (`/search/asset/<v>/…`) so they can be cached
+//!   immutably. The version segment also means every cross-reference between
+//!   the JS files is a plain *relative* URL that inherits `<v>` for free — no
+//!   path rewriting.
 //! - **Index files** ([`search_index_files`]) — the postcard manifest, shards
 //!   and fragments built by the search indexer from the rendered HTML. These are
 //!   content-derived; the function is a tracked query that re-runs only when
@@ -19,7 +19,6 @@
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::sync::LazyLock;
 
 use cell_search_proto::SearchPage;
 use picante::PicanteResult;
@@ -29,72 +28,62 @@ use crate::queries::{build_tree, serve_html};
 use crate::types::{Route, StaticPath};
 
 // ============================================================================
-// Runtime assets — embedded at compile time, served content-versioned.
+// Runtime assets — shipped on disk, served content-versioned.
 // ============================================================================
 
-/// The hand-written UI layer (input box, dropdown, keyboard handling).
-const SEARCH_JS: &str = include_str!("../../dodeca-search-wasm/ui/search.js");
-/// Widget styling.
-const SEARCH_CSS: &str = include_str!("../../dodeca-search-wasm/ui/search.css");
-/// wasm-bindgen JS loader for the query core.
-const WASM_JS: &str = include_str!("../../dodeca-search-wasm/pkg/dodeca_search_wasm.js");
-/// The compiled WASM query core itself.
-const WASM_BG: &[u8] = include_bytes!("../../dodeca-search-wasm/pkg/dodeca_search_wasm_bg.wasm");
+/// Content hash of the runtime assets. Forms the version segment of every
+/// runtime asset URL, so changed assets get fresh URLs and browsers never use a
+/// stale cached copy.
+fn asset_version(files: &[crate::browser_assets::BrowserAsset]) -> String {
+    let mut hasher = DefaultHasher::new();
+    for file in files {
+        file.name.hash(&mut hasher);
+        file.bytes.hash(&mut hasher);
+    }
+    format!("{:012x}", hasher.finish())
+}
 
-/// Runtime asset files: `(filename, bytes)`. They are served together under one
-/// versioned directory; `search.js` and the wasm-bindgen loader reference each
-/// other (and the `.wasm`) with relative URLs, so the directory is all that
-/// needs versioning.
-const RUNTIME_FILES: &[(&str, &[u8])] = &[
-    ("search.js", SEARCH_JS.as_bytes()),
-    ("search.css", SEARCH_CSS.as_bytes()),
-    ("dodeca_search_wasm.js", WASM_JS.as_bytes()),
-    ("dodeca_search_wasm_bg.wasm", WASM_BG),
-];
-
-/// Content hash of the runtime assets — changes only when `ddc` itself does.
-/// Forms the version segment of every runtime asset URL, so a new `ddc` serves
-/// the assets at fresh URLs and browsers never use a stale cached copy.
-fn asset_version() -> &'static str {
-    static VERSION: LazyLock<String> = LazyLock::new(|| {
-        let mut hasher = DefaultHasher::new();
-        for (name, bytes) in RUNTIME_FILES {
-            name.hash(&mut hasher);
-            bytes.hash(&mut hasher);
-        }
-        format!("{:012x}", hasher.finish())
-    });
-    VERSION.as_str()
+fn runtime_dir_for(files: &[crate::browser_assets::BrowserAsset]) -> String {
+    format!("search/asset/{}", asset_version(files))
 }
 
 /// The output-relative directory the runtime assets live in (no leading slash),
 /// e.g. `search/asset/a1b2c3d4e5f6`.
-fn runtime_dir() -> String {
-    format!("search/asset/{}", asset_version())
+fn runtime_dir() -> Option<String> {
+    let files = crate::browser_assets::search_runtime_assets()?;
+    Some(runtime_dir_for(&files))
 }
 
 /// The runtime assets as build outputs, for `build_site` to emit to disk.
 // s[impl serve.runtime]
 pub fn runtime_output_files() -> Vec<OutputFile> {
-    let dir = runtime_dir();
-    RUNTIME_FILES
-        .iter()
-        .map(|(name, bytes)| OutputFile::Static {
-            path: StaticPath::new(format!("{dir}/{name}")),
-            content: bytes.to_vec(),
+    let Some(files) = crate::browser_assets::search_runtime_assets() else {
+        tracing::warn!("search runtime assets unavailable; search UI will not be emitted");
+        return Vec::new();
+    };
+    let dir = runtime_dir_for(&files);
+    files
+        .into_iter()
+        .map(|file| OutputFile::Static {
+            path: StaticPath::new(format!("{dir}/{}", file.name)),
+            content: file.bytes,
         })
         .collect()
 }
 
 /// If `rel` (a path without leading slash) addresses a runtime asset, return
-/// its bytes. Any version segment matches — the segment is purely a cache key,
-/// so serving the current bytes for it is always correct.
-pub fn runtime_asset(rel: &str) -> Option<&'static [u8]> {
-    let (_version, name) = rel.strip_prefix("search/asset/")?.split_once('/')?;
-    RUNTIME_FILES
-        .iter()
-        .find(|(n, _)| *n == name)
-        .map(|(_, bytes)| *bytes)
+/// its bytes. The version segment must match the current on-disk assets because
+/// these responses are cached immutably by browsers.
+pub fn runtime_asset(rel: &str) -> Option<Vec<u8>> {
+    let (version, name) = rel.strip_prefix("search/asset/")?.split_once('/')?;
+    let files = crate::browser_assets::search_runtime_assets()?;
+    if version != asset_version(&files) {
+        return None;
+    }
+    files
+        .into_iter()
+        .find(|file| file.name == name)
+        .map(|file| file.bytes)
 }
 
 /// A source's identity for the search widget: its name and where it's mounted.
@@ -130,7 +119,9 @@ fn sources_json() -> String {
 /// `render.rs` injects this into every page.
 // s[impl serve.inject]
 pub fn search_head_injection() -> String {
-    let dir = runtime_dir();
+    let Some(dir) = runtime_dir() else {
+        return String::new();
+    };
     let sources = sources_json();
     format!(
         "<link rel=\"stylesheet\" href=\"/{dir}/search.css\">\

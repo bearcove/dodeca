@@ -60,15 +60,11 @@ jobs:
           cargo xtask ci-forgejo --check
 
           rustup target add wasm32-unknown-unknown
+          if ! command -v wasm-pack >/dev/null 2>&1; then
+            cargo install wasm-pack --locked
+          fi
           npm install -g pnpm
-          HOTMEAL_DIR="$STABLE_SRC/libs/hotmeal"
-          (cd "$HOTMEAL_DIR/hotmeal-wasm" && wasm-pack build --target web --dev --target-dir target-wasm)
-          # Force a clean wasm rebuild before compiling ddc (which embeds the search +
-          # devtools wasm via include_bytes!). build.rs skips when pkg/ exists, and the
-          # stable-src cache preserves a stale pkg/ across runs — that combination
-          # shipped an out-of-date search reader in v0.14.4. Removing it makes build.rs
-          # regenerate from the current source on every release.
-          rm -rf crates/dodeca-devtools/pkg crates/dodeca-search-wasm/pkg
+          scripts/build-browser-assets.sh
           cargo nextest run
           cargo xtask integration
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
@@ -180,12 +176,7 @@ jobs:
             cargo install wasm-pack --locked
           fi
           command -v pnpm >/dev/null 2>&1 || npm install -g pnpm || corepack enable || true
-          # Force a clean wasm rebuild before compiling ddc (which embeds the search +
-          # devtools wasm via include_bytes!). build.rs skips when pkg/ exists, and the
-          # stable-src cache preserves a stale pkg/ across runs — that combination
-          # shipped an out-of-date search reader in v0.14.4. Removing it makes build.rs
-          # regenerate from the current source on every release.
-          rm -rf crates/dodeca-devtools/pkg crates/dodeca-search-wasm/pkg
+          scripts/build-browser-assets.sh
           cargo nextest run
           cargo xtask integration
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then

@@ -63,15 +63,9 @@ cp "${RELEASE_DIR}/${BINARY_NAME}" staging/
 chmod +x "staging/${BINARY_NAME}"
 BIN_FILES+=("${BINARY_NAME}")
 
-# Copy devtools WASM/JS bundle if present
-DEVTOOLS_DIR="crates/dodeca-devtools/pkg"
-if [[ -d "$DEVTOOLS_DIR" ]]; then
-    mkdir -p staging/devtools
-    cp -R "$DEVTOOLS_DIR"/. staging/devtools/
-    echo "Copied devtools bundle: ${DEVTOOLS_DIR}"
-else
-    echo "Warning: devtools bundle not found at ${DEVTOOLS_DIR}"
-fi
+# Copy browser JS/WASM assets. ddc reads these from `dodeca-assets/` at runtime
+# instead of embedding them into the Rust binary.
+bash scripts/stage-browser-assets.sh staging/dodeca-assets
 
 # Strip binaries in parallel (if applicable)
 if [[ ${#STRIP_CMD[@]} -gt 0 ]]; then

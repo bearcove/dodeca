@@ -40,51 +40,11 @@ jobs:
           cache-targets: "false"
       - name: Check CI files are up to date
         run: cargo xtask ci-github --check && cargo xtask ci-forgejo --check
-  build-wasm:
-    name: Build WASM
-    runs-on:
-      - bearcove-ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: stable
-          targets: wasm32-unknown-unknown
-      - name: Add WASM target
-        run: rustup target add wasm32-unknown-unknown
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: "true"
-          cache-targets: "true"
-      - name: Install wasm-pack
-        uses: jetli/wasm-pack-action@v0.4.0
-        with:
-          version: latest
-      - name: Build embedded WASM
-        run: |-
-          wasm-pack build crates/dodeca-devtools --target web --target-dir target/wasm-pack
-          wasm-pack build crates/dodeca-search-wasm --target web --target-dir target/wasm-pack
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: dodeca-devtools-wasm
-          path: crates/dodeca-devtools/pkg
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: dodeca-search-wasm
-          path: crates/dodeca-search-wasm/pkg
   clippy:
     name: Clippy
     runs-on:
       - bearcove-ubuntu-24.04
     timeout-minutes: 30
-    needs:
-      - build-wasm
     continue-on-error: true
     steps:
       - name: Checkout
@@ -100,16 +60,6 @@ jobs:
         with:
           cache-on-failure: "true"
           cache-targets: "true"
-      - name: Download WASM
-        uses: actions/download-artifact@v4
-        with:
-          name: dodeca-devtools-wasm
-          path: crates/dodeca-devtools/pkg
-      - name: Download search WASM
-        uses: actions/download-artifact@v4
-        with:
-          name: dodeca-search-wasm
-          path: crates/dodeca-search-wasm/pkg
       - name: Clippy
         run: cargo clippy --all-features --all-targets -- -D warnings
   check-macos:
@@ -117,8 +67,6 @@ jobs:
     runs-on:
       - macos-15
     timeout-minutes: 30
-    needs:
-      - build-wasm
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -126,16 +74,6 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
-      - name: Download WASM
-        uses: actions/download-artifact@v4
-        with:
-          name: dodeca-devtools-wasm
-          path: crates/dodeca-devtools/pkg
-      - name: Download search WASM
-        uses: actions/download-artifact@v4
-        with:
-          name: dodeca-search-wasm
-          path: crates/dodeca-search-wasm/pkg
       - name: Check macOS
         run: cargo check --workspace --all-targets
   check-windows:
@@ -143,8 +81,6 @@ jobs:
     runs-on:
       - windows-latest
     timeout-minutes: 30
-    needs:
-      - build-wasm
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -152,16 +88,6 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
-      - name: Download WASM
-        uses: actions/download-artifact@v4
-        with:
-          name: dodeca-devtools-wasm
-          path: crates/dodeca-devtools/pkg
-      - name: Download search WASM
-        uses: actions/download-artifact@v4
-        with:
-          name: dodeca-search-wasm
-          path: crates/dodeca-search-wasm/pkg
       - name: Check Windows
         run: cargo check --workspace --all-targets
   build-ddc-linux-x64:
@@ -169,8 +95,6 @@ jobs:
     runs-on:
       - bearcove-ubuntu-24.04
     timeout-minutes: 30
-    needs:
-      - build-wasm
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -178,21 +102,21 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: latest
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: "true"
           cache-targets: "true"
-      - name: Download WASM
-        uses: actions/download-artifact@v4
-        with:
-          name: dodeca-devtools-wasm
-          path: crates/dodeca-devtools/pkg
-      - name: Download search WASM
-        uses: actions/download-artifact@v4
-        with:
-          name: dodeca-search-wasm
-          path: crates/dodeca-search-wasm/pkg
+      - name: Install pnpm
+        run: npm install -g pnpm
       - name: Build ddc
         run: |-
           set -euo pipefail
@@ -218,11 +142,26 @@ jobs:
           fi
           cargo test --release --bin ddc
         shell: bash
+      - name: Build browser assets
+        run: |-
+          set -euo pipefail
+          scripts/build-browser-assets.sh
+        shell: bash
+      - name: Prepare ddc dist
+        run: |-
+          set -euo pipefail
+          rm -rf dist
+          mkdir -p dist
+          cp target/release/ddc dist/ddc
+          chmod +x dist/ddc
+          scripts/stage-browser-assets.sh dist/dodeca-assets
+          ls -laR dist
+        shell: bash
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ddc-linux-x64
-          path: target/release/ddc
+          path: dist
   integration-linux-x64:
     name: Integration (linux-x64)
     runs-on:
@@ -230,7 +169,6 @@ jobs:
     timeout-minutes: 30
     needs:
       - build-ddc-linux-x64
-      - build-wasm
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -243,16 +181,6 @@ jobs:
         with:
           cache-on-failure: "true"
           cache-targets: "true"
-      - name: Download WASM
-        uses: actions/download-artifact@v4
-        with:
-          name: dodeca-devtools-wasm
-          path: crates/dodeca-devtools/pkg
-      - name: Download search WASM
-        uses: actions/download-artifact@v4
-        with:
-          name: dodeca-search-wasm
-          path: crates/dodeca-search-wasm/pkg
       - name: Build integration-tests
         run: cargo build --package integration-tests
       - name: Download ddc
@@ -298,7 +226,6 @@ jobs:
     timeout-minutes: 30
     needs:
       - build-ddc-linux-x64
-      - build-wasm
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -307,11 +234,6 @@ jobs:
         with:
           name: ddc-linux-x64
           path: dist
-      - name: Download WASM
-        uses: actions/download-artifact@v4
-        with:
-          name: dodeca-devtools-wasm
-          path: crates/dodeca-devtools/pkg
       - name: Prepare artifacts
         run: chmod +x dist/ddc && ls -la dist/
       - name: Setup Node.js
@@ -329,8 +251,6 @@ jobs:
     runs-on:
       - bearcove-ubuntu-24.04
     timeout-minutes: 30
-    needs:
-      - build-wasm
     if: "startsWith(github.ref, 'refs/tags/')"
     steps:
       - name: Checkout
@@ -339,21 +259,26 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: latest
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: "true"
           cache-targets: "true"
-      - name: Download WASM
-        uses: actions/download-artifact@v4
-        with:
-          name: dodeca-devtools-wasm
-          path: crates/dodeca-devtools/pkg
-      - name: Download search WASM
-        uses: actions/download-artifact@v4
-        with:
-          name: dodeca-search-wasm
-          path: crates/dodeca-search-wasm/pkg
+      - name: Install pnpm
+        run: npm install -g pnpm
+      - name: Build browser assets
+        run: |-
+          set -euo pipefail
+          scripts/build-browser-assets.sh
+        shell: bash
       - name: Build ddc
         run: |-
           set -euo pipefail
@@ -383,8 +308,6 @@ jobs:
     runs-on:
       - blacksmith-12vcpu-macos-15
     timeout-minutes: 30
-    needs:
-      - build-wasm
     if: "startsWith(github.ref, 'refs/tags/')"
     steps:
       - name: Checkout
@@ -393,16 +316,21 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
-      - name: Download WASM
-        uses: actions/download-artifact@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          name: dodeca-devtools-wasm
-          path: crates/dodeca-devtools/pkg
-      - name: Download search WASM
-        uses: actions/download-artifact@v4
+          node-version: "20"
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
         with:
-          name: dodeca-search-wasm
-          path: crates/dodeca-search-wasm/pkg
+          version: latest
+      - name: Install pnpm
+        run: npm install -g pnpm
+      - name: Build browser assets
+        run: |-
+          set -euo pipefail
+          scripts/build-browser-assets.sh
+        shell: bash
       - name: Build ddc
         run: |-
           set -euo pipefail
@@ -434,8 +362,6 @@ jobs:
     runs-on:
       - blacksmith-8vcpu-windows-2025
     timeout-minutes: 30
-    needs:
-      - build-wasm
     if: "startsWith(github.ref, 'refs/tags/')"
     steps:
       - name: Checkout
@@ -444,16 +370,21 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
-      - name: Download WASM
-        uses: actions/download-artifact@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          name: dodeca-devtools-wasm
-          path: crates/dodeca-devtools/pkg
-      - name: Download search WASM
-        uses: actions/download-artifact@v4
+          node-version: "20"
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
         with:
-          name: dodeca-search-wasm
-          path: crates/dodeca-search-wasm/pkg
+          version: latest
+      - name: Install pnpm
+        run: npm install -g pnpm
+      - name: Build browser assets
+        run: |-
+          set -euo pipefail
+          scripts/build-browser-assets.sh
+        shell: bash
       - name: Build ddc
         run: |-
           set -euo pipefail

@@ -73,6 +73,13 @@ main() {
     cp "$tmpdir/ddc" "$install_dir/"
     chmod +x "$install_dir/ddc"
 
+    # Copy browser JS/WASM assets beside the binary. ddc also supports
+    # DODECA_ASSETS_DIR for custom package layouts.
+    if [ -d "$tmpdir/dodeca-assets" ]; then
+        rm -rf "$install_dir/dodeca-assets"
+        cp -R "$tmpdir/dodeca-assets" "$install_dir/"
+    fi
+
     echo ""
     echo "Successfully installed dodeca to $install_dir/ddc"
     echo ""
