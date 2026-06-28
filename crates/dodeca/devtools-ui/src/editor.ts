@@ -39,11 +39,6 @@ import { ArboriumHighlighter } from "./highlight";
 import { initVimMode } from "monaco-vim";
 import "./editor.css";
 
-const root = document.getElementById("vixen-editor");
-if (!root) throw new Error("#vixen-editor mount point missing");
-const initialRoute = root.dataset.route ?? "/";
-const token = root.dataset.token ?? "";
-
 function wsUrl(): string {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   return `${proto}://${location.host}/_/ws`;
@@ -107,7 +102,10 @@ class VoxMessageWriter extends AbstractMessageWriter implements MessageWriter {
   }
 }
 
-async function main(mount: HTMLElement): Promise<void> {
+export async function mountEditor(mount: HTMLElement): Promise<void> {
+  const initialRoute = mount.dataset.route ?? "/";
+  const token = mount.dataset.token ?? "";
+
   mount.innerHTML = `
     <div class="vx-toolbar">
       <button class="vx-tree-toggle" title="Toggle file tree">☰</button>
@@ -748,9 +746,3 @@ async function main(mount: HTMLElement): Promise<void> {
     true,
   );
 }
-
-main(root).catch((err) => {
-  console.error(err);
-  const statusEl = root?.querySelector(".vx-status");
-  if (statusEl) statusEl.textContent = `failed: ${String(err)}`;
-});

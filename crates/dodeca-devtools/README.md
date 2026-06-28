@@ -3,10 +3,11 @@
 [![MIT + Apache 2.0](https://img.shields.io/badge/license-MIT%20%2B%20Apache%202.0-blue)](./LICENSE-MIT)
 [![salsa | yes please](https://img.shields.io/badge/salsa-yes%20please-green)](https://crates.io/crates/salsa)
 
-`dodeca-devtools` is a Sycamore-powered devtools overlay for dodeca.
+`dodeca-devtools` is the WebAssembly browser runtime for dodeca DevTools.
 
-It provides an in-browser development UI compiled to WebAssembly and injected
-into pages during `ddc serve`.
+It handles live DOM patching, CSS reload, route subscriptions, dead-link
+actions, and open-in-editor actions during `ddc serve`. The visible DevTools UI
+is the TypeScript bundle under `crates/dodeca/devtools-ui`.
 
 This crate is part of the Dodeca workspace.
 

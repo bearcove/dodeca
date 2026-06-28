@@ -242,23 +242,10 @@ impl ContentService for HostContentService {
             };
         }
 
-        // Built browser-editor bundle (vite/Monaco) at /_/edit/*. Public assets
-        // (JS/CSS) — the editing capability behind them is token-gated.
-        if path.starts_with("/_/edit/")
-            && let Some((content, mime)) = crate::serve::get_editor_asset(&path)
-        {
-            // No-cache: the entry (`edit.js`/`edit.css`) is unhashed and changes
-            // on rebuild, so it must not be cached immutably.
-            return ServeContent::StaticNoCache {
-                content,
-                mime: mime.to_string(),
-                generation,
-            };
-        }
-
-        // Annotation-overlay bundle at /_/annotate/* (dev-only inline notes).
-        if path.starts_with("/_/annotate/")
-            && let Some((content, mime)) = crate::serve::get_annotate_asset(&path)
+        // Built DevTools UI bundle at /_/devtools/*. Public assets (JS/CSS);
+        // editing capability remains token-gated by the RPCs.
+        if path.starts_with("/_/devtools/")
+            && let Some((content, mime)) = crate::serve::get_devtools_ui_asset(&path)
         {
             return ServeContent::StaticNoCache {
                 content,

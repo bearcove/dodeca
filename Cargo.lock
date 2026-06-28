@@ -2911,7 +2911,6 @@ dependencies = [
  "dodeca-protocol",
  "getrandom 0.3.4",
  "livereload-client",
- "sycamore",
  "tracing",
  "tracing-wasm",
  "vox",
@@ -7715,15 +7714,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
-name = "slotmap"
-version = "1.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bdd58c3c93c3d278ca835519292445cb4b0d4dc59ccfdf7ceadaab3f8aeb4038"
-dependencies = [
- "version_check",
-]
-
-[[package]]
 name = "smallvec"
 version = "1.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8030,89 +8020,6 @@ dependencies = [
  "rayon",
  "ryu",
  "thiserror 2.0.18",
-]
-
-[[package]]
-name = "sycamore"
-version = "0.9.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92f6ab6fc21f9a534ede6713b0a18c1407ccf12ea1adc9e7af6c509f053e76e3"
-dependencies = [
- "hashbrown 0.14.5",
- "indexmap",
- "paste",
- "sycamore-core",
- "sycamore-macro",
- "sycamore-reactive",
- "sycamore-web",
- "wasm-bindgen",
- "web-sys",
-]
-
-[[package]]
-name = "sycamore-core"
-version = "0.9.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "770c4701a63be2c929fc5654982cb2f495239b1779cf2ce31dff4ce7f82ec9d5"
-dependencies = [
- "hashbrown 0.14.5",
- "paste",
- "sycamore-reactive",
-]
-
-[[package]]
-name = "sycamore-macro"
-version = "0.9.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37b71839612a5ca843e501d774e6bd750f80a063ff622542500eb8455fc144cc"
-dependencies = [
- "once_cell",
- "proc-macro2",
- "quote",
- "rand 0.8.6",
- "sycamore-view-parser",
- "syn 2.0.118",
-]
-
-[[package]]
-name = "sycamore-reactive"
-version = "0.9.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd7b0c93f5d4587db7a636fe08128ff97812f58cd219793252804c4ff1cca760"
-dependencies = [
- "paste",
- "slotmap",
- "smallvec 1.15.2",
- "wasm-bindgen",
-]
-
-[[package]]
-name = "sycamore-view-parser"
-version = "0.9.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a0ddef2ecbaa20b71dd6194dbafbfa0dc5925de2d99772381316519368e8653"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.118",
-]
-
-[[package]]
-name = "sycamore-web"
-version = "0.9.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf0d42c89e84e7458adef638ece27d19d707dfa6c41bd5f8982f42b70da3dacd"
-dependencies = [
- "html-escape",
- "js-sys",
- "once_cell",
- "paste",
- "smallvec 1.15.2",
- "sycamore-core",
- "sycamore-macro",
- "sycamore-reactive",
- "wasm-bindgen",
- "web-sys",
 ]
 
 [[package]]

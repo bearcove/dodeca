@@ -1,62 +1,23 @@
-//! Devtools state management and vox RPC connection
+//! DevTools runtime connection and browser-side actions.
 
 use std::cell::RefCell;
-use sycamore::prelude::*;
+
 use wasm_bindgen::JsCast;
 
 use crate::protocol::{
     BrowserService, BrowserServiceDispatcher, DeadLinkTarget, DevtoolsEvent, DevtoolsServiceClient,
-    ErrorInfo, OpenSourceResult,
+    OpenSourceResult,
 };
 use vox::FromVoxLane;
 use vox_websocket::WsLink;
 
-/// Global devtools state
-#[derive(Debug, Clone, Default)]
-pub struct DevtoolsState {
-    /// Current route being viewed
-    pub current_route: String,
-
-    /// Active errors by route
-    pub errors: Vec<ErrorInfo>,
-
-    /// WebSocket connection state
-    pub connection_state: ConnectionState,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub enum ConnectionState {
-    #[default]
-    Disconnected,
-    Connecting,
-    Connected,
-}
-
-impl DevtoolsState {
-    pub fn has_errors(&self) -> bool {
-        !self.errors.is_empty()
-    }
-
-    pub fn error_count(&self) -> usize {
-        self.errors.len()
-    }
-
-    pub fn current_error(&self) -> Option<&ErrorInfo> {
-        self.errors.first()
-    }
-}
-
-// Thread-local storage for RPC client (WASM is single-threaded)
 thread_local! {
     static RPC_ROOT: RefCell<Option<vox::ConnectionHandle>> = const { RefCell::new(None) };
     static RPC_CLIENT: RefCell<Option<DevtoolsServiceClient>> = const { RefCell::new(None) };
-    static STATE_SIGNAL: RefCell<Option<Signal<DevtoolsState>>> = const { RefCell::new(None) };
+    static CURRENT_ROUTE: RefCell<String> = const { RefCell::new(String::new()) };
     static ROUTE_WATCHER_INSTALLED: RefCell<bool> = const { RefCell::new(false) };
 }
 
-/// Browser-side implementation of BrowserService.
-///
-/// The host calls `on_event` to push devtools events to the browser.
 #[derive(Clone)]
 struct BrowserServiceImpl;
 
@@ -70,7 +31,6 @@ impl BrowserService for BrowserServiceImpl {
     }
 }
 
-/// Get a clone of the RPC client from thread-local storage
 fn get_client() -> Option<DevtoolsServiceClient> {
     RPC_CLIENT.with(|cell| cell.borrow().clone())
 }
@@ -88,11 +48,28 @@ fn normalize_route(route: &str) -> String {
     }
 }
 
-fn current_route() -> String {
+fn browser_route() -> String {
     web_sys::window()
         .and_then(|w| w.location().pathname().ok())
         .map(|path| normalize_route(&path))
         .unwrap_or_else(|| "/".to_string())
+}
+
+fn current_route() -> String {
+    CURRENT_ROUTE.with(|cell| {
+        let route = cell.borrow();
+        if route.is_empty() {
+            browser_route()
+        } else {
+            route.clone()
+        }
+    })
+}
+
+fn set_current_route(route: String) {
+    CURRENT_ROUTE.with(|cell| {
+        *cell.borrow_mut() = route;
+    });
 }
 
 async fn subscribe_route(route: String) -> Result<(), String> {
@@ -129,20 +106,15 @@ fn install_route_watcher() {
     };
 
     let callback = wasm_bindgen::closure::Closure::wrap(Box::new(move || {
-        let route = current_route();
-        let changed = STATE_SIGNAL.with(|cell| {
-            let binding = cell.borrow();
-            let Some(state) = binding.as_ref() else {
-                return false;
-            };
-
-            let should_subscribe = state.with(|s| s.current_route != route);
-            if should_subscribe {
-                state.update(|s| {
-                    s.current_route = route.clone();
-                });
+        let route = browser_route();
+        let changed = CURRENT_ROUTE.with(|cell| {
+            let mut current = cell.borrow_mut();
+            if *current == route {
+                false
+            } else {
+                *current = route.clone();
+                true
             }
-            should_subscribe
         });
 
         if changed {
@@ -167,13 +139,8 @@ fn install_route_watcher() {
     callback.forget();
 }
 
-/// Connect to the devtools WebSocket endpoint
-pub async fn connect_websocket(state: Signal<DevtoolsState>) -> Result<(), String> {
-    // Store signal in thread-local for handlers to use
-    STATE_SIGNAL.with(|cell| {
-        *cell.borrow_mut() = Some(state);
-    });
-
+/// Connect to the devtools WebSocket endpoint.
+pub async fn connect_websocket() -> Result<(), String> {
     let window = web_sys::window().ok_or("no window")?;
     let location = window.location();
 
@@ -185,15 +152,13 @@ pub async fn connect_websocket(state: Signal<DevtoolsState>) -> Result<(), Strin
     let host = location.host().map_err(|_| "no host")?;
     let url = format!("{}//{host}/_/ws", protocol);
 
-    state.update(|s| s.connection_state = ConnectionState::Connecting);
+    let route = browser_route();
+    set_current_route(route.clone());
 
-    // Connect via vox WebSocket transport.
     let link = WsLink::connect(&url)
         .await
         .map_err(|e| format!("WebSocket connect failed: {:?}", e))?;
 
-    // Establish the WebSocket-backed Vox connection with BrowserService as our
-    // local handler for host-initiated browser events.
     let dispatcher = BrowserServiceDispatcher::new(BrowserServiceImpl);
     let connection = vox::initiator_on(link)
         .on_lane(dispatcher)
@@ -226,31 +191,22 @@ pub async fn connect_websocket(state: Signal<DevtoolsState>) -> Result<(), Strin
 
     wasm_bindgen_futures::spawn_local(async move {
         driver.run().await;
-        STATE_SIGNAL.with(|cell| {
-            if let Some(state) = cell.borrow().as_ref() {
-                state.update(|s| s.connection_state = ConnectionState::Disconnected);
-            }
+        RPC_CLIENT.with(|cell| {
+            *cell.borrow_mut() = None;
+        });
+        RPC_ROOT.with(|cell| {
+            *cell.borrow_mut() = None;
         });
     });
 
-    // Store connection + client for later use. Keeping the connection handle
-    // alive keeps the WebSocket session alive.
     RPC_ROOT.with(|cell| {
         *cell.borrow_mut() = Some(connection);
     });
     RPC_CLIENT.with(|cell| {
-        *cell.borrow_mut() = Some(client.clone());
+        *cell.borrow_mut() = Some(client);
     });
 
-    state.update(|s| s.connection_state = ConnectionState::Connected);
     tracing::info!("[devtools] connected");
-
-    // Get current route and subscribe
-    let route = current_route();
-    state.update(|s| s.current_route = route.clone());
-
-    // Subscribe to events for this route.
-    // Events will be pushed to us via BrowserService::on_event().
     subscribe_route(route).await?;
     install_route_watcher();
 
@@ -322,7 +278,6 @@ pub fn open_dead_link(target: DeadLinkTarget) {
     });
 }
 
-/// Hot reload CSS by replacing stylesheet links
 fn hot_reload_css(new_path: &str) {
     let Some(window) = web_sys::window() else {
         return;
@@ -345,14 +300,12 @@ fn hot_reload_css(new_path: &str) {
         };
         let href = link.href();
 
-        // Match /main.*.css or /css/style.*.css patterns
         let is_main_css = href.contains("/main.") && href.ends_with(".css");
         let is_style_css = href.contains("/css/style.") && href.ends_with(".css");
         let is_simple_main = href.ends_with("/main.css");
         let is_simple_style = href.ends_with("/css/style.css");
 
         if is_main_css || is_style_css || is_simple_main || is_simple_style {
-            // Create new link element
             let Ok(new_link) = document.create_element("link") else {
                 continue;
             };
@@ -362,12 +315,10 @@ fn hot_reload_css(new_path: &str) {
             new_link.set_rel("stylesheet");
             new_link.set_href(new_path);
 
-            // Insert after old link
             if let Some(parent) = link.parent_node() {
                 let _ = parent.insert_before(&new_link, link.next_sibling().as_ref());
             }
 
-            // Remove old link after new one loads
             let old_link = link.clone();
             let path_owned = new_path.to_string();
             let onload = wasm_bindgen::closure::Closure::once(Box::new(move || {
@@ -386,7 +337,6 @@ fn hot_reload_css(new_path: &str) {
     }
 }
 
-/// Returns a short summary of a DevtoolsEvent for logging
 fn event_summary(event: &DevtoolsEvent) -> String {
     match event {
         DevtoolsEvent::Reload => "Reload".to_string(),
@@ -407,65 +357,43 @@ fn truncate(s: &str, max_len: usize) -> String {
     if s.len() <= max_len {
         s.to_string()
     } else {
-        format!("{}…", &s[..max_len])
+        format!("{}...", &s[..max_len])
     }
 }
 
 fn handle_devtools_event(event: DevtoolsEvent) {
     tracing::debug!("[devtools] event: {}", event_summary(&event));
 
-    STATE_SIGNAL.with(|cell| {
-        let binding = cell.borrow();
-        let Some(state) = binding.as_ref() else {
-            return;
-        };
-
-        match event {
-            DevtoolsEvent::Error(error) => {
-                state.update(|s| {
-                    // Remove any existing error for this route
-                    s.errors.retain(|e| e.route != error.route);
-                    s.errors.insert(0, error);
-                });
+    match event {
+        DevtoolsEvent::Error(_) | DevtoolsEvent::ErrorResolved { .. } => {}
+        DevtoolsEvent::Reload => {
+            if let Some(window) = web_sys::window() {
+                let _ = window.location().reload();
+            }
+        }
+        DevtoolsEvent::CssChanged { path } => {
+            hot_reload_css(&path);
+        }
+        DevtoolsEvent::Patches { route, patches } => {
+            let current_route = current_route();
+            if normalize_route(&route) != normalize_route(&current_route) {
+                tracing::debug!(
+                    "[devtools] ignoring patch for route {} while viewing {}",
+                    route,
+                    current_route
+                );
+                return;
             }
 
-            DevtoolsEvent::ErrorResolved { route } => {
-                state.update(|s| {
-                    s.errors.retain(|e| e.route != route);
-                });
-            }
-
-            DevtoolsEvent::Reload => {
-                if let Some(window) = web_sys::window() {
-                    let _ = window.location().reload();
-                }
-            }
-
-            DevtoolsEvent::CssChanged { path } => {
-                hot_reload_css(&path);
-            }
-
-            DevtoolsEvent::Patches { route, patches } => {
-                let current_route = state.with(|s| s.current_route.clone());
-                if normalize_route(&route) != normalize_route(&current_route) {
-                    tracing::debug!(
-                        "[devtools] ignoring patch for route {} while viewing {}",
-                        route,
-                        current_route
+            match livereload_client::apply_patches_blob(&patches) {
+                Ok(count) => tracing::info!("[devtools] applied {count} DOM patches"),
+                Err(e) => {
+                    tracing::warn!(
+                        "[devtools] patch failed (manual refresh may be needed): {:?}",
+                        e
                     );
-                    return;
-                }
-
-                match livereload_client::apply_patches_blob(&patches) {
-                    Ok(count) => tracing::info!("[devtools] applied {count} DOM patches"),
-                    Err(e) => {
-                        tracing::warn!(
-                            "[devtools] patch failed (manual refresh may be needed): {:?}",
-                            e
-                        );
-                    }
                 }
             }
         }
-    });
+    }
 }

@@ -1,16 +1,16 @@
 //! The in-browser editor shell — a pure HTML string (no HTTP here), served at
 //! `GET /_dodeca/edit/<page>` to verified editors. It boots the vite/CodeMirror
-//! editor app, handing it the page route and the editor session token via
+//! DevTools UI editor mode, handing it the page route and the editor session token via
 //! root-element `data-` attributes (no inline JSON). The token authorizes the
 //! `edit_*` vox RPC calls the app makes over the devtools websocket.
 
 /// Render the editor shell for `route`, embedding the session `token`.
 ///
 /// The entry URLs are unversioned on purpose: the bundle re-references its own
-/// entry (`/_/edit/edit.js`) internally for workers / the vscode extension host,
-/// so a `?v=` query on the `<script>` tag would load the module twice (two
-/// `monaco-vscode-api` inits). `/_/edit/*` is served `no-cache`, so revalidation
-/// keeps it fresh without a query.
+/// entry (`/_/devtools/devtools.js`) internally for workers / the vscode
+/// extension host, so a `?v=` query on the `<script>` tag would load the module
+/// twice (two `monaco-vscode-api` inits). `/_/devtools/*` is served `no-cache`,
+/// so revalidation keeps it fresh without a query.
 pub fn render_edit_shell(route: &str, token: &str) -> String {
     let route = escape_attr(route);
     let token = escape_attr(token);
@@ -21,11 +21,11 @@ pub fn render_edit_shell(route: &str, token: &str) -> String {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>edit · {route}</title>
-<link rel="stylesheet" href="/_/edit/edit.css">
+<link rel="stylesheet" href="/_/devtools/devtools.css">
 </head>
 <body>
 <div id="vixen-editor" data-route="{route}" data-token="{token}"></div>
-<script type="module" src="/_/edit/edit.js"></script>
+<script type="module" src="/_/devtools/devtools.js"></script>
 </body>
 </html>
 "#

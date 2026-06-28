@@ -1,7 +1,0 @@
-allowBuilds:
-  esbuild: false
-minimumReleaseAgeExclude:
-  - '@bearcove/vox-core@0.10.0-rc.0'
-  - '@bearcove/vox-tcp@0.10.0-rc.0'
-  - '@bearcove/vox-wire@0.10.0-rc.0'
-  - '@bearcove/vox-ws@0.10.0-rc.0'

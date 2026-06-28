@@ -1,11 +1,10 @@
 import { defineConfig } from "vite";
 
-// The editor is served at /_/edit/* by dodeca's http cell. The server-rendered
-// shell (/_dodeca/edit/<page>) loads /_/edit/edit.js + /_/edit/edit.css, so we
-// emit those stable names; chunks/workers get hashed and are served from the
-// same dir.
+// The unified DevTools UI is served at /_/devtools/* by dodeca's http cell.
+// Normal pages load the page shell; /_dodeca/edit/<page> loads the editor mode.
+// Chunks/workers are hashed and served from the same namespace.
 export default defineConfig({
-  base: "/_/edit/",
+  base: "/_/devtools/",
   worker: { format: "es" },
   // monaco-vscode-api relies on syntax that the minifier mangles (breaks its
   // module/version identity), and on assets not being inlined.
@@ -20,16 +19,18 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
-    cssCodeSplit: false,
+    cssCodeSplit: true,
     assetsInlineLimit: 0,
     rollupOptions: {
       input: "src/main.ts",
       output: {
-        entryFileNames: "edit.js",
+        entryFileNames: "devtools.js",
         chunkFileNames: "chunk/[name]-[hash].js",
         assetFileNames: (info) =>
-          info.name && info.name.endsWith(".css")
-            ? "edit.css"
+          info.name === "devtools.css" || info.name === "main.css"
+            ? "devtools.css"
+            : info.name && info.name.endsWith(".css")
+              ? "chunk/[name]-[hash][extname]"
             : "[name]-[hash][extname]",
       },
     },

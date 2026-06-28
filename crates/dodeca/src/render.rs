@@ -532,18 +532,17 @@ pub async fn inject_livereload_with_build_info(
         // Get cache-busted URLs for devtools assets
         let (js_url, wasm_url) = crate::serve::devtools_urls();
 
-        // Load dodeca-devtools WASM module which handles:
+        // Load dodeca-devtools WASM runtime which handles:
         // - WebSocket connection to /__dodeca
         // - DOM patching for live updates
         // - CSS hot reload
-        // - Error overlay with source context
-        // - Scope explorer and REPL (future)
+        // - Source-open helpers
         let devtools_script = format!(
             r##"<script type="module">
 (async function() {{
     try {{
         const {{ default: init, mount_devtools }} = await import('{js_url}');
-        await init('{wasm_url}');
+        await init({{ module_or_path: '{wasm_url}' }});
         mount_devtools();
         console.log('[dodeca] devtools loaded');
     }} catch (e) {{
@@ -552,14 +551,12 @@ pub async fn inject_livereload_with_build_info(
 }})();
 </script>"##
         );
-        // Standalone annotation overlay (own vox connection; select text to add
-        // an inline `<!-- note -->`). Independent of the WASM devtools above.
-        let annotate_script = r##"<script type="module" src="/_/annotate/annotate.js"></script>"##;
+        let devtools_ui_script = r##"<link rel="stylesheet" href="/_/devtools/devtools.css"><script type="module" src="/_/devtools/devtools.js"></script>"##;
 
         // Inject styles and scripts into <head>
         hotmeal_server::inject_into_head(
             &result,
-            &format!("{styles}{devtools_script}{annotate_script}"),
+            &format!("{styles}{devtools_script}{devtools_ui_script}"),
         )
     } else {
         result
@@ -768,8 +765,12 @@ pub async fn try_render_template(
     })?;
 
     // Create render context with templates and site_tree
-    let context =
-        RenderContext::new(templates, db, Arc::new(site_tree.clone()), route.as_str().to_string());
+    let context = RenderContext::new(
+        templates,
+        db,
+        Arc::new(site_tree.clone()),
+        route.as_str().to_string(),
+    );
     let guard = RenderContextGuard::new(context);
 
     // Build initial context

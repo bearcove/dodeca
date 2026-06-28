@@ -679,7 +679,7 @@ function showingResolved(): boolean {
   return document.documentElement.classList.contains("dn-show-resolved");
 }
 
-function main(): void {
+export function mountAnnotate(): void {
   injectStyles();
   document.documentElement.classList.toggle(
     "dn-show-resolved",
@@ -892,7 +892,7 @@ function main(): void {
   buildIndex(layer, notes, scrollToNote);
   buildGutter(layer, notes, scrollToNote);
   installCreateUI(layer);
-  console.log(`[dodeca-annotate] ready — ${notes.length} note(s)`);
+  console.log(`[dodeca-devtools] annotate ready — ${notes.length} note(s)`);
 }
 
 // ── note index (top-right) ───────────────────────────────────────────────────
@@ -1413,8 +1413,6 @@ function installCreateUI(layer: HTMLElement): void {
   (ui.querySelector(".dn-newpage") as HTMLButtonElement).addEventListener("click", () =>
     void openPagePicker(),
   );
+  // Warm the connection so the first save is snappy; failures surface on save.
+  void client().catch((err) => console.error("[dodeca-devtools] annotate connect failed:", err));
 }
-
-main();
-// Warm the connection so the first save is snappy; failures surface on save.
-void client().catch((err) => console.error("[dodeca-annotate] connect failed:", err));

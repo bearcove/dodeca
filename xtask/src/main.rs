@@ -213,7 +213,7 @@ fn main() -> ExitCode {
 
 /// The vite bundles whose vox bindings are generated. Mirror of `BUNDLES` in
 /// `crates/dodeca/build.rs` — keep the two in sync.
-const BUNDLE_DIRS: &[&str] = &["editor", "annotate"];
+const BUNDLE_DIRS: &[&str] = &["devtools-ui"];
 
 /// Regenerate the bundles' TypeScript vox bindings — the real implementation of the
 /// "regenerate with `cargo xtask codegen --typescript`" line that vox-codegen emits atop
@@ -241,7 +241,9 @@ fn write_if_changed(path: &str, contents: &str) -> Result<(), String> {
     if let Some(parent) = p.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("create {}: {e}", parent.display()))?;
     }
-    let changed = fs::read_to_string(p).map(|old| old != contents).unwrap_or(true);
+    let changed = fs::read_to_string(p)
+        .map(|old| old != contents)
+        .unwrap_or(true);
     if changed {
         fs::write(p, contents).map_err(|e| format!("write {path}: {e}"))?;
         eprintln!("{} {path}", "regenerated".green().bold());

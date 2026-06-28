@@ -6,25 +6,15 @@
 
 use std::process::Command;
 
-/// The vite bundles that talk to the host over vox: the Monaco editor and the
-/// inline-note annotation overlay. Each gets generated bindings + an embedded
-/// asset table.
-const BUNDLES: &[Bundle] = &[
-    Bundle {
-        dir: "editor",
-        entry: "dist/edit.js",
-        static_name: "EDITOR_ASSETS",
-        out_file: "editor_assets.rs",
-        label: "/_/edit/* (browser editor)",
-    },
-    Bundle {
-        dir: "annotate",
-        entry: "dist/annotate.js",
-        static_name: "ANNOTATE_ASSETS",
-        out_file: "annotate_assets.rs",
-        label: "/_/annotate/* (annotation overlay)",
-    },
-];
+/// The vite bundle that talks to the host over vox. It contains the page
+/// DevTools shell, annotation UI, and Monaco editor mode.
+const BUNDLES: &[Bundle] = &[Bundle {
+    dir: "devtools-ui",
+    entry: "dist/devtools.js",
+    static_name: "DEVTOOLS_UI_ASSETS",
+    out_file: "devtools_ui_assets.rs",
+    label: "/_/devtools/* (DevTools UI)",
+}];
 
 struct Bundle {
     dir: &'static str,
