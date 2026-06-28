@@ -1153,26 +1153,41 @@ pub fn build_ci_workflow(platform: CiPlatform, _repo_root: &Utf8Path) -> Workflo
     // Every-commit compile checks on free GitHub-hosted macOS/Windows runners.
     // Compile signal only, no packaging/browser asset work.
     if platform == CiPlatform::GitHub {
+        let macos_check_target = Target {
+            triple: "aarch64-apple-darwin",
+            os: GITHUB_MACOS_CHECK_RUNNER,
+            runner: RunnerSpec::single(GITHUB_MACOS_CHECK_RUNNER),
+            archive_ext: "tar.xz",
+        };
+        let windows_check_target = Target {
+            triple: "x86_64-pc-windows-msvc",
+            os: GITHUB_WINDOWS_CHECK_RUNNER,
+            runner: RunnerSpec::single(GITHUB_WINDOWS_CHECK_RUNNER),
+            archive_ext: "zip",
+        };
+
         jobs.insert(
             "check-macos".to_string(),
-            Job::with_runner(RunnerSpec::single(GITHUB_MACOS_CHECK_RUNNER).to_runs_on())
+            Job::with_runner(macos_check_target.runs_on())
                 .name("Check macOS")
                 .timeout(30)
                 .steps([
                     checkout(platform),
                     install_rust(platform),
+                    rust_cache_with_targets(platform, true, &macos_check_target),
                     Step::run("Check macOS", "cargo check --workspace --all-targets"),
                 ]),
         );
 
         jobs.insert(
             "check-windows".to_string(),
-            Job::with_runner(RunnerSpec::single(GITHUB_WINDOWS_CHECK_RUNNER).to_runs_on())
+            Job::with_runner(windows_check_target.runs_on())
                 .name("Check Windows")
                 .timeout(30)
                 .steps([
                     checkout(platform),
                     install_rust(platform),
+                    rust_cache_with_targets(platform, true, &windows_check_target),
                     Step::run("Check Windows", "cargo check --workspace --all-targets"),
                 ]),
         );
@@ -2154,6 +2169,20 @@ mod tests {
                 .and_then(|s| s.run.as_deref()),
             Some("cargo check --workspace --all-targets")
         );
+        let mac_cache = mac
+            .steps
+            .iter()
+            .find(|s| s.name.as_deref() == Some("Rust cache"))
+            .expect("mac check rust cache step");
+        assert_eq!(mac_cache.uses.as_deref(), Some("Swatinem/rust-cache@v2"));
+        assert_eq!(
+            mac_cache.with.as_ref().and_then(|i| i.get("cache-targets")),
+            Some(&"true".to_string())
+        );
+        assert_eq!(
+            mac_cache.with.as_ref().and_then(|i| i.get("cache-bin")),
+            Some(&"false".to_string())
+        );
 
         let win = workflow
             .jobs
@@ -2173,6 +2202,16 @@ mod tests {
                 .find(|s| s.name.as_deref() == Some("Check Windows"))
                 .and_then(|s| s.run.as_deref()),
             Some("cargo check --workspace --all-targets")
+        );
+        let win_cache = win
+            .steps
+            .iter()
+            .find(|s| s.name.as_deref() == Some("Rust cache"))
+            .expect("windows check rust cache step");
+        assert_eq!(win_cache.uses.as_deref(), Some("Swatinem/rust-cache@v2"));
+        assert_eq!(
+            win_cache.with.as_ref().and_then(|i| i.get("cache-targets")),
+            Some(&"true".to_string())
         );
     }
 

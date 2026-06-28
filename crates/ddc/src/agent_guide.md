@@ -4,6 +4,11 @@ If you are an agent working on a Dodeca project, start from the local source and
 the running `ddc` process. Do not assume an external Tracey server, Zola dev
 semantics, or serde-based JSON contracts.
 
+If `.config/dodeca.styx` exists, Dodeca's coverage model is the traceability
+source of truth. Use `ddc coverage ...` and the live
+`/_dodeca/coverage/...` endpoints. Use Tracey MCP tools only for legacy projects
+that are still configured by `.config/tracey/config.styx`.
+
 ## Anchor: Zola-Shaped, Different Runtime
 
 Dodeca is a static site generator in the same broad category as Zola: it reads

@@ -6,28 +6,42 @@ use super::{CoverageReport, RefVerb, ReqReference, RuleId, StaleReference};
 const COVERAGE_NAV_CSS: &str = r#"
 :root {
   color-scheme: light dark;
-  --bg: #f7f7f5;
-  --panel: #ffffff;
-  --text: #171717;
-  --muted: #666;
-  --line: #d9d7d1;
+  --bg: #f6f4ef;
+  --panel: #fffdfa;
+  --panel-alt: #f1eee7;
+  --text: #1e2420;
+  --muted: #68706a;
+  --line: #d8d2c5;
+  --line-strong: #b7ad9b;
   --accent: #0f766e;
-  --warn: #a16207;
-  --bad: #b91c1c;
-  --code: #f0efeb;
+  --accent-bg: #dff3ef;
+  --ok: #177245;
+  --ok-bg: #e1f3e7;
+  --warn: #a45b00;
+  --warn-bg: #fff2cc;
+  --bad: #b42318;
+  --bad-bg: #ffe2dc;
+  --code: #ede8dd;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #181818;
-    --panel: #222;
-    --text: #ededed;
-    --muted: #aaa;
-    --line: #3b3b3b;
-    --accent: #2dd4bf;
-    --warn: #facc15;
-    --bad: #f87171;
-    --code: #2d2d2d;
+    --bg: #141613;
+    --panel: #1d211d;
+    --panel-alt: #242a24;
+    --text: #eceee8;
+    --muted: #a5ad9f;
+    --line: #343b33;
+    --line-strong: #4a5549;
+    --accent: #4fd1bd;
+    --accent-bg: #153c38;
+    --ok: #67d391;
+    --ok-bg: #173b24;
+    --warn: #f2bf4d;
+    --warn-bg: #3b2d12;
+    --bad: #ff8a7a;
+    --bad-bg: #431d1a;
+    --code: #2b3129;
   }
 }
 
@@ -38,33 +52,133 @@ body {
   color: var(--text);
   font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
-main { max-width: 1180px; margin: 0 auto; padding: 28px 20px 48px; }
+main { max-width: 1320px; margin: 0 auto; padding: 28px 20px 52px; }
 header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 22px; }
-h1 { font-size: 26px; margin: 0 0 6px; }
-h2 { font-size: 18px; margin: 30px 0 12px; }
-h3 { font-size: 15px; margin: 18px 0 8px; }
+h1 { font-size: 28px; line-height: 1.1; margin: 0 0 6px; }
+h2 { font-size: 18px; margin: 0; }
+h3 { font-size: 15px; margin: 0; }
 .muted { color: var(--muted); }
-.views, .metrics { display: flex; gap: 8px; flex-wrap: wrap; }
+.views, .metrics, .badges { display: flex; gap: 8px; flex-wrap: wrap; }
 .pill {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: 6px;
   padding: 6px 10px;
   background: var(--panel);
   color: var(--text);
   text-decoration: none;
 }
 .metric {
-  min-width: 130px;
+  min-width: 142px;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px 12px;
   background: var(--panel);
 }
 .metric strong { display: block; font-size: 20px; }
-section { border-top: 1px solid var(--line); padding-top: 12px; }
+section { border-top: 1px solid var(--line); padding-top: 18px; margin-top: 24px; }
+.section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.queue-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+.queue {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  overflow: hidden;
+}
+.queue h3 {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--panel-alt);
+  border-bottom: 1px solid var(--line);
+}
+.queue ul { list-style: none; margin: 0; padding: 8px 12px 10px; }
+.queue li + li { margin-top: 6px; }
+.queue a { text-decoration: none; }
+.route {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.route summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  padding: 12px 14px;
+  background: var(--panel-alt);
+  border-bottom: 1px solid var(--line);
+}
+.route-source { margin-left: 8px; color: var(--muted); font-size: 12px; }
+.rule-list { display: grid; gap: 10px; padding: 12px; }
+.rule-card {
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--panel);
+  overflow: hidden;
+}
+.rule-card.is-covered { border-left-color: var(--ok); }
+.rule-card.is-unverified, .rule-card.is-stale { border-left-color: var(--warn); }
+.rule-card.is-unimplemented { border-left-color: var(--bad); }
+.rule-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  padding: 11px 12px;
+  background: color-mix(in srgb, var(--panel-alt) 68%, transparent);
+  border-bottom: 1px solid var(--line);
+}
+.rule-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.rule-title code { font-size: 13px; }
+.rule-meta { color: var(--muted); font-size: 12px; }
+.rule-body { padding: 12px 14px; }
+.rule-body > *:first-child { margin-top: 0; }
+.rule-body > *:last-child { margin-bottom: 0; }
+.rule-body p, .rule-body li { color: var(--text); }
+.rule-body pre {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px;
+  background: var(--code);
+}
+.badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 2px 6px;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+.badge.ok { color: var(--ok); background: var(--ok-bg); border-color: color-mix(in srgb, var(--ok) 35%, var(--line)); }
+.badge.warn { color: var(--warn); background: var(--warn-bg); border-color: color-mix(in srgb, var(--warn) 35%, var(--line)); }
+.badge.bad { color: var(--bad); background: var(--bad-bg); border-color: color-mix(in srgb, var(--bad) 35%, var(--line)); }
 table {
   width: 100%;
   border-collapse: collapse;
@@ -91,12 +205,12 @@ a { color: var(--accent); }
 .bad { color: var(--bad); }
 .warn { color: var(--warn); }
 .ok { color: var(--accent); }
-.route { margin-bottom: 16px; }
 .empty { color: var(--muted); padding: 10px 0; }
 
 @media (max-width: 700px) {
   main { padding: 20px 12px; }
   header { display: block; }
+  .rule-head { grid-template-columns: 1fr; }
   table { display: block; overflow-x: auto; white-space: nowrap; }
   .metric { flex: 1 1 120px; }
 }
@@ -1158,6 +1272,7 @@ fn render_navigation_html(response: &CoverageNavigationResponse) -> String {
     );
     out.push_str("</div>");
 
+    render_review_queues_html(&mut out, response);
     render_spec_view_html(&mut out, response);
     render_coverage_view_html(&mut out, response);
     render_sources_view_html(&mut out, response);
@@ -1185,63 +1300,179 @@ fn render_count_metric(out: &mut String, label: &str, count: usize, class: &str)
     ));
 }
 
+fn render_review_queues_html(out: &mut String, response: &CoverageNavigationResponse) {
+    let uncovered = response
+        .coverage_rules
+        .iter()
+        .filter(|rule| !rule.implemented)
+        .collect::<Vec<_>>();
+    let untested = response
+        .coverage_rules
+        .iter()
+        .filter(|rule| rule.implemented && !rule.verified)
+        .collect::<Vec<_>>();
+    let stale = response
+        .coverage_rules
+        .iter()
+        .filter(|rule| rule.stale_refs > 0)
+        .collect::<Vec<_>>();
+
+    out.push_str("<section id=\"review\"><div class=\"section-head\"><h2>Review Queues</h2>");
+    out.push_str("<div class=\"views\"><a class=\"pill\" href=\"uncovered.html\">Uncovered</a><a class=\"pill\" href=\"untested.html\">Untested</a><a class=\"pill\" href=\"stale.html\">Stale</a><a class=\"pill\" href=\"invalid.html\">Invalid</a></div></div>");
+    out.push_str("<div class=\"queue-grid\">");
+    render_rule_queue(out, "Uncovered", "bad", "uncovered.html", &uncovered);
+    render_rule_queue(out, "Untested", "warn", "untested.html", &untested);
+    render_rule_queue(out, "Stale", "warn", "stale.html", &stale);
+    out.push_str("<div class=\"queue\"><h3><span>Invalid refs</span>");
+    out.push_str(&format!(
+        "<span class=\"badge {}\">{}</span>",
+        if response.status.invalid_references == 0 {
+            "ok"
+        } else {
+            "bad"
+        },
+        response.status.invalid_references
+    ));
+    out.push_str(
+        "</h3><ul><li><a href=\"invalid.html\">Open invalid reference report</a></li></ul></div>",
+    );
+    out.push_str("</div></section>");
+}
+
+fn render_rule_queue(
+    out: &mut String,
+    title: &str,
+    class: &str,
+    href: &str,
+    rules: &[&CoverageRuleSummary],
+) {
+    out.push_str("<div class=\"queue\"><h3>");
+    out.push_str(&format!(
+        "<span>{}</span><span class=\"badge {}\">{}</span>",
+        html_escape(title),
+        class,
+        rules.len()
+    ));
+    out.push_str("</h3><ul>");
+    if rules.is_empty() {
+        out.push_str("<li class=\"muted\">No rules matched.</li>");
+    } else {
+        for rule in rules.iter().take(8) {
+            out.push_str(&format!(
+                "<li><a href=\"{}\"><code>{}</code></a></li>",
+                html_escape(&rule_html_href(&rule.id)),
+                html_escape(&rule.id)
+            ));
+        }
+        if rules.len() > 8 {
+            out.push_str(&format!(
+                "<li><a href=\"{}\">{} more</a></li>",
+                html_escape(href),
+                rules.len() - 8
+            ));
+        }
+    }
+    out.push_str("</ul></div>");
+}
+
 fn render_spec_view_html(out: &mut String, response: &CoverageNavigationResponse) {
-    out.push_str("<section id=\"spec\"><h2>Spec View</h2>");
+    out.push_str("<section id=\"spec\"><div class=\"section-head\"><h2>Spec View</h2><span class=\"muted\">Rules rendered in source order</span></div>");
     if response.spec_routes.is_empty() {
         out.push_str("<div class=\"empty\">No spec rules found.</div></section>");
         return;
     }
     for route in &response.spec_routes {
-        out.push_str("<div class=\"route\">");
-        out.push_str(&format!(
-            "<h3><code>{}</code></h3>",
-            html_escape(&route.route)
-        ));
+        out.push_str("<details class=\"route\" open><summary>");
+        out.push_str(&format!("<span><code>{}</code>", html_escape(&route.route)));
         if !route.source_name.is_empty() {
             out.push_str(&format!(
-                "<div class=\"muted\">Source <code>{}</code></div>",
+                "<span class=\"route-source\">source <code>{}</code></span>",
                 html_escape(&route.source_name)
             ));
         }
-        out.push_str("<table><thead><tr><th>Rule</th><th>Line</th><th>Impl</th><th>Verify</th><th>Definition</th></tr></thead><tbody>");
+        out.push_str("</span>");
+        out.push_str(&format!(
+            "<span class=\"muted\">{} rules</span>",
+            route.rules.len()
+        ));
+        out.push_str("</summary><div class=\"rule-list\">");
         for rule in &route.rules {
-            out.push_str(&format!(
-                "<tr><td><a href=\"{}\"><code>{}</code></a></td><td>{}</td><td>{}</td><td>{}</td><td><a href=\"{}\">route</a></td></tr>",
-                html_escape(&rule.rule_href),
-                html_escape(&rule.id),
-                rule.line,
-                status_word(rule.implemented),
-                status_word(rule.verified),
-                html_escape(&rule.route_href)
-            ));
+            render_rule_card_html(out, rule);
         }
-        out.push_str("</tbody></table></div>");
+        out.push_str("</div></details>");
     }
     out.push_str("</section>");
 }
 
+fn render_rule_card_html(out: &mut String, rule: &CoverageSpecRuleNav) {
+    out.push_str(&format!(
+        "<article class=\"rule-card {}\">",
+        rule_state_class(rule.implemented, rule.verified, rule.stale_refs)
+    ));
+    out.push_str("<div class=\"rule-head\"><div>");
+    out.push_str("<div class=\"rule-title\">");
+    out.push_str(&format!(
+        "<a href=\"{}\"><code>{}</code></a>",
+        html_escape(&rule_html_href(&rule.id)),
+        html_escape(&rule.id)
+    ));
+    out.push_str("<div class=\"badges\">");
+    render_bool_badge(out, "impl", rule.implemented);
+    render_bool_badge(out, "verify", rule.verified);
+    if rule.stale_refs > 0 {
+        out.push_str(&format!(
+            "<span class=\"badge warn\">{} stale</span>",
+            rule.stale_refs
+        ));
+    }
+    out.push_str("</div></div>");
+    out.push_str(&format!("<div class=\"rule-meta\">line {}", rule.line));
+    if !rule.anchor_id.is_empty() {
+        out.push_str(&format!(
+            " - anchor <code>{}</code>",
+            html_escape(&rule.anchor_id)
+        ));
+    }
+    out.push_str("</div></div>");
+    out.push_str(&format!(
+        "<a class=\"pill\" href=\"{}\">Open source route</a>",
+        html_escape(&rule.route_href)
+    ));
+    out.push_str("</div>");
+    if rule.html.trim().is_empty() {
+        out.push_str("<div class=\"rule-body empty\">No rendered definition body.</div>");
+    } else {
+        out.push_str("<div class=\"rule-body\">");
+        out.push_str(&rule.html);
+        out.push_str("</div>");
+    }
+    out.push_str("</article>");
+}
+
 fn render_coverage_view_html(out: &mut String, response: &CoverageNavigationResponse) {
-    out.push_str("<section id=\"coverage\"><h2>Coverage View</h2>");
+    out.push_str("<section id=\"coverage\"><div class=\"section-head\"><h2>Coverage View</h2><span class=\"muted\">Rule reference counts</span></div>");
     if response.coverage_rules.is_empty() {
         out.push_str("<div class=\"empty\">No rules found.</div></section>");
         return;
     }
-    out.push_str("<table><thead><tr><th>Rule</th><th>Impl refs</th><th>Verify refs</th><th>Stale refs</th></tr></thead><tbody>");
+    out.push_str("<table><thead><tr><th>Rule</th><th>Status</th><th>Impl refs</th><th>Verify refs</th><th>Depends</th><th>Related</th><th>Stale</th></tr></thead><tbody>");
     for rule in &response.coverage_rules {
         out.push_str(&format!(
-            "<tr><td><a href=\"{}\"><code>{}</code></a></td><td>{}</td><td>{}</td><td>{}</td></tr>",
-            html_escape(&rule_href(&rule.id)),
-            html_escape(&rule.id),
-            rule.impl_refs,
-            rule.verify_refs,
-            rule.stale_refs
+            "<tr><td><a href=\"{}\"><code>{}</code></a></td><td>",
+            html_escape(&rule_html_href(&rule.id)),
+            html_escape(&rule.id)
+        ));
+        render_summary_badges(out, rule);
+        out.push_str(&format!(
+            "</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            rule.impl_refs, rule.verify_refs, rule.depends_refs, rule.related_refs, rule.stale_refs
         ));
     }
     out.push_str("</tbody></table></section>");
 }
 
 fn render_sources_view_html(out: &mut String, response: &CoverageNavigationResponse) {
-    out.push_str("<section id=\"sources\"><h2>Sources View</h2>");
+    out.push_str("<section id=\"sources\"><div class=\"section-head\"><h2>Sources View</h2><span class=\"muted\">Code files scanned from configured impl globs</span></div>");
     if response.source_files.is_empty() {
         out.push_str("<div class=\"empty\">No source files found.</div></section>");
         return;
@@ -1269,6 +1500,41 @@ fn render_sources_view_html(out: &mut String, response: &CoverageNavigationRespo
     out.push_str("</tbody></table></section>");
 }
 
+fn rule_state_class(implemented: bool, verified: bool, stale_refs: usize) -> &'static str {
+    if !implemented {
+        "is-unimplemented"
+    } else if stale_refs > 0 {
+        "is-stale"
+    } else if !verified {
+        "is-unverified"
+    } else {
+        "is-covered"
+    }
+}
+
+fn render_summary_badges(out: &mut String, rule: &CoverageRuleSummary) {
+    out.push_str("<div class=\"badges\">");
+    render_bool_badge(out, "impl", rule.implemented);
+    render_bool_badge(out, "verify", rule.verified);
+    if rule.stale_refs > 0 {
+        out.push_str(&format!(
+            "<span class=\"badge warn\">{} stale</span>",
+            rule.stale_refs
+        ));
+    }
+    out.push_str("</div>");
+}
+
+fn render_bool_badge(out: &mut String, label: &str, value: bool) {
+    let (class, text) = if value { ("ok", "yes") } else { ("bad", "no") };
+    out.push_str(&format!(
+        "<span class=\"badge {}\">{} {}</span>",
+        class,
+        html_escape(label),
+        text
+    ));
+}
+
 fn render_markdown_html(title: &str, markdown: &str) -> String {
     format!(
         "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{}</title><style>{}</style></head><body><main><pre>{}</pre></main></body></html>",
@@ -1276,14 +1542,6 @@ fn render_markdown_html(title: &str, markdown: &str) -> String {
         COVERAGE_MARKDOWN_CSS,
         html_escape(markdown)
     )
-}
-
-fn status_word(value: bool) -> &'static str {
-    if value {
-        "<span class=\"ok\">yes</span>"
-    } else {
-        "<span class=\"bad\">no</span>"
-    }
 }
 
 fn html_escape(input: &str) -> String {
@@ -1555,6 +1813,10 @@ fn render_rule_refs(out: &mut String, title: &str, refs: &[CoverageReference]) {
 
 fn rule_href(id: &str) -> String {
     format!("rule/{}.md", percent_encode_path_segment(id))
+}
+
+fn rule_html_href(id: &str) -> String {
+    format!("rule/{}.html", percent_encode_path_segment(id))
 }
 
 fn percent_encode_path_segment(input: &str) -> String {

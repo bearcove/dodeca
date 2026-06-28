@@ -74,6 +74,12 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: "true"
+          cache-targets: "true"
+          cache-bin: "false"
       - name: Check macOS
         run: cargo check --workspace --all-targets
   check-windows:
@@ -88,6 +94,11 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: "true"
+          cache-targets: "true"
       - name: Check Windows
         run: cargo check --workspace --all-targets
   build-ddc-linux-x64:

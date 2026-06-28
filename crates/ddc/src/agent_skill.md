@@ -29,6 +29,11 @@ ddc coverage nav .
 ddc coverage config .
 ```
 
+For traceability in a Dodeca project, Dodeca is the source of truth. If
+`.config/dodeca.styx` exists, use `ddc coverage ...` and
+`/_dodeca/coverage/...` instead of Tracey MCP tools. Use legacy Tracey tools
+only for projects whose traceability is configured by `.config/tracey/config.styx`.
+
 Use `ddc assets` before diagnosing missing browser search, live reload,
 DevTools, or packaged-install asset behavior. It prints the current lookup
 paths and the source/package repair commands.
