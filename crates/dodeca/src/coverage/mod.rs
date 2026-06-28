@@ -15,7 +15,7 @@ mod report;
 mod rule_id;
 
 pub use api::{
-    CoverageEndpoint, CoverageOutput, CoverageOutputFormat, CoverageRuleResponse,
+    CoverageEndpoint, CoverageOutput, CoverageOutputFormat, CoverageRuleResponse, CoverageSelector,
     CoverageStatusResponse, coverage_output, status_response,
 };
 pub use code_units::{

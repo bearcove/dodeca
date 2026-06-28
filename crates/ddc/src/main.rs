@@ -3,9 +3,9 @@
 use camino::{Utf8Path, Utf8PathBuf};
 use dodeca::config::{LinkCheckMode, ResolvedConfig};
 use dodeca::db::{
-    self, CodeRegistry, ConfigRegistry, DataFile, DataRegistry, Database, MarkdownRenderSettings,
-    OutputFile, QueryStats, SassFile, SassRegistry, SourceFile, SourceRegistry, StaticFile,
-    StaticRegistry, TemplateFile, TemplateRegistry,
+    self, CodeCoverageRegistry, CodeRegistry, ConfigRegistry, DataFile, DataRegistry, Database,
+    MarkdownRenderSettings, OutputFile, QueryStats, SassFile, SassRegistry, SourceFile,
+    SourceRegistry, StaticFile, StaticRegistry, TemplateFile, TemplateRegistry,
 };
 use dodeca::queries::{self, build_site};
 use dodeca::tui::{self, LogEvent};
@@ -264,6 +264,14 @@ struct CoverageCommonArgs {
     /// Output format
     #[facet(args::named, default)]
     format: CoverageCliFormat,
+
+    /// Restrict coverage to one configured source name
+    #[facet(args::named, default)]
+    source: Option<String>,
+
+    /// Restrict coverage to one configured implementation
+    #[facet(args::named, rename = "impl", default)]
+    impl_name: Option<String>,
 }
 
 #[derive(Facet, Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -894,11 +902,16 @@ async fn run_diagnostics(args: DiagnosticsArgs) -> Result<()> {
 
 async fn run_coverage(args: CoverageArgs) -> Result<()> {
     let (endpoint, common, validate_threshold) = coverage_command_parts(args.command);
-    let (db, _) = load_lsp_db(common.path, common.content, common.output)?;
-    let report = db::TASK_DB
-        .scope(db.clone(), queries::coverage_report(&*db))
-        .await?;
     let format = common.format.into();
+    let selector =
+        dodeca::coverage::CoverageSelector::new(common.source.clone(), common.impl_name.clone());
+    let (db, _) = load_lsp_db(common.path, common.content, common.output)?;
+    let workspace = db::TASK_DB
+        .scope(db.clone(), queries::coverage_workspace(&*db))
+        .await?;
+    let report = workspace
+        .report_for_selector(&selector)
+        .ok_or_else(|| eyre!("coverage selection did not match any source/impl"))?;
     let output = dodeca::coverage::coverage_output(&report, endpoint, format)
         .map_err(|err| eyre!("failed to render coverage output: {err}"))?
         .ok_or_else(|| eyre!("coverage query did not match any rule"))?;
@@ -1312,6 +1325,7 @@ fn load_lsp_db(
     StaticRegistry::set(&*ctx.db, ctx.static_files.values().copied().collect())?;
     DataRegistry::set(&*ctx.db, ctx.data_files.values().copied().collect())?;
     CodeRegistry::set(&*ctx.db, ctx.code_files.values().copied().collect())?;
+    CodeCoverageRegistry::set(&*ctx.db, ctx.code_coverage_entries.clone())?;
     Ok((ctx.db_arc(), cfg.sources))
 }
 
@@ -1390,6 +1404,7 @@ pub async fn build(
     StaticRegistry::set(&*ctx.db, static_vec)?;
     DataRegistry::set(&*ctx.db, data_vec)?;
     CodeRegistry::set(&*ctx.db, code_vec)?;
+    CodeCoverageRegistry::set(&*ctx.db, ctx.code_coverage_entries.clone())?;
 
     // Update progress: parsing phase
     if let Some(ref p) = options.progress {
@@ -2171,6 +2186,14 @@ fn handle_file_removed(
                 files.remove(pos);
                 CodeRegistry::set(db, files).expect("failed to set code files");
             }
+            let entries = CodeCoverageRegistry::entries(db)
+                .ok()
+                .flatten()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|entry| entry.path.as_str() != relative_str)
+                .collect();
+            CodeCoverageRegistry::set(db, entries).expect("failed to set code coverage entries");
         }
         // Config + include changes are handled at the batch level, not here.
         PathCategory::Config | PathCategory::Include => {}
@@ -2245,9 +2268,12 @@ fn load_all_registries(
     // Code files (from `impls` globs) for spec coverage. They live outside the
     // content tree (project-root-relative), so they load against the config root.
     if let Some(cfg) = dodeca::config::global_config() {
+        let coverage_entries = dodeca::build_context::code_coverage_entries(sources, &cfg._root);
         let code = dodeca::build_context::load_code_files(&server.db, sources, &cfg._root)?;
         CodeRegistry::set(&*server.db, code.into_iter().map(|(_, f)| f).collect())
             .expect("failed to set code files");
+        CodeCoverageRegistry::set(&*server.db, coverage_entries)
+            .expect("failed to set code coverage entries");
     }
 
     // Templates (mount-prefixed keys) — each mounted source renders with its

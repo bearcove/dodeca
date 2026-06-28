@@ -14,7 +14,7 @@ use crate::types::{HtmlBody, Route, SassContent, StaticPath, TemplateContent, Ti
 use crate::url_rewrite::{rewrite_string_literals_in_js, rewrite_urls_in_css};
 use facet::Facet;
 use facet_value::{DestructuredRef, Value};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// Load a template file's content - tracked for dependency tracking
 #[picante::tracked]
@@ -2824,33 +2824,149 @@ pub async fn references_in_file<DB: Db>(
 /// hand-rolled rebuild engine.
 #[picante::tracked]
 pub async fn coverage_report<DB: Db>(db: &DB) -> PicanteResult<crate::coverage::CoverageReport> {
-    use std::collections::HashSet;
+    Ok(coverage_workspace(db).await?.global_report())
+}
 
+#[derive(Debug, Clone, Facet)]
+pub struct CoverageWorkspace {
+    source_names: HashSet<String>,
+    known_global: HashSet<crate::coverage::RuleId>,
+    known_by_source: HashMap<String, HashSet<crate::coverage::RuleId>>,
+    global_reqs: crate::coverage::Reqs,
+    reqs_by_context: BTreeMap<(String, String), crate::coverage::Reqs>,
+}
+
+impl CoverageWorkspace {
+    pub fn global_report(&self) -> crate::coverage::CoverageReport {
+        crate::coverage::CoverageReport::compute("coverage", &self.known_global, &self.global_reqs)
+    }
+
+    pub fn report_for_selector(
+        &self,
+        selector: &crate::coverage::CoverageSelector,
+    ) -> Option<crate::coverage::CoverageReport> {
+        let source_name = selector.source_name.as_deref();
+        let impl_name = selector.impl_name.as_deref();
+        if source_name.is_none() && impl_name.is_none() {
+            return Some(self.global_report());
+        }
+
+        let empty_known = HashSet::new();
+        let known = match source_name {
+            Some(source_name) => self.known_by_source.get(source_name).or_else(|| {
+                self.source_names
+                    .contains(source_name)
+                    .then_some(&empty_known)
+            })?,
+            None => &self.known_global,
+        };
+
+        let mut matched_context = false;
+        let mut reqs = crate::coverage::Reqs::new();
+        for ((context_source, context_impl), context_reqs) in &self.reqs_by_context {
+            if source_name.is_some_and(|source_name| source_name != context_source) {
+                continue;
+            }
+            if impl_name.is_some_and(|impl_name| impl_name != context_impl) {
+                continue;
+            }
+            matched_context = true;
+            reqs.extend(context_reqs.clone());
+        }
+        if impl_name.is_some() && !matched_context {
+            return None;
+        }
+
+        Some(crate::coverage::CoverageReport::compute(
+            coverage_report_name(source_name, impl_name),
+            known,
+            &reqs,
+        ))
+    }
+}
+
+fn coverage_report_name(source_name: Option<&str>, impl_name: Option<&str>) -> String {
+    match (source_name, impl_name) {
+        (Some(source_name), Some(impl_name)) => format!("{source_name}/{impl_name}"),
+        (Some(source_name), None) => source_name.to_string(),
+        (None, Some(impl_name)) => format!("impl/{impl_name}"),
+        (None, None) => "coverage".to_string(),
+    }
+}
+
+/// Coverage workspace carrying global rules plus per source/impl reference
+/// buckets. Consumers choose the report shape cheaply from this cached query.
+#[picante::tracked]
+pub async fn coverage_workspace<DB: Db>(db: &DB) -> PicanteResult<CoverageWorkspace> {
     // Known rules: every requirement *defined* in a markdown spec page.
-    let mut known: HashSet<crate::coverage::RuleId> = HashSet::new();
+    let mut known_global: HashSet<crate::coverage::RuleId> = HashSet::new();
+    let mut known_by_source: HashMap<String, HashSet<crate::coverage::RuleId>> = HashMap::new();
     if let Ok(site_tree) = build_tree(db).await? {
-        let defs = site_tree
-            .sections
-            .values()
-            .flat_map(|s| s.reqs.iter())
-            .chain(site_tree.pages.values().flat_map(|p| p.rules.iter()));
-        for req in defs {
-            if let Some(rid) = crate::coverage::parse_rule_id(&req.id) {
-                known.insert(rid);
+        for (route, section) in &site_tree.sections {
+            let source_name = source_name_of(route.as_str());
+            for req in &section.reqs {
+                if let Some(rid) = crate::coverage::parse_rule_id(&req.id) {
+                    known_global.insert(rid.clone());
+                    known_by_source
+                        .entry(source_name.clone())
+                        .or_default()
+                        .insert(rid);
+                }
+            }
+        }
+        for (route, page) in &site_tree.pages {
+            let source_name = source_name_of(route.as_str());
+            for req in &page.rules {
+                if let Some(rid) = crate::coverage::parse_rule_id(&req.id) {
+                    known_global.insert(rid.clone());
+                    known_by_source
+                        .entry(source_name.clone())
+                        .or_default()
+                        .insert(rid);
+                }
             }
         }
     }
 
     // References: scan every code file the `impls` globs collected.
-    let mut all = crate::coverage::Reqs::new();
+    let mut global_reqs = crate::coverage::Reqs::new();
+    let mut reqs_by_path: HashMap<String, crate::coverage::Reqs> = HashMap::new();
     let files = crate::db::CodeRegistry::files(db)?.unwrap_or_default();
     for cf in files {
-        all.extend(references_in_file(db, cf).await?);
+        let path = cf.path(db)?.as_str().to_string();
+        let reqs = references_in_file(db, cf).await?;
+        global_reqs.extend(reqs.clone());
+        reqs_by_path.insert(path, reqs);
     }
 
-    Ok(crate::coverage::CoverageReport::compute(
-        "coverage", &known, &all,
-    ))
+    let mut source_names = crate::db::ConfigRegistry::config(db)?
+        .map(|cfg| {
+            cfg.sources
+                .iter()
+                .map(|source| source.name.clone())
+                .collect::<HashSet<_>>()
+        })
+        .unwrap_or_default();
+    source_names.extend(known_by_source.keys().cloned());
+
+    let mut reqs_by_context: BTreeMap<(String, String), crate::coverage::Reqs> = BTreeMap::new();
+    let entries = crate::db::CodeCoverageRegistry::entries(db)?.unwrap_or_default();
+    for entry in entries {
+        if let Some(reqs) = reqs_by_path.get(entry.path.as_str()) {
+            reqs_by_context
+                .entry((entry.source_name.clone(), entry.impl_name.clone()))
+                .or_default()
+                .extend(reqs.clone());
+        }
+    }
+
+    Ok(CoverageWorkspace {
+        source_names,
+        known_global,
+        known_by_source,
+        global_reqs,
+        reqs_by_context,
+    })
 }
 
 /// Per-rule implementation sites: for every rule referenced in code, the code

@@ -14,6 +14,22 @@ pub enum CoverageEndpoint {
     Rule { id: String },
 }
 
+/// Coverage source/impl filter selected by HTTP query params or CLI options.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CoverageSelector {
+    pub source_name: Option<String>,
+    pub impl_name: Option<String>,
+}
+
+impl CoverageSelector {
+    pub fn new(source_name: Option<String>, impl_name: Option<String>) -> Self {
+        Self {
+            source_name: source_name.filter(|name| !name.is_empty()),
+            impl_name: impl_name.filter(|name| !name.is_empty()),
+        }
+    }
+}
+
 /// Output representation selected by the URL suffix or CLI format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CoverageOutputFormat {

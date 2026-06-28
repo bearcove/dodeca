@@ -8,7 +8,7 @@ use std::sync::Arc;
 use cell_http_proto::{ContentService, Identity, ServeContent};
 use dodeca_protocol::{EvalResult, ScopeEntry};
 
-use crate::coverage::{CoverageEndpoint, CoverageOutputFormat};
+use crate::coverage::{CoverageEndpoint, CoverageOutputFormat, CoverageSelector};
 use crate::serve::{SiteServer, get_devtools_asset};
 
 /// ContentService implementation that wraps SiteServer
@@ -168,8 +168,12 @@ impl ContentService for HostContentService {
         // Coverage query API: suffix chooses representation (`.json` for typed
         // DTOs, `.md` for agent/human-readable output).
         if let Some(rest) = path.strip_prefix("/_dodeca/coverage/") {
-            if let Some((endpoint, format)) = parse_coverage_endpoint(rest) {
-                if let Some(output) = self.server.coverage_output(endpoint, format).await {
+            if let Some((endpoint, format, selector)) = parse_coverage_endpoint(rest) {
+                if let Some(output) = self
+                    .server
+                    .coverage_output(endpoint, format, selector)
+                    .await
+                {
                     return ServeContent::StaticNoCache {
                         content: output.body.into_bytes(),
                         mime: output.format.mime().to_string(),
@@ -315,10 +319,14 @@ fn parse_query_string(s: &str) -> std::collections::HashMap<String, String> {
     map
 }
 
-fn parse_coverage_endpoint(rest: &str) -> Option<(CoverageEndpoint, CoverageOutputFormat)> {
+fn parse_coverage_endpoint(
+    rest: &str,
+) -> Option<(CoverageEndpoint, CoverageOutputFormat, CoverageSelector)> {
     let (path, query) = rest.split_once('?').unwrap_or((rest, ""));
     let params = parse_query_string(query);
     let (path, format) = strip_coverage_suffix(path)?;
+    let selector =
+        CoverageSelector::new(params.get("source").cloned(), params.get("impl").cloned());
     let endpoint = match path {
         "status" => CoverageEndpoint::Status,
         "uncovered" => CoverageEndpoint::Uncovered,
@@ -333,7 +341,7 @@ fn parse_coverage_endpoint(rest: &str) -> Option<(CoverageEndpoint, CoverageOutp
         },
         _ => return None,
     };
-    Some((endpoint, format))
+    Some((endpoint, format, selector))
 }
 
 fn strip_coverage_suffix(path: &str) -> Option<(&str, CoverageOutputFormat)> {

@@ -148,6 +148,22 @@ pub struct CodeRegistry {
     pub files: Vec<CodeFile>,
 }
 
+/// One configured source/impl context that pulled in a code file for coverage.
+#[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
+pub struct CodeCoverageEntry {
+    pub source_name: String,
+    pub impl_name: String,
+    pub path: CodePath,
+    pub is_test: bool,
+}
+
+/// Input code coverage context registry - maps scanned code files back to the
+/// source/impl globs that selected them.
+#[picante::input]
+pub struct CodeCoverageRegistry {
+    pub entries: Vec<CodeCoverageEntry>,
+}
+
 /// One file pulled in by an `include` shortcode (e.g. a crate README), by its
 /// project-root-relative path.
 #[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
@@ -582,6 +598,7 @@ pub struct AllRenderedHtml {
         SourceRegistry,
         CodeFile,
         CodeRegistry,
+        CodeCoverageRegistry,
         IncludedFileRegistry,
         ConfigRegistry,
         MarkdownRenderSettings,
@@ -617,6 +634,7 @@ pub struct AllRenderedHtml {
         crate::queries::build_site,
         crate::queries::all_rendered_html,
         crate::queries::references_in_file,
+        crate::queries::coverage_workspace,
         crate::queries::coverage_report,
         crate::queries::rule_impls,
         crate::queries::global_char_set,

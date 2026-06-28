@@ -597,16 +597,24 @@ impl SiteServer {
         &self,
         endpoint: crate::coverage::CoverageEndpoint,
         format: crate::coverage::CoverageOutputFormat,
+        selector: crate::coverage::CoverageSelector,
     ) -> Option<crate::coverage::CoverageOutput> {
-        let report = match crate::db::TASK_DB
-            .scope(self.db.clone(), crate::queries::coverage_report(&*self.db))
+        let workspace = match crate::db::TASK_DB
+            .scope(
+                self.db.clone(),
+                crate::queries::coverage_workspace(&*self.db),
+            )
             .await
         {
-            Ok(report) => report,
+            Ok(workspace) => workspace,
             Err(err) => {
                 tracing::warn!(error = ?err, "coverage report unavailable");
                 return None;
             }
+        };
+        let Some(report) = workspace.report_for_selector(&selector) else {
+            tracing::warn!(selector = ?selector, "coverage selector did not match");
+            return None;
         };
 
         match crate::coverage::coverage_output(&report, endpoint, format) {

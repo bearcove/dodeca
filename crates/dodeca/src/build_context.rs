@@ -8,7 +8,8 @@ use ignore::WalkBuilder;
 
 use crate::config::ResolvedSource;
 use crate::db::{
-    CodeFile, DataFile, Database, QueryStats, SassFile, SourceFile, StaticFile, TemplateFile,
+    CodeCoverageEntry, CodeFile, DataFile, Database, QueryStats, SassFile, SourceFile, StaticFile,
+    TemplateFile,
 };
 use crate::template_paths::{logical_template_path, physical_template_path};
 use crate::types::{
@@ -194,35 +195,58 @@ pub fn load_source_files(
 /// [`load_code_files`] (which reads + ingests them) and the file watcher (which
 /// needs the abs paths to recognize a changed code file).
 pub fn code_file_abs_paths(roots: &[ResolvedSource], project_root: &Utf8Path) -> Vec<Utf8PathBuf> {
-    use globset::{Glob, GlobSetBuilder};
+    code_file_abs_paths_from_entries(&code_coverage_entries(roots, project_root), project_root)
+}
 
-    let mut inc = GlobSetBuilder::new();
-    let mut exc = GlobSetBuilder::new();
-    let mut any = false;
-    for root in roots {
-        for impl_ in &root.impls {
-            // test_include files carry references too (verify-only enforcement
-            // is a later coverage refinement), so scan them alongside include.
-            for pat in impl_.include.iter().chain(&impl_.test_include) {
-                if let Ok(g) = Glob::new(pat) {
-                    inc.add(g);
-                    any = true;
-                }
-            }
-            for pat in &impl_.exclude {
-                if let Ok(g) = Glob::new(pat) {
-                    exc.add(g);
-                }
+pub fn code_coverage_entries(
+    roots: &[ResolvedSource],
+    project_root: &Utf8Path,
+) -> Vec<CodeCoverageEntry> {
+    use globset::{Glob, GlobSet, GlobSetBuilder};
+    use std::collections::BTreeMap;
+
+    struct Matcher {
+        source_name: String,
+        impl_name: String,
+        include: Option<GlobSet>,
+        test_include: Option<GlobSet>,
+        exclude: Option<GlobSet>,
+    }
+
+    fn globset(patterns: &[String]) -> Option<GlobSet> {
+        let mut builder = GlobSetBuilder::new();
+        let mut any = false;
+        for pat in patterns {
+            if let Ok(glob) = Glob::new(pat) {
+                builder.add(glob);
+                any = true;
             }
         }
+        any.then(|| builder.build().ok()).flatten()
     }
-    if !any {
-        return Vec::new();
-    }
-    let (Ok(include), Ok(exclude)) = (inc.build(), exc.build()) else {
-        return Vec::new();
-    };
 
+    let mut matchers = Vec::new();
+    for root in roots {
+        for impl_ in &root.impls {
+            let include = globset(&impl_.include);
+            let test_include = globset(&impl_.test_include);
+            if include.is_none() && test_include.is_none() {
+                continue;
+            }
+            matchers.push(Matcher {
+                source_name: root.name.clone(),
+                impl_name: impl_.name.clone(),
+                include,
+                test_include,
+                exclude: globset(&impl_.exclude),
+            });
+        }
+    }
+    if matchers.is_empty() {
+        return Vec::new();
+    }
+
+    let mut by_key: BTreeMap<(String, String, String), bool> = BTreeMap::new();
     let mut out = Vec::new();
     for entry in WalkBuilder::new(project_root)
         .build()
@@ -237,23 +261,69 @@ pub fn code_file_abs_paths(roots: &[ResolvedSource], project_root: &Utf8Path) ->
         let Ok(rel) = abs.strip_prefix(project_root) else {
             continue;
         };
-        if include.is_match(rel.as_std_path()) && !exclude.is_match(rel.as_std_path()) {
-            out.push(abs);
+        for matcher in &matchers {
+            if matcher
+                .exclude
+                .as_ref()
+                .is_some_and(|exclude| exclude.is_match(rel.as_std_path()))
+            {
+                continue;
+            }
+            let source_match = matcher
+                .include
+                .as_ref()
+                .is_some_and(|include| include.is_match(rel.as_std_path()));
+            let test_match = matcher
+                .test_include
+                .as_ref()
+                .is_some_and(|include| include.is_match(rel.as_std_path()));
+            if source_match || test_match {
+                let key = (
+                    matcher.source_name.clone(),
+                    matcher.impl_name.clone(),
+                    rel.to_string(),
+                );
+                by_key
+                    .entry(key)
+                    .and_modify(|is_test| *is_test = *is_test || test_match)
+                    .or_insert(test_match);
+            }
         }
+    }
+
+    for ((source_name, impl_name, path), is_test) in by_key {
+        out.push(CodeCoverageEntry {
+            source_name,
+            impl_name,
+            path: CodePath::new(path),
+            is_test,
+        });
     }
     out
 }
 
-/// Read every code file matched by the sources' `impls` globs into `CodeFile`
-/// inputs keyed by project-root-relative path. Returns empty when no source
-/// declares `impls`.
-pub fn load_code_files(
+fn code_file_abs_paths_from_entries(
+    entries: &[CodeCoverageEntry],
+    project_root: &Utf8Path,
+) -> Vec<Utf8PathBuf> {
+    use std::collections::BTreeSet;
+
+    entries
+        .iter()
+        .map(|entry| entry.path.as_str().to_string())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .map(|path| project_root.join(path))
+        .collect()
+}
+
+fn load_code_files_from_abs_paths(
     db: &Database,
-    roots: &[ResolvedSource],
+    paths: Vec<Utf8PathBuf>,
     project_root: &Utf8Path,
 ) -> Result<Vec<(crate::types::CodePath, crate::db::CodeFile)>> {
     let mut out = Vec::new();
-    for abs in code_file_abs_paths(roots, project_root) {
+    for abs in paths {
         let Ok(rel) = abs.strip_prefix(project_root) else {
             continue;
         };
@@ -273,6 +343,17 @@ pub fn load_code_files(
         out.push((code_path, file));
     }
     Ok(out)
+}
+
+/// Read every code file matched by the sources' `impls` globs into `CodeFile`
+/// inputs keyed by project-root-relative path. Returns empty when no source
+/// declares `impls`.
+pub fn load_code_files(
+    db: &Database,
+    roots: &[ResolvedSource],
+    project_root: &Utf8Path,
+) -> Result<Vec<(crate::types::CodePath, crate::db::CodeFile)>> {
+    load_code_files_from_abs_paths(db, code_file_abs_paths(roots, project_root), project_root)
 }
 
 /// Load template files from every source's `templates/` dir (sibling of its
@@ -462,6 +543,8 @@ pub struct BuildContext {
     /// Code files (from source `impls` globs) keyed by project-root-relative
     /// path, scanned for requirement references.
     pub code_files: BTreeMap<CodePath, CodeFile>,
+    /// Source/impl contexts that selected the scanned code files.
+    pub code_coverage_entries: Vec<CodeCoverageEntry>,
     /// Query statistics, if tracking is enabled.
     pub stats: Option<Arc<QueryStats>>,
 }
@@ -501,6 +584,7 @@ impl BuildContext {
             static_files: BTreeMap::new(),
             data_files: BTreeMap::new(),
             code_files: BTreeMap::new(),
+            code_coverage_entries: Vec::new(),
             stats,
         }
     }
@@ -585,7 +669,9 @@ impl BuildContext {
     pub fn load_code(&mut self) -> Result<()> {
         let roots = self.source_roots.clone();
         let project_root = self.project_root.clone();
-        for (path, file) in load_code_files(&self.db, &roots, &project_root)? {
+        self.code_coverage_entries = code_coverage_entries(&roots, &project_root);
+        let paths = code_file_abs_paths_from_entries(&self.code_coverage_entries, &project_root);
+        for (path, file) in load_code_files_from_abs_paths(&self.db, paths, &project_root)? {
             self.code_files.insert(path, file);
         }
         Ok(())

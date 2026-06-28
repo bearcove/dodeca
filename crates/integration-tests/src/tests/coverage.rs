@@ -32,6 +32,62 @@ const CODE: &str = r#"// r[impl api.live+2]
 pub fn live() {}
 "#;
 
+const MULTI_CONFIG: &str = r#"source {
+    content root/content
+    impls (
+        {
+            name rust
+            include ("root-code/**/*.rs")
+        }
+    )
+}
+
+mounts (
+    {
+        name api
+        path /api
+        local api/content
+    }
+)
+
+site {
+    output public
+}
+"#;
+
+const MOUNT_CONFIG: &str = r#"source {
+    content content
+    impls (
+        {
+            name rust
+            include ("api/code/**/*.rs")
+        }
+    )
+}
+"#;
+
+const ROOT_SPEC: &str = r#"+++
+title = "Root Spec"
++++
+
+r[root.rule] Root rule.
+"#;
+
+const API_SPEC: &str = r#"+++
+title = "API Spec"
++++
+
+r[api.rule] API rule.
+"#;
+
+const ROOT_CODE: &str = r#"// r[impl root.rule]
+pub fn root_rule() {}
+"#;
+
+const API_CODE: &str = r#"// r[impl api.rule]
+pub fn api_rule() {}
+"#;
+
 pub async fn coverage_suffix_endpoints_serve_markdown_and_json() {
     let site = TestSite::with_files(
         "sample-site",
@@ -73,4 +129,40 @@ pub async fn coverage_suffix_endpoints_serve_markdown_and_json() {
     rule.assert_contains("## Implementation References");
     rule.assert_contains("## Verification References");
     rule.assert_contains("code/lib.rs");
+}
+
+pub async fn coverage_filters_by_source_and_impl() {
+    let site = TestSite::with_files(
+        "sample-site",
+        &[
+            (".config/dodeca.styx", MULTI_CONFIG),
+            ("root/content/root.md", ROOT_SPEC),
+            ("root-code/lib.rs", ROOT_CODE),
+            ("api/.config/dodeca.styx", MOUNT_CONFIG),
+            ("api/content/api.md", API_SPEC),
+            ("api/code/lib.rs", API_CODE),
+        ],
+    );
+
+    let api = site
+        .get("/_dodeca/coverage/status.md?source=api&impl=rust")
+        .await;
+    api.assert_ok();
+    api.assert_contains("Spec: `api/rust`");
+    api.assert_contains("| Implemented | 1/1 | 100.0% |");
+    api.assert_contains("| Verified | 0/1 | 0.0% |");
+
+    let api_json = site
+        .get("/_dodeca/coverage/status.json?source=api&impl=rust")
+        .await;
+    api_json.assert_ok();
+    api_json.assert_contains(r#""specName": "api/rust""#);
+    api_json.assert_contains(r#""totalRules": 1"#);
+    api_json.assert_contains(r#""implementedRules": 1"#);
+    api_json.assert_contains(r#""verifiedRules": 0"#);
+
+    let missing = site
+        .get("/_dodeca/coverage/status.md?source=api&impl=go")
+        .await;
+    assert_eq!(missing.status, 404);
 }
