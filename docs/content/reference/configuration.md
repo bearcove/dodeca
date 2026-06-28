@@ -44,7 +44,12 @@ source {
 
     # Code whose source files are scanned for `r[verb rule.id]` coverage refs.
     impls (
-        {name rust, include (rust/**/src/**/*.rs), test_include (rust/**/tests/**/*.rs)}
+        {
+            name rust
+            include (rust/**/src/**/*.rs)
+            exclude (rust/**/src/generated/**/*.rs)
+            test_include (rust/**/tests/**/*.rs)
+        }
     )
 
     # Domains to skip when link-checking this source's external links. Unioned
@@ -71,6 +76,23 @@ source {
     }
 }
 ```
+
+#### `impls`
+
+`impls` declares the code implementations Dodeca scans for requirement
+references. Each implementation has a stable `name`, and coverage API/CLI
+queries can select it with `impl=<name>` or `--impl <name>`.
+
+- `include` globs select production implementation files.
+- `exclude` globs remove files from `include`.
+- `test_include` globs select test or verification files.
+
+Files matched by `test_include` can contribute `r[verify rule.id]` references.
+They cannot contribute implementation coverage: `r[impl rule.id]` in a test
+file is reported as a validation failure.
+
+Mounted sources keep their own `impls`. Coverage queries can select a mounted
+source by its configured source name with `source=<name>` or `--source <name>`.
 
 ### `site {}` — non-composable, whole-site
 

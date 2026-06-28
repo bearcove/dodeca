@@ -175,6 +175,24 @@ pub async fn coverage_filters_by_source_and_impl() {
     api_json.assert_contains(r#""verifiedRules": 0"#);
     api_json.assert_contains(r#""testImplReferences": 1"#);
 
+    let config = site
+        .get("/_dodeca/coverage/config.md?source=api&impl=rust")
+        .await;
+    config.assert_ok();
+    config.assert_contains("# Coverage Config");
+    config.assert_contains("## `api` / `rust`");
+    config.assert_contains("api/code/**/*.rs");
+    config.assert_contains("api/tests/**/*.rs");
+
+    let config_json = site
+        .get("/_dodeca/coverage/config.json?source=api&impl=rust")
+        .await;
+    config_json.assert_ok();
+    config_json.assert_contains(r#""implName": "rust""#);
+    config_json.assert_contains(r#""sourceName": "api""#);
+    config_json.assert_contains("api/code/**/*.rs");
+    config_json.assert_contains("api/tests/**/*.rs");
+
     let validate = site
         .get("/_dodeca/coverage/validate.md?source=api&impl=rust")
         .await;

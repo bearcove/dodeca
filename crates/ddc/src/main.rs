@@ -207,6 +207,8 @@ struct CoverageArgs {
 enum CoverageCommand {
     /// Print coverage summary
     Status(CoverageQueryArgs),
+    /// Print configured coverage implementation globs
+    Config(CoverageQueryArgs),
     /// List rules without implementation references
     Uncovered(CoverageQueryArgs),
     /// List rules without verification references
@@ -926,6 +928,7 @@ async fn run_coverage(args: CoverageArgs) -> Result<()> {
         let status = dodeca::coverage::status_response(&report);
         let passing = report.invalid_references.is_empty()
             && report.stale_references.is_empty()
+            && report.test_impl_references.is_empty()
             && status.implementation_coverage_percent >= f64::from(threshold);
         if !passing {
             return Err(eyre!("coverage validation failed"));
@@ -945,6 +948,11 @@ fn coverage_command_parts(
     match command {
         CoverageCommand::Status(args) => (
             dodeca::coverage::CoverageEndpoint::Status,
+            args.common,
+            None,
+        ),
+        CoverageCommand::Config(args) => (
+            dodeca::coverage::CoverageEndpoint::Config,
             args.common,
             None,
         ),

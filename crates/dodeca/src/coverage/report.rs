@@ -36,6 +36,17 @@ pub struct RuleDefinition {
     pub html: String,
 }
 
+/// One configured source implementation used for coverage scanning.
+#[derive(Debug, Clone, Facet)]
+pub struct CoverageConfigImpl {
+    pub source_name: String,
+    pub mount: String,
+    pub impl_name: String,
+    pub include: Vec<String>,
+    pub exclude: Vec<String>,
+    pub test_include: Vec<String>,
+}
+
 /// Coverage analysis results for a single spec
 #[derive(Debug, Clone, Facet)]
 pub struct CoverageReport {
@@ -65,6 +76,9 @@ pub struct CoverageReport {
 
     /// Rule definitions grouped by canonical rule ID.
     pub definitions_by_rule: HashMap<RuleId, Vec<RuleDefinition>>,
+
+    /// Coverage configuration entries selected for this report.
+    pub config_impls: Vec<CoverageConfigImpl>,
 
     /// All valid references, grouped by rule ID
     pub references_by_rule: HashMap<RuleId, Vec<ReqReference>>,
@@ -142,6 +156,7 @@ impl CoverageReport {
             test_impl_references: Vec::new(),
             unmapped_units: Vec::new(),
             definitions_by_rule: HashMap::new(),
+            config_impls: Vec::new(),
             references_by_rule,
             references_by_verb,
         }
@@ -159,6 +174,11 @@ impl CoverageReport {
 
     pub fn with_definitions(mut self, definitions: HashMap<RuleId, Vec<RuleDefinition>>) -> Self {
         self.definitions_by_rule = definitions;
+        self
+    }
+
+    pub fn with_config_impls(mut self, impls: Vec<CoverageConfigImpl>) -> Self {
+        self.config_impls = impls;
         self
     }
 

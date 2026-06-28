@@ -6,6 +6,7 @@ use super::{CoverageReport, RefVerb, ReqReference, RuleId, StaleReference};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CoverageEndpoint {
     Status,
+    Config,
     Uncovered,
     Untested,
     Unmapped,
@@ -85,6 +86,24 @@ pub struct CoverageRuleSummary {
     pub depends_refs: usize,
     pub related_refs: usize,
     pub stale_refs: usize,
+}
+
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct CoverageConfigResponse {
+    pub spec_name: String,
+    pub impls: Vec<CoverageConfigImplResponse>,
+}
+
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "camelCase")]
+pub struct CoverageConfigImplResponse {
+    pub source_name: String,
+    pub mount: String,
+    pub impl_name: String,
+    pub include: Vec<String>,
+    pub exclude: Vec<String>,
+    pub test_include: Vec<String>,
 }
 
 #[derive(Debug, Clone, Facet)]
@@ -187,6 +206,13 @@ pub fn coverage_output(
             CoverageOutputFormat::Json => json(&status_response(report))?,
             CoverageOutputFormat::Markdown => render_status_markdown(report),
         },
+        CoverageEndpoint::Config => {
+            let response = config_response(report);
+            match format {
+                CoverageOutputFormat::Json => json(&response)?,
+                CoverageOutputFormat::Markdown => render_config_markdown(&response),
+            }
+        }
         CoverageEndpoint::Uncovered => {
             let response = CoverageRuleListResponse {
                 spec_name: report.spec_name.clone(),
@@ -325,6 +351,26 @@ pub fn status_response(report: &CoverageReport) -> CoverageStatusResponse {
         implementation_coverage_percent: percent(implemented_rules, total_rules),
         verification_coverage_percent: percent(verified_rules, total_rules),
         rules: summaries,
+    }
+}
+
+pub fn config_response(report: &CoverageReport) -> CoverageConfigResponse {
+    let impls = report
+        .config_impls
+        .iter()
+        .map(|impl_| CoverageConfigImplResponse {
+            source_name: impl_.source_name.clone(),
+            mount: impl_.mount.clone(),
+            impl_name: impl_.impl_name.clone(),
+            include: impl_.include.clone(),
+            exclude: impl_.exclude.clone(),
+            test_include: impl_.test_include.clone(),
+        })
+        .collect();
+
+    CoverageConfigResponse {
+        spec_name: report.spec_name.clone(),
+        impls,
     }
 }
 
@@ -517,6 +563,7 @@ fn render_status_markdown(report: &CoverageReport) -> String {
     ));
 
     let next = [
+        ("Config", "config.md"),
         ("Uncovered", "uncovered.md"),
         ("Untested", "untested.md"),
         ("Unmapped", "unmapped.md"),
@@ -529,6 +576,39 @@ fn render_status_markdown(report: &CoverageReport) -> String {
         out.push_str(&format!("- [{label}]({href})\n"));
     }
     out
+}
+
+fn render_config_markdown(response: &CoverageConfigResponse) -> String {
+    let mut out = String::new();
+    out.push_str("# Coverage Config\n\n");
+    out.push_str(&format!("Spec: `{}`\n\n", response.spec_name));
+    if response.impls.is_empty() {
+        out.push_str("No coverage implementations are configured.\n");
+        return out;
+    }
+    for impl_ in &response.impls {
+        out.push_str(&format!(
+            "## `{}` / `{}`\n\n",
+            impl_.source_name, impl_.impl_name
+        ));
+        out.push_str(&format!("- Mount: `{}`\n", impl_.mount));
+        render_globs(&mut out, "Include", &impl_.include);
+        render_globs(&mut out, "Exclude", &impl_.exclude);
+        render_globs(&mut out, "Test include", &impl_.test_include);
+        out.push('\n');
+    }
+    out
+}
+
+fn render_globs(out: &mut String, label: &str, globs: &[String]) {
+    if globs.is_empty() {
+        out.push_str(&format!("- {label}: none\n"));
+        return;
+    }
+    out.push_str(&format!("- {label}:\n"));
+    for glob in globs {
+        out.push_str(&format!("  - `{glob}`\n"));
+    }
 }
 
 fn render_rule_list_markdown(

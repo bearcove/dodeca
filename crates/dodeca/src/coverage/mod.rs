@@ -23,7 +23,9 @@ pub use code_units::{
     extract_refs_with_warnings,
 };
 pub use lexer::{ParseWarning, RefVerb, ReqReference, Reqs, SourceSpan, WarningKind};
-pub use report::{CoverageReport, RuleDefinition, StaleReference, UnmappedCodeUnit};
+pub use report::{
+    CoverageConfigImpl, CoverageReport, RuleDefinition, StaleReference, UnmappedCodeUnit,
+};
 pub use rule_id::{
     RuleId, RuleIdMatch, classify_reference_for_rule, classify_reference_for_rule_str,
     parse_rule_id,

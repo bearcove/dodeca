@@ -3,11 +3,12 @@ title = "Spec Traceability"
 weight = 60
 +++
 
-dodeca supports [tracey](https://github.com/bearcove/tracey) requirement markers in markdown, letting you write specs that are tracked against your implementation.
+dodeca supports requirement markers in markdown and can check them against
+configured implementation files.
 
 ## Syntax
 
-Define a requirement with the tracey marker syntax:
+Define a requirement with an `r[...]` marker:
 
 ```markdown
 r[protocol.handshake]
@@ -15,10 +16,90 @@ r[protocol.handshake]
 The client MUST send a handshake message within 5 seconds of connecting.
 ```
 
-This renders as a styled requirement block with an anchor, just like tracey's own documentation renders them.
+That renders as a requirement block with a stable anchor. Code references use
+the same marker shape with a verb:
 
-## Use case
+```rust
+// r[impl protocol.handshake]
+// r[verify protocol.handshake]
+```
 
-If your project uses tracey for spec coverage, you can write your specification as a dodeca site. The requirement IDs in your markdown are the same ones you reference in your source code with `// [impl protocol.handshake]` comments.
+Supported reference verbs are:
 
-See the [tracey documentation](https://github.com/bearcove/tracey) for the full spec coverage workflow.
+- `impl` — source code implements the rule.
+- `verify` — tests or verification code exercise the rule.
+- `depends` — code depends on the rule.
+- `related` — code is related to the rule without implementing or verifying it.
+
+Versioned rule IDs such as `protocol.handshake+2` make older references show up
+as stale instead of invalid.
+
+## Configuration
+
+Coverage scanning is driven by the source's `impls` configuration:
+
+```styx
+source {
+    content content
+    impls (
+        {
+            name rust
+            include ("crates/**/*.rs")
+            exclude ("target/**")
+            test_include ("crates/**/tests/**/*.rs")
+        }
+    )
+}
+```
+
+`include` files may use any reference verb. `test_include` files may verify
+rules, but `impl` references in test files fail validation so implementation
+coverage stays tied to production code.
+
+Mounted sources keep their own `impls` configuration. Coverage queries can be
+filtered with `source` and `impl` selectors.
+
+## Live API
+
+During authoring, prefer the dev-server endpoints. They use the running
+server's hot Dodeca database, so repeated queries do not need a separate Tracey
+server or a cold one-shot scan. Use the URL printed by `ddc serve`; the examples
+below assume the default `127.0.0.1:4000` binding.
+
+```sh
+curl http://127.0.0.1:4000/_dodeca/coverage/status.md
+curl 'http://127.0.0.1:4000/_dodeca/coverage/status.md?source=api&impl=rust'
+curl 'http://127.0.0.1:4000/_dodeca/coverage/validate.md?threshold=80'
+curl http://127.0.0.1:4000/_dodeca/coverage/rule/protocol.handshake.md
+```
+
+Every endpoint supports `.md` for model- and human-facing output and `.json`
+for typed tooling output:
+
+- `status` — summary counts and links to the other queries.
+- `config` — configured source/impl globs.
+- `uncovered` — rules without implementation references.
+- `untested` — rules without verification references.
+- `unmapped` — code units without requirement references.
+- `stale` — references to older versions of current rules.
+- `invalid` — references that do not resolve to a known rule.
+- `rule/<id>` — one rule with definitions and references.
+- `validate` — pass/fail summary, with optional `threshold`.
+
+Percent-encode rule IDs in URLs when needed, for example `+` as `%2B`.
+
+## CLI
+
+Use `ddc coverage` when no dev server is running, especially in scripts and CI:
+
+```sh
+ddc coverage status .
+ddc coverage config . --source api --impl rust
+ddc coverage rule protocol.handshake . --source api --impl rust
+ddc coverage validate . --threshold 80
+```
+
+The CLI defaults to Markdown and accepts `--format json` for the same typed
+responses exposed by the live API. `validate` exits non-zero when coverage is
+below the threshold, a reference is invalid or stale, or a test file contains an
+`impl` reference.

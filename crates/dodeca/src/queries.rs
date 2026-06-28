@@ -2832,6 +2832,7 @@ pub async fn coverage_report<DB: Db>(db: &DB) -> PicanteResult<crate::coverage::
 
 #[derive(Debug, Clone, Facet)]
 pub struct CoverageWorkspace {
+    config_impls: Vec<crate::coverage::CoverageConfigImpl>,
     source_names: HashSet<String>,
     known_global: HashSet<crate::coverage::RuleId>,
     known_by_source: HashMap<String, HashSet<crate::coverage::RuleId>>,
@@ -2850,6 +2851,7 @@ impl CoverageWorkspace {
             .with_test_impl_references(self.global_test_impl_references.clone())
             .with_unmapped_units(self.global_unmapped_units.clone())
             .with_definitions(self.definitions_for(&self.known_global, None))
+            .with_config_impls(self.config_impls.clone())
     }
 
     pub fn report_for_selector(
@@ -2910,8 +2912,30 @@ impl CoverageWorkspace {
             )
             .with_test_impl_references(test_impl_references)
             .with_unmapped_units(unmapped_units)
-            .with_definitions(self.definitions_for(known, source_name)),
+            .with_definitions(self.definitions_for(known, source_name))
+            .with_config_impls(self.config_impls_for_selector(source_name, impl_name)),
         )
+    }
+
+    fn config_impls_for_selector(
+        &self,
+        source_name: Option<&str>,
+        impl_name: Option<&str>,
+    ) -> Vec<crate::coverage::CoverageConfigImpl> {
+        self.config_impls
+            .iter()
+            .filter(|entry| {
+                source_name
+                    .map(|source_name| source_name == entry.source_name.as_str())
+                    .unwrap_or(true)
+            })
+            .filter(|entry| {
+                impl_name
+                    .map(|impl_name| impl_name == entry.impl_name.as_str())
+                    .unwrap_or(true)
+            })
+            .cloned()
+            .collect()
     }
 
     fn definitions_for(
@@ -2961,6 +2985,30 @@ fn rule_definition(
         raw: req.raw.clone(),
         html: req.html.clone(),
     }
+}
+
+fn coverage_config_impls(
+    sources: &[crate::config::ResolvedSource],
+) -> Vec<crate::coverage::CoverageConfigImpl> {
+    let mut entries = Vec::new();
+    for source in sources {
+        for impl_ in &source.impls {
+            entries.push(crate::coverage::CoverageConfigImpl {
+                source_name: source.name.clone(),
+                mount: source.mount.clone(),
+                impl_name: impl_.name.clone(),
+                include: impl_.include.clone(),
+                exclude: impl_.exclude.clone(),
+                test_include: impl_.test_include.clone(),
+            });
+        }
+    }
+    entries.sort_by(|a, b| {
+        a.source_name
+            .cmp(&b.source_name)
+            .then_with(|| a.impl_name.cmp(&b.impl_name))
+    });
+    entries
 }
 
 /// Coverage workspace carrying global rules plus per source/impl reference
@@ -3023,7 +3071,13 @@ pub async fn coverage_workspace<DB: Db>(db: &DB) -> PicanteResult<CoverageWorksp
         reqs_by_path.insert(path, reqs);
     }
 
-    let mut source_names = crate::db::ConfigRegistry::config(db)?
+    let config = crate::db::ConfigRegistry::config(db)?.map(|cfg| cfg.as_ref().clone());
+    let config_impls = config
+        .as_ref()
+        .map(|cfg| coverage_config_impls(&cfg.sources))
+        .unwrap_or_default();
+    let mut source_names = config
+        .as_ref()
         .map(|cfg| {
             cfg.sources
                 .iter()
@@ -3095,6 +3149,7 @@ pub async fn coverage_workspace<DB: Db>(db: &DB) -> PicanteResult<CoverageWorksp
         .collect();
 
     Ok(CoverageWorkspace {
+        config_impls,
         source_names,
         known_global,
         known_by_source,
