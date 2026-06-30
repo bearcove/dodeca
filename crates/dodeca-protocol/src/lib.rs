@@ -84,6 +84,9 @@ pub trait DevtoolsService {
     /// route), then open it in the editor. The filename is the slugified title.
     async fn create_page(&self, section: String, title: String) -> CreatePageResult;
 
+    /// Return the identity Dodeca will use for new annotation comments.
+    async fn annotation_identity(&self) -> AnnotationIdentity;
+
     /// Attach an inline note to the markdown source backing a rendered element.
     ///
     /// Resolves `(route, sid)` to a source span via the page's source map,
@@ -384,6 +387,15 @@ pub enum CreatePageResult {
     Ok { route: String },
     /// Creation failed (bad title/section, page exists, or I/O). Safe to show.
     Error { message: String },
+}
+
+/// Identity used for annotation comments when the client does not override it.
+#[derive(Debug, Clone, PartialEq, Facet)]
+pub struct AnnotationIdentity {
+    /// Author name that will be written to the note.
+    pub author: String,
+    /// Whether the author came from explicit local configuration.
+    pub configured: bool,
 }
 
 /// Result of [`DevtoolsService::annotate`] / [`DevtoolsService::set_note_resolved`].

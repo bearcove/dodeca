@@ -35,7 +35,6 @@ import {
   type DevtoolsEvent as BrowserDevtoolsEvent,
 } from "./browser.generated";
 import { ArboriumHighlighter } from "./highlight";
-// @ts-expect-error — monaco-vim ships no types; initVimMode(editor, statusNode) → { dispose() }.
 import { initVimMode } from "monaco-vim";
 import "./editor.css";
 
@@ -275,7 +274,8 @@ export async function mountEditor(mount: HTMLElement): Promise<void> {
   const setVim = (on: boolean) => {
     if (on && !vimMode && editor) {
       try {
-        vimMode = initVimMode(editor, vimStatusEl) as { dispose(): void };
+        const vimEditor = editor as unknown as Parameters<typeof initVimMode>[0];
+        vimMode = initVimMode(vimEditor, vimStatusEl) as { dispose(): void };
         editorColEl.classList.add("vx-vim");
         vimToggle.classList.add("vx-on");
       } catch (err) {

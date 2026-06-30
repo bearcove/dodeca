@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build"
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit && vite build"
   },
   "dependencies": {
     "@arborium/arborium": "^2.18.0",

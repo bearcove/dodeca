@@ -89,8 +89,8 @@ impl ddc_cell_http::RouterContext for DodecaHttpContext {
 // ============================================================================
 
 use dodeca_protocol::{
-    AnnotateReq, AnnotateResult, DeadLinkTarget, DevtoolsEvent, DevtoolsService, EvalResult,
-    OpenSourceResult, ScopeEntry,
+    AnnotateReq, AnnotateResult, AnnotationIdentity, DeadLinkTarget, DevtoolsEvent,
+    DevtoolsService, EvalResult, OpenSourceResult, ScopeEntry,
 };
 
 /// Host-side implementation of DevtoolsService for direct vox RPC.
@@ -316,6 +316,10 @@ impl DevtoolsService for HostDevtoolsService {
         }
     }
 
+    async fn annotation_identity(&self) -> AnnotationIdentity {
+        self.server.annotation_identity().await
+    }
+
     async fn annotate(&self, req: AnnotateReq) -> AnnotateResult {
         tracing::debug!(
             browser_id = self.browser_id,
@@ -327,6 +331,18 @@ impl DevtoolsService for HostDevtoolsService {
 
         match self.server.annotate_source(&req).await {
             Ok(Some((source_file, line))) => {
+                if let Err(err) = self.server.publish_annotated_source(&source_file).await {
+                    tracing::warn!(
+                        browser_id = self.browser_id,
+                        route = %req.route,
+                        source_file = %source_file,
+                        error = %err,
+                        "devtools annotate live update failed"
+                    );
+                    return AnnotateResult::Error {
+                        message: err.to_string(),
+                    };
+                }
                 tracing::info!(
                     browser_id = self.browser_id,
                     route = %req.route,
@@ -363,7 +379,15 @@ impl DevtoolsService for HostDevtoolsService {
             .set_note_resolved_in_source(&route, &note_id, resolved)
             .await
         {
-            Ok(Some((source_file, line))) => AnnotateResult::Ok { source_file, line },
+            Ok(Some((source_file, line))) => {
+                if let Err(err) = self.server.publish_annotated_source(&source_file).await {
+                    tracing::warn!(browser_id = self.browser_id, route = %route, note_id = %note_id, source_file = %source_file, error = %err, "set_note_resolved live update failed");
+                    return AnnotateResult::Error {
+                        message: err.to_string(),
+                    };
+                }
+                AnnotateResult::Ok { source_file, line }
+            }
             Ok(None) => AnnotateResult::NotFound,
             Err(err) => {
                 tracing::warn!(browser_id = self.browser_id, route = %route, note_id = %note_id, error = %err, "set_note_resolved failed");

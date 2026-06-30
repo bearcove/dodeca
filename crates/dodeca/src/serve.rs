@@ -26,7 +26,7 @@ use crate::queries::{
     static_file_output,
 };
 use crate::render::{RenderOptions, inject_livereload_with_build_info};
-use crate::types::Route;
+use crate::types::{Route, SourceContent, SourcePath};
 use std::collections::HashSet;
 
 use dodeca_protocol::{DeadLinkTarget, ScopeEntry, ScopeValue};
@@ -633,6 +633,23 @@ impl SiteServer {
             .unwrap_or_default()
     }
 
+    pub async fn annotation_identity(&self) -> dodeca_protocol::AnnotationIdentity {
+        let configured_author = match self.source_root.as_ref() {
+            Some(source_root) => git_user_name(source_root).await,
+            None => None,
+        };
+        match configured_author {
+            Some(author) => dodeca_protocol::AnnotationIdentity {
+                author,
+                configured: true,
+            },
+            None => dodeca_protocol::AnnotationIdentity {
+                author: "anon".to_string(),
+                configured: false,
+            },
+        }
+    }
+
     /// Attach an inline note to the markdown source backing `(route, sid)`.
     ///
     /// Resolves the source span via the page's source map, inserts a
@@ -804,6 +821,70 @@ impl SiteServer {
         tokio::fs::write(&disk_path, new_content).await?;
         tracing::info!(route = %route, note_id, resolved, source_file, line, "set note resolved");
         Ok(Some((source_file.to_string(), line)))
+    }
+
+    async fn republish_source_file(&self, source_file: &str) -> Result<()> {
+        let source_root = self
+            .source_root
+            .as_ref()
+            .ok_or_else(|| eyre!("source root is not available in this server mode"))?;
+        let source_path = Utf8Path::new(source_file);
+        if source_path.is_absolute()
+            || source_path
+                .components()
+                .any(|component| matches!(component, Utf8Component::ParentDir))
+        {
+            bail!("refusing to refresh source path outside the content directory: {source_file}");
+        }
+
+        let disk_path = source_root.join(source_path);
+        let content = tokio::fs::read_to_string(&disk_path).await?;
+        let last_modified = tokio::fs::metadata(&disk_path)
+            .await
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+
+        let db = &*self.db;
+        let mut sources = SourceRegistry::sources(db)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        let source_file = source_file.to_string();
+        let replacement = SourceFile::new(
+            db,
+            SourcePath::new(source_file.clone()),
+            SourceContent::new(content),
+            last_modified,
+        )?;
+
+        if let Some(pos) = sources.iter().position(|source| {
+            source
+                .path(db)
+                .ok()
+                .map(|path| path.as_str() == source_file)
+                .unwrap_or(false)
+        }) {
+            sources[pos] = replacement;
+        } else {
+            sources.push(replacement);
+        }
+        SourceRegistry::set(db, sources)?;
+        Ok(())
+    }
+
+    pub async fn publish_annotated_source(self: &Arc<Self>, source_file: &str) -> Result<()> {
+        let token = self.begin_revision("annotation write");
+        let result = async {
+            self.republish_source_file(source_file).await?;
+            self.trigger_reload().await;
+            Ok(())
+        }
+        .await;
+        self.end_revision(token);
+        result
     }
 
     pub async fn open_dead_link_in_editor(
@@ -2685,15 +2766,9 @@ impl SiteServer {
                 html,
                 head_injections,
             }) => {
-                // Cache HTML and head injections for smart reload patching
-                self.cache_html(path, &html);
-                self.cache_head_injections(path, &head_injections);
-                // Extract route from path
-                let route = if path == "/" {
-                    "/".to_string()
-                } else {
-                    path.trim_end_matches('/').to_string()
-                };
+                let route = normalize_route(path);
+                self.cache_html(&route, &html);
+                self.cache_head_injections(&route, &head_injections);
                 RpcServeContent::Html {
                     content: html,
                     route,

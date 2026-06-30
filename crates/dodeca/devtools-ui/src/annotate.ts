@@ -23,7 +23,7 @@
 
 import { connect, voxServiceMetadata, Driver } from "@bearcove/vox-core";
 import { wsConnector } from "@bearcove/vox-ws";
-import { DevtoolsServiceClient, type AnnotateResult } from "./devtools.generated";
+import { DevtoolsServiceClient, type AnnotateResult, type AnnotationIdentity } from "./devtools.generated";
 import { BrowserServiceDispatcher } from "./browser.generated";
 
 // ── styling ───────────────────────────────────────────────────────────────
@@ -180,7 +180,7 @@ html.dn-show-resolved .dn-gutter-mark.dn-resolved { display: block; opacity: 0.5
 
 /* ── note card (anchored popover) ── */
 .dn-card {
-  position: absolute; z-index: 2147483641; width: min(360px, calc(100vw - 16px));
+  position: absolute; z-index: 2147483641; width: min(460px, calc(100vw - 16px));
   display: flex; flex-direction: column; max-height: 70vh; border-radius: 8px;
   background: var(--dn-bg); color: var(--dn-text);
   box-shadow: var(--dn-shadow);
@@ -203,13 +203,13 @@ html.dn-show-resolved .dn-gutter-mark.dn-resolved { display: block; opacity: 0.5
 .dn-card-body p { margin: 0.3em 0; }
 .dn-reply { padding: 9px 12px 10px; background: var(--dn-panel); flex: 0 0 auto; }
 .dn-reply textarea {
-  width: 100%; box-sizing: border-box; resize: vertical; min-height: 48px; border-radius: 6px;
+  width: 100%; box-sizing: border-box; resize: vertical; min-height: 110px; border-radius: 6px;
   background: var(--dn-bg); color: var(--dn-text); border: 1px solid var(--dn-border);
   padding: 7px 8px; font: inherit;
 }
-.dn-reply-row { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
-.dn-reply-author { flex: 1; border-radius: 6px; background: var(--dn-bg); color: var(--dn-text); border: 1px solid var(--dn-border); padding: 5px 7px; font: inherit; min-width: 0; }
-.dn-reply-status { min-height: 1em; margin-top: 4px; color: var(--dn-muted); font-size: 11px; }
+	.dn-reply-row { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
+	.dn-reply-row .dn-author-field { margin-left: auto; }
+	.dn-reply-status { min-height: 1em; margin-top: 4px; color: var(--dn-muted); font-size: 11px; }
 .dn-btn-resolve { background: transparent; color: var(--dn-muted); border: 1px solid var(--dn-border); }
 .dn-btn-resolve:hover { color: var(--dn-text); background: var(--dn-bg); border-color: var(--dn-border-strong); }
 
@@ -252,7 +252,7 @@ html.dn-show-resolved .dn-gutter-mark.dn-resolved { display: block; opacity: 0.5
   background: var(--dn-panel); color: var(--dn-text); border-color: var(--dn-border);
 }
 .dn-create {
-  position: absolute; z-index: 2147483646; width: min(384px, calc(100vw - 16px));
+  position: absolute; z-index: 2147483646; width: min(520px, calc(100vw - 16px));
   padding: 12px; border-radius: 8px;
   background: color-mix(in srgb, var(--dn-bg) 96%, var(--dn-panel)); color: var(--dn-text);
   border: 1px solid color-mix(in srgb, var(--dn-border) 88%, transparent);
@@ -260,32 +260,37 @@ html.dn-show-resolved .dn-gutter-mark.dn-resolved { display: block; opacity: 0.5
   box-shadow: var(--dn-shadow); font: 13px/1.45 system-ui, sans-serif;
 }
 .dn-create[hidden] { display: none; }
-.dn-create .dn-row { display: flex; gap: 8px; align-items: stretch; margin: 8px 0; }
-.dn-create input {
-  background: var(--dn-bg); color: var(--dn-text); border: 1px solid var(--dn-border);
-  border-radius: 6px; padding: 6px 8px; font: inherit; min-width: 0;
-}
-.dn-create .dn-author { flex: 0 0 126px; }
-.dn-create .dn-quote {
-  flex: 1; color: var(--dn-muted); overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap; min-width: 0; padding: 6px 8px;
-  background: var(--dn-panel); border-left: 3px solid var(--dn-note); border-radius: 6px;
-}
-.dn-create textarea {
-  width: 100%; box-sizing: border-box; resize: vertical; min-height: 82px; border-radius: 6px;
-  background: var(--dn-bg); color: var(--dn-text); border: 1px solid var(--dn-border);
-  padding: 9px; font: inherit; line-height: 1.45;
-}
+	.dn-create input {
+	  background: var(--dn-bg); color: var(--dn-text); border: 1px solid var(--dn-border);
+	  border-radius: 6px; padding: 6px 8px; font: inherit; min-width: 0;
+	}
+	.dn-author-field {
+	  display: inline-flex; align-items: center; gap: 5px; min-width: 0;
+	  color: var(--dn-muted); font: 650 11px system-ui, sans-serif; white-space: nowrap;
+	}
+	.dn-author-field input {
+	  width: clamp(88px, 18vw, 168px); height: 28px; box-sizing: border-box;
+	  padding: 3px 4px; border: 0; border-bottom: 1px solid var(--dn-border);
+	  border-radius: 0; background: transparent; color: var(--dn-text);
+	  font: 650 11px system-ui, sans-serif;
+	}
+	.dn-author-field input:hover { border-bottom-color: var(--dn-border-strong); }
+	.dn-author-field.dn-author-unconfigured input { color: var(--dn-muted); }
+	.dn-create textarea {
+	  width: 100%; box-sizing: border-box; resize: vertical; min-height: 170px; border-radius: 6px;
+	  background: var(--dn-bg); color: var(--dn-text); border: 1px solid var(--dn-border);
+	  padding: 9px; font: inherit; line-height: 1.45;
+	}
 .dn-create textarea::placeholder,
 .dn-create input::placeholder { color: color-mix(in srgb, var(--dn-muted) 74%, transparent); }
-.dn-create textarea:focus,
-.dn-create input:focus,
-.dn-reply textarea:focus,
-.dn-reply-author:focus,
-.dn-pp-filter:focus {
-  outline: 2px solid color-mix(in srgb, var(--dn-note) 46%, transparent);
-  outline-offset: 1px;
-  border-color: var(--dn-note);
+	.dn-create textarea:focus,
+	.dn-create input:focus,
+	.dn-author-field input:focus,
+	.dn-reply textarea:focus,
+	.dn-pp-filter:focus {
+	  outline: 2px solid color-mix(in srgb, var(--dn-note) 46%, transparent);
+	  outline-offset: 1px;
+	  border-color: var(--dn-note);
 }
 .dn-create .dn-status { min-height: 1.2em; margin-top: 4px; color: var(--dn-muted); font-size: 12px; }
 
@@ -305,15 +310,15 @@ html.dn-show-resolved .dn-gutter-mark.dn-resolved { display: block; opacity: 0.5
 .dn-pp-item:hover { background: var(--dn-panel-hover); }
 .dn-pp-path { color: var(--dn-muted); font-size: 11px; white-space: nowrap; }
 
-/* segmented kind picker */
+/* compact kind picker */
 .dn-seg {
-  display: flex; gap: 2px; overflow: hidden; border: 1px solid var(--dn-border);
-  border-radius: 999px; padding: 2px; background: var(--dn-panel);
+  display: flex; gap: 2px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--dn-border) 78%, transparent);
+  border-radius: 999px; padding: 2px; background: transparent;
 }
 .dn-seg-btn {
-  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px;
-  padding: 6px 8px; cursor: pointer; border: none; border-radius: 999px;
-  background: transparent; color: var(--dn-muted); font: 650 12px system-ui, sans-serif;
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 28px; height: 28px; padding: 0 8px; cursor: pointer; border: none; border-radius: 999px;
+  background: transparent; color: var(--dn-muted); font: 650 11px system-ui, sans-serif;
 }
 .dn-seg-btn:hover { background: var(--dn-panel-hover); color: var(--dn-text); }
 .dn-seg-btn.dn-on { color: white; }
@@ -322,7 +327,9 @@ html.dn-show-resolved .dn-gutter-mark.dn-resolved { display: block; opacity: 0.5
 .dn-seg-btn.dn-on[data-kind="todo"] { background: var(--dn-todo); }
 
 /* action buttons */
-.dn-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 9px; }
+	.dn-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 9px; flex-wrap: wrap; }
+.dn-quiet-controls, .dn-main-actions { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.dn-quiet-controls { flex: 1; }
 .dn-btn {
   display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
   min-height: 32px; border: 1px solid transparent; border-radius: 6px; padding: 7px 11px;
@@ -470,36 +477,51 @@ interface Note {
   resolved: boolean;
 }
 
-function collectNotes(): Note[] {
-  const byId = new Map<string, Note>();
-  // The annotated block for each note: the element the root `<aside>` follows.
-  const block = new Map<string, HTMLElement | null>();
+function noteIdsInDocument(): string[] {
+  const ids = new Set<string>();
   for (const aside of document.querySelectorAll<HTMLElement>("aside.dodeca-note")) {
     const id = aside.dataset.noteId;
-    if (!id) continue;
-    let n = byId.get(id);
-    if (!n) {
-      n = { id, quote: aside.dataset.quote ?? "", marks: [], anchor: null, comments: [], resolved: false };
-      byId.set(id, n);
-      block.set(id, annotatedBlock(aside));
-    }
-    if (aside.dataset.resolved === "true") n.resolved = true;
-    n.comments.push({
+    if (id) ids.add(id);
+  }
+  return [...ids];
+}
+
+function noteAsides(id: string): HTMLElement[] {
+  return [...document.querySelectorAll<HTMLElement>("aside.dodeca-note")].filter((aside) => aside.dataset.noteId === id);
+}
+
+function collectNote(id: string): Note | null {
+  const asides = noteAsides(id);
+  const root = asides[0];
+  if (!root) return null;
+  const note: Note = {
+    id,
+    quote: root.dataset.quote ?? "",
+    marks: [],
+    anchor: null,
+    comments: [],
+    resolved: false,
+  };
+  const block = annotatedBlock(root);
+  for (const aside of asides) {
+    if (aside.dataset.resolved === "true") note.resolved = true;
+    note.comments.push({
       author: aside.dataset.author ?? "",
       kind: aside.dataset.kind ?? "note",
       created: aside.dataset.created ?? "",
       bodyHTML: aside.innerHTML,
     });
   }
-  // Derive the highlight non-destructively: locate the quote within the note's
-  // block and wrap it. The source prose was never touched; this is the only
-  // place `<dodeca-mark>` elements come into existence.
-  for (const n of byId.values()) {
-    const b = block.get(n.id) ?? null;
-    if (n.quote && b) n.marks = highlightQuote(b, n.quote, n.id);
-    n.anchor = n.marks[0] ?? b;
-  }
-  return [...byId.values()].sort((a, b) => anchorTop(a) - anchorTop(b));
+  if (note.quote && block) note.marks = highlightQuote(block, note.quote, note.id);
+  note.anchor = note.marks[0] ?? block;
+  return note;
+}
+
+function collectNotes(): Note[] {
+  return noteIdsInDocument()
+    .map(collectNote)
+    .filter((note): note is Note => !!note)
+    .sort((a, b) => anchorTop(a) - anchorTop(b));
 }
 
 /// The block a note annotates: the nearest preceding sibling of its `<aside>`
@@ -671,12 +693,39 @@ function noteSnippet(note: Note): string {
   return collapseWs(note.quote || textFromHTML(first?.bodyHTML ?? "")).trim();
 }
 
+function iconTemplate(svg: string): Node {
+  const template = document.createElement("template");
+  template.innerHTML = svg.trim();
+  return template.content.firstElementChild ?? document.createTextNode("");
+}
+
+function textSpan(className: string, text: string): HTMLSpanElement {
+  const span = document.createElement("span");
+  span.className = className;
+  span.textContent = text;
+  return span;
+}
+
 // ── main ────────────────────────────────────────────────────────────────────
-const AUTHOR_KEY = "dodeca-note-author";
+const CREATE_DRAFT_KEY = "dodeca-note-draft-v1";
+const REPLY_DRAFT_PREFIX = "dodeca-note-reply-draft-v1";
 const SHOW_RESOLVED_KEY = "dodeca-show-resolved";
+
+type AuthorControl = {
+  el: HTMLLabelElement;
+  input: HTMLInputElement;
+  authorForSave: () => string | null;
+  draftAuthor: () => string | null;
+  setDraftAuthor: (author: string | null | undefined) => void;
+};
+type AuthorControlFactory = (onChange?: () => void) => AuthorControl;
 
 function showingResolved(): boolean {
   return document.documentElement.classList.contains("dn-show-resolved");
+}
+
+function confirmDiscardNote(): boolean {
+  return window.confirm("You have an unsaved note. Discard it?");
 }
 
 export function mountAnnotate(): void {
@@ -686,10 +735,79 @@ export function mountAnnotate(): void {
     localStorage.getItem(SHOW_RESOLVED_KEY) === "1",
   );
 
-  const notes = collectNotes();
   const layer = document.createElement("div");
   layer.className = "dodeca-annotate-ui";
   document.body.appendChild(layer);
+
+  let annotationIdentity: AnnotationIdentity = { author: "anon", configured: false };
+  const identityListeners = new Set<() => void>();
+  const notifyIdentityListeners = () => {
+    for (const listener of identityListeners) listener();
+  };
+  void withClient((c) => c.annotationIdentity())
+    .then((identity) => {
+      annotationIdentity = {
+        author: identity.author.trim() || "anon",
+        configured: identity.configured,
+      };
+      notifyIdentityListeners();
+    })
+    .catch((err) => {
+      console.warn("[dodeca-devtools] annotation identity unavailable", err);
+    });
+
+  const makeAuthorControl = (onChange?: () => void): AuthorControl => {
+    const el = document.createElement("label");
+    el.className = "dn-author-field";
+    const label = document.createElement("span");
+    label.textContent = "as";
+    const input = document.createElement("input");
+    input.className = "dn-author";
+    input.type = "text";
+    input.autocomplete = "name";
+    input.spellcheck = false;
+    let touched = false;
+    let appliedDefault = annotationIdentity.author;
+    const applyIdentity = () => {
+      el.classList.toggle("dn-author-unconfigured", !annotationIdentity.configured);
+      input.title = annotationIdentity.configured
+        ? `Default from git user.name: ${annotationIdentity.author}`
+        : "git user.name is not set; blank saves as anon";
+      const value = input.value.trim();
+      if (!touched && (!value || value === appliedDefault)) {
+        input.value = annotationIdentity.author;
+      }
+      appliedDefault = annotationIdentity.author;
+    };
+    input.addEventListener("input", () => {
+      touched = true;
+      onChange?.();
+    });
+    el.append(label, input);
+    identityListeners.add(applyIdentity);
+    applyIdentity();
+    return {
+      el,
+      input,
+      authorForSave: () => {
+        const value = input.value.trim();
+        if (!value) return null;
+        if (!touched || value === annotationIdentity.author) return null;
+        return value;
+      },
+      draftAuthor: () => {
+        const value = input.value.trim();
+        if (!value || value === annotationIdentity.author) return null;
+        return value;
+      },
+      setDraftAuthor: (author) => {
+        const value = author?.trim();
+        if (!value) return;
+        touched = true;
+        input.value = value;
+      },
+    };
+  };
 
   // One card at a time. It opens on hover (preview) and is "pinned" on click so
   // it stays while you interact with it; an unpinned card closes on mouse-out.
@@ -700,47 +818,66 @@ export function mountAnnotate(): void {
     if (closeTimer) clearTimeout(closeTimer);
     closeTimer = undefined;
   };
-  const closeCard = () => {
+  const hasReplyDraft = () => {
+    const ta = openCard?.querySelector<HTMLTextAreaElement>(".dn-reply textarea");
+    return !!ta && ta.value.trim().length > 0;
+  };
+  const closeCard = (force = false): boolean => {
     cancelClose();
+    if (!force && hasReplyDraft() && !confirmDiscardNote()) return false;
     openCard?.remove();
     openCard = null;
     pinned = false;
     document.querySelectorAll("dodeca-mark.dn-active").forEach((m) => m.classList.remove("dn-active"));
+    return true;
   };
   const closeSoon = () => {
     cancelClose();
     closeTimer = window.setTimeout(() => {
-      if (!pinned) closeCard();
+      if (!pinned) {
+        if (hasReplyDraft()) {
+          pinned = true;
+        } else {
+          closeCard(true);
+        }
+      }
     }, 160);
   };
 
   // A reply box at the foot of a card: posts a comment onto the same thread.
   const buildReplyForm = (note: Note): HTMLElement => {
+    const draftKey = `${REPLY_DRAFT_PREFIX}:${location.pathname}:${note.id}`;
     const wrap = document.createElement("div");
     wrap.className = "dn-reply";
     const ta = document.createElement("textarea");
     ta.placeholder = "Reply…";
+    ta.value = localStorage.getItem(draftKey) ?? "";
     const row = document.createElement("div");
     row.className = "dn-reply-row";
-    const author = document.createElement("input");
-    author.className = "dn-reply-author";
-    author.placeholder = "your name";
-    author.value = localStorage.getItem(AUTHOR_KEY) ?? "";
     const resolve = document.createElement("button");
     resolve.className = "dn-btn dn-btn-resolve";
     resolve.textContent = note.resolved ? "Reopen" : "Resolve";
+    const authorControl = makeAuthorControl();
     const send = document.createElement("button");
     send.className = "dn-btn dn-btn-save";
     send.textContent = "Reply";
     const status = document.createElement("div");
     status.className = "dn-reply-status";
-    row.append(author, resolve, send);
+    row.append(resolve, authorControl.el, send);
     wrap.append(ta, row, status);
 
     // Interacting with the reply box pins the card so it doesn't close.
     ta.addEventListener("focus", () => {
       pinned = true;
       cancelClose();
+    });
+    ta.addEventListener("input", () => {
+      const body = ta.value;
+      if (body.trim()) {
+        localStorage.setItem(draftKey, body);
+      } else {
+        localStorage.removeItem(draftKey);
+      }
     });
 
     resolve.addEventListener("click", async () => {
@@ -751,8 +888,8 @@ export function mountAnnotate(): void {
           c.setNoteResolved(location.pathname, note.id, !note.resolved),
         );
         if (res.tag === "Ok") {
-          status.textContent = "saved — reloading…";
-          setTimeout(() => location.reload(), 250);
+          status.textContent = "saved";
+          setTimeout(() => closeCard(true), 250);
         } else {
           status.textContent = res.tag === "NotFound" ? "thread not found" : `error: ${res.message}`;
         }
@@ -764,8 +901,6 @@ export function mountAnnotate(): void {
     const submit = async () => {
       const body = ta.value.trim();
       if (!body) return;
-      const a = author.value.trim();
-      localStorage.setItem(AUTHOR_KEY, a);
       const nonce = newNonce();
       status.textContent = "saving…";
       try {
@@ -775,15 +910,17 @@ export function mountAnnotate(): void {
             sid: "",
             selected_text: "",
             body,
-            author: a || null,
+            author: authorControl.authorForSave(),
             kind: null,
             reply_to: note.id,
             nonce,
           }),
         );
         if (res.tag === "Ok") {
-          status.textContent = "saved — reloading…";
-          setTimeout(() => location.reload(), 250);
+          localStorage.removeItem(draftKey);
+          ta.value = "";
+          status.textContent = "saved";
+          setTimeout(() => closeCard(true), 250);
         } else if (res.tag === "NotFound") {
           status.textContent = "thread not found";
         } else {
@@ -808,7 +945,7 @@ export function mountAnnotate(): void {
   const openNote = (note: Note, pin: boolean) => {
     // Resolved threads don't open unless we're showing resolved.
     if (note.resolved && !showingResolved()) return;
-    if (note !== openNoteRef) closeCard();
+    if (note !== openNoteRef && !closeCard()) return;
     openNoteRef = note;
     pinned = pinned || pin;
     if (!note.anchor) return;
@@ -868,9 +1005,9 @@ export function mountAnnotate(): void {
     setTimeout(() => openNote(note, true), 320);
   };
 
-  // Hover previews a note; click pins it. Block-level notes (no highlight spans)
-  // are reachable from the index and gutter instead.
-  for (const note of notes) {
+  const notesById = new Map<string, Note>();
+
+  const attachNoteHandlers = (note: Note) => {
     for (const m of note.marks) {
       if (note.resolved) m.classList.add("dn-resolved");
       m.addEventListener("mouseenter", () => openNote(note, false));
@@ -882,133 +1019,245 @@ export function mountAnnotate(): void {
         openNote(note, true);
       });
     }
+  };
+
+  const sortedNotes = () => [...notesById.values()].sort((a, b) => anchorTop(a) - anchorTop(b));
+
+  const index = (() => {
+    const wrap = document.createElement("div");
+    wrap.className = "dn-index";
+    const toggle = document.createElement("button");
+    toggle.className = "dn-index-toggle";
+    toggle.type = "button";
+    toggle.setAttribute("aria-expanded", "false");
+    const countBadge = document.createElement("span");
+    countBadge.className = "dn-index-count";
+    toggle.append(iconTemplate(NOTES_ICON), textSpan("dn-index-label", "Notes"), countBadge);
+    const panel = document.createElement("div");
+    panel.className = "dn-index-panel";
+    panel.id = "dodeca-notes-panel";
+    panel.hidden = true;
+    toggle.setAttribute("aria-controls", panel.id);
+    const head = document.createElement("div");
+    head.className = "dn-index-head";
+    const count = document.createElement("span");
+    count.className = "dn-head-count";
+    const headActions = document.createElement("span");
+    headActions.className = "dn-index-head-actions";
+    const allNotes = document.createElement("a");
+    allNotes.className = "dn-index-all";
+    allNotes.href = "/_dodeca/annotations";
+    allNotes.textContent = "All notes";
+    const items = document.createElement("div");
+    const empty = document.createElement("div");
+    empty.className = "dn-empty";
+    empty.textContent = "No notes on this page.";
+    const itemById = new Map<string, HTMLElement>();
+
+    const updateHead = () => {
+      const notes = sortedNotes();
+      const open = notes.filter((n) => !n.resolved);
+      const resolvedCount = notes.length - open.length;
+      countBadge.textContent = String(open.length);
+      count.textContent = `${open.length} note${open.length === 1 ? "" : "s"}`;
+      headActions.textContent = "";
+      headActions.appendChild(allNotes);
+      if (resolvedCount > 0) {
+        const label = document.createElement("label");
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = showingResolved();
+        cb.addEventListener("change", () => {
+          document.documentElement.classList.toggle("dn-show-resolved", cb.checked);
+          localStorage.setItem(SHOW_RESOLVED_KEY, cb.checked ? "1" : "0");
+        });
+        label.append(cb, document.createTextNode(`show ${resolvedCount} resolved`));
+        headActions.appendChild(label);
+      }
+      empty.toggleAttribute("hidden", notes.length > 0);
+    };
+
+    const makeItem = (note: Note): HTMLElement => {
+      const first = note.comments[0];
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = note.resolved ? "dn-index-item dn-resolved" : "dn-index-item";
+      item.style.borderLeftColor = kindColor(first?.kind ?? "note");
+      const meta = document.createElement("span");
+      meta.className = "dn-meta";
+      const author = document.createElement("b");
+      author.textContent = first?.author || "anon";
+      const kind = document.createElement("span");
+      kind.className = "dn-kind";
+      kind.textContent = first?.kind ?? "";
+      kind.style.color = kindColor(first?.kind ?? "note");
+      const date = document.createElement("span");
+      date.className = "dn-date";
+      date.textContent = fmtDate(first?.created ?? "");
+      meta.append(author, kind, date);
+      const snip = document.createElement("span");
+      snip.className = "dn-snip";
+      snip.textContent = noteSnippet(note) || "(note)";
+      item.append(meta, snip);
+      item.addEventListener("click", () => {
+        panel.hidden = true;
+        toggle.setAttribute("aria-expanded", "false");
+        scrollToNote(note);
+      });
+      return item;
+    };
+
+    const reorder = () => {
+      for (const note of sortedNotes()) {
+        const item = itemById.get(note.id);
+        if (item) items.appendChild(item);
+      }
+    };
+
+    toggle.addEventListener("click", () => {
+      panel.hidden = !panel.hidden;
+      toggle.setAttribute("aria-expanded", String(!panel.hidden));
+    });
+    head.append(count, headActions);
+    panel.append(head, empty, items);
+    wrap.append(toggle, panel);
+    layer.appendChild(wrap);
+
+    return {
+      set(note: Note) {
+        itemById.get(note.id)?.remove();
+        const item = makeItem(note);
+        itemById.set(note.id, item);
+        items.appendChild(item);
+        reorder();
+        updateHead();
+      },
+      remove(id: string) {
+        itemById.get(id)?.remove();
+        itemById.delete(id);
+        updateHead();
+      },
+    };
+  })();
+
+  const gutter = (() => {
+    const el = document.createElement("div");
+    el.className = "dn-gutter";
+    const markerById = new Map<string, HTMLElement>();
+    const place = (note: Note, marker: HTMLElement) => {
+      const docH = Math.max(document.documentElement.scrollHeight, 1);
+      const top = note.anchor ? anchorTop(note) : 0;
+      marker.style.top = `${(top / docH) * 100}vh`;
+      marker.style.background = kindColor(note.comments[0]?.kind ?? "note");
+      marker.title = `${note.comments[0]?.author || "anon"}: ${noteSnippet(note).slice(0, 40)}`;
+    };
+    window.addEventListener("resize", () => {
+      for (const note of notesById.values()) {
+        const marker = markerById.get(note.id);
+        if (marker) place(note, marker);
+      }
+    });
+    layer.appendChild(el);
+    return {
+      set(note: Note) {
+        markerById.get(note.id)?.remove();
+        if (!note.anchor) return;
+        const marker = document.createElement("div");
+        marker.className = note.resolved ? "dn-gutter-mark dn-resolved" : "dn-gutter-mark";
+        marker.addEventListener("click", () => scrollToNote(note));
+        markerById.set(note.id, marker);
+        place(note, marker);
+        el.appendChild(marker);
+      },
+      remove(id: string) {
+        markerById.get(id)?.remove();
+        markerById.delete(id);
+      },
+    };
+  })();
+
+  const removeNote = (id: string) => {
+    const old = notesById.get(id);
+    if (old) {
+      if (openNoteRef?.id === id) closeCard(true);
+      unwrapElements(old.marks);
+      notesById.delete(id);
+    }
+    index.remove(id);
+    gutter.remove(id);
+  };
+  const upsertNote = (id: string) => {
+    removeNote(id);
+    const note = collectNote(id);
+    if (!note) return;
+    attachNoteHandlers(note);
+    notesById.set(id, note);
+    index.set(note);
+    gutter.set(note);
+  };
+  for (const note of collectNotes()) {
+    attachNoteHandlers(note);
+    notesById.set(note.id, note);
+    index.set(note);
+    gutter.set(note);
   }
+
+  const noteIdsInNode = (node: Node, ids: Set<string>) => {
+    if (!(node instanceof Element)) return;
+    if (node.matches("aside.dodeca-note")) {
+      const id = (node as HTMLElement).dataset.noteId;
+      if (id) ids.add(id);
+    }
+    for (const aside of node.querySelectorAll<HTMLElement>("aside.dodeca-note")) {
+      const id = aside.dataset.noteId;
+      if (id) ids.add(id);
+    }
+  };
+  const noteIdsFromMutations = (records: MutationRecord[]): Set<string> => {
+    const ids = new Set<string>();
+    for (const record of records) {
+      noteIdsInNode(record.target, ids);
+      record.addedNodes.forEach((node) => noteIdsInNode(node, ids));
+      record.removedNodes.forEach((node) => noteIdsInNode(node, ids));
+    }
+    return ids;
+  };
+  let updateTimer: number | undefined;
+  const pendingNoteIds = new Set<string>();
+  const scheduleNoteUpdates = (ids: Set<string>) => {
+    for (const id of ids) pendingNoteIds.add(id);
+    window.clearTimeout(updateTimer);
+    updateTimer = window.setTimeout(() => {
+      const ids = [...pendingNoteIds];
+      pendingNoteIds.clear();
+      for (const id of ids) upsertNote(id);
+    }, 0);
+  };
+  const noteObserver = new MutationObserver((records) => {
+    const ids = noteIdsFromMutations(records);
+    if (ids.size) scheduleNoteUpdates(ids);
+  });
+  noteObserver.observe(document.body, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: [
+      "data-note-id",
+      "data-quote",
+      "data-author",
+      "data-kind",
+      "data-created",
+      "data-resolved",
+    ],
+  });
   // Click-away closes a pinned card.
   document.addEventListener("click", (e) => {
     const t = e.target as Element | null;
     if (openCard && !openCard.contains(t) && !t?.closest?.("dodeca-mark")) closeCard();
   });
 
-  buildIndex(layer, notes, scrollToNote);
-  buildGutter(layer, notes, scrollToNote);
-  installCreateUI(layer);
-  console.log(`[dodeca-devtools] annotate ready — ${notes.length} note(s)`);
-}
-
-// ── note index (top-right) ───────────────────────────────────────────────────
-function buildIndex(layer: HTMLElement, notes: Note[], onPick: (n: Note) => void): void {
-  const wrap = document.createElement("div");
-  wrap.className = "dn-index";
-  const open = notes.filter((n) => !n.resolved);
-  const resolvedCount = notes.length - open.length;
-  const toggle = document.createElement("button");
-  toggle.className = "dn-index-toggle";
-  toggle.type = "button";
-  toggle.setAttribute("aria-expanded", "false");
-  toggle.innerHTML =
-    `${NOTES_ICON}<span class="dn-index-label">Notes</span>` +
-    `<span class="dn-index-count">${open.length}</span>`;
-  const panel = document.createElement("div");
-  panel.className = "dn-index-panel";
-  panel.id = "dodeca-notes-panel";
-  panel.hidden = true;
-  toggle.setAttribute("aria-controls", panel.id);
-
-  const head = document.createElement("div");
-  head.className = "dn-index-head";
-  const count = document.createElement("span");
-  count.className = "dn-head-count";
-  count.textContent = `${open.length} note${open.length === 1 ? "" : "s"}`;
-  head.appendChild(count);
-  const headActions = document.createElement("span");
-  headActions.className = "dn-index-head-actions";
-  const allNotes = document.createElement("a");
-  allNotes.className = "dn-index-all";
-  allNotes.href = "/_dodeca/annotations";
-  allNotes.textContent = "All notes";
-  headActions.appendChild(allNotes);
-  if (resolvedCount > 0) {
-    const label = document.createElement("label");
-    const cb = document.createElement("input");
-    cb.type = "checkbox";
-    cb.checked = showingResolved();
-    cb.addEventListener("change", () => {
-      document.documentElement.classList.toggle("dn-show-resolved", cb.checked);
-      localStorage.setItem(SHOW_RESOLVED_KEY, cb.checked ? "1" : "0");
-    });
-    label.append(cb, document.createTextNode(`show ${resolvedCount} resolved`));
-    headActions.appendChild(label);
-  }
-  head.appendChild(headActions);
-  panel.appendChild(head);
-
-  if (notes.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "dn-empty";
-    empty.textContent = "No notes on this page.";
-    panel.appendChild(empty);
-  }
-  for (const note of notes) {
-    const first = note.comments[0];
-    const item = document.createElement("button");
-    item.type = "button";
-    item.className = note.resolved ? "dn-index-item dn-resolved" : "dn-index-item";
-    item.style.borderLeftColor = kindColor(first?.kind ?? "note");
-    const meta = document.createElement("span");
-    meta.className = "dn-meta";
-    const author = document.createElement("b");
-    author.textContent = first?.author || "anon";
-    const kind = document.createElement("span");
-    kind.className = "dn-kind";
-    kind.textContent = first?.kind ?? "";
-    kind.style.color = kindColor(first?.kind ?? "note");
-    const date = document.createElement("span");
-    date.className = "dn-date";
-    date.textContent = fmtDate(first?.created ?? "");
-    meta.append(author, kind, date);
-    const snip = document.createElement("span");
-    snip.className = "dn-snip";
-    snip.textContent = noteSnippet(note) || "(note)";
-    item.append(meta, snip);
-    item.addEventListener("click", () => {
-      panel.hidden = true;
-      toggle.setAttribute("aria-expanded", "false");
-      onPick(note);
-    });
-    panel.appendChild(item);
-  }
-
-  toggle.addEventListener("click", () => {
-    panel.hidden = !panel.hidden;
-    toggle.setAttribute("aria-expanded", String(!panel.hidden));
-  });
-  wrap.append(toggle, panel);
-  layer.appendChild(wrap);
-}
-
-// ── gutter markers (right edge) ──────────────────────────────────────────────
-function buildGutter(layer: HTMLElement, notes: Note[], onPick: (n: Note) => void): void {
-  const gutter = document.createElement("div");
-  gutter.className = "dn-gutter";
-  layer.appendChild(gutter);
-
-  const place = () => {
-    gutter.innerHTML = "";
-    const docH = Math.max(document.documentElement.scrollHeight, 1);
-    for (const note of notes) {
-      if (!note.anchor) continue;
-      const top = anchorTop(note);
-      const mark = document.createElement("div");
-      mark.className = note.resolved ? "dn-gutter-mark dn-resolved" : "dn-gutter-mark";
-      mark.style.top = `${(top / docH) * 100}vh`;
-      mark.style.background = kindColor(note.comments[0]?.kind ?? "note");
-      mark.title = `${note.comments[0]?.author || "anon"}: ${noteSnippet(note).slice(0, 40)}`;
-      mark.addEventListener("click", () => onPick(note));
-      gutter.appendChild(mark);
-    }
-  };
-  place();
-  window.addEventListener("resize", place);
+  installCreateUI(layer, makeAuthorControl);
+  console.log(`[dodeca-devtools] annotate ready — ${notesById.size} note(s)`);
 }
 
 // ── create popup (select text → author a note) ───────────────────────────────
@@ -1016,6 +1265,15 @@ interface Target {
   sid: string;
   text: string;
 }
+
+interface CreateDraft {
+  route: string;
+  target: Target;
+  body: string;
+  kind: string;
+  author?: string | null;
+}
+
 function targetForSelection(sel: Selection): Target | null {
   if (sel.rangeCount === 0 || sel.isCollapsed) return null;
   const text = sel.toString().trim();
@@ -1036,7 +1294,7 @@ const KINDS: { kind: string; code: string; label: string; hint: string }[] = [
   { kind: "todo", code: "KeyT", label: "todo", hint: "⌥T" },
 ];
 
-function installCreateUI(layer: HTMLElement): void {
+function installCreateUI(layer: HTMLElement, makeAuthorControl: AuthorControlFactory): void {
   const actions = document.createElement("div");
   actions.className = "dn-selection-actions";
   actions.hidden = true;
@@ -1050,29 +1308,28 @@ function installCreateUI(layer: HTMLElement): void {
   ui.className = "dn-create";
   ui.hidden = true;
   const segs = KINDS.map(
-    (k) => `<button type="button" class="dn-seg-btn" data-kind="${k.kind}">${k.label}</button>`,
+    (k) => `<button type="button" class="dn-seg-btn" data-kind="${k.kind}" title="${k.label} (${k.hint})">${k.label}</button>`,
   ).join("");
   ui.innerHTML = `
-    <div class="dn-seg">${segs}</div>
-    <div class="dn-row" style="margin-top:6px">
-      <input class="dn-author" type="text" placeholder="your name" />
-      <span class="dn-quote"></span>
-    </div>
     <textarea class="dn-body" placeholder="Write a note…"></textarea>
     <div class="dn-actions">
-      <button type="button" class="dn-btn dn-btn-ghost dn-newpage" title="Create a page titled with the selection">${PAGE_ICON}Page</button>
-      <button type="button" class="dn-btn dn-btn-ghost dn-cancel">Cancel</button>
-      <button type="button" class="dn-btn dn-btn-save dn-save">Save</button>
+      <div class="dn-quiet-controls">
+        <div class="dn-seg">${segs}</div>
+      </div>
+      <div class="dn-main-actions">
+        <button type="button" class="dn-btn dn-btn-ghost dn-cancel">Cancel</button>
+        <button type="button" class="dn-btn dn-btn-save dn-save">Save</button>
+      </div>
     </div>
     <div class="dn-status"></div>
   `;
   layer.appendChild(ui);
-  const authorEl = ui.querySelector(".dn-author") as HTMLInputElement;
-  const quoteEl = ui.querySelector(".dn-quote") as HTMLElement;
   const bodyEl = ui.querySelector(".dn-body") as HTMLTextAreaElement;
   const statusEl = ui.querySelector(".dn-status") as HTMLElement;
+  const quietControls = ui.querySelector(".dn-quiet-controls") as HTMLElement;
   const segBtns = [...ui.querySelectorAll<HTMLButtonElement>(".dn-seg-btn")];
-  authorEl.value = localStorage.getItem(AUTHOR_KEY) ?? "";
+  const authorControl = makeAuthorControl(() => writeCreateDraft());
+  quietControls.appendChild(authorControl.el);
 
   // Create-page picker: a separate affordance (not a note kind) that turns the
   // selection into a new page in a fuzzy-chosen section. The backend mints the
@@ -1100,12 +1357,68 @@ function installCreateUI(layer: HTMLElement): void {
     for (const b of segBtns) b.classList.toggle("dn-on", b.dataset.kind === k);
   };
   setKind("note");
-  for (const b of segBtns) b.addEventListener("click", () => setKind(b.dataset.kind!));
+  for (const b of segBtns) b.addEventListener("click", () => {
+    setKind(b.dataset.kind!);
+    writeCreateDraft();
+  });
 
   let pending: Target | null = null;
   let pendingRect: DOMRect | null = null;
   let pendingRange: Range | null = null;
-  const hide = () => {
+  const draftForPending = (): CreateDraft | null => {
+    if (!pending) return null;
+    const body = bodyEl.value;
+    if (!body.trim()) return null;
+    return {
+      route: location.pathname,
+      target: pending,
+      body,
+      kind,
+      author: authorControl.draftAuthor(),
+    };
+  };
+  const writeCreateDraft = () => {
+    const draft = draftForPending();
+    if (draft) {
+      localStorage.setItem(CREATE_DRAFT_KEY, JSON.stringify(draft));
+    } else {
+      localStorage.removeItem(CREATE_DRAFT_KEY);
+    }
+  };
+  const readCreateDraft = (): CreateDraft | null => {
+    const raw = localStorage.getItem(CREATE_DRAFT_KEY);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw) as Partial<CreateDraft>;
+      if (
+        parsed.route === location.pathname &&
+        typeof parsed.body === "string" &&
+        parsed.body.trim() &&
+        typeof parsed.kind === "string" &&
+        parsed.target &&
+        typeof parsed.target.sid === "string" &&
+        typeof parsed.target.text === "string" &&
+        parsed.target.sid &&
+        parsed.target.text
+      ) {
+        return {
+          route: parsed.route,
+          target: parsed.target,
+          body: parsed.body,
+          kind: parsed.kind,
+          author: typeof parsed.author === "string" ? parsed.author : null,
+        };
+      }
+    } catch {
+      // Ignore an old or corrupted draft; the next edit will overwrite it.
+    }
+    return null;
+  };
+  const clearCreateDraft = () => localStorage.removeItem(CREATE_DRAFT_KEY);
+  const hasCreateDraft = () => bodyEl.value.trim().length > 0;
+  const hide = (force = false): boolean => {
+    if (!force && !ui.hidden && hasCreateDraft() && !confirmDiscardNote()) return false;
+    if (hasCreateDraft()) clearCreateDraft();
     actions.hidden = true;
     ui.hidden = true;
     picker.hidden = true;
@@ -1113,6 +1426,7 @@ function installCreateUI(layer: HTMLElement): void {
     pendingRect = null;
     pendingRange = null;
     clearPendingHighlight();
+    return true;
   };
 
   const isCoarse = () =>
@@ -1126,8 +1440,15 @@ function installCreateUI(layer: HTMLElement): void {
   };
 
   const placeNearSelection = (el: HTMLElement, width: number) => {
-    if (!pendingRect) return;
-    if (isCoarse()) {
+    if (!pendingRect) {
+      el.style.position = "fixed";
+      el.style.top = "auto";
+      el.style.bottom = "16px";
+      el.style.left = "auto";
+      el.style.right = "16px";
+      el.style.width = `min(${width}px, calc(100vw - 32px))`;
+      el.style.transform = "";
+    } else if (isCoarse()) {
       el.style.position = "fixed";
       el.style.top = "auto";
       el.style.bottom = "12px";
@@ -1169,6 +1490,10 @@ function installCreateUI(layer: HTMLElement): void {
   // Mouse-opened selection stays a normal browser selection: copying must still
   // copy the selected prose. The keyboard shortcut focuses the first action.
   const openActionsForSelection = (evtTarget: EventTarget | null, focusFirst = false): boolean => {
+    if (!ui.hidden && hasCreateDraft()) {
+      if (!confirmDiscardNote()) return false;
+      clearCreateDraft();
+    }
     if (!captureSelection(evtTarget)) return false;
     ui.hidden = true;
     picker.hidden = true;
@@ -1181,17 +1506,48 @@ function installCreateUI(layer: HTMLElement): void {
     return true;
   };
 
-  const openComposer = () => {
+  const draftForSelection = (): CreateDraft | null => {
+    const draft = readCreateDraft();
+    if (
+      draft &&
+      pending &&
+      draft.target.sid === pending.sid &&
+      draft.target.text === pending.text
+    ) {
+      return draft;
+    }
+    return null;
+  };
+
+  const openComposer = (draft = draftForSelection()) => {
     if (!pending || !pendingRange) return;
-    quoteEl.textContent = pending.text.length > 80 ? `${pending.text.slice(0, 77)}…` : pending.text;
-    bodyEl.value = "";
+    bodyEl.value = draft?.body ?? "";
+    authorControl.setDraftAuthor(draft?.author);
+    setKind(draft?.kind ?? "note");
     statusEl.textContent = "";
-    setKind("note");
     actions.hidden = true;
     picker.hidden = true;
     ui.hidden = false;
     showPendingHighlight(pendingRange);
-    placeNearSelection(ui, 368);
+    writeCreateDraft();
+    placeNearSelection(ui, 520);
+    if (!isCoarse()) {
+      bodyEl.focus({ preventScroll: true });
+    }
+  };
+
+  const restoreComposer = (draft: CreateDraft) => {
+    pending = draft.target;
+    pendingRange = null;
+    pendingRect = null;
+    bodyEl.value = draft.body;
+    authorControl.setDraftAuthor(draft.author);
+    setKind(draft.kind);
+    statusEl.textContent = "draft restored from this browser";
+    actions.hidden = true;
+    picker.hidden = true;
+    ui.hidden = false;
+    placeNearSelection(ui, 520);
     if (!isCoarse()) {
       bodyEl.focus({ preventScroll: true });
     }
@@ -1209,6 +1565,20 @@ function installCreateUI(layer: HTMLElement): void {
     if (e.key === "Escape" && pending && !isEditableTarget(e.target)) {
       e.preventDefault();
       hide();
+      return;
+    }
+    if (
+      !e.altKey &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      !e.shiftKey &&
+      e.code === "KeyR" &&
+      !isEditableTarget(e.target) &&
+      (captureSelection(e.target) || pending)
+    ) {
+      e.preventDefault();
+      e.stopPropagation();
+      openComposer();
       return;
     }
     if (
@@ -1260,8 +1630,6 @@ function installCreateUI(layer: HTMLElement): void {
     const target = pending; // capture non-null for the deferred withClient closure
     const body = bodyEl.value.trim();
     if (!body) return;
-    const author = authorEl.value.trim();
-    localStorage.setItem(AUTHOR_KEY, author);
     const nonce = newNonce();
     statusEl.textContent = "saving…";
     try {
@@ -1271,7 +1639,7 @@ function installCreateUI(layer: HTMLElement): void {
           sid: target.sid,
           selected_text: target.text,
           body,
-          author: author || null,
+          author: authorControl.authorForSave(),
           kind,
           reply_to: null,
           nonce,
@@ -1279,10 +1647,10 @@ function installCreateUI(layer: HTMLElement): void {
       );
       switch (res.tag) {
         case "Ok":
-          statusEl.textContent = "saved — reloading…";
-          // The note now lives in source; reload to re-render + re-scan cleanly
-          // (avoids fighting the WASM devtools' HMR over our injected DOM).
-          setTimeout(() => location.reload(), 250);
+          clearCreateDraft();
+          bodyEl.value = "";
+          statusEl.textContent = "saved";
+          setTimeout(() => hide(true), 250);
           break;
         case "NotFound":
           statusEl.textContent = "couldn't map the selection back to source";
@@ -1296,11 +1664,12 @@ function installCreateUI(layer: HTMLElement): void {
     }
   };
 
+  bodyEl.addEventListener("input", writeCreateDraft);
   (ui.querySelector(".dn-save") as HTMLButtonElement).addEventListener("click", () => void save());
-  (ui.querySelector(".dn-cancel") as HTMLButtonElement).addEventListener("click", hide);
+  (ui.querySelector(".dn-cancel") as HTMLButtonElement).addEventListener("click", () => hide());
 
   // Keyboard, handled at the popup level so the shortcuts work from any field:
-  // Esc cancels, ⌘/Ctrl+↵ saves, ⌥+letter picks a kind (by physical key code).
+  // Esc cancels after confirmation, ⌘/Ctrl+↵ saves, ⌥+letter picks a kind.
   ui.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       e.preventDefault();
@@ -1313,6 +1682,7 @@ function installCreateUI(layer: HTMLElement): void {
       if (match) {
         e.preventDefault();
         setKind(match.kind);
+        writeCreateDraft();
       }
     }
   });
@@ -1406,13 +1776,18 @@ function installCreateUI(layer: HTMLElement): void {
       hide();
     }
   });
-  (actions.querySelector(".dn-action-note") as HTMLButtonElement).addEventListener("click", openComposer);
+  (actions.querySelector(".dn-action-note") as HTMLButtonElement).addEventListener("click", () => openComposer());
   (actions.querySelector(".dn-action-page") as HTMLButtonElement).addEventListener("click", () =>
     void openPagePicker(),
   );
-  (ui.querySelector(".dn-newpage") as HTMLButtonElement).addEventListener("click", () =>
-    void openPagePicker(),
-  );
+  window.addEventListener("beforeunload", (e) => {
+    if (!ui.hidden && hasCreateDraft()) {
+      e.preventDefault();
+      e.returnValue = "";
+    }
+  });
+  const restoredDraft = readCreateDraft();
+  if (restoredDraft) restoreComposer(restoredDraft);
   // Warm the connection so the first save is snappy; failures surface on save.
   void client().catch((err) => console.error("[dodeca-devtools] annotate connect failed:", err));
 }
