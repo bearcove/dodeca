@@ -172,8 +172,20 @@ JIT -> jitdump -> stax source-level profile + annotated disasm. Note: a couple <
 (run_intop_native ctx setup / done thunk). Clock = wall-clock ns stand-in (spec wants CLOCK_MONOTONIC;
 fine here since loads precede samples).
 
-Open threads (Amos's list): debug/profile of JIT'd code (DONE — source-mapped ^ + stax verified),
-serialization
+### Serialization via phon — bytecode vs native (commit b1459b223, `--serialize`)
+Answer: serialize the PORTABLE Facet forms with phon, re-JIT on load. IntOp derives Facet;
+`phon::api::encode/decode` round-trips the generated AST (gen_ast::Expr, 200B) AND the op stream
+(Vec<IntOp>, 152B); reload = decode op bytecode -> build_intop_native -> run (=77, verified).
+Sizes: template src 35B, phon AST 200B, phon ops 152B, native code 484B (arch-locked). Verdict:
+BYTECODE — smaller than native, portable across arch/OS, SAFE (recompiled from trusted stencils,
+not executing cached bytes), re-JIT ~µs (amortizes instantly). Native = same-machine cache only
+(arch/OS-locked, needs weavy NativeProgram::from_parts to reload, trusts raw bytes). The op stream
+IS the bytecode; phon (itself a copy-and-patch codec) carries it as data — its JIT decodes the bytes
+that drive our JIT. Levels available to cache: source (smallest, full recompile) / AST (skip parse)
+/ ops (skip parse+lower, re-JIT only). Next: native from_parts roundtrip for the same-arch fast cache.
+
+Open threads (Amos's list): debug/profile of JIT'd code (DONE — source-mapped + stax verified),
+serialization (DONE — phon bytecode, bytecode>native)
 (property shown, needs weavy from_parts for the reload roundtrip), snark error reporting (snark has
 exact expected-terminal set + byte pos; needs friendly names + line:col + construct context; best
 after lean parse lands — see gingembre-snark-lean-parse.md).
