@@ -233,7 +233,29 @@ entry). VERIFIED: lldb breaks ON the guard — `breakpoint set -f snark-spec.lis
 (-K false stops at the stencil's first instruction instead of prologue-sliding past it) ->
 `frame #0: JIT(...) snark-spec.listing:1 -> "guard x is i64"`.
 
-NEXT: snark error reporting (last open thread).
+### Snark error reporting — derived diagnostics (commit 8b9265781, `--diag`)
+`diagnose(err, parser, table, name, src)` in the spike: shapes NoToken/NoAction into human
+diagnostics with EVERYTHING derived from grammar + table (no per-construct prose):
+- **TermNames::derive**: a pattern terminal is named after the visible single-terminal rule that
+  defines it (`number: $ => /\d+/` names the pattern "number") — public_names is EMPTY for
+  patterns by construction (parser.rs:840), this derivation is the fix. Literals -> backticks.
+  Extras (via extra_roots()) + unnamed internal lexical variables filtered from expected lists.
+- **Kernel-only rule**: headline nonterminal from the error state's kernel items (dot>0) only —
+  closure items would spam every alternative ("ternary or binary or unary or...former bug");
+  kernel gives "expected expr". "while parsing" likewise from kernel items (visible lhs).
+- NoAction has no expected list in the error -> derive from the state's own entries() lookaheads.
+- line:col + caret from source.
+Results: `{{ 1 + }}` -> "expected expr, found \`}\`" + friendly expected list + "while parsing:
+binary"; `{{ 1 +* 2 }}` -> "expected expr, found \`*\`" (gingembre wrongly says "end of input" +
+"expected expected" doubled). **2 of 3 beat gingembre's hand-written prose.** Remaining gap:
+unclosed-if ("expected {% endif %}") needs the PARSE STACK — if_statement's item sits in a stacked
+state, not the error state. **API ask for snark: NoToken/NoAction carry the state stack
+(Vec<ParseStateId>, cheap at error time); then in_progress = kernel items across stacked states,
+and the closer terminal falls out mechanically for every rule.** All public API otherwise; the
+whole diagnose module can port into snark as-is.
+
+DONE: all of Amos's open threads (debug/profile JIT ✓, serialization ✓, error reporting ✓ modulo
+the stack ask which is PL core's one-liner).
 
 Open threads (Amos's list): debug/profile of JIT'd code (DONE — source map + stax + real DWARF,
 graduated into weavy), serialization (DONE — phon bytecode > native), snark error reporting (pending,
