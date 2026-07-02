@@ -205,8 +205,28 @@ Full source-level debugging of copy-and-patch JIT'd code. Also dwarfdump-verifie
 KAJIT_DEBUG_DUMP_ELF_DIR=/tmp/jitelf. Next: this belongs in weavy::jit as a reusable debug module
 (all weavy JIT consumers); columns in .debug_line (sub-expr on one line); DWARF for the guarded/IC lanes.
 
-Open threads (Amos's list): debug/profile of JIT'd code (DONE — source map + stax + real DWARF),
-serialization (DONE — phon bytecode > native), snark error reporting (pending, best with lean parse).
+### GRADUATED into weavy::jit (commits 30ff210ca + merge a2202e4b0)
+weavy/src/jit.rs -> jit/mod.rs; new `weavy::jit::debug` (GDB/LLDB JIT interface, in-memory ELF
+builder, perf-map, perf-jitdump writer; facade `JitSourceSymbol` + `register_jit_source(code_ptr,
+code_len, file_name, dir, &symbols)` -> JitRegistration + unsafe `write_jitdump(path, code_ptr,
+&symbols)`) and `weavy::jit::dwarf` (DWARF v4). Every weavy JIT consumer (snark/facet-json/phon/
+spike) gets lldb source-debug + stax/perf profiling for free. Spike now calls the facade; its local
+copies deleted (kept validate_jitdump as independent stax-format oracle; write_jitdump is unsafe —
+reads symbol code ranges, safety contract documented). MERGED main into snark-playground-rebased
+(a2202e4b0): PL core's 4539d881b "direct Weavy parse the default" (+ RuntimeResolvedNode ->
+ResolvedCstNode rename — lean parse landing!), e7fd43928 HostCallChain runtime-rebind (rename-
+detected into jit/mod.rs), dd3cd5d68 lib fast-path. One conflict (leaf_text: kept generic ParseNode
++ their rename). Full sweep green post-merge: 39/0 oracle, 57/57 corpus, all 9 JIT modes. PL core
+notified (grab at/after a2202e4b0).
+
+QUEUED (Amos wants): DWARF columns in .debug_line (pin a sub-expression WITHIN a template line —
+today one listing line per op; columns let the real template file be the debug source directly);
+DWARF for the guarded/IC lanes (--speculate/--ic programs get register_jit_source too, so lldb can
+stop on a guard/deopt). Then: snark error reporting.
+
+Open threads (Amos's list): debug/profile of JIT'd code (DONE — source map + stax + real DWARF,
+graduated into weavy), serialization (DONE — phon bytecode > native), snark error reporting (pending,
+best with lean parse — which PL core has now started landing).
 (property shown, needs weavy from_parts for the reload roundtrip), snark error reporting (snark has
 exact expected-terminal set + byte pos; needs friendly names + line:col + construct context; best
 after lean parse lands — see gingembre-snark-lean-parse.md).
