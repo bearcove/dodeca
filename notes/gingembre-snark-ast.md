@@ -219,10 +219,21 @@ detected into jit/mod.rs), dd3cd5d68 lib fast-path. One conflict (leaf_text: kep
 + their rename). Full sweep green post-merge: 39/0 oracle, 57/57 corpus, all 9 JIT modes. PL core
 notified (grab at/after a2202e4b0).
 
-QUEUED (Amos wants): DWARF columns in .debug_line (pin a sub-expression WITHIN a template line —
-today one listing line per op; columns let the real template file be the debug source directly);
-DWARF for the guarded/IC lanes (--speculate/--ic programs get register_jit_source too, so lldb can
-stop on a guard/deopt). Then: snark error reporting.
+### DWARF columns + guard/IC-lane DWARF — DONE (commit a86929020)
+Columns: JitDebugLineRow/JitSourceSymbol gained `column` (1-based, 0=none); build_debug_line_section
+emits DW_LNS_set_column (opcode 5, already in STANDARD_OPCODE_LENGTHS); source_map now
+(offset, line_index, column) triples; 73/73 weavy tests incl. new column round-trip. Spike --debug:
+the REAL TEMPLATE FILE is the debug source (snark-template.jinja), ops map to line 1 + a column
+pinning the sub-expression. VERIFIED: dwarfdump shows per-op Column (4/8/12/16/20); lldb COLUMN
+breakpoint `breakpoint set -f snark-template.jinja -l 1 -u 8` stops in the JIT'd stencil at
+`snark-template.jinja:1:8`. Guard/IC lanes: build_spec_native/build_ic_native return per-op offsets;
+register_spec_program writes a guard-aware listing ("guard x is i64 (deopt otherwise)") and
+registers; each IC specialization = its own registered JIT image (registration lives in the cache
+entry). VERIFIED: lldb breaks ON the guard — `breakpoint set -f snark-spec.listing -l 1 -K false`
+(-K false stops at the stencil's first instruction instead of prologue-sliding past it) ->
+`frame #0: JIT(...) snark-spec.listing:1 -> "guard x is i64"`.
+
+NEXT: snark error reporting (last open thread).
 
 Open threads (Amos's list): debug/profile of JIT'd code (DONE — source map + stax + real DWARF,
 graduated into weavy), serialization (DONE — phon bytecode > native), snark error reporting (pending,
