@@ -63,6 +63,24 @@ Result oracle'd vs gingembre (71). Variables = not-statically-known → guard+de
 branch chain (speculate SMI, deopt to boxed on miss) + inline-cache-style feedback = next.
 This is the reason eval-on-weavy matters: monomorphic specialized stencils = the fast path.
 
+## Parse gap root-caused (commit 24a4f7c15, `--profile`)
+Hypothesis (Amos): parser collects too much info instead of efficiently building the AST — and
+"parse to AST should be a DIFFERENT LOWERING, falling back to rich parse on errors." Confirmed:
+- Tree materialization (resolved tree) is CHEAP (~0-4us). NOT the bottleneck.
+- Parse loop is the cost: ~300ns/step. `{{1+2*3}}`=106 steps/30us, if/else=180/62us, for=234/87us.
+- **fork (max_live_versions) ≈ 1** for valid input (if/for peak at 2, one transient decision) —
+  so the GLR multi-branch machinery is pure overhead.
+- `step_runtime_weavy_branch` does `branch.clone()` (full LR stack Vec + auto_close_stack +
+  reusable_nodes + tree_journal) on ~every action, UNCONDITIONALLY.
+- ~0.9 trace + ~0.15 tree events collected PER STEP unconditionally (91 trace/17 tree for a
+  13-char template) + VecDeque + HashMap recovery-costs + version tracking.
+Fix = lean single-stack parse->AST lowering: one mutable stack (no clone), emit AST build-ops
+directly on reduce (fuse parse+materialize, no sexp/trace/tree events), GLR-fork only on real
+table conflicts; rich parse (parse_prepared_weavy_with_report) kept only for error/ambiguity
+fallback. Lives in SNARK (needs internal table actions + lexer program) = PL core's domain;
+additive new entry point, doesn't touch the hot loop. Blocker for spike prototype: ParseTable
+action/goto + lexer aren't public.
+
 ## Done (earlier)
 - `fedb4794a` (branch snark-playground-rebased): snark-dsl `ast({...})` DSL helper +
   `emit_source_with_annotations_boa(src,name) -> (grammar_json, annotations_json)`.
