@@ -157,7 +157,23 @@ template text) and stax. Language-level debug+profile of JIT'd code, done. (Note
 the profiling lowering off the parse tree, NOT via the generated AST — keeps the AST oracles intact;
 production would carry spans on the generated nodes like gingembre's ast does.)
 
-Open threads (Amos's list): debug/profile of JIT'd code (DONE — source-mapped ^), serialization
+### stax profiling of JIT'd code — WORKING end-to-end (commit ffb69e370, `--hot`)
+`write_jitdump` emits `/tmp/jit-<pid>.dump` in perf jitdump format (40-byte header magic 0x4A695444
+LE; JIT_CODE_LOAD records: id0/total_size/ts + pid/tid/vma/code_addr/code_size/code_index + name\0 +
+code bytes; stax uses `vma` @payload[8..16], size @[24..32]). One record per op: name = source
+snippet, bytes = the op's ACTUAL patched runtime bytes (read from code_ptr()+start). Self-validated
+by re-parsing (mirror of stax jitdump_tail). `--hot [secs]` JITs a chunky int expr, emits the dump,
+runs the JIT'd program hot. VERIFIED live: `stax record -l 5 -- <bin> --hot 7` (staxd was running) ->
+run 64, 4117 kperf samples -> `stax top` symbolicates every stencil to its TEMPLATE SOURCE
+(`jit::op17_mul [9 * 2]`, `jit::op40_add [whole expr]`); `stax annotate 'jit::op17_mul [9 * 2]'` shows
+per-instruction samples on the live JIT'd machine code (mul x9,x10,x9 = 7 samples; the patched
+`b weavy_cont` at the end). Running the bin directly needs CARGO_MANIFEST_DIR set. So: copy-and-patch
+JIT -> jitdump -> stax source-level profile + annotated disasm. Note: a couple <unresolved> frames
+(run_intop_native ctx setup / done thunk). Clock = wall-clock ns stand-in (spec wants CLOCK_MONOTONIC;
+fine here since loads precede samples).
+
+Open threads (Amos's list): debug/profile of JIT'd code (DONE — source-mapped ^ + stax verified),
+serialization
 (property shown, needs weavy from_parts for the reload roundtrip), snark error reporting (snark has
 exact expected-terminal set + byte pos; needs friendly names + line:col + construct context; best
 after lean parse lands — see gingembre-snark-lean-parse.md).
