@@ -81,6 +81,26 @@ fallback. Lives in SNARK (needs internal table actions + lexer program) = PL cor
 additive new entry point, doesn't touch the hot loop. Blocker for spike prototype: ParseTable
 action/goto + lexer aren't public.
 
+## REAL copy-and-patch JIT — "let it JIT" met (commit 70373bbf9, `--specialize`)
+Earlier "JIT" claims were HOSTCALL chains (emit_hostcall only, 0 emit_stencil): each op is an
+indirect call into interpreted Rust; copy-patch machinery used only to stitch the chain =
+unrolled threaded interpreter, NOT copy-and-patch. Amos caught the conflation. facet-json = 2
+trivial stencils + hostcall (beachhead). **phon-jit = the real reference: 63 dedicated stencils,
+0 hostcalls**, built on the SAME weavy::jit infra (StencilLayout/patch_branch26) + copypatch::extract.
+Now done for the unboxed IntOp lane, mirroring phon:
+- `stencils/intop.rs`: extern C push/add/sub/mul, each tail-calls undefined `weavy_cont` (the
+  BRANCH26 hole), immediates via `Ctx.prog`; done = lone ret.
+- build.rs `build_intop_stencils`: `copypatch::extract::compile_object` (rustc --emit=obj -O
+  panic=abort relocation-model=static) + `extract_stencil` -> $OUT_DIR/intop_stencils.rs (bytes+cont_relocs).
+- main.rs `build_intop_native`: emit_stencil per op + patch_continuation(site+rel -> next), push
+  immediates to prog stream, NativeProgram, run over an i64 stack. IntCtx repr(C) matches stencil Ctx.
+Measured (23-op expr, JIT run-only, 1M iters): (a) boxed HOSTCALL ~430ns, (b) unboxed HOSTCALL ~60ns,
+(c) unboxed COPY-AND-PATCH **~25ns** — 2.4x over hostcall, 17x over boxed. Result oracle'd = gingembre (71).
+Mislabeled "copy-and-patch" comments on BuildOp/EvalOp lanes corrected to "hostcall chain".
+Next for real speed: dedicated stencils for the guarded-var path (SMI guard+deopt), and for the
+parse ops (shift/reduce) — same technique. Nightly `become` (--cfg tailcall) would make the chain
+one stack frame of jumps (currently stable `call`).
+
 ## Done (earlier)
 - `fedb4794a` (branch snark-playground-rebased): snark-dsl `ast({...})` DSL helper +
   `emit_source_with_annotations_boa(src,name) -> (grammar_json, annotations_json)`.
