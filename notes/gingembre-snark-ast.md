@@ -101,6 +101,25 @@ Next for real speed: dedicated stencils for the guarded-var path (SMI guard+deop
 parse ops (shift/reduce) — same technique. Nightly `become` (--cfg tailcall) would make the chain
 one stack frame of jumps (currently stable `call`).
 
+## become guard + type speculation/deopt (commits 8afbe7337, 3c092c264, `--speculate`)
+- **become guard**: stencils tail-call via a `cont!` macro = `become` under `--cfg tailcall`,
+  compiled on STABLE via `RUSTC_BOOTSTRAP=1` in build.rs env (no nightly toolchain; contained to
+  the build-time stencil obj). At -O bytes identical to stable call (LLVM already TCOs) -> pure
+  correctness guard (a stencil that can't tail-call fails to compile vs silently `bl`-chaining).
+  RUSTC_BOOTSTRAP verified working on rustc 1.95.0; phon-jit uses +nightly instead. facet-json
+  uses neither (stable call, tailcall=false).
+- **speculation + deopt** (the V8 SMI story, real): `stencils/guard.rs` = a conditional-branch
+  stencil (cbz on the type tag) with TWO cont holes (fast `weavy_cont` / deopt `weavy_deopt`),
+  extracted via `extract_stencil_n`. Generated AST -> guarded program (Variable -> Guard(idx)
+  betting i64; Number -> Push). Bet holds: push unboxed, stay on the fast IntOp chain. Bet miss:
+  set deopt flag, branch to exit; caller falls back to gingembre::eval_expression. Guard deopt
+  holes + last op patch to DONE; fast holes chain linearly. Measured `x*3+1`: x=10 guard HELD ->
+  6ns native (=31, == gingembre); x=2.5 guard MISSED -> deopt -> gingembre 8.5. Fast ~396x the
+  full evaluator. SpecCtx/SpecVarSlot repr(C) match guard.rs Ctx/VarSlot; prog/sp layout-shared
+  with IntCtx so guard+push+mul mix in one chain. VarSlot{is_int,value} is a stand-in for reading
+  facet-value's tag inline (mechanism real; production guard tests the Value tag itself).
+  Next: inline-cache feedback to choose which type to speculate; guards for float/string.
+
 ## Done (earlier)
 - `fedb4794a` (branch snark-playground-rebased): snark-dsl `ast({...})` DSL helper +
   `emit_source_with_annotations_boa(src,name) -> (grammar_json, annotations_json)`.
