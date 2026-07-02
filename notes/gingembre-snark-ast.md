@@ -146,10 +146,21 @@ PC-relative -> self-contained relocatable blob = AOT/JIT-cache artifact. Reload 
 HostCallInfo pointers). Next: thread AST byte spans (map -> template source); write the real
 /tmp/perf-<pid>.map + a jitdump for perf; from_parts roundtrip once weavy exposes it.
 
-Open threads (Amos's list): debug/profile of JIT'd code (started, ^), serialization (property shown,
-needs weavy from_parts), snark error reporting (snark has exact expected-terminal set + byte pos;
-needs friendly names + line:col + construct context; best after lean parse lands — see
-gingembre-snark-lean-parse.md §diagnostics).
+### Source-mapped JIT profiling (commit 8f2b33ccd, `--jitmap` upgraded)
+byte_range() added to ParseNode (threaded through LeanNode.range + to_lean); `lower_int_spanned`
+walks the PARSE tree (RuntimeResolvedNode.bytes() -> ByteRange -> (start,end)) so every op carries
+its SOURCE byte range. --jitmap now maps each native stencil range to the template sub-expression:
+op3_mul -> "2 * 3" @7..12, op4_add -> "1 + 2 * 3" @3..12, op8_add -> whole expr @3..20 => nested
+spans = a source flame graph. Writes a REAL /tmp/perf-<pid>.map (`<hex addr> <hex size> <symbol>`)
+that `perf report` symbolicates. Same offset->source table answers a debugger (fault/deopt PC ->
+template text) and stax. Language-level debug+profile of JIT'd code, done. (Note: spans threaded via
+the profiling lowering off the parse tree, NOT via the generated AST — keeps the AST oracles intact;
+production would carry spans on the generated nodes like gingembre's ast does.)
+
+Open threads (Amos's list): debug/profile of JIT'd code (DONE — source-mapped ^), serialization
+(property shown, needs weavy from_parts for the reload roundtrip), snark error reporting (snark has
+exact expected-terminal set + byte pos; needs friendly names + line:col + construct context; best
+after lean parse lands — see gingembre-snark-lean-parse.md).
 
 ## Done (earlier)
 - `fedb4794a` (branch snark-playground-rebased): snark-dsl `ast({...})` DSL helper +
