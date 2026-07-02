@@ -120,6 +120,19 @@ one stack frame of jumps (currently stable `call`).
   facet-value's tag inline (mechanism real; production guard tests the Value tag itself).
   Next: inline-cache feedback to choose which type to speculate; guards for float/string.
 
+## Polymorphic inline cache + float lane (commit b14d7009a, `--ic`)
+Added f64 stencils (fadd/fsub/fmul; push reused with f64-bit immediates) + guard_f64. VarSlot ->
+{tag: i64(0)/f64(1), bits}. `build_ic_native(ops, ty)` compiles a program specialized to ONE
+observed type: int lane (GUARD/ADD/MUL, i64 immediates) vs float lane (GUARD_F64/FADD/FMUL, f64-bit
+immediates). `InlineCache` caches one NativeProgram per type profile: HIT -> run cached native code;
+MISS -> compile for the new type, cache. Demo `x*3+1` over a mixed stream: int (compile once, then
+HITs), fractional float (compile float lane, HIT), back to int (HIT) -> 2 cache entries, 4 hits,
+2 compiles, all oracle'd to gingembre. cached HIT ~5ns vs cold compile+run ~3.5us (amortizes ~690
+calls). The guard stencil IS the IC's type check (same cbz conditional-branch, now selecting the
+cached specialization). tag_of uses to_i64 as a stand-in (whole floats -> int lane; production reads
+the Value's real tag). Next: real facet-value tag in the guard; megamorphic cap -> permanent deopt;
+key IC on the full type profile (multiple vars).
+
 ## Done (earlier)
 - `fedb4794a` (branch snark-playground-rebased): snark-dsl `ast({...})` DSL helper +
   `emit_source_with_annotations_boa(src,name) -> (grammar_json, annotations_json)`.
