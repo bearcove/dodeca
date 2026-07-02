@@ -60,6 +60,37 @@ result may differ; on-disk files extremely compatible; target/ exempt).
   product): VFS, sandboxing, the primitives, version-solving engine. Bring-your-own-runtime is
   legitimate; bearcove's runtime = the trusted/premium/subsidized-for-OSS option.
 
+## Decided (round 3)
+- **Iteration is structural**: Rust-flavored adapters — map/filter/collect = parallel-by-
+  construction fan-out under demand; fold = visibly sequential chain. Cost model legible in
+  source. Loop bodies = dynamic child nodes discovered as the collection's spine materializes.
+- **Sub-value taint through opaque primitives: EXPLICIT NON-GOAL.** Provenance is graph-side:
+  the memo journal (closure hash, input hashes -> output hash) IS the attestation chain;
+  supply-chain audit + cache explanation + errors all fall out of recorded edges. Node-granular
+  attribution only.
+- **No async/await surface in vix, EVER** (invariant): imperative-style code declares a graph;
+  the language figures it out. Demand IS the await. Async is an implementation property of
+  fable/weavy. "If we paint ourselves into a corner we need to rethink the design."
+- **Purity confirmed** (invariant): all vix code pure; effects only via primitives. `fetch` is
+  itself PURE — it REQUIRES a checksum (content-addressed download; checksum-less URL fetch is
+  a different, not-directly-exposed thing). `exec` = worked VERY HARD to be pure: all inputs
+  declared and tracked (open thread Amos invited: coarse dirs vs fine mounts).
+- **Consequence of purity**: no log/debug-print in vix code. Mitigation is a REQUIREMENT on the
+  runtime: debuggable/observable/traceable enough that print-debugging is a non-issue. (Our
+  observability stack — demand traces, DWARF for node interiors, stax spans for exec lanes —
+  is now load-bearing for the language UX, not just nice-to-have.)
+- **Aggregation = memo unit too**: aggregated regions are the caching granularity ("otherwise
+  we'll memo 2 + x").
+- **Observation upgrades**: observations/lockfile entries are ADDRESSABLE; upgrade = invoke an
+  eval "while ignoring this observation," forcing refresh/re-eval.
+- **Cargo.lock is source of truth, not just a view**: flexible/pluggable journal storage;
+  Cargo.lock is a first-class bidirectional backend (cargo is the breadwinner; its on-disk
+  format is "the least sorry aspect of the entire tool"). No on-disk compat for other tools
+  (no CMake-level compat).
+- **LSP**: unresearched in the snark arc, ~trivial given available info (incremental reparse +
+  reuse machinery, derived diagnostics -> publishDiagnostics, queries -> semantic tokens,
+  generated AST + spans -> symbols). Flagged as a natural upcoming slice.
+
 ## Open forks (to resolve in dialogue)
 1. Effect system: hazy; Amos went back and forth. Design discussion needed.
 2. Loop/iteration semantics under demand (fan-out): being walked through now.
