@@ -288,3 +288,26 @@ finding = was the annotation vocabulary expressive enough for all 5.
   usage (39/0 render-oracle green; 57/57 real templates parse via `--corpus`).
 - facet-json source = the template for Shape-driven materialization (parse_into).
 - gingembre grammar.js: playgrounds/snark/src/bundled/gingembre/grammar.js.
+
+## Productionization audit (commit c7042a0b5)
+Amos: "very little documentation + I'm sure we missed some things." Audit found + fixed:
+- stale `KAJIT_DEBUG_DUMP_ELF_DIR` -> `WEAVY_JIT_DUMP_ELF_DIR`
+- `register_jit_source` sorted-symbols footgun (DWARF line program needs strictly increasing
+  offsets) -> sorts internally
+- **prologue_end on every .debug_line row** — root cause of the `-K false` workaround (JIT
+  stencils have no prologue; debuggers slid breakpoints past a region's first instruction).
+  Verified: plain `b snark-spec.listing:1` stops ON the guard at offset 0 now.
+- weavy tests added: facade end-to-end (unsorted symbols; descriptor link/unlink on drop) +
+  jitdump spec round-trip. 75/75.
+- diagnose: defensive char-boundary walk; expected list capped at 12 (+N more).
+- Docs: real module guide in weavy/src/jit/mod.rs (layers, hostcall-vs-stencil economics with
+  measured numbers, become/RUSTC_BOOTSTRAP, observability recipe); debug/dwarf module docs
+  rewritten (facade-first, jitdump wall-clock caveat, provenance). Rustdoc gotcha discovered:
+  an outer /// on a `pub mod` decl makes the MERGED doc's intra-doc links resolve in the outer
+  scope (minimal-repro'd) — keep module docs inner-only.
+KNOWN GAPS, deliberate + documented: (1) recovered-tree multi-error diagnostics — editors want
+ALL errors from the recovering parse (walk ERROR/MISSING nodes -> Vec<Diagnostic>), not just the
+first hard error; (2) jitdump timestamps are wall-clock not CLOCK_MONOTONIC (fine for stax,
+documented); (3) stack-in-error for "unclosed X" context (PL core ask, pending); (4) DwarfVariable/
+.debug_loc machinery carried unused (future: variables for guard slots); (5) wide-glyph caret done,
+but the diagnose module is still spike-resident — port to snark with tests once the stack lands.
