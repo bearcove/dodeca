@@ -54,6 +54,15 @@ Only the expression subset (binary/number/variable/literal) is annotated; extend
   as emit + control-flow ops (weavy blocks) for full render; and expose gingembre's Value ops
   as the intrinsics instead of the stand-in.
 
+## Type specialization — V8 SMI story (commit e27ceb698, `--specialize`)
+When the generated AST proves a subtree is integer (number leaves + arithmetic ops — a type
+fact the grammar annotations already carry: `number`->i64), lower to UNBOXED i64 ops over an
+i64 stack, not boxed `Value` ops. No Value construction, no as_number()/re-box, no tag
+dispatch. Measured (JIT run-only, 23-op expr, 1M iters): boxed 437ns vs unboxed **59ns ≈ 7x**.
+Result oracle'd vs gingembre (71). Variables = not-statically-known → guard+deopt via weavy
+branch chain (speculate SMI, deopt to boxed on miss) + inline-cache-style feedback = next.
+This is the reason eval-on-weavy matters: monomorphic specialized stencils = the fast path.
+
 ## Done (earlier)
 - `fedb4794a` (branch snark-playground-rebased): snark-dsl `ast({...})` DSL helper +
   `emit_source_with_annotations_boa(src,name) -> (grammar_json, annotations_json)`.
