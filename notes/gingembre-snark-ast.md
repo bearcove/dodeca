@@ -184,8 +184,26 @@ IS the bytecode; phon (itself a copy-and-patch codec) carries it as data — its
 that drive our JIT. Levels available to cache: source (smallest, full recompile) / AST (skip parse)
 / ops (skip parse+lower, re-JIT only). Next: native from_parts roundtrip for the same-arch fast cache.
 
-Open threads (Amos's list): debug/profile of JIT'd code (DONE — source-mapped + stax verified),
-serialization (DONE — phon bytecode, bytecode>native)
+### Real DWARF debuggability for JIT'd code (commit e3a9da1ba, `--debug`) — SALVAGED from kajit
+DWARF is THE answer for source-level JIT debugging (breakpoints/stepping by source, backtraces,
+vars) via the GDB/LLDB JIT interface: JIT builds an in-memory ELF+DWARF and registers it through
+__jit_debug_descriptor + __jit_debug_register_code(). Amos had a full, lldb-tested implementation in
+bearcove/kajit (SCRAPPED) — we SALVAGED it: `src/jit_debug.rs` (GDB JIT interface + hand-rolled ELF64
+builder: .text pointing at runtime addr, .symtab per-op, optional .debug_line/abbrev/info) and
+`src/jit_dwarf.rs` (hand-rolled DWARF v4: build_debug_line_section maps source_map[(code_offset,line)]
+-> DWARF line program; abbrev; info). Both self-contained (only std + crate::jit_dwarf), marked
+vendored (#![allow(dead_code, clippy::too_many_arguments, enum_variant_names)]). --debug: JIT an expr,
+write a per-op listing (line i+1 = op i + its template sub-expr), symbols per op, source_map op->line,
+build_jit_dwarf_sections -> register_jit_code_with_dwarf. Self-validated (parse .debug_line back) AND
+tool-independently with Apple `dwarfdump --debug-line`: file "snark-jit.listing", 0x..c060 -> line 4 =
+op3 "2*3", ... end_sequence. So any DWARF consumer resolves JIT PC -> template listing line + steps
+op-by-op. macOS lldb gdb-jit loader is finicky (kajit's note: `settings set plugin.jit-loader.gdb.enable
+on`; may show raw PCs); the DWARF is standard (gdb/Linux source-steps it). Dump for inspection:
+KAJIT_DEBUG_DUMP_ELF_DIR=/tmp/jitelf. Next: this belongs in weavy::jit as a reusable debug module
+(all weavy JIT consumers); columns in .debug_line (sub-expr on one line); DWARF for the guarded/IC lanes.
+
+Open threads (Amos's list): debug/profile of JIT'd code (DONE — source map + stax + real DWARF),
+serialization (DONE — phon bytecode > native), snark error reporting (pending, best with lean parse).
 (property shown, needs weavy from_parts for the reload roundtrip), snark error reporting (snark has
 exact expected-terminal set + byte pos; needs friendly names + line:col + construct context; best
 after lean parse lands — see gingembre-snark-lean-parse.md).
