@@ -197,8 +197,11 @@ write a per-op listing (line i+1 = op i + its template sub-expr), symbols per op
 build_jit_dwarf_sections -> register_jit_code_with_dwarf. Self-validated (parse .debug_line back) AND
 tool-independently with Apple `dwarfdump --debug-line`: file "snark-jit.listing", 0x..c060 -> line 4 =
 op3 "2*3", ... end_sequence. So any DWARF consumer resolves JIT PC -> template listing line + steps
-op-by-op. macOS lldb gdb-jit loader is finicky (kajit's note: `settings set plugin.jit-loader.gdb.enable
-on`; may show raw PCs); the DWARF is standard (gdb/Linux source-steps it). Dump for inspection:
+op-by-op. **lldb VERIFIED end-to-end** (the earlier failure was launch PERMISSION, not lldb — Amos
+granted it): `lldb -o 'settings set plugin.jit-loader.gdb.enable on' -o 'b snark-jit.listing:4' -o run`
+-> lldb STOPS in the native stencil at listing line 4 (op3 "2*3"), shows the listing source with the
+`->` arrow, and `bt` threads the JIT frame (frame#0 JIT(...)`snark-jit.listing:4) back into Rust main.
+Full source-level debugging of copy-and-patch JIT'd code. Also dwarfdump-verified. Dump for inspection:
 KAJIT_DEBUG_DUMP_ELF_DIR=/tmp/jitelf. Next: this belongs in weavy::jit as a reusable debug module
 (all weavy JIT consumers); columns in .debug_line (sub-expr on one line); DWARF for the guarded/IC lanes.
 
