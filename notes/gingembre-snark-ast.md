@@ -133,6 +133,24 @@ cached specialization). tag_of uses to_i64 as a stand-in (whole floats -> int la
 the Value's real tag). Next: real facet-value tag in the guard; megamorphic cap -> permanent deopt;
 key IC on the full type profile (multiple vars).
 
+## JIT debuggability/profiling + serialization (commit 9f0ead330, `--jitmap`)
+JIT'd stencil chains are otherwise anonymous exec blobs (invisible to perf/lldb/stax). We control
+the assembly, so emit a code-offset->op symbol map in perf `/tmp/perf-<pid>.map` format
+(`<addr> <size> <symbol>` per op, computed from base=code_ptr() + per-op emit offsets). Foundation
+for BOTH: profiling (symbolicate JIT samples) + debuggability (fault/deopt PC -> exact op; -> exact
+template sub-expression ONCE the generated AST carries byte spans — not yet; would thread spans from
+RuntimeResolvedNode byte ranges through lower_*). Serialization property surfaced + shown: a
+pure-stencil program's prog stream is ALL immediates ([1,2,3,4,5]), ZERO host pointers, branches
+PC-relative -> self-contained relocatable blob = AOT/JIT-cache artifact. Reload needs ONE weavy API:
+`NativeProgram::from_parts(code, progs, entry)`. Hostcall lane can't serialize (prog holds
+HostCallInfo pointers). Next: thread AST byte spans (map -> template source); write the real
+/tmp/perf-<pid>.map + a jitdump for perf; from_parts roundtrip once weavy exposes it.
+
+Open threads (Amos's list): debug/profile of JIT'd code (started, ^), serialization (property shown,
+needs weavy from_parts), snark error reporting (snark has exact expected-terminal set + byte pos;
+needs friendly names + line:col + construct context; best after lean parse lands — see
+gingembre-snark-lean-parse.md §diagnostics).
+
 ## Done (earlier)
 - `fedb4794a` (branch snark-playground-rebased): snark-dsl `ast({...})` DSL helper +
   `emit_source_with_annotations_boa(src,name) -> (grammar_json, annotations_json)`.
