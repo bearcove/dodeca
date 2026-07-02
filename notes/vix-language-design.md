@@ -91,6 +91,34 @@ result may differ; on-disk files extremely compatible; target/ exempt).
   reuse machinery, derived diagnostics -> publishDiagnostics, queries -> semantic tokens,
   generated AST + spans -> symbols). Flagged as a natural upcoming slice.
 
+## Decided (round 4)
+- **Identity is TWO-TIER, deliberately opposing Nix's "inputs are 100% hashed, period":**
+  capability inputs span a spectrum: (a) OPAQUE BLOBS (MSVC + Windows system libs): global
+  fingerprint, reads NOT tracked, daemon only guarantees it doesn't change underneath you;
+  (b) TRACKED TREES: mounted, all reads/writes recorded, lazily materialized (executor PULLS
+  files on demand), possibly prewarmed via statistical model from previous runs ("PGO for
+  prefetching"). Memo key = tier 1 "this folder on that machine" (coarse identity) + tier 2
+  "the command actually read exactly these files" (observed read-set). Tier 2 lets the
+  orchestrator skip bothering the executor even when the tree changed, if changes miss the
+  read-set. Read-set = "a different kind of tree" — no re-merkling a multi-GB workspace on
+  every fs event. LOAD-BEARING design pillar.
+- **`vix wtf`** = the debugging story: opens a fully interactive browser UI (headless builds:
+  already captured, available in vixen cloud). Time-travel yes, REPL yes.
+- **Cargo.lock external edits = just new observations.** Falls out gracefully.
+- **Subsume rustup**: rust toolchains are eminently dedupable (rustup doesn't try); of all
+  toolchains to tame (clang/gcc/msvc/xcode), rust's is easiest — vixen manages it as
+  capability + CAS-dedupable artifact.
+- **Capabilities in types: "mhhaaaybe"** — but the UX north star is fixed: editor autocomplete
+  offers the capabilities/executors YOU ACTUALLY HAVE ACCESS TO (never fat-finger
+  "ubuntu:25.04" again). Effects/capabilities survey requested from me (options + consequences,
+  esp. type-ergonomics / "typing out types").
+- **Per-command grammars**: Amos "extremely fond", says it falls out ~free at this system's
+  scale — INVITED QUESTION, hypothesis: snark grammars for command LINES (typed exec
+  invocations; the grammar knows which args are inputs/outputs -> input tracking + completion
+  + diffing fall out).
+- **Adoption path**: for months/years only vixenware writes .vix (reimplementing cargo);
+  later displaces bazel/buck/cmake/ninja/gn mixes. Cargo drop-in compat is the wedge.
+
 ## Open forks (to resolve in dialogue)
 1. Effect system: hazy; Amos went back and forth. Design discussion needed.
 2. Loop/iteration semantics under demand (fan-out): being walked through now.
