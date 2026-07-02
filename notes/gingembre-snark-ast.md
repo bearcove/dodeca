@@ -252,7 +252,7 @@ unclosed-if ("expected {% endif %}") needs the PARSE STACK — if_statement's it
 state, not the error state. **API ask for snark: NoToken/NoAction carry the state stack
 (Vec<ParseStateId>, cheap at error time); then in_progress = kernel items across stacked states,
 and the closer terminal falls out mechanically for every rule.** All public API otherwise; the
-whole diagnose module can port into snark as-is.
+whole diagnose module can port into snark as-is. Rendering hardened (a61aa1c4b): dynamic gutter (line>=100), caret padding from the line prefix in CHARS with tabs preserved, header reports the CHAR column (byte col stays internal) — verified with a multibyte-prefix line-2 case.
 
 DONE: all of Amos's open threads (debug/profile JIT ✓, serialization ✓, error reporting ✓ modulo
 the stack ask which is PL core's one-liner).
