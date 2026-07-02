@@ -311,3 +311,12 @@ first hard error; (2) jitdump timestamps are wall-clock not CLOCK_MONOTONIC (fin
 documented); (3) stack-in-error for "unclosed X" context (PL core ask, pending); (4) DwarfVariable/
 .debug_loc machinery carried unused (future: variables for guard slots); (5) wide-glyph caret done,
 but the diagnose module is still spike-resident — port to snark with tests once the stack lands.
+
+## INTEGRATED INTO MAIN + PUSHED (origin/main @ f234656af)
+PL core fast-forwarded main ddf843c07 -> 9be92ff1c (the whole arc: generated AST, stencil JIT,
+speculation/IC, DWARF debug+columns, stax jitdump, phon serialization, derived diagnostics with
+state_stack, productionization audit + docs) + their one-line clippy cleanup f234656af (test
+vec!->array). Independently verified: 9be92ff1c is an ancestor of origin/main. Their lane:
+weavy 75/75, snark 191/191, clippy -D warnings on weavy/spike/snark, doc clean. Note: GitHub
+flagged bypassed branch protections (history contains merge commit 9da879c01) but the push
+advanced. Branch snark-playground-rebased synced to f234656af.
