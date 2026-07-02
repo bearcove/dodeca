@@ -35,6 +35,25 @@ runtime builder; field TYPES derived from grammar, only names/renames/scalar-dec
 Only the expression subset (binary/number/variable/literal) is annotated; extend the `.snark.js`
 + `derive_slots` for more node kinds (paren/filter/call/if/for) when needed.
 
+## Perf / diagnostics / two-AST (measured — commits 5723f10fe, cab686228)
+- `--perf`: snark-CST parse is **~15-25x slower** than gingembre's native parser
+  (24-48us vs 1-2us). Plan setup one-time ~118ms. Materialize `1+2*3`: reflection 1638ns,
+  weavy-interp 1261ns, JIT compile+run 5429ns (loses — recompiles per call), **JIT
+  compiled-once/run-many 889ns (fastest)** + compile 3625ns one-time. JIT IS a win but only
+  when reused; ops currently bake in DATA so the native program isn't reused. Real win =
+  structure compiled once per grammar-shape, data in prog-stream slots (facet-json per-TYPE
+  model). Parse is the dominant cost, not materialize.
+- `--diag`: snark hard-errors with the EXACT expected-terminal set + byte pos (richer data
+  than gingembre, but raw regexes/byte offsets/no construct context); gingembre gives
+  construct-aware human prose ("unclosed if, expected endif") but coarser and sometimes wrong.
+  snark = better data, gingembre = better prose. Not reconciled.
+- `--eval`: **evaluation ALSO lowers to Weavy.** Was two ASTs (gen_ast::Expr lowered into
+  gingembre::ast, walked by gingembre's async tree-walker). Now: ONE generated AST -> stack
+  EvalOp program -> weavy interp AND copy-and-patch JIT, oracle'd vs gingembre eval_expression
+  (int arith/cmp/logical/var). int-arith intrinsic is disposable stand-in. Next: text/if/for
+  as emit + control-flow ops (weavy blocks) for full render; and expose gingembre's Value ops
+  as the intrinsics instead of the stand-in.
+
 ## Done (earlier)
 - `fedb4794a` (branch snark-playground-rebased): snark-dsl `ast({...})` DSL helper +
   `emit_source_with_annotations_boa(src,name) -> (grammar_json, annotations_json)`.
