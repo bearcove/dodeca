@@ -3298,6 +3298,35 @@ function helper {
     }
 
     #[test]
+    fn test_vix_refs() {
+        // vix rides the Rust grammar for comment extraction only; refs must
+        // survive vix-only syntax that Rust's grammar parses as ERROR
+        // (operator fn names, braced map literals). Comments are extras and
+        // must be extracted regardless.
+        let source = r#"// r[impl vix.top]
+fn stored_state(state: State) -> State {
+    // r[impl vix.body]
+    let values: Map<String, State> = {};
+    values.insert("state", state).get("state").unwrap()
+}
+
+// r[verify vix.spaceship]
+fn <=>(self: Rank, other: Rank) -> Ordering {
+    self.n <=> other.n
+}
+"#;
+        let refs = extract_refs(Path::new("test.vix"), source);
+        assert_eq!(
+            refs.len(),
+            3,
+            "refs must survive vix-only syntax; got: {refs:?}"
+        );
+        assert_eq!(refs[0].req_id, "vix.top");
+        assert_eq!(refs[1].req_id, "vix.body");
+        assert_eq!(refs[2].req_id, "vix.spaceship");
+    }
+
+    #[test]
     fn test_fenced_code_in_inner_doc_comments_treesitter() {
         let source = "//! ```text\n//! slot_count[i]\n//! ```\nfn main() {}\n";
         let refs = extract_refs_with_warnings(Path::new("test.rs"), source);
