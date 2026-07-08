@@ -74,8 +74,24 @@ impl ArboriumEngine {
     }
 
     fn register_feature_languages(&mut self) {
+        #[cfg(feature = "lang-vix")]
+        self.register_vix_language();
         #[cfg(feature = "lang-vixen")]
         self.register_vixen_language();
+    }
+
+    #[cfg(feature = "lang-vix")]
+    fn register_vix_language(&mut self) {
+        self.add_tree_sitter_language(
+            &["vix"],
+            GrammarConfig {
+                language: arborium_vix::language().into(),
+                highlights_query: arborium_vix::HIGHLIGHTS_QUERY,
+                injections_query: arborium_vix::INJECTIONS_QUERY,
+                locals_query: arborium_vix::LOCALS_QUERY,
+            },
+        )
+        .expect("arborium-vix grammar should compile");
     }
 
     #[cfg(feature = "lang-vixen")]
@@ -798,6 +814,26 @@ mod tests {
             assert_eq!(normalize_arborium_language("jinja"), "jinja2");
             assert_eq!(normalize_arborium_language("vx"), "vixen");
             assert_eq!(normalize_arborium_language("rust"), "rust");
+        }
+
+        #[cfg(feature = "lang-vix")]
+        #[tokio::test]
+        async fn test_render_vix_code_block_with_feature_enabled() {
+            let handler = ArboriumHandler::new();
+            let output = handler
+                .render("vix", "let p = Point { x: getx(), y: gety() };\n")
+                .await
+                .unwrap();
+
+            assert!(
+                output.html.contains(r#"data-lang="vix""#),
+                "{}",
+                output.html
+            );
+            // Real highlighting produces arborium span tags, not the escaped
+            // plain-code fallback.
+            assert!(output.html.contains("<a-"), "{}", output.html);
+            assert!(output.html.contains("getx"), "{}", output.html);
         }
 
         #[cfg(feature = "lang-vixen")]
