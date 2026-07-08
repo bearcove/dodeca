@@ -106,6 +106,7 @@ arborium-svelte.workspace = true
 arborium-swift.workspace = true
 arborium-typescript.workspace = true
 arborium-vb.workspace = true
+arborium-vix.workspace = true
 arborium-yaml.workspace = true
 camino.workspace = true
 chrono.workspace = true

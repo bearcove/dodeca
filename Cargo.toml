@@ -179,6 +179,7 @@ arborium-svelte = "2.18.0"
 arborium-swift = "2.18.0"
 arborium-typescript = "2.18.0"
 arborium-vb = "2.18.0"
+arborium-vix = "0.1.0"
 arborium-yaml = "2.18.0"
 
 # Search (from-scratch, pagefind-inspired full-text search)

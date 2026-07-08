@@ -1073,6 +1073,32 @@ fn nix_node_kind(kind: &str) -> Option<CodeUnitKind> {
     }
 }
 
+/// Extract code units from vix source code
+pub fn extract_vix(path: &Path, source: &str) -> CodeUnits {
+    let mut parser = Parser::new();
+    parser
+        .set_language(&arborium_vix::language().into())
+        .expect("Failed to load vix grammar");
+
+    let Some(tree) = parser.parse(source, None) else {
+        return CodeUnits::new();
+    };
+
+    let mut units = CodeUnits::new();
+    let root = tree.root_node();
+    extract_units_recursive(path, source, root, &mut units, vix_node_kind);
+    units
+}
+
+fn vix_node_kind(kind: &str) -> Option<CodeUnitKind> {
+    match kind {
+        "fn_item" => Some(CodeUnitKind::Function),
+        "struct_item" => Some(CodeUnitKind::Struct),
+        "enum_item" => Some(CodeUnitKind::Enum),
+        _ => None,
+    }
+}
+
 /// Extract code units from Lean source code
 pub fn extract_lean(path: &Path, source: &str) -> CodeUnits {
     let mut parser = Parser::new();
@@ -1609,6 +1635,7 @@ fn extract_refs_recursive(
             | "block_comment"
             | "comment"
             | "multiline_comment"
+            | "doc_comment" // vix `///`
             | "bracket_comment"
             | "documentation_comment"
             | "line_outer_doc_comment"
@@ -1626,6 +1653,13 @@ fn extract_refs_recursive(
         if check_ignore_directives(text, line, ignore_state) {
             extract_full_refs_from_text(text, line, base_offset, file_code_mask, refs, warnings);
         }
+
+        // Comments are leaves for ref purposes: some grammars nest comment
+        // kinds (rust wraps a `doc_comment` node INSIDE `line_comment`;
+        // `doc_comment` is also vix's top-level `///` kind). The whole
+        // comment's text was already scanned above — descending would
+        // extract the same refs twice.
+        return;
     }
 
     // Recurse into children
@@ -3299,11 +3333,11 @@ function helper {
 
     #[test]
     fn test_vix_refs() {
-        // vix rides the Rust grammar for comment extraction only; refs must
-        // survive vix-only syntax that Rust's grammar parses as ERROR
-        // (operator fn names, braced map literals). Comments are extras and
-        // must be extracted regardless.
+        // Real vix grammar (arborium-vix): refs extract from line comments AND
+        // vix doc comments (`///` lowers to the `doc_comment` node kind),
+        // across vix-only syntax (operator fn names, braced map literals).
         let source = r#"// r[impl vix.top]
+/// r[impl vix.doc]
 fn stored_state(state: State) -> State {
     // r[impl vix.body]
     let values: Map<String, State> = {};
@@ -3312,18 +3346,47 @@ fn stored_state(state: State) -> State {
 
 // r[verify vix.spaceship]
 fn <=>(self: Rank, other: Rank) -> Ordering {
-    self.n <=> other.n
+    match self.n < other.n {
+        true => Ordering::Less,
+        false => Ordering::Greater,
+    }
 }
 "#;
         let refs = extract_refs(Path::new("test.vix"), source);
         assert_eq!(
             refs.len(),
-            3,
-            "refs must survive vix-only syntax; got: {refs:?}"
+            4,
+            "refs from line + doc comments across vix syntax; got: {refs:?}"
         );
         assert_eq!(refs[0].req_id, "vix.top");
-        assert_eq!(refs[1].req_id, "vix.body");
-        assert_eq!(refs[2].req_id, "vix.spaceship");
+        assert_eq!(refs[1].req_id, "vix.doc");
+        assert_eq!(refs[2].req_id, "vix.body");
+        assert_eq!(refs[3].req_id, "vix.spaceship");
+    }
+
+    #[test]
+    fn test_vix_units() {
+        let source = r#"struct Rank {
+    n: Int,
+}
+
+enum Step {
+    Pass,
+    Conflict,
+}
+
+fn pick(index: Index) -> Step {
+    Step::Pass
+}
+"#;
+        let units = extract_vix(Path::new("test.vix"), source);
+        let kinds: Vec<_> = units.units.iter().map(|u| u.kind).collect();
+        assert!(
+            kinds.contains(&CodeUnitKind::Struct)
+                && kinds.contains(&CodeUnitKind::Enum)
+                && kinds.contains(&CodeUnitKind::Function),
+            "vix structs/enums/fns are code units; got: {kinds:?}"
+        );
     }
 
     #[test]

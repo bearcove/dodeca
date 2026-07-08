@@ -178,16 +178,13 @@ pub static LANGUAGES: &[Lang] = &[
         extract: code_units::extract_config,
     },
     Lang {
-        // vix (the facet/vixen build language) is Rust-adjacent enough that
-        // tree-sitter-rust tokenizes its `//` comments reliably — comments are
-        // grammar extras and survive error recovery around vix-only syntax
-        // (`fn <=>`, path literals). Same borrow json5 does from typescript.
-        // Code units stay empty until an arborium-vix grammar lands (the
-        // tree-sitter vix grammar lives in facet's snark bundle): refs and
-        // coverage work, `unmapped` does not see .vix yet.
+        // vix (the facet/vixen build language). arborium-vix is published from
+        // the facet monorepo (BYO-grammar route) because the grammar's source
+        // of truth is facet's snark bundle; it graduates to arborium's
+        // built-in registry when vix stabilizes.
         extensions: &["vix"],
-        grammar: arborium_rust::language,
-        extract: code_units::extract_config,
+        grammar: arborium_vix::language,
+        extract: code_units::extract_vix,
     },
     Lang {
         extensions: &["mat"],

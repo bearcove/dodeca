@@ -976,6 +976,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "arborium-vix"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e9227f2186a62e40dfe777d38ca556aca425f1db64d051d2d90f9b18174f2c6"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
 name = "arborium-vue"
 version = "2.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2771,6 +2781,7 @@ dependencies = [
  "arborium-tree-sitter",
  "arborium-typescript",
  "arborium-vb",
+ "arborium-vix",
  "arborium-yaml",
  "arc-swap",
  "ariadne 0.5.1",
