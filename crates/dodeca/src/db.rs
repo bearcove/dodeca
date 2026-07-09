@@ -324,10 +324,14 @@ pub struct Section {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, facet::Facet)]
 pub struct Page {
     pub route: Route,
+    /// Source path relative to the content directory.
+    pub source_path: SourcePath,
     pub title: Title,
     pub weight: i32,
     pub body_html: HtmlBody,
     pub section_route: Route,
+    /// Estimated prose words in the markdown body.
+    pub word_count: usize,
     /// Headings extracted from content
     pub headings: Vec<Heading>,
     /// Rule definitions for specification traceability
@@ -373,6 +377,8 @@ pub struct ParsedData {
     pub source_path: SourcePath,
     /// URL route (e.g., "/learn/showcases/json/")
     pub route: Route,
+    /// Estimated prose words in the markdown body.
+    pub word_count: usize,
     /// Parsed title
     pub title: Title,
     /// Optional description from frontmatter

@@ -143,6 +143,16 @@ aside.dodeca-note { display: none !important; }
   background: var(--dn-bg); box-shadow: var(--dn-shadow);
 }
 .dn-index-panel[hidden] { display: none; }
+@media (max-width: 700px) {
+  .dn-index {
+    top: calc(var(--mobile-nav-top, 56px) + max(8px, env(safe-area-inset-top)));
+    right: max(8px, env(safe-area-inset-right));
+    z-index: 100;
+  }
+  .dn-index-panel {
+    max-height: min(56vh, calc(100vh - var(--mobile-nav-top, 56px) - 76px));
+  }
+}
 .dn-index-head {
   padding: 9px 10px; font-size: 11px; border-bottom: 1px solid var(--dn-border);
   display: flex; align-items: center; justify-content: space-between; gap: 8px;

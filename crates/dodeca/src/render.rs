@@ -686,12 +686,29 @@ impl<'a> Renderable<'a> {
                 .sources
                 .iter()
                 .map(|s| {
+                    let content_path = source_content_path(&cfg, s);
                     let mut site = VObject::new();
                     site.insert(VString::from("name"), Value::from(s.name.as_str()));
                     site.insert(VString::from("mount"), Value::from(s.mount.as_str()));
                     site.insert(VString::from("active"), Value::from(s.mount == owner_mount));
                     if let Some(repo) = s.repo.as_deref() {
                         site.insert(VString::from("repo"), Value::from(repo));
+                        if let Some(edit_base) = github_edit_base(repo, content_path.as_deref()) {
+                            site.insert(
+                                VString::from("edit_base"),
+                                Value::from(edit_base.as_str()),
+                            );
+                        }
+                    }
+                    if let Some(content_path) = content_path.as_deref() {
+                        site.insert(VString::from("content_path"), Value::from(content_path));
+                    }
+                    let mount_route = source_root_route(&s.mount);
+                    if let Some(src_root) = site_tree.sections.get(&mount_route) {
+                        site.insert(
+                            VString::from("root"),
+                            section_to_value(src_root, site_tree, &base_url),
+                        );
                     }
                     Value::from(site)
                 })
@@ -699,18 +716,21 @@ impl<'a> Renderable<'a> {
             obj.insert(VString::from("sites"), VArray::from_iter(sites));
 
             if let Some(src) = cfg.sources.iter().find(|s| s.mount == owner_mount) {
+                let content_path = source_content_path(&cfg, src);
                 let mut source_obj = VObject::new();
                 source_obj.insert(VString::from("name"), Value::from(src.name.as_str()));
                 source_obj.insert(VString::from("mount"), Value::from(src.mount.as_str()));
                 if let Some(repo) = src.repo.as_deref() {
                     source_obj.insert(VString::from("repo"), Value::from(repo));
+                    if let Some(edit_base) = github_edit_base(repo, content_path.as_deref()) {
+                        source_obj
+                            .insert(VString::from("edit_base"), Value::from(edit_base.as_str()));
+                    }
                 }
-                let mount_trim = src.mount.trim_end_matches('/');
-                let mount_route = if mount_trim.is_empty() {
-                    Route::root()
-                } else {
-                    Route::new(mount_trim.to_string())
-                };
+                if let Some(content_path) = content_path.as_deref() {
+                    source_obj.insert(VString::from("content_path"), Value::from(content_path));
+                }
+                let mount_route = source_root_route(&src.mount);
                 if let Some(src_root) = site_tree.sections.get(&mount_route) {
                     source_obj.insert(
                         VString::from("root"),
@@ -963,11 +983,146 @@ fn build_ancestors(section_route: &Route, site_tree: &SiteTree) -> Vec<Value> {
     ancestors
 }
 
+fn page_summary_value(page: &Page, base_url: &str) -> Value {
+    let mut map = VObject::new();
+    map.insert(VString::from("title"), Value::from(page.title.as_str()));
+    map.insert(
+        VString::from("permalink"),
+        Value::from(make_permalink(base_url, page.route.as_str()).as_str()),
+    );
+    map.insert(VString::from("path"), Value::from(page.route.as_str()));
+    map.insert(VString::from("weight"), Value::from(page.weight as i64));
+    map.into()
+}
+
+fn source_root_route(mount: &str) -> Route {
+    let mount = mount.trim_end_matches('/');
+    if mount.is_empty() {
+        Route::root()
+    } else {
+        Route::new(mount.to_string())
+    }
+}
+
+fn source_content_path(
+    cfg: &crate::config::ResolvedConfig,
+    src: &crate::config::ResolvedSource,
+) -> Option<String> {
+    let base = src.checkout_dir.as_deref().unwrap_or(cfg._root.as_path());
+    src.content_dir
+        .strip_prefix(base)
+        .ok()
+        .map(|path| path.as_str().trim_matches('/').to_string())
+        .filter(|path| !path.is_empty())
+}
+
+fn github_edit_base(repo: &str, content_path: Option<&str>) -> Option<String> {
+    let repo = repo.trim_end_matches('/');
+    let (repo_base, branch) = if let Some((base, rest)) = repo.split_once("/tree/") {
+        let branch = rest.split('/').next().unwrap_or("main");
+        (base, branch)
+    } else if repo.contains("github.com/") {
+        (repo, "main")
+    } else {
+        return None;
+    };
+
+    let mut edit = format!("{repo_base}/edit/{branch}");
+    if let Some(path) = content_path.filter(|path| !path.is_empty()) {
+        edit.push('/');
+        edit.push_str(path.trim_matches('/'));
+    }
+    Some(edit)
+}
+
+fn direct_child_sections<'a>(
+    site_tree: &'a SiteTree,
+    section: &Route,
+    mount_roots: &HashSet<String>,
+) -> Vec<&'a Section> {
+    let mut child_sections: Vec<&Section> = site_tree
+        .sections
+        .values()
+        .filter(|s| {
+            s.route != *section
+                && s.route.as_str().starts_with(section.as_str())
+                && s.route.as_str()[section.as_str().len()..]
+                    .trim_matches('/')
+                    .chars()
+                    .filter(|c| *c == '/')
+                    .count()
+                    == 0
+                && !mount_roots.contains(s.route.as_str())
+        })
+        .collect();
+    child_sections.sort_by_key(|s| s.weight);
+    child_sections
+}
+
+fn pages_in_section<'a>(site_tree: &'a SiteTree, section: &Route) -> Vec<&'a Page> {
+    let mut pages: Vec<&Page> = site_tree
+        .pages
+        .values()
+        .filter(|p| p.section_route == *section)
+        .collect();
+    pages.sort_by_key(|p| p.weight);
+    pages
+}
+
+fn append_ordered_pages<'a>(
+    site_tree: &'a SiteTree,
+    section: &Route,
+    mount_roots: &HashSet<String>,
+    out: &mut Vec<&'a Page>,
+) {
+    out.extend(pages_in_section(site_tree, section));
+    for child in direct_child_sections(site_tree, section, mount_roots) {
+        append_ordered_pages(site_tree, &child.route, mount_roots, out);
+    }
+}
+
+fn ordered_pages_for_current_source<'a>(page: &Page, site_tree: &'a SiteTree) -> Vec<&'a Page> {
+    let Some(cfg) = crate::config::global_config() else {
+        return site_tree.pages.values().collect();
+    };
+    let owner_mount = crate::build_context::source_for_route(page.route.as_str(), &cfg.sources);
+    let root = source_root_route(owner_mount);
+    let mount_roots: HashSet<String> = cfg
+        .sources
+        .iter()
+        .filter(|s| s.mount != "/" && s.mount != owner_mount)
+        .map(|s| s.mount.trim_end_matches('/').to_string())
+        .collect();
+
+    let mut pages = Vec::new();
+    append_ordered_pages(site_tree, &root, &mount_roots, &mut pages);
+    pages
+}
+
+fn page_navigation_values(page: &Page, site_tree: &SiteTree, base_url: &str) -> (Value, Value) {
+    let pages = ordered_pages_for_current_source(page, site_tree);
+    let Some(index) = pages.iter().position(|p| p.route == page.route) else {
+        return (Value::NULL, Value::NULL);
+    };
+
+    let previous = index
+        .checked_sub(1)
+        .and_then(|i| pages.get(i))
+        .map(|p| page_summary_value(p, base_url))
+        .unwrap_or(Value::NULL);
+    let next = pages
+        .get(index + 1)
+        .map(|p| page_summary_value(p, base_url))
+        .unwrap_or(Value::NULL);
+    (previous, next)
+}
+
 /// Convert a Page to a Value for template context
 pub fn page_to_value(page: &Page, site_tree: &SiteTree) -> Value {
     use facet_value::DestructuredRef;
 
     let base_url = get_base_url();
+    let (previous, next) = page_navigation_values(page, site_tree, &base_url);
     let mut map = VObject::new();
     map.insert(VString::from("title"), Value::from(page.title.as_str()));
     let body_html = page.body_html.as_str();
@@ -991,7 +1146,17 @@ pub fn page_to_value(page: &Page, site_tree: &SiteTree) -> Value {
         Value::from(make_permalink(&base_url, page.route.as_str()).as_str()),
     );
     map.insert(VString::from("path"), Value::from(page.route.as_str()));
+    map.insert(
+        VString::from("source_path"),
+        Value::from(page.source_path.as_str()),
+    );
     map.insert(VString::from("weight"), Value::from(page.weight as i64));
+    map.insert(
+        VString::from("word_count"),
+        Value::from(page.word_count as i64),
+    );
+    map.insert(VString::from("previous"), previous);
+    map.insert(VString::from("next"), next);
     map.insert(VString::from("toc"), headings_to_value(&page.headings));
     map.insert(
         VString::from("ancestors"),
@@ -1039,12 +1204,7 @@ pub fn section_to_value(section: &Section, site_tree: &SiteTree, base_url: &str)
     );
 
     // Add pages in this section (sorted by weight, including their headings)
-    let mut pages: Vec<&Page> = site_tree
-        .pages
-        .values()
-        .filter(|p| p.section_route == section.route)
-        .collect();
-    pages.sort_by_key(|p| p.weight);
+    let pages = pages_in_section(site_tree, &section.route);
     let section_pages: Vec<Value> = pages
         .into_iter()
         .map(|p| {
@@ -1074,7 +1234,7 @@ pub fn section_to_value(section: &Section, site_tree: &SiteTree, base_url: &str)
     // to live under the aggregate root; they must NOT appear in the primary's
     // section tree (`root.subsections`) — only in cross-site search. Exclude
     // their root routes here.
-    let mount_roots: std::collections::HashSet<String> = crate::config::global_config()
+    let mount_roots: HashSet<String> = crate::config::global_config()
         .map(|c| {
             c.sources
                 .iter()
@@ -1085,22 +1245,7 @@ pub fn section_to_value(section: &Section, site_tree: &SiteTree, base_url: &str)
         .unwrap_or_default();
 
     // Add subsections (full objects, sorted by weight)
-    let mut child_sections: Vec<&Section> = site_tree
-        .sections
-        .values()
-        .filter(|s| {
-            s.route != section.route
-                && s.route.as_str().starts_with(section.route.as_str())
-                && s.route.as_str()[section.route.as_str().len()..]
-                    .trim_matches('/')
-                    .chars()
-                    .filter(|c| *c == '/')
-                    .count()
-                    == 0
-                && !mount_roots.contains(s.route.as_str())
-        })
-        .collect();
-    child_sections.sort_by_key(|s| s.weight);
+    let child_sections = direct_child_sections(site_tree, &section.route, &mount_roots);
     let subsections: Vec<Value> = child_sections
         .into_iter()
         .map(|s| subsection_to_value(s, site_tree, base_url))
@@ -1125,12 +1270,7 @@ fn subsection_to_value(section: &Section, site_tree: &SiteTree, base_url: &str) 
     map.insert(VString::from("extra"), section.extra.clone());
 
     // Add pages in this section, sorted by weight
-    let mut section_pages: Vec<&Page> = site_tree
-        .pages
-        .values()
-        .filter(|p| p.section_route == section.route)
-        .collect();
-    section_pages.sort_by_key(|p| p.weight);
+    let section_pages = pages_in_section(site_tree, &section.route);
 
     let pages: Vec<Value> = section_pages
         .into_iter()

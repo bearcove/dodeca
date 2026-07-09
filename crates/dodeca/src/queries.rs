@@ -414,6 +414,7 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
     let source_map = convert_source_map(*source_map_raw);
 
     let body_html = HtmlBody::new(html_output);
+    let word_count = markdown_word_count(content.as_str());
 
     // Determine if this is a section (_index.md)
     let is_section = path.is_section_index();
@@ -430,6 +431,7 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
     Ok(Ok(ParsedData {
         source_path: (*path).clone(),
         route,
+        word_count,
         title: Title::new(title),
         description: frontmatter.description,
         weight: frontmatter.weight,
@@ -762,10 +764,12 @@ pub async fn build_tree<DB: Db>(db: &DB) -> PicanteResult<BuildTreeResult> {
             data.route.clone(),
             Page {
                 route: data.route.clone(),
+                source_path: data.source_path.clone(),
                 title: data.title.clone(),
                 weight: data.weight,
                 body_html: data.body_html.clone(),
                 section_route,
+                word_count: data.word_count,
                 headings: data.headings.clone(),
                 rules: data.reqs.clone(),
                 source_map: data.source_map.clone(),
@@ -784,6 +788,24 @@ pub async fn build_tree<DB: Db>(db: &DB) -> PicanteResult<BuildTreeResult> {
     crate::wiki::apply_auto_links(&mut tree);
 
     Ok(Ok(tree))
+}
+
+fn markdown_word_count(content: &str) -> usize {
+    let body = marq::strip_frontmatter(content).body;
+    let mut in_fence = false;
+
+    body.lines()
+        .filter(|line| {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+                in_fence = !in_fence;
+                return false;
+            }
+            !in_fence
+        })
+        .flat_map(|line| line.split_whitespace())
+        .filter(|word| word.chars().any(char::is_alphanumeric))
+        .count()
 }
 
 /// Build a mapping from source paths to routes.
