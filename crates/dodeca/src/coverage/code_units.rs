@@ -39,6 +39,17 @@ pub struct CodeUnit {
     pub end_byte: usize,
     /// Requirement IDs referenced in comments associated with this code unit
     pub req_refs: Vec<RuleId>,
+    /// Requirement references with their marker prefix, aligned with
+    /// [`Self::req_refs`] for callers that need source-aware filtering.
+    pub prefixed_req_refs: Vec<CodeUnitReqRef>,
+}
+
+/// A requirement reference associated with a code unit, preserving the marker
+/// prefix used in the comment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodeUnitReqRef {
+    pub prefix: String,
+    pub req_id: RuleId,
 }
 
 /// The kind of code unit
@@ -686,7 +697,11 @@ fn extract_elixir_recursive(path: &Path, source: &str, node: Node, units: &mut C
                 .map(|n| source[n.byte_range()].to_string())
         });
 
-        let (req_refs, comment_start) = extract_req_refs_from_comments(source, node);
+        let (prefixed_req_refs, comment_start) = extract_req_refs_from_comments(source, node);
+        let req_refs = prefixed_req_refs
+            .iter()
+            .map(|reference| reference.req_id.clone())
+            .collect();
         let start_line = comment_start.unwrap_or_else(|| node.start_position().row + 1);
         let start_byte = if comment_start.is_some() {
             find_line_start_byte(source, start_line)
@@ -703,6 +718,7 @@ fn extract_elixir_recursive(path: &Path, source: &str, node: Node, units: &mut C
             start_byte,
             end_byte: node.end_byte(),
             req_refs,
+            prefixed_req_refs,
         });
     }
 
@@ -787,7 +803,11 @@ fn extract_clojure_recursive(path: &Path, source: &str, node: Node, units: &mut 
             .nth(1)
             .map(|n| source[n.byte_range()].to_string());
 
-        let (req_refs, comment_start) = extract_req_refs_from_comments(source, node);
+        let (prefixed_req_refs, comment_start) = extract_req_refs_from_comments(source, node);
+        let req_refs = prefixed_req_refs
+            .iter()
+            .map(|reference| reference.req_id.clone())
+            .collect();
         let start_line = comment_start.unwrap_or_else(|| node.start_position().row + 1);
         let start_byte = if comment_start.is_some() {
             find_line_start_byte(source, start_line)
@@ -804,6 +824,7 @@ fn extract_clojure_recursive(path: &Path, source: &str, node: Node, units: &mut 
             start_byte,
             end_byte: node.end_byte(),
             req_refs,
+            prefixed_req_refs,
         });
     }
 
@@ -1193,7 +1214,11 @@ where
     // r[impl code-unit.boundary.include-comments]
     // Find associated comments and extract requirement references
     // Also get the earliest comment line to extend the code unit's range
-    let (req_refs, comment_start) = extract_req_refs_from_comments(source, node);
+    let (prefixed_req_refs, comment_start) = extract_req_refs_from_comments(source, node);
+    let req_refs = prefixed_req_refs
+        .iter()
+        .map(|reference| reference.req_id.clone())
+        .collect();
 
     // The code unit starts at the earliest associated comment (if any),
     // otherwise at the node itself
@@ -1214,6 +1239,7 @@ where
         start_byte,
         end_byte: node.end_byte(),
         req_refs,
+        prefixed_req_refs,
     })
 }
 
@@ -1312,7 +1338,10 @@ fn get_node_name(source: &str, node: Node) -> Option<String> {
 }
 
 /// Returns (requirement refs, earliest comment line if any)
-fn extract_req_refs_from_comments(source: &str, node: Node) -> (Vec<RuleId>, Option<usize>) {
+fn extract_req_refs_from_comments(
+    source: &str,
+    node: Node,
+) -> (Vec<CodeUnitReqRef>, Option<usize>) {
     let mut refs = Vec::new();
     let mut earliest_comment_line: Option<usize> = None;
 
@@ -1368,7 +1397,7 @@ fn extract_req_refs_from_comments(source: &str, node: Node) -> (Vec<RuleId>, Opt
 }
 
 /// Recursively collect comment refs from a node's children
-fn collect_inner_comment_refs(source: &str, node: Node, refs: &mut Vec<RuleId>) {
+fn collect_inner_comment_refs(source: &str, node: Node, refs: &mut Vec<CodeUnitReqRef>) {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         match child.kind() {
@@ -1391,7 +1420,7 @@ fn collect_inner_comment_refs(source: &str, node: Node, refs: &mut Vec<RuleId>) 
             "doc_comment" => {
                 // The actual content of a doc comment
                 let text = &source[child.byte_range()];
-                for cap in find_req_refs(text) {
+                for cap in find_prefixed_req_refs(text) {
                     if !refs.contains(&cap) {
                         refs.push(cap);
                     }
@@ -1402,7 +1431,7 @@ fn collect_inner_comment_refs(source: &str, node: Node, refs: &mut Vec<RuleId>) 
     }
 }
 
-fn collect_comment_refs(source: &str, node: Node, refs: &mut Vec<RuleId>) {
+fn collect_comment_refs(source: &str, node: Node, refs: &mut Vec<CodeUnitReqRef>) {
     match node.kind() {
         "line_comment"
         | "block_comment"
@@ -1423,12 +1452,12 @@ fn collect_comment_refs(source: &str, node: Node, refs: &mut Vec<RuleId>) {
     }
 }
 
-fn extract_refs_from_comment_text(source: &str, node: Node, refs: &mut Vec<RuleId>) {
+fn extract_refs_from_comment_text(source: &str, node: Node, refs: &mut Vec<CodeUnitReqRef>) {
     let text = &source[node.byte_range()];
 
     // Reuse the same pattern matching from the lexer
     // Look for [verb req.id] or [req.id] patterns
-    for cap in find_req_refs(text) {
+    for cap in find_prefixed_req_refs(text) {
         if !refs.contains(&cap) {
             refs.push(cap);
         }
@@ -1436,7 +1465,16 @@ fn extract_refs_from_comment_text(source: &str, node: Node, refs: &mut Vec<RuleI
 }
 
 /// Extract requirement IDs from comment text
+#[cfg(test)]
 fn find_req_refs(text: &str) -> Vec<RuleId> {
+    find_prefixed_req_refs(text)
+        .into_iter()
+        .map(|reference| reference.req_id)
+        .collect()
+}
+
+/// Extract requirement refs from comment text with their marker prefixes.
+fn find_prefixed_req_refs(text: &str) -> Vec<CodeUnitReqRef> {
     let mut refs = Vec::new();
     let code_mask = super::markdown::markdown_code_mask(text);
     let mut chars = text.char_indices().peekable();
@@ -1449,15 +1487,18 @@ fn find_req_refs(text: &str) -> Vec<RuleId> {
         }
         if is_ref_prefix_start(ch)
             && !prev_ch.is_some_and(is_identifier_continue)
-            && let Some(req_id) = try_parse_prefixed_req_ref(ch, &mut chars)
+            && let Some(req_ref) = try_parse_prefixed_req_ref(ch, &mut chars)
         {
-            refs.push(req_id);
+            refs.push(req_ref);
             prev_ch = Some(']');
             continue;
         }
         if ch == '[' && !prev_ch.is_some_and(is_identifier_continue) {
             if let Some(req_id) = try_parse_req_ref(&mut chars) {
-                refs.push(req_id);
+                refs.push(CodeUnitReqRef {
+                    prefix: String::new(),
+                    req_id,
+                });
                 prev_ch = Some(']');
                 continue;
             }
@@ -1862,11 +1903,11 @@ enum ParsedFullRef {
 }
 
 fn is_identifier_continue(ch: char) -> bool {
-    ch.is_ascii_alphanumeric() || ch == '_'
+    ch.is_alphanumeric() || ch == '_' || ch == '$'
 }
 
 fn is_ref_prefix_start(ch: char) -> bool {
-    ch.is_ascii_lowercase()
+    ch.is_ascii_lowercase() || ch.is_ascii_digit()
 }
 
 fn is_ref_prefix_continue(ch: char) -> bool {
@@ -1874,17 +1915,13 @@ fn is_ref_prefix_continue(ch: char) -> bool {
 }
 
 fn is_valid_ref_prefix(prefix: &str) -> bool {
-    let mut chars = prefix.chars();
-    let Some(first) = chars.next() else {
-        return false;
-    };
-    first.is_ascii_lowercase() && chars.all(|ch| ch.is_ascii_digit())
+    !prefix.is_empty() && prefix.chars().all(is_ref_prefix_continue)
 }
 
 fn try_parse_prefixed_req_ref(
     first_ch: char,
     chars: &mut std::iter::Peekable<impl Iterator<Item = (usize, char)>>,
-) -> Option<RuleId> {
+) -> Option<CodeUnitReqRef> {
     let mut prefix = String::new();
     prefix.push(first_ch);
     while let Some(&(_, next_ch)) = chars.peek() {
@@ -1901,7 +1938,7 @@ fn try_parse_prefixed_req_ref(
         return None;
     }
     chars.next();
-    try_parse_req_ref(chars)
+    try_parse_req_ref(chars).map(|req_id| CodeUnitReqRef { prefix, req_id })
 }
 
 // r[impl ref.syntax.req-id]
@@ -2149,10 +2186,25 @@ fn uncovered() {}
     }
 
     #[test]
+    fn test_find_req_refs_preserves_arbitrary_prefixes() {
+        let refs = find_prefixed_req_refs("// arr[k] and arr[ix] are syntactic markers");
+        assert_eq!(
+            refs.iter()
+                .map(|reference| (reference.prefix.as_str(), reference.req_id.to_string()))
+                .collect::<Vec<_>>(),
+            vec![("arr", "k".to_string()), ("arr", "ix".to_string())]
+        );
+        let refs = find_prefixed_req_refs("// http[impl api.route]");
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].prefix, "http");
+        assert_eq!(refs[0].req_id, rid("api.route"));
+    }
+
+    #[test]
     fn test_find_req_refs_rejects_identifier_suffix_r_before_bracket() {
-        assert!(find_req_refs("// arr[k] is an array lookup").is_empty());
-        assert!(find_req_refs("// arr[ix] is an array lookup").is_empty());
         assert!(find_req_refs("// identifier_r[foo] is still an identifier").is_empty());
+        assert!(find_req_refs("// identifier$r[foo] is still an identifier").is_empty());
+        assert!(find_req_refs("// café_r[foo] is still an identifier").is_empty());
         assert_eq!(find_req_refs("// r[foo] is real"), vec![rid("foo")]);
     }
 
@@ -3496,20 +3548,23 @@ fn pick(index: Index) -> Step {
 
     #[test]
     fn test_identifier_suffix_r_before_bracket_not_annotation_treesitter() {
-        let source = r#"/// arr[k] is an array lookup
-/// arr[ix] is another array lookup
-/// identifier_r[foo] is an identifier
+        let source = r#"/// identifier_r[foo] is an identifier
+/// identifier$r[bar] is an identifier
+/// café_r[baz] is an identifier
 /// r[foo] is a real ref
+/// http[impl api.route] is a multi-letter prefix ref
 fn foo() {}
 "#;
         let refs = extract_refs_with_warnings(Path::new("test.rs"), source);
         assert_eq!(
             refs.references.len(),
-            1,
-            "only standalone r[foo] should be extracted: {refs:?}"
+            2,
+            "only standalone refs should be extracted: {refs:?}"
         );
         assert_eq!(refs.references[0].prefix, "r");
         assert_eq!(refs.references[0].req_id.to_string(), "foo");
+        assert_eq!(refs.references[1].prefix, "http");
+        assert_eq!(refs.references[1].req_id.to_string(), "api.route");
         assert_eq!(refs.warnings.len(), 0);
     }
 

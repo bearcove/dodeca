@@ -1066,6 +1066,12 @@ fn collect_tests() -> Vec<Test> {
             ignored: false,
         },
         Test {
+            name: "coverage_filters_refs_by_source_marker_prefix",
+            module: "coverage",
+            func: || boxed(coverage::coverage_filters_refs_by_source_marker_prefix()),
+            ignored: false,
+        },
+        Test {
             name: "coverage_impl_root_scans_sibling_crate",
             module: "coverage",
             func: || boxed(coverage::coverage_impl_root_scans_sibling_crate()),
