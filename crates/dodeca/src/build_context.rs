@@ -225,6 +225,10 @@ pub fn code_coverage_entries(
     use globset::{Glob, GlobSet, GlobSetBuilder};
     use std::collections::BTreeMap;
 
+    let project_root = project_root
+        .canonicalize_utf8()
+        .unwrap_or_else(|_| project_root.to_owned());
+
     fn globset(patterns: &[String]) -> Option<GlobSet> {
         let mut builder = GlobSetBuilder::new();
         let mut any = false;
@@ -291,7 +295,7 @@ pub fn code_coverage_entries(
                 .as_ref()
                 .is_some_and(|include| include.is_match(rel.as_std_path()));
             if source_match || test_match {
-                let display = display_code_path(project_root, matcher, &abs, rel);
+                let display = display_code_path(&project_root, matcher, &abs, rel);
                 let key = code_registry_key(matcher, &display);
                 let key = (
                     matcher.source_name.clone(),
@@ -317,7 +321,7 @@ pub fn code_coverage_entries(
                 abs_path
                     .strip_prefix(&matcher.root)
                     .ok()
-                    .map(|rel| display_code_path(project_root, matcher, &abs_path, rel))
+                    .map(|rel| display_code_path(&project_root, matcher, &abs_path, rel))
             })
             .unwrap_or_else(|| path.clone());
         out.push(CodeCoverageEntry {
