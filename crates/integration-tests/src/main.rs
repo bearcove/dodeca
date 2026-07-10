@@ -1072,6 +1072,12 @@ fn collect_tests() -> Vec<Test> {
             ignored: false,
         },
         Test {
+            name: "coverage_deduplicates_shared_files_across_impl_contexts",
+            module: "coverage",
+            func: || boxed(coverage::coverage_deduplicates_shared_files_across_impl_contexts()),
+            ignored: false,
+        },
+        Test {
             name: "coverage_impl_root_scans_sibling_crate",
             module: "coverage",
             func: || boxed(coverage::coverage_impl_root_scans_sibling_crate()),
