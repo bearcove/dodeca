@@ -160,12 +160,15 @@ pub struct ResolvedSource {
 }
 
 /// A code implementation to scan for requirement references (resolved from
-/// [`dodeca_config::ImplDef`]). Globs are project-root-relative; the scanner
-/// resolves them at scan time.
+/// [`dodeca_config::ImplDef`]). Globs are relative to [`root_dir`](Self::root_dir).
 #[derive(Debug, Clone, facet::Facet)]
 pub struct ResolvedImpl {
     /// Name of this implementation (e.g. `rust`).
     pub name: String,
+    /// Configured root, if any, as written in `.config/dodeca.styx`.
+    pub root: Option<String>,
+    /// Absolute, canonicalized directory whose tree is walked for this impl.
+    pub root_dir: Utf8PathBuf,
     /// Globs for source files to scan.
     pub include: Vec<String>,
     /// Globs to exclude from `include`.
@@ -556,7 +559,7 @@ fn resolve_sources(
             checkout_dir: None,
             git: None,
             repo: src.repo.clone(),
-            impls: resolve_impls(&src.impls),
+            impls: resolve_impls(&src.impls, root),
             skip_domains: src.skip_domains.clone(),
             // The root source runs build steps in the project root.
             project_dir: root.to_owned(),
@@ -648,7 +651,7 @@ fn resolve_mount(root: &Utf8Path, def: &MountDef) -> Result<ResolvedSource> {
             .or_else(|| composed.as_ref().and_then(|s| s.repo.clone())),
         impls: composed
             .as_ref()
-            .map(|s| resolve_impls(&s.impls))
+            .map(|s| resolve_impls(&s.impls, &project_dir))
             .unwrap_or_default(),
         skip_domains: composed
             .as_ref()
@@ -789,17 +792,34 @@ fn merge_page_types(
 }
 
 /// Resolve `ImplDef`s (config schema) into `ResolvedImpl`s.
-fn resolve_impls(impls: &[dodeca_config::ImplDef]) -> Vec<ResolvedImpl> {
+fn resolve_impls(impls: &[dodeca_config::ImplDef], project_dir: &Utf8Path) -> Vec<ResolvedImpl> {
     impls
         .iter()
         .cloned()
         .map(|i| ResolvedImpl {
             name: i.name,
+            root_dir: resolve_impl_root(project_dir, i.root.as_deref()),
+            root: i.root,
             include: i.include,
             exclude: i.exclude,
             test_include: i.test_include,
         })
         .collect()
+}
+
+fn resolve_impl_root(project_dir: &Utf8Path, root: Option<&str>) -> Utf8PathBuf {
+    let path = match root {
+        Some(raw) => {
+            let raw_path = Utf8Path::new(raw);
+            if raw_path.is_absolute() {
+                raw_path.to_owned()
+            } else {
+                project_dir.join(raw_path)
+            }
+        }
+        None => project_dir.to_owned(),
+    };
+    path.canonicalize_utf8().unwrap_or(path)
 }
 
 /// Normalize a mount prefix to a canonical form: a leading and trailing slash,
@@ -967,6 +987,7 @@ mod tests {
         let mut src = src_cfg(Some("docs/content"));
         src.impls = vec![dodeca_config::ImplDef {
             name: "rust".into(),
+            root: None,
             include: vec!["rust/**/src/**/*.rs".into()],
             exclude: vec!["**/target/**".into()],
             test_include: vec!["rust/**/tests/**/*.rs".into()],

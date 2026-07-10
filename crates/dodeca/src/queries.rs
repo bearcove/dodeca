@@ -2833,7 +2833,7 @@ pub async fn references_in_file<DB: Db>(
     db: &DB,
     code_file: crate::db::CodeFile,
 ) -> PicanteResult<crate::coverage::Reqs> {
-    let path = code_file.path(db)?;
+    let path = code_file.display_path(db)?;
     let content = code_file.content(db)?;
     Ok(crate::coverage::extract_references(
         std::path::Path::new(path.as_str()),
@@ -3019,6 +3019,8 @@ fn coverage_config_impls(
                 source_name: source.name.clone(),
                 mount: source.mount.clone(),
                 impl_name: impl_.name.clone(),
+                root: impl_.root.clone(),
+                resolved_root: impl_.root_dir.to_string(),
                 include: impl_.include.clone(),
                 exclude: impl_.exclude.clone(),
                 test_include: impl_.test_include.clone(),
@@ -3086,9 +3088,10 @@ pub async fn coverage_workspace<DB: Db>(db: &DB) -> PicanteResult<CoverageWorksp
     let files = crate::db::CodeRegistry::files(db)?.unwrap_or_default();
     for cf in files {
         let path = cf.path(db)?.as_str().to_string();
+        let display_path = cf.display_path(db)?.as_str().to_string();
         let content = cf.content(db)?;
         let reqs = references_in_file(db, cf).await?;
-        let units = crate::coverage::extract(std::path::Path::new(&path), content.as_str());
+        let units = crate::coverage::extract(std::path::Path::new(&display_path), content.as_str());
         unmapped_by_path.insert(path.clone(), unmapped_units(units));
         reqs_by_path.insert(path, reqs);
     }
@@ -3237,7 +3240,7 @@ pub async fn rule_impls<DB: Db>(
     let mut map: HashMap<String, Vec<cell_html_proto::ImplSite>> = HashMap::new();
     let files = crate::db::CodeRegistry::files(db)?.unwrap_or_default();
     for cf in files {
-        let path = cf.path(db)?;
+        let path = cf.display_path(db)?;
         let content = cf.content(db)?;
         let units = crate::coverage::extract(std::path::Path::new(path.as_str()), content.as_str());
         for unit in units.units {

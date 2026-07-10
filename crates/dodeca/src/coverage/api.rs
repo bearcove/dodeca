@@ -442,6 +442,8 @@ pub struct CoverageConfigImplResponse {
     pub source_name: String,
     pub mount: String,
     pub impl_name: String,
+    pub root: Option<String>,
+    pub resolved_root: String,
     pub include: Vec<String>,
     pub exclude: Vec<String>,
     pub test_include: Vec<String>,
@@ -753,6 +755,8 @@ pub fn config_response(report: &CoverageReport) -> CoverageConfigResponse {
             source_name: impl_.source_name.clone(),
             mount: impl_.mount.clone(),
             impl_name: impl_.impl_name.clone(),
+            root: impl_.root.clone(),
+            resolved_root: impl_.resolved_root.clone(),
             include: impl_.include.clone(),
             exclude: impl_.exclude.clone(),
             test_include: impl_.test_include.clone(),
@@ -1813,6 +1817,11 @@ fn render_config_markdown(response: &CoverageConfigResponse) -> String {
             impl_.source_name, impl_.impl_name
         ));
         out.push_str(&format!("- Mount: `{}`\n", impl_.mount));
+        match &impl_.root {
+            Some(root) => out.push_str(&format!("- Root: `{root}`\n")),
+            None => out.push_str("- Root: default source project root\n"),
+        }
+        out.push_str(&format!("- Resolved root: `{}`\n", impl_.resolved_root));
         render_globs(&mut out, "Include", &impl_.include);
         render_globs(&mut out, "Exclude", &impl_.exclude);
         render_globs(&mut out, "Test include", &impl_.test_include);

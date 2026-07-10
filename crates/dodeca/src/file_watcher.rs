@@ -43,11 +43,11 @@ pub struct WatcherConfig {
     /// change to one categorizes as [`PathCategory::Include`] and re-renders the
     /// pages that embed it. Grows as includes are discovered at render time.
     pub included_files: std::collections::HashSet<Utf8PathBuf>,
-    /// Absolute paths of code files scanned for requirement references (from the
-    /// sources' `impls` globs). Like `included_files` they live outside the
-    /// content tree, so they're tracked explicitly: a change categorizes as
+    /// Absolute paths of code files scanned for requirement references mapped
+    /// to their stable registry keys. Like `included_files` they live outside
+    /// the content tree, so they're tracked explicitly: a change categorizes as
     /// [`PathCategory::Code`] and re-derives coverage.
-    pub code_files: std::collections::HashSet<Utf8PathBuf>,
+    pub code_files: std::collections::BTreeMap<Utf8PathBuf, Utf8PathBuf>,
     /// Project root, used to recover a code file's project-root-relative key
     /// when it changes.
     pub project_root: Utf8PathBuf,
@@ -206,7 +206,7 @@ impl WatcherConfig {
             PathCategory::Config
         } else if self.included_files.contains(path) {
             PathCategory::Include
-        } else if self.code_files.contains(path) {
+        } else if self.code_files.contains_key(path) {
             PathCategory::Code
         } else if self.content_match(path).is_some() {
             PathCategory::Content
@@ -243,10 +243,7 @@ impl WatcherConfig {
                 .map(|(mount, rel)| crate::build_context::mounted_key(&mount, rel.as_str()).into()),
             PathCategory::Dist => path.strip_prefix(&self.dist_dir).ok().map(|p| p.to_owned()),
             PathCategory::Data => path.strip_prefix(&self.data_dir).ok().map(|p| p.to_owned()),
-            PathCategory::Code => path
-                .strip_prefix(&self.project_root)
-                .ok()
-                .map(|p| p.to_owned()),
+            PathCategory::Code => self.code_files.get(path).cloned(),
             PathCategory::Config | PathCategory::Include | PathCategory::Unknown => None,
         }
     }
@@ -513,7 +510,7 @@ pub fn create_watcher(config: &WatcherConfig) -> eyre::Result<(WatcherHandle, Wa
         // (non-recursive, like includes) so edits fire, narrowed by `categorize`
         // via `code_files`.
         let mut seen = std::collections::HashSet::new();
-        for file in &config.code_files {
+        for file in config.code_files.keys() {
             if let Some(parent) = file.parent()
                 && seen.insert(parent.to_owned())
                 && parent.exists()

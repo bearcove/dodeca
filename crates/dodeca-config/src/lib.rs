@@ -375,7 +375,13 @@ pub struct ImplDef {
     /// Name of this implementation (e.g. `rust`, `core`, `frontend`).
     pub name: String,
 
-    /// Glob patterns for source files to scan, relative to the project root.
+    /// Directory whose tree is walked for this implementation's globs. Relative
+    /// paths resolve against the owning source config's project root. When
+    /// omitted, the owning source project root is used.
+    #[facet(default)]
+    pub root: Option<String>,
+
+    /// Glob patterns for source files to scan, relative to `root`.
     #[facet(default)]
     pub include: Vec<String>,
 
