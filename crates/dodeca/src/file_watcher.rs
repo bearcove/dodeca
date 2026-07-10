@@ -43,13 +43,8 @@ pub struct WatcherConfig {
     /// change to one categorizes as [`PathCategory::Include`] and re-renders the
     /// pages that embed it. Grows as includes are discovered at render time.
     pub included_files: std::collections::HashSet<Utf8PathBuf>,
-    /// Absolute paths of code files scanned for requirement references mapped
-    /// to their stable registry keys. Like `included_files` they live outside
-    /// the content tree, so they're tracked explicitly: a change categorizes as
-    /// [`PathCategory::Code`] and re-derives coverage.
-    pub code_files: std::collections::BTreeMap<Utf8PathBuf, Utf8PathBuf>,
-    /// Project root, used to recover a code file's project-root-relative key
-    /// when it changes.
+    /// Project root, used to derive code coverage registry keys and display
+    /// paths for files matched by source implementation globs.
     pub project_root: Utf8PathBuf,
 }
 
@@ -206,7 +201,7 @@ impl WatcherConfig {
             PathCategory::Config
         } else if self.included_files.contains(path) {
             PathCategory::Include
-        } else if self.code_files.contains_key(path) {
+        } else if !self.code_entries_for_path(path).is_empty() {
             PathCategory::Code
         } else if self.content_match(path).is_some() {
             PathCategory::Content
@@ -243,9 +238,26 @@ impl WatcherConfig {
                 .map(|(mount, rel)| crate::build_context::mounted_key(&mount, rel.as_str()).into()),
             PathCategory::Dist => path.strip_prefix(&self.dist_dir).ok().map(|p| p.to_owned()),
             PathCategory::Data => path.strip_prefix(&self.data_dir).ok().map(|p| p.to_owned()),
-            PathCategory::Code => self.code_files.get(path).cloned(),
+            PathCategory::Code => self
+                .code_entries_for_path(path)
+                .into_iter()
+                .next()
+                .map(|entry| Utf8PathBuf::from(entry.path.as_str())),
             PathCategory::Config | PathCategory::Include | PathCategory::Unknown => None,
         }
+    }
+
+    /// All coverage entries that the current resolved source/impl config would
+    /// assign to `path`. This is the hot-path equivalent of cold coverage
+    /// discovery: it uses impl roots plus include/exclude/test globs instead of
+    /// startup membership, so newly-created or moved-in files classify as code
+    /// immediately.
+    pub fn code_entries_for_path(&self, path: &Utf8Path) -> Vec<crate::db::CodeCoverageEntry> {
+        crate::build_context::code_coverage_entries_for_file(
+            &self.sources,
+            &self.project_root,
+            path,
+        )
     }
 
     /// Every directory the watcher should recursively watch: the primary
@@ -275,6 +287,7 @@ impl WatcherConfig {
                 dirs.push(dir);
             }
         }
+        dirs.extend(crate::build_context::code_watch_dirs(&self.sources));
         // Watch the config file's directory (`.config/`) so edits to
         // `dodeca.styx` fire — it lives outside every content/asset tree.
         if let Some(cfg) = &self.config_file
@@ -506,18 +519,6 @@ pub fn create_watcher(config: &WatcherConfig) -> eyre::Result<(WatcherHandle, Wa
                 w.watch(dir.as_std_path(), RecursiveMode::Recursive)?;
             }
         }
-        // Code files live outside the content tree; watch their parent dirs
-        // (non-recursive, like includes) so edits fire, narrowed by `categorize`
-        // via `code_files`.
-        let mut seen = std::collections::HashSet::new();
-        for file in config.code_files.keys() {
-            if let Some(parent) = file.parent()
-                && seen.insert(parent.to_owned())
-                && parent.exists()
-            {
-                let _ = w.watch(parent.as_std_path(), RecursiveMode::NonRecursive);
-            }
-        }
     }
 
     Ok((watcher, rx))
@@ -577,7 +578,6 @@ mod tests {
             sources: vec![],
             config_file: Some(base.join(".config/dodeca.styx")),
             included_files: Default::default(),
-            code_files: Default::default(),
             project_root: base.to_owned(),
         }
     }
@@ -615,7 +615,6 @@ mod tests {
             ],
             config_file: Some(Utf8PathBuf::from("/proj/.config/dodeca.styx")),
             included_files: Default::default(),
-            code_files: Default::default(),
             project_root: Utf8PathBuf::from("/proj"),
         }
     }

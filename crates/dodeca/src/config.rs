@@ -577,6 +577,7 @@ fn resolve_sources(
             "config must set a top-level `source` (root content) and/or `mounts`"
         ));
     }
+    validate_unique_impl_names(&resolved)?;
     Ok(resolved)
 }
 
@@ -791,6 +792,26 @@ fn merge_page_types(
     Ok((!page_types.is_empty()).then_some(page_types))
 }
 
+fn validate_unique_impl_names(sources: &[ResolvedSource]) -> Result<()> {
+    for source in sources {
+        let mut seen = std::collections::BTreeSet::new();
+        for impl_ in &source.impls {
+            if !seen.insert(impl_.name.as_str()) {
+                let label = if source.mount == "/" {
+                    "the root source".to_string()
+                } else {
+                    format!("source `{}` (mounted at `{}`)", source.name, source.mount)
+                };
+                return Err(eyre!(
+                    "duplicate impl name `{}` in {label}; impl names must be unique within one source",
+                    impl_.name
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Resolve `ImplDef`s (config schema) into `ResolvedImpl`s.
 fn resolve_impls(impls: &[dodeca_config::ImplDef], project_dir: &Utf8Path) -> Vec<ResolvedImpl> {
     impls
@@ -997,6 +1018,25 @@ mod tests {
         assert_eq!(sources[0].mount, "/");
         assert_eq!(sources[0].impls.len(), 1);
         assert_eq!(sources[0].impls[0].include, vec!["rust/**/src/**/*.rs"]);
+    }
+
+    #[test]
+    fn duplicate_impl_names_are_rejected_within_one_source() {
+        let mut src = src_cfg(Some("docs/content"));
+        src.impls = vec![
+            dodeca_config::ImplDef {
+                name: "rust".into(),
+                include: vec!["src/**/*.rs".into()],
+                ..Default::default()
+            },
+            dodeca_config::ImplDef {
+                name: "rust".into(),
+                test_include: vec!["tests/**/*.rs".into()],
+                ..Default::default()
+            },
+        ];
+        let err = resolve(Some(src), None).unwrap_err();
+        assert!(err.to_string().contains("duplicate impl name `rust`"));
     }
 
     #[test]

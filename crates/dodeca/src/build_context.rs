@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use camino::{Utf8Path, Utf8PathBuf};
 use eyre::{Result, eyre};
+use globset::GlobSet;
 use ignore::WalkBuilder;
 
 use crate::config::ResolvedSource;
@@ -27,6 +28,27 @@ struct CodeMatcher {
     include: Option<globset::GlobSet>,
     test_include: Option<globset::GlobSet>,
     exclude: Option<globset::GlobSet>,
+}
+
+impl CodeMatcher {
+    fn matches_rel(&self, rel: &Utf8Path) -> Option<bool> {
+        if self
+            .exclude
+            .as_ref()
+            .is_some_and(|exclude| exclude.is_match(rel.as_std_path()))
+        {
+            return None;
+        }
+        let source_match = self
+            .include
+            .as_ref()
+            .is_some_and(|include| include.is_match(rel.as_std_path()));
+        let test_match = self
+            .test_include
+            .as_ref()
+            .is_some_and(|include| include.is_match(rel.as_std_path()));
+        (source_match || test_match).then_some(test_match)
+    }
 }
 
 /// Check if a file extension is a supported data file format.
@@ -218,48 +240,28 @@ pub fn code_file_key_map(
         .collect()
 }
 
+pub fn code_watch_dirs(roots: &[ResolvedSource]) -> Vec<Utf8PathBuf> {
+    let mut dirs = roots
+        .iter()
+        .flat_map(|root| root.impls.iter())
+        .filter(|impl_| !impl_.include.is_empty() || !impl_.test_include.is_empty())
+        .map(|impl_| impl_.root_dir.clone())
+        .collect::<Vec<_>>();
+    dirs.sort();
+    dirs.dedup();
+    dirs
+}
+
 pub fn code_coverage_entries(
     roots: &[ResolvedSource],
     project_root: &Utf8Path,
 ) -> Vec<CodeCoverageEntry> {
-    use globset::{Glob, GlobSet, GlobSetBuilder};
     use std::collections::BTreeMap;
 
     let project_root = project_root
         .canonicalize_utf8()
         .unwrap_or_else(|_| project_root.to_owned());
-
-    fn globset(patterns: &[String]) -> Option<GlobSet> {
-        let mut builder = GlobSetBuilder::new();
-        let mut any = false;
-        for pat in patterns {
-            if let Ok(glob) = Glob::new(pat) {
-                builder.add(glob);
-                any = true;
-            }
-        }
-        any.then(|| builder.build().ok()).flatten()
-    }
-
-    let mut matchers = Vec::new();
-    for root in roots {
-        for impl_ in &root.impls {
-            let include = globset(&impl_.include);
-            let test_include = globset(&impl_.test_include);
-            if include.is_none() && test_include.is_none() {
-                continue;
-            }
-            matchers.push(CodeMatcher {
-                source_name: root.name.clone(),
-                impl_name: impl_.name.clone(),
-                root: impl_.root_dir.clone(),
-                root_label: impl_root_label(impl_),
-                include,
-                test_include,
-                exclude: globset(&impl_.exclude),
-            });
-        }
-    }
+    let matchers = code_matchers(roots);
     if matchers.is_empty() {
         return Vec::new();
     }
@@ -279,22 +281,7 @@ pub fn code_coverage_entries(
             let Ok(rel) = abs.strip_prefix(&matcher.root) else {
                 continue;
             };
-            if matcher
-                .exclude
-                .as_ref()
-                .is_some_and(|exclude| exclude.is_match(rel.as_std_path()))
-            {
-                continue;
-            }
-            let source_match = matcher
-                .include
-                .as_ref()
-                .is_some_and(|include| include.is_match(rel.as_std_path()));
-            let test_match = matcher
-                .test_include
-                .as_ref()
-                .is_some_and(|include| include.is_match(rel.as_std_path()));
-            if source_match || test_match {
+            if let Some(test_match) = matcher.matches_rel(rel) {
                 let display = display_code_path(&project_root, matcher, &abs, rel);
                 let key = code_registry_key(matcher, &display);
                 let key = (
@@ -336,6 +323,82 @@ pub fn code_coverage_entries(
     out
 }
 
+pub fn code_coverage_entries_for_file(
+    roots: &[ResolvedSource],
+    project_root: &Utf8Path,
+    abs_path: &Utf8Path,
+) -> Vec<CodeCoverageEntry> {
+    let project_root = project_root
+        .canonicalize_utf8()
+        .unwrap_or_else(|_| project_root.to_owned());
+    let abs = abs_path
+        .canonicalize_utf8()
+        .unwrap_or_else(|_| abs_path.to_owned());
+    let mut out = BTreeMap::new();
+    for matcher in code_matchers(roots) {
+        let Ok(rel) = abs.strip_prefix(&matcher.root) else {
+            continue;
+        };
+        let Some(is_test) = matcher.matches_rel(rel) else {
+            continue;
+        };
+        let display = display_code_path(&project_root, &matcher, &abs, rel);
+        let key = code_registry_key(&matcher, &display);
+        out.entry((matcher.source_name, matcher.impl_name, key, display))
+            .and_modify(|existing| *existing = *existing || is_test)
+            .or_insert(is_test);
+    }
+    out.into_iter()
+        .map(
+            |((source_name, impl_name, path, display_path), is_test)| CodeCoverageEntry {
+                source_name,
+                impl_name,
+                abs_path: abs.clone(),
+                path: CodePath::new(path.clone()),
+                display_path: CodePath::new(display_path),
+                is_test,
+            },
+        )
+        .collect()
+}
+
+fn globset(patterns: &[String]) -> Option<GlobSet> {
+    use globset::{Glob, GlobSetBuilder};
+
+    let mut builder = GlobSetBuilder::new();
+    let mut any = false;
+    for pat in patterns {
+        if let Ok(glob) = Glob::new(pat) {
+            builder.add(glob);
+            any = true;
+        }
+    }
+    any.then(|| builder.build().ok()).flatten()
+}
+
+fn code_matchers(roots: &[ResolvedSource]) -> Vec<CodeMatcher> {
+    let mut matchers = Vec::new();
+    for root in roots {
+        for impl_ in &root.impls {
+            let include = globset(&impl_.include);
+            let test_include = globset(&impl_.test_include);
+            if include.is_none() && test_include.is_none() {
+                continue;
+            }
+            matchers.push(CodeMatcher {
+                source_name: root.name.clone(),
+                impl_name: impl_.name.clone(),
+                root: impl_.root_dir.clone(),
+                root_label: impl_root_label(impl_),
+                include,
+                test_include,
+                exclude: globset(&impl_.exclude),
+            });
+        }
+    }
+    matchers
+}
+
 fn impl_root_label(impl_: &crate::config::ResolvedImpl) -> String {
     impl_
         .root_dir
@@ -363,21 +426,10 @@ fn display_code_path(
         return rel.to_string();
     }
     let root_rel = root_rel.to_string();
-    if matcher.root_label == matcher.impl_name {
-        format!(
-            "{}/{}/{}",
-            source_key_segment(&matcher.source_name),
-            matcher.impl_name,
-            root_rel
-        )
+    if matcher.root_label.is_empty() {
+        format!("{}/{}", matcher.impl_name, root_rel)
     } else {
-        format!(
-            "{}/{}/{}/{}",
-            source_key_segment(&matcher.source_name),
-            matcher.impl_name,
-            matcher.root_label,
-            root_rel
-        )
+        format!("{}/{}", matcher.root_label, root_rel)
     }
 }
 
@@ -401,7 +453,7 @@ fn code_file_abs_paths_from_entries(entries: &[CodeCoverageEntry]) -> Vec<Utf8Pa
         .collect()
 }
 
-fn load_code_files_from_entries(
+pub fn load_code_files_from_entries(
     db: &Database,
     entries: &[CodeCoverageEntry],
 ) -> Result<Vec<(crate::types::CodePath, crate::db::CodeFile)>> {
