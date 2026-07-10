@@ -10,8 +10,8 @@ use dodeca::db::{
 use dodeca::queries::{self, build_site};
 use dodeca::tui::{self, LogEvent};
 use dodeca::types::{
-    DataContent, DataPath, Route, SassContent, SassPath, SourceContent, SourcePath, StaticPath,
-    TemplateContent, TemplatePath,
+    CodePath, DataContent, DataPath, Route, SassContent, SassPath, SourceContent, SourcePath,
+    StaticPath, TemplateContent, TemplatePath,
 };
 use dodeca::{
     BuildContext, cas, cell_server, cells, file_watcher, host, init, is_data_file_extension,
@@ -23,7 +23,7 @@ use facet::Facet;
 use figue::{self as args, FigueBuiltins};
 use ignore::WalkBuilder;
 use owo_colors::OwoColorize;
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::fs;
 use std::process::{Command as StdCommand, Stdio};
 use std::sync::Arc;
@@ -2301,6 +2301,11 @@ fn handle_file_changed(
     use file_watcher::PathCategory;
 
     let category = config.categorize(path);
+    if category == PathCategory::Code {
+        refresh_code_file(path, config, server, true);
+        return;
+    }
+
     let relative = match config.relative_path(path) {
         Some(r) => r,
         None => {
@@ -2469,48 +2474,7 @@ fn handle_file_changed(
                 DataRegistry::set(db, data_files).expect("failed to set data files");
             }
         }
-        PathCategory::Code => {
-            if let Ok(content) = fs::read_to_string(path) {
-                let last_modified = fs::metadata(path.as_std_path())
-                    .and_then(|m| m.modified())
-                    .ok()
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|d| d.as_secs() as i64)
-                    .unwrap_or(0);
-                let db = &*server.db;
-                let mut files = CodeRegistry::files(db).ok().flatten().unwrap_or_default();
-                let relative_str = relative.to_string();
-                let code_path = dodeca::types::CodePath::new(relative_str.clone());
-                let code_content = dodeca::types::CodeContent::new(content);
-                if let Some(pos) = files.iter().position(|f| {
-                    f.path(db)
-                        .ok()
-                        .map(|p| p.as_str() == relative_str)
-                        .unwrap_or(false)
-                }) {
-                    let display_path = files[pos].display_path(db).unwrap_or(code_path.clone());
-                    files[pos] = dodeca::db::CodeFile::new(
-                        db,
-                        code_path,
-                        display_path,
-                        code_content,
-                        last_modified,
-                    )
-                    .expect("failed to create code file");
-                } else {
-                    let f = dodeca::db::CodeFile::new(
-                        db,
-                        code_path.clone(),
-                        code_path,
-                        code_content,
-                        last_modified,
-                    )
-                    .expect("failed to create code file");
-                    files.push(f);
-                }
-                CodeRegistry::set(db, files).expect("failed to set code files");
-            }
-        }
+        PathCategory::Code => unreachable!("code changes return before relative path lookup"),
         // Config + include changes are handled at the batch level, not here.
         PathCategory::Config | PathCategory::Include => (),
         PathCategory::Unknown => (), // Unknown files don't need picante updates
@@ -2527,6 +2491,11 @@ fn handle_file_removed(
     use file_watcher::PathCategory;
 
     let category = config.categorize(path);
+    if category == PathCategory::Code {
+        refresh_code_file(path, config, server, false);
+        return;
+    }
+
     let relative = match config.relative_path(path) {
         Some(r) => r,
         None => return,
@@ -2609,31 +2578,71 @@ fn handle_file_removed(
                 DataRegistry::set(db, data_files).expect("failed to set data files");
             }
         }
-        PathCategory::Code => {
-            let db = &*server.db;
-            let mut files = CodeRegistry::files(db).ok().flatten().unwrap_or_default();
-            if let Some(pos) = files.iter().position(|f| {
-                f.path(db)
-                    .ok()
-                    .map(|p| p.as_str() == relative_str)
-                    .unwrap_or(false)
-            }) {
-                files.remove(pos);
-                CodeRegistry::set(db, files).expect("failed to set code files");
-            }
-            let entries = CodeCoverageRegistry::entries(db)
-                .ok()
-                .flatten()
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|entry| entry.path.as_str() != relative_str)
-                .collect();
-            CodeCoverageRegistry::set(db, entries).expect("failed to set code coverage entries");
-        }
+        PathCategory::Code => unreachable!("code removals return before relative path lookup"),
         // Config + include changes are handled at the batch level, not here.
         PathCategory::Config | PathCategory::Include => {}
         PathCategory::Unknown => {}
     }
+}
+
+fn refresh_code_file(
+    path: &Utf8PathBuf,
+    config: &file_watcher::WatcherConfig,
+    server: &serve::SiteServer,
+    exists: bool,
+) {
+    let db = &*server.db;
+    let canonical_path = path.canonicalize_utf8().unwrap_or_else(|_| path.clone());
+    let mut entries = CodeCoverageRegistry::entries(db)
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+
+    let mut affected_paths: BTreeSet<CodePath> = entries
+        .iter()
+        .filter(|entry| entry.abs_path == canonical_path || entry.abs_path == *path)
+        .map(|entry| entry.path.clone())
+        .collect();
+
+    entries.retain(|entry| entry.abs_path != canonical_path && entry.abs_path != *path);
+
+    let new_entries = if exists && path.exists() {
+        config.code_entries_for_path(&canonical_path)
+    } else {
+        Vec::new()
+    };
+    affected_paths.extend(new_entries.iter().map(|entry| entry.path.clone()));
+
+    let new_files = if new_entries.is_empty() {
+        Vec::new()
+    } else {
+        match dodeca::build_context::load_code_files_from_entries(db, &new_entries) {
+            Ok(files) => files,
+            Err(err) => {
+                tracing::warn!(
+                    path = %canonical_path,
+                    error = %err,
+                    "refresh_code_file: failed to load changed code file"
+                );
+                return;
+            }
+        }
+    };
+
+    entries.extend(new_entries);
+    let mut files = CodeRegistry::files(db).ok().flatten().unwrap_or_default();
+    files.retain(|file| {
+        let Ok(path) = file.path(db) else {
+            return false;
+        };
+        !affected_paths
+            .iter()
+            .any(|affected| affected.as_str() == path.as_str())
+    });
+    files.extend(new_files.into_iter().map(|(_, file)| file));
+
+    CodeCoverageRegistry::set(db, entries).expect("failed to set code coverage entries");
+    CodeRegistry::set(db, files).expect("failed to set code files");
 }
 
 fn prune_missing_sources(config: &file_watcher::WatcherConfig, server: &serve::SiteServer) {
@@ -2857,10 +2866,6 @@ fn build_watcher_config(
         config_file: config_file.map(canon),
         // Preserve includes discovered so far so a config reload keeps watching them.
         included_files: dodeca::includes::known_abs(&resolved._root),
-        code_files: dodeca::build_context::code_file_key_map(&resolved.sources, &resolved._root)
-            .into_iter()
-            .map(|(abs, key)| (canon(abs), key))
-            .collect(),
         project_root: canon(resolved._root.clone()),
     }
 }
@@ -3620,14 +3625,6 @@ async fn serve_plain(
         }),
         // Populated lazily as `include` shortcodes are first rendered.
         included_files: Default::default(),
-        code_files: dodeca::config::global_config()
-            .map(|c| {
-                dodeca::build_context::code_file_key_map(sources, &c._root)
-                    .into_iter()
-                    .map(|(abs, key)| (abs.canonicalize_utf8().unwrap_or(abs), key))
-                    .collect()
-            })
-            .unwrap_or_default(),
         project_root: dodeca::config::global_config()
             .map(|c| {
                 c._root
@@ -4014,14 +4011,6 @@ async fn serve_with_tui(
         }),
         // Populated lazily as `include` shortcodes are first rendered.
         included_files: Default::default(),
-        code_files: dodeca::config::global_config()
-            .map(|c| {
-                dodeca::build_context::code_file_key_map(sources, &c._root)
-                    .into_iter()
-                    .map(|(abs, key)| (abs.canonicalize_utf8().unwrap_or(abs), key))
-                    .collect()
-            })
-            .unwrap_or_default(),
         project_root: dodeca::config::global_config()
             .map(|c| {
                 c._root
