@@ -2864,6 +2864,12 @@ fn build_watcher_config(
         data_dir: canon(parent.join("data")),
         sources: canonicalize_sources(&resolved.sources),
         config_file: config_file.map(canon),
+        config_files: resolved
+            .sources
+            .iter()
+            .filter_map(|source| source.composed_config_path.clone())
+            .map(canon)
+            .collect(),
         // Preserve includes discovered so far so a config reload keeps watching them.
         included_files: dodeca::includes::known_abs(&resolved._root),
         project_root: canon(resolved._root.clone()),
@@ -3623,6 +3629,11 @@ async fn serve_plain(
             let p = dodeca::config::config_file_path(&c._root);
             p.canonicalize_utf8().unwrap_or(p)
         }),
+        config_files: sources
+            .iter()
+            .filter_map(|source| source.composed_config_path.clone())
+            .map(|path| path.canonicalize_utf8().unwrap_or(path))
+            .collect(),
         // Populated lazily as `include` shortcodes are first rendered.
         included_files: Default::default(),
         project_root: dodeca::config::global_config()
@@ -4009,6 +4020,11 @@ async fn serve_with_tui(
             let p = dodeca::config::config_file_path(&c._root);
             p.canonicalize_utf8().unwrap_or(p)
         }),
+        config_files: sources
+            .iter()
+            .filter_map(|source| source.composed_config_path.clone())
+            .map(|path| path.canonicalize_utf8().unwrap_or(path))
+            .collect(),
         // Populated lazily as `include` shortcodes are first rendered.
         included_files: Default::default(),
         project_root: dodeca::config::global_config()
