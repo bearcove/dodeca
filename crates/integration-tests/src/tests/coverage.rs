@@ -60,8 +60,38 @@ const MOUNT_CONFIG: &str = r#"source {
     impls (
         {
             name rust
-            include ("api/code/**/*.rs")
-            test_include ("api/tests/**/*.rs")
+            include ("code/**/*.rs")
+            test_include ("tests/**/*.rs")
+        }
+    )
+}
+"#;
+
+const SIBLING_CONFIG: &str = r#"source {
+    content root/content
+}
+
+mounts (
+    {
+        name vix
+        path /vix
+        local vix/content
+    }
+)
+
+site {
+    output public
+}
+"#;
+
+const VIX_CONFIG: &str = r#"source {
+    content content
+    impls (
+        {
+            name weavy
+            root ../weavy
+            include ("src/**/*.rs")
+            test_include ("tests/**/*.rs")
         }
     )
 }
@@ -93,8 +123,23 @@ pub fn api_rule() {}
 pub fn api_unmapped() {}
 "#;
 
-const API_TEST_CODE: &str = r#"// r[impl api.testonly]
+const API_TEST_CODE: &str = r#"// r[verify api.testonly]
 pub fn api_rule_test() {}
+"#;
+
+const VIX_SPEC: &str = r#"+++
+title = "Vix Spec"
++++
+
+r[vix.weavy] Vix rule implemented in sibling Weavy.
+"#;
+
+const WEAVY_CODE: &str = r#"// r[impl vix.weavy]
+pub fn weavy_impl() {}
+"#;
+
+const WEAVY_TEST_CODE: &str = r#"// r[verify vix.weavy]
+pub fn weavy_verify() {}
 "#;
 
 pub async fn coverage_suffix_endpoints_serve_markdown_and_json() {
@@ -213,8 +258,8 @@ pub async fn coverage_filters_by_source_and_impl() {
     api.assert_ok();
     api.assert_contains("Spec: `api/rust`");
     api.assert_contains("| Implemented | 1/2 | 50.0% |");
-    api.assert_contains("| Verified | 0/2 | 0.0% |");
-    api.assert_contains("| Test impl refs | 1 |");
+    api.assert_contains("| Verified | 1/2 | 50.0% |");
+    api.assert_contains("| Test impl refs | 0 |");
 
     let api_json = site
         .get("/_dodeca/coverage/status.json?source=api&impl=rust")
@@ -223,8 +268,8 @@ pub async fn coverage_filters_by_source_and_impl() {
     api_json.assert_contains(r#""specName": "api/rust""#);
     api_json.assert_contains(r#""totalRules": 2"#);
     api_json.assert_contains(r#""implementedRules": 1"#);
-    api_json.assert_contains(r#""verifiedRules": 0"#);
-    api_json.assert_contains(r#""testImplReferences": 1"#);
+    api_json.assert_contains(r#""verifiedRules": 1"#);
+    api_json.assert_contains(r#""testImplReferences": 0"#);
 
     let config = site
         .get("/_dodeca/coverage/config.md?source=api&impl=rust")
@@ -232,8 +277,9 @@ pub async fn coverage_filters_by_source_and_impl() {
     config.assert_ok();
     config.assert_contains("# Coverage Config");
     config.assert_contains("## `api` / `rust`");
-    config.assert_contains("api/code/**/*.rs");
-    config.assert_contains("api/tests/**/*.rs");
+    config.assert_contains("- Root: default source project root");
+    config.assert_contains("code/**/*.rs");
+    config.assert_contains("tests/**/*.rs");
 
     let config_json = site
         .get("/_dodeca/coverage/config.json?source=api&impl=rust")
@@ -241,15 +287,15 @@ pub async fn coverage_filters_by_source_and_impl() {
     config_json.assert_ok();
     config_json.assert_contains(r#""implName": "rust""#);
     config_json.assert_contains(r#""sourceName": "api""#);
-    config_json.assert_contains("api/code/**/*.rs");
-    config_json.assert_contains("api/tests/**/*.rs");
+    config_json.assert_contains("code/**/*.rs");
+    config_json.assert_contains("tests/**/*.rs");
 
     let validate = site
         .get("/_dodeca/coverage/validate.md?source=api&impl=rust")
         .await;
     validate.assert_ok();
-    validate.assert_contains("Result: **failing**");
-    validate.assert_contains("- Test impl references: `1`");
+    validate.assert_contains("Result: **passing**");
+    validate.assert_contains("- Test impl references: `0`");
 
     let unmapped = site
         .get("/_dodeca/coverage/unmapped.md?source=api&impl=rust")
@@ -270,4 +316,51 @@ pub async fn coverage_filters_by_source_and_impl() {
         .get("/_dodeca/coverage/status.md?source=api&impl=go")
         .await;
     assert_eq!(missing.status, 404);
+}
+
+pub async fn coverage_impl_root_scans_sibling_crate() {
+    let site = TestSite::with_files(
+        "sample-site",
+        &[
+            (".config/dodeca.styx", SIBLING_CONFIG),
+            ("root/content/root.md", ROOT_SPEC),
+            ("vix/.config/dodeca.styx", VIX_CONFIG),
+            ("vix/content/vix.md", VIX_SPEC),
+            ("weavy/src/lib.rs", WEAVY_CODE),
+            ("weavy/tests/weavy_test.rs", WEAVY_TEST_CODE),
+        ],
+    );
+
+    let status = site
+        .get("/_dodeca/coverage/status.md?source=vix&impl=weavy")
+        .await;
+    status.assert_ok();
+    status.assert_contains("Spec: `vix/weavy`");
+    status.assert_contains("| Implemented | 1/1 | 100.0% |");
+    status.assert_contains("| Verified | 1/1 | 100.0% |");
+
+    let config = site
+        .get("/_dodeca/coverage/config.md?source=vix&impl=weavy")
+        .await;
+    config.assert_ok();
+    config.assert_contains("## `vix` / `weavy`");
+    config.assert_contains("- Root: `../weavy`");
+    config.assert_contains("src/**/*.rs");
+    config.assert_contains("tests/**/*.rs");
+
+    let rule = site
+        .get("/_dodeca/coverage/rule/vix.weavy.md?source=vix&impl=weavy")
+        .await;
+    rule.assert_ok();
+    rule.assert_contains("## Implementation References");
+    rule.assert_contains("## Verification References");
+    rule.assert_contains("weavy/src/lib.rs");
+    rule.assert_contains("weavy/tests/weavy_test.rs");
+
+    let nav = site
+        .get("/_dodeca/coverage/nav.md?source=vix&impl=weavy")
+        .await;
+    nav.assert_ok();
+    nav.assert_contains("`weavy/src/lib.rs`");
+    nav.assert_contains("`weavy/tests/weavy_test.rs`");
 }

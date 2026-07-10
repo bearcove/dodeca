@@ -86,6 +86,9 @@ queries can select it with `impl=<name>` or `--impl <name>`.
 - `include` globs select production implementation files.
 - `exclude` globs remove files from `include`.
 - `test_include` globs select test or verification files.
+- `root` optionally changes the walked directory for that implementation. It
+  resolves relative to the owning source config's project root and defaults to
+  that project root.
 
 Files matched by `test_include` can contribute `r[verify rule.id]` references.
 They cannot contribute implementation coverage: `r[impl rule.id]` in a test
@@ -93,6 +96,8 @@ file is reported as a validation failure.
 
 Mounted sources keep their own `impls`. Coverage queries can select a mounted
 source by its configured source name with `source=<name>` or `--source <name>`.
+This lets a leaf source in a monorepo keep local globs such as `src/**/*.rs`,
+or scan a sibling crate with `root ../weavy`.
 
 ### `site {}` — non-composable, whole-site
 

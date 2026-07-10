@@ -44,9 +44,10 @@ source {
     impls (
         {
             name rust
-            include ("crates/**/*.rs")
+            root crates/my-crate
+            include ("src/**/*.rs")
             exclude ("target/**")
-            test_include ("crates/**/tests/**/*.rs")
+            test_include ("tests/**/*.rs")
         }
     )
 }
@@ -55,6 +56,10 @@ source {
 `include` files may use any reference verb. `test_include` files may verify
 rules, but `impl` references in test files fail validation so implementation
 coverage stays tied to production code.
+
+`root` is optional and defaults to the owning source config's project root.
+Relative roots resolve against that same project root, so mounted leaf configs
+can keep local globs or scan sibling crates with `root ../other-crate`.
 
 Mounted sources keep their own `impls` configuration. Coverage queries can be
 filtered with `source` and `impl` selectors.

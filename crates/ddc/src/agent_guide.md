@@ -132,13 +132,19 @@ source {
     impls (
         {
             name rust
-            include ("crates/**/*.rs")
+            root crates/my-crate
+            include ("src/**/*.rs")
             exclude ("target/**")
-            test_include ("crates/**/tests/**/*.rs")
+            test_include ("tests/**/*.rs")
         }
     )
 }
 ```
+
+`root` is optional. When omitted, Dodeca walks the owning source config's
+project root. When set, it resolves relative to that same owning source project
+root, so a mounted leaf config can scan sibling monorepo crates with paths such
+as `root ../weavy` and globs like `src/**/*.rs`.
 
 Requirement definitions live in Markdown:
 
