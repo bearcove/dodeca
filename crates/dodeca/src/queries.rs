@@ -3009,6 +3009,51 @@ fn rule_definition(
     }
 }
 
+fn req_marker_prefix(req: &crate::db::ReqDefinition) -> Option<String> {
+    let suffix = format!("-{}", req.id);
+    let prefix = req.anchor_id.strip_suffix(&suffix)?;
+    is_valid_marker_prefix(prefix).then(|| prefix.to_string())
+}
+
+fn is_valid_marker_prefix(prefix: &str) -> bool {
+    !prefix.is_empty()
+        && prefix
+            .chars()
+            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit())
+}
+
+fn insert_known_rule(
+    source_name: &str,
+    route: &str,
+    req: &crate::db::ReqDefinition,
+    known_global: &mut HashSet<crate::coverage::RuleId>,
+    known_by_source: &mut HashMap<String, HashSet<crate::coverage::RuleId>>,
+    valid_prefixes_by_source: &mut HashMap<String, HashSet<String>>,
+    definitions_by_rule: &mut HashMap<
+        crate::coverage::RuleId,
+        Vec<crate::coverage::RuleDefinition>,
+    >,
+) {
+    let Some(rid) = crate::coverage::parse_rule_id(&req.id) else {
+        return;
+    };
+    known_global.insert(rid.clone());
+    known_by_source
+        .entry(source_name.to_string())
+        .or_default()
+        .insert(rid.clone());
+    if let Some(prefix) = req_marker_prefix(req) {
+        valid_prefixes_by_source
+            .entry(source_name.to_string())
+            .or_default()
+            .insert(prefix);
+    }
+    definitions_by_rule
+        .entry(rid)
+        .or_default()
+        .push(rule_definition(source_name, route, req));
+}
+
 fn coverage_config_impls(
     sources: &[crate::config::ResolvedSource],
 ) -> Vec<crate::coverage::CoverageConfigImpl> {
@@ -3042,6 +3087,7 @@ pub async fn coverage_workspace<DB: Db>(db: &DB) -> PicanteResult<CoverageWorksp
     // Known rules: every requirement *defined* in a markdown spec page.
     let mut known_global: HashSet<crate::coverage::RuleId> = HashSet::new();
     let mut known_by_source: HashMap<String, HashSet<crate::coverage::RuleId>> = HashMap::new();
+    let mut valid_prefixes_by_source: HashMap<String, HashSet<String>> = HashMap::new();
     let mut definitions_by_rule: HashMap<
         crate::coverage::RuleId,
         Vec<crate::coverage::RuleDefinition>,
@@ -3050,41 +3096,36 @@ pub async fn coverage_workspace<DB: Db>(db: &DB) -> PicanteResult<CoverageWorksp
         for (route, section) in &site_tree.sections {
             let source_name = source_name_of(route.as_str());
             for req in &section.reqs {
-                if let Some(rid) = crate::coverage::parse_rule_id(&req.id) {
-                    known_global.insert(rid.clone());
-                    known_by_source
-                        .entry(source_name.clone())
-                        .or_default()
-                        .insert(rid.clone());
-                    definitions_by_rule
-                        .entry(rid.clone())
-                        .or_default()
-                        .push(rule_definition(&source_name, route.as_str(), req));
-                }
+                insert_known_rule(
+                    &source_name,
+                    route.as_str(),
+                    req,
+                    &mut known_global,
+                    &mut known_by_source,
+                    &mut valid_prefixes_by_source,
+                    &mut definitions_by_rule,
+                );
             }
         }
         for (route, page) in &site_tree.pages {
             let source_name = source_name_of(route.as_str());
             for req in &page.rules {
-                if let Some(rid) = crate::coverage::parse_rule_id(&req.id) {
-                    known_global.insert(rid.clone());
-                    known_by_source
-                        .entry(source_name.clone())
-                        .or_default()
-                        .insert(rid.clone());
-                    definitions_by_rule
-                        .entry(rid.clone())
-                        .or_default()
-                        .push(rule_definition(&source_name, route.as_str(), req));
-                }
+                insert_known_rule(
+                    &source_name,
+                    route.as_str(),
+                    req,
+                    &mut known_global,
+                    &mut known_by_source,
+                    &mut valid_prefixes_by_source,
+                    &mut definitions_by_rule,
+                );
             }
         }
     }
 
     // References: scan every code file the `impls` globs collected.
     let mut reqs_by_path: HashMap<String, crate::coverage::Reqs> = HashMap::new();
-    let mut unmapped_by_path: HashMap<String, Vec<crate::coverage::UnmappedCodeUnit>> =
-        HashMap::new();
+    let mut units_by_path: HashMap<String, crate::coverage::CodeUnits> = HashMap::new();
     let files = crate::db::CodeRegistry::files(db)?.unwrap_or_default();
     for cf in files {
         let path = cf.path(db)?.as_str().to_string();
@@ -3092,7 +3133,7 @@ pub async fn coverage_workspace<DB: Db>(db: &DB) -> PicanteResult<CoverageWorksp
         let content = cf.content(db)?;
         let reqs = references_in_file(db, cf).await?;
         let units = crate::coverage::extract(std::path::Path::new(&display_path), content.as_str());
-        unmapped_by_path.insert(path.clone(), unmapped_units(units));
+        units_by_path.insert(path.clone(), units);
         reqs_by_path.insert(path, reqs);
     }
 
@@ -3112,8 +3153,6 @@ pub async fn coverage_workspace<DB: Db>(db: &DB) -> PicanteResult<CoverageWorksp
         .unwrap_or_default();
     source_names.extend(known_by_source.keys().cloned());
 
-    let mut source_context_paths = HashSet::new();
-    let mut test_context_paths = HashSet::new();
     let mut reqs_by_context: BTreeMap<(String, String), crate::coverage::Reqs> = BTreeMap::new();
     let mut test_impls_by_context: BTreeMap<(String, String), Vec<crate::coverage::ReqReference>> =
         BTreeMap::new();
@@ -3123,51 +3162,55 @@ pub async fn coverage_workspace<DB: Db>(db: &DB) -> PicanteResult<CoverageWorksp
     > = BTreeMap::new();
     let entries = crate::db::CodeCoverageRegistry::entries(db)?.unwrap_or_default();
     for entry in entries {
-        if entry.is_test {
-            test_context_paths.insert(entry.path.as_str().to_string());
-        } else {
-            source_context_paths.insert(entry.path.as_str().to_string());
-        }
+        let valid_prefixes = valid_prefixes_by_source
+            .get(&entry.source_name)
+            .cloned()
+            .unwrap_or_default();
         if let Some(reqs) = reqs_by_path.get(entry.path.as_str()) {
             let context_key = (entry.source_name.clone(), entry.impl_name.clone());
+            let source_reqs = reqs_matching_prefixes(reqs, &valid_prefixes);
             let context_reqs = if entry.is_test {
-                let impl_refs = impl_references(reqs);
+                let impl_refs = impl_references(&source_reqs);
                 if !impl_refs.is_empty() {
                     test_impls_by_context
                         .entry(context_key.clone())
                         .or_default()
                         .extend(impl_refs);
                 }
-                reqs_without_impl_references(reqs)
+                reqs_without_impl_references(&source_reqs)
             } else {
-                reqs.clone()
+                source_reqs
             };
             reqs_by_context
                 .entry(context_key)
                 .or_default()
                 .extend(context_reqs);
         }
-        if let Some(unmapped) = unmapped_by_path.get(entry.path.as_str()) {
+        if let Some(units) = units_by_path.get(entry.path.as_str()) {
+            let unmapped = unmapped_units_for_prefixes(units, &valid_prefixes);
             unmapped_by_context
                 .entry((entry.source_name.clone(), entry.impl_name.clone()))
                 .or_default()
-                .extend(unmapped.clone());
+                .extend(unmapped);
         }
     }
 
     let mut global_reqs = crate::coverage::Reqs::new();
     let mut global_unmapped_units = Vec::new();
-    for (path, reqs) in &reqs_by_path {
-        if source_context_paths.contains(path) {
-            global_reqs.extend(reqs.clone());
-        } else if test_context_paths.contains(path) {
-            global_reqs.extend(reqs_without_impl_references(reqs));
-        }
-        if let Some(unmapped) = unmapped_by_path.get(path) {
-            global_unmapped_units.extend(unmapped.clone());
-        }
+    for context_reqs in reqs_by_context.values() {
+        global_reqs.extend(context_reqs.clone());
+    }
+    for unmapped in unmapped_by_context.values() {
+        global_unmapped_units.extend(unmapped.clone());
     }
     sort_unmapped_units(&mut global_unmapped_units);
+    global_unmapped_units.dedup_by(|a, b| {
+        a.file == b.file
+            && a.line == b.line
+            && a.end_line == b.end_line
+            && a.kind == b.kind
+            && a.name == b.name
+    });
     let global_test_impl_references = test_impls_by_context
         .values()
         .flat_map(|refs| refs.iter().cloned())
@@ -3188,9 +3231,37 @@ pub async fn coverage_workspace<DB: Db>(db: &DB) -> PicanteResult<CoverageWorksp
     })
 }
 
-fn unmapped_units(units: crate::coverage::CodeUnits) -> Vec<crate::coverage::UnmappedCodeUnit> {
+fn reqs_matching_prefixes(
+    reqs: &crate::coverage::Reqs,
+    valid_prefixes: &HashSet<String>,
+) -> crate::coverage::Reqs {
+    let mut filtered = reqs.clone();
+    filtered
+        .references
+        .retain(|reference| reference_matches_prefixes(reference.prefix.as_str(), valid_prefixes));
+    filtered
+}
+
+fn reference_matches_prefixes(prefix: &str, valid_prefixes: &HashSet<String>) -> bool {
+    // Unknown prefixes are not unknown rule IDs. The current coverage API has
+    // no typed unknown-prefix diagnostics channel, so source filtering drops
+    // them before rule-id validation instead of reporting them as invalid refs.
+    prefix.is_empty() || valid_prefixes.contains(prefix)
+}
+
+fn unmapped_units_for_prefixes(
+    units: &crate::coverage::CodeUnits,
+    valid_prefixes: &HashSet<String>,
+) -> Vec<crate::coverage::UnmappedCodeUnit> {
     let mut units: Vec<_> = units
-        .uncovered()
+        .units
+        .iter()
+        .filter(|unit| {
+            !unit
+                .prefixed_req_refs
+                .iter()
+                .any(|reference| reference_matches_prefixes(&reference.prefix, valid_prefixes))
+        })
         .map(|unit| crate::coverage::UnmappedCodeUnit {
             file: unit.file.display().to_string(),
             line: unit.start_line,
@@ -3238,27 +3309,77 @@ pub async fn rule_impls<DB: Db>(
     db: &DB,
 ) -> PicanteResult<HashMap<String, Vec<cell_html_proto::ImplSite>>> {
     let mut map: HashMap<String, Vec<cell_html_proto::ImplSite>> = HashMap::new();
-    let files = crate::db::CodeRegistry::files(db)?.unwrap_or_default();
-    for cf in files {
-        let path = cf.display_path(db)?;
-        let content = cf.content(db)?;
-        let units = crate::coverage::extract(std::path::Path::new(path.as_str()), content.as_str());
-        for unit in units.units {
-            if unit.req_refs.is_empty() {
-                continue;
-            }
+    let valid_prefixes_by_source = if let Ok(site_tree) = build_tree(db).await? {
+        valid_prefixes_by_source(&site_tree)
+    } else {
+        HashMap::new()
+    };
+
+    let mut content_by_path = HashMap::new();
+    for cf in crate::db::CodeRegistry::files(db)?.unwrap_or_default() {
+        content_by_path.insert(cf.path(db)?.as_str().to_string(), cf.content(db)?);
+    }
+
+    let mut units_by_context_path: HashMap<(String, String, String), crate::coverage::CodeUnits> =
+        HashMap::new();
+    for entry in crate::db::CodeCoverageRegistry::entries(db)?.unwrap_or_default() {
+        let Some(content) = content_by_path.get(entry.path.as_str()) else {
+            continue;
+        };
+        let valid_prefixes = valid_prefixes_by_source
+            .get(&entry.source_name)
+            .cloned()
+            .unwrap_or_default();
+        let units = units_by_context_path
+            .entry((
+                entry.source_name.clone(),
+                entry.impl_name.clone(),
+                entry.path.as_str().to_string(),
+            ))
+            .or_insert_with(|| {
+                crate::coverage::extract(
+                    std::path::Path::new(entry.display_path.as_str()),
+                    content.as_str(),
+                )
+            });
+        for unit in &units.units {
             let site = cell_html_proto::ImplSite {
                 unit: unit.name.clone(),
                 kind: unit.kind.as_str().to_string(),
-                file: path.as_str().to_string(),
+                file: unit.file.display().to_string(),
                 line: unit.start_line as u32,
             };
-            for rid in &unit.req_refs {
-                map.entry(rid.canonical()).or_default().push(site.clone());
+            for reference in &unit.prefixed_req_refs {
+                if reference_matches_prefixes(&reference.prefix, &valid_prefixes) {
+                    map.entry(reference.req_id.canonical())
+                        .or_default()
+                        .push(site.clone());
+                }
             }
         }
     }
     Ok(map)
+}
+
+fn valid_prefixes_by_source(site_tree: &SiteTree) -> HashMap<String, HashSet<String>> {
+    let mut out: HashMap<String, HashSet<String>> = HashMap::new();
+    for (route, section) in &site_tree.sections {
+        let source_name = source_name_of(route.as_str());
+        for req in &section.reqs {
+            if let Some(prefix) = req_marker_prefix(req) {
+                out.entry(source_name.clone()).or_default().insert(prefix);
+            }
+        }
+    }
+    for (route, page) in &site_tree.pages {
+        let source_name = source_name_of(route.as_str());
+        for req in &page.rules {
+            if let Some(prefix) = req_marker_prefix(req) {
+                out.entry(source_name.clone()).or_default().insert(prefix);
+            }
+        }
+    }
+    out
 }
 
 /// Build the global rule registry: each spec rule's anchor id (`r-rule.id`)

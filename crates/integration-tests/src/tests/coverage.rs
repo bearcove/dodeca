@@ -201,6 +201,80 @@ const WEAVY_NEW_TEST_CODE: &str = r#"// r[verify vix.new]
 pub fn new_verify() {}
 "#;
 
+const PREFIX_FILTER_CONFIG: &str = r#"mounts (
+    {
+        name api
+        path /api
+        local api/content
+    }
+    {
+        name web
+        path /web
+        local web/content
+    }
+)
+
+site {
+    output public
+}
+"#;
+
+const API_PREFIX_CONFIG: &str = r#"source {
+    content content
+    impls (
+        {
+            name shared
+            root ..
+            include ("shared/**/*.rs")
+        }
+    )
+}
+"#;
+
+const WEB_PREFIX_CONFIG: &str = r#"source {
+    content content
+    impls (
+        {
+            name shared
+            root ..
+            include ("shared/**/*.rs" "web-impl/**/*.rs")
+        }
+    )
+}
+"#;
+
+const API_PREFIX_SPEC: &str = r#"+++
+title = "API Prefix Spec"
++++
+
+r[shared.api] API rule implemented from a shared file.
+
+r[api.only] API-only rule remains uncovered.
+"#;
+
+const WEB_PREFIX_SPEC: &str = r#"+++
+title = "Web Prefix Spec"
++++
+
+http[shared.web] Web rule implemented from a shared file.
+
+http[web.only] Web-only rule must not be covered by r-prefixed code.
+"#;
+
+const SHARED_PREFIX_CODE: &str = r#"// r[impl shared.api]
+pub fn api_shared() {}
+
+// http[impl shared.web]
+pub fn web_shared() {}
+
+// arr[k] and arr[ix] are array indexing examples, not this source's prefix.
+pub fn array_lookup() {}
+"#;
+
+const WEB_WRONG_PREFIX_CODE: &str = r#"// r[impl web.only]
+pub fn wrong_prefix_web_only() {}
+"#;
+
 async fn wait_contains(site: &TestSite, path: &str, needle: &str) -> Response {
     site.wait_until(
         &format!("{path} contains {needle}"),
@@ -387,6 +461,76 @@ pub async fn coverage_filters_by_source_and_impl() {
         .get("/_dodeca/coverage/status.md?source=api&impl=go")
         .await;
     assert_eq!(missing.status, 404);
+}
+
+pub async fn coverage_filters_refs_by_source_marker_prefix() {
+    let site = TestSite::with_files(
+        "sample-site",
+        &[
+            (".config/dodeca.styx", PREFIX_FILTER_CONFIG),
+            ("api/.config/dodeca.styx", API_PREFIX_CONFIG),
+            ("api/content/api.md", API_PREFIX_SPEC),
+            ("web/.config/dodeca.styx", WEB_PREFIX_CONFIG),
+            ("web/content/web.md", WEB_PREFIX_SPEC),
+            ("shared/src/lib.rs", SHARED_PREFIX_CODE),
+            ("web-impl/wrong.rs", WEB_WRONG_PREFIX_CODE),
+        ],
+    );
+
+    let api_status = site
+        .get("/_dodeca/coverage/status.md?source=api&impl=shared")
+        .await;
+    api_status.assert_ok();
+    api_status.assert_contains("Spec: `api/shared`");
+    api_status.assert_contains("| Implemented | 1/2 | 50.0% |");
+    api_status.assert_contains("| Invalid refs | 0 |");
+
+    let api_rule = site
+        .get("/_dodeca/coverage/rule/shared.api.md?source=api&impl=shared")
+        .await;
+    api_rule.assert_ok();
+    api_rule.assert_contains("shared/src/lib.rs");
+
+    let api_uncovered = site
+        .get("/_dodeca/coverage/uncovered.md?source=api&impl=shared")
+        .await;
+    api_uncovered.assert_ok();
+    api_uncovered.assert_contains("api.only");
+
+    let api_unmapped = site
+        .get("/_dodeca/coverage/unmapped.md?source=api&impl=shared")
+        .await;
+    api_unmapped.assert_ok();
+    api_unmapped.assert_contains("array_lookup");
+    api_unmapped.assert_contains("web_shared");
+
+    let web_status = site
+        .get("/_dodeca/coverage/status.md?source=web&impl=shared")
+        .await;
+    web_status.assert_ok();
+    web_status.assert_contains("Spec: `web/shared`");
+    web_status.assert_contains("| Implemented | 1/2 | 50.0% |");
+    web_status.assert_contains("| Invalid refs | 0 |");
+
+    let web_rule = site
+        .get("/_dodeca/coverage/rule/shared.web.md?source=web&impl=shared")
+        .await;
+    web_rule.assert_ok();
+    web_rule.assert_contains("shared/src/lib.rs");
+
+    let web_uncovered = site
+        .get("/_dodeca/coverage/uncovered.md?source=web&impl=shared")
+        .await;
+    web_uncovered.assert_ok();
+    web_uncovered.assert_contains("web.only");
+
+    let web_unmapped = site
+        .get("/_dodeca/coverage/unmapped.md?source=web&impl=shared")
+        .await;
+    web_unmapped.assert_ok();
+    web_unmapped.assert_contains("array_lookup");
+    web_unmapped.assert_contains("api_shared");
+    web_unmapped.assert_contains("wrong_prefix_web_only");
 }
 
 pub async fn coverage_impl_root_scans_sibling_crate() {

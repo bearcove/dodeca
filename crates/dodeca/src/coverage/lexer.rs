@@ -588,11 +588,11 @@ fn extract_references_from_text(
 }
 
 fn is_identifier_continue(ch: char) -> bool {
-    ch.is_ascii_alphanumeric() || ch == '_'
+    ch.is_alphanumeric() || ch == '_' || ch == '$'
 }
 
 fn is_ref_prefix_start(ch: char) -> bool {
-    ch.is_ascii_lowercase()
+    ch.is_ascii_lowercase() || ch.is_ascii_digit()
 }
 
 fn is_ref_prefix_continue(ch: char) -> bool {
@@ -600,11 +600,7 @@ fn is_ref_prefix_continue(ch: char) -> bool {
 }
 
 fn is_valid_ref_prefix(prefix: &str) -> bool {
-    let mut chars = prefix.chars();
-    let Some(first) = chars.next() else {
-        return false;
-    };
-    first.is_ascii_lowercase() && chars.all(|ch| ch.is_ascii_digit())
+    !prefix.is_empty() && prefix.chars().all(is_ref_prefix_continue)
 }
 
 /// Scan `text` for StrictDoc-style `@relation(UID[, UID...][, scope=...][, role=...])`
@@ -876,17 +872,20 @@ mod tests {
     #[test]
     fn test_identifier_suffix_r_before_bracket_not_reference() {
         let content = r#"
-            // arr[k] is an array lookup
-            // arr[ix] is also an array lookup
             // identifier_r[foo] is still an identifier
+            // identifier$r[bar] is still an identifier
+            // café_r[baz] is still an identifier
             // r[foo] remains a real reference
+            // http[impl api.route] uses a multi-letter prefix
             fn foo() {}
         "#;
 
         let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
-        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs.len(), 2);
         assert_eq!(reqs.references[0].prefix, "r");
         assert_eq!(reqs.references[0].req_id, "foo");
+        assert_eq!(reqs.references[1].prefix, "http");
+        assert_eq!(reqs.references[1].req_id, "api.route");
     }
 
     #[test]
@@ -935,15 +934,18 @@ mod tests {
         let content = r#"
             // h2[impl stream.priority]
             // m[verify message.format]
+            // http[impl api.route]
             fn test() {}
         "#;
 
         let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
-        assert_eq!(reqs.len(), 2);
+        assert_eq!(reqs.len(), 3);
         assert_eq!(reqs.references[0].prefix, "h2");
         assert_eq!(reqs.references[0].req_id, "stream.priority");
         assert_eq!(reqs.references[1].prefix, "m");
         assert_eq!(reqs.references[1].req_id, "message.format");
+        assert_eq!(reqs.references[2].prefix, "http");
+        assert_eq!(reqs.references[2].req_id, "api.route");
     }
 
     #[test]
