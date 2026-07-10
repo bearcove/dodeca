@@ -134,6 +134,24 @@ title = "Vix Spec"
 r[vix.weavy] Vix rule implemented in sibling Weavy.
 "#;
 
+const VIX_WATCH_SPEC: &str = r#"+++
+title = "Vix Watch Spec"
++++
+
+r[vix.weavy] Vix rule implemented in sibling Weavy.
+
+r[vix.created] Vix rule implemented by a moved-in file.
+"#;
+
+const VIX_RELOAD_SPEC: &str = r#"+++
+title = "Vix Reload Spec"
++++
+
+r[vix.old] Old implementation root rule.
+
+r[vix.new] New implementation root rule.
+"#;
+
 const WEAVY_CODE: &str = r#"// r[impl vix.weavy]
 pub fn weavy_impl() {}
 "#;
@@ -141,6 +159,59 @@ pub fn weavy_impl() {}
 const WEAVY_TEST_CODE: &str = r#"// r[verify vix.weavy]
 pub fn weavy_verify() {}
 "#;
+
+const WEAVY_CREATED_CODE: &str = r#"// r[impl vix.created]
+pub fn created_impl() {}
+"#;
+
+const VIX_OLD_ROOT_CONFIG: &str = r#"source {
+    content content
+    impls (
+        {
+            name weavy
+            root ../weavy-old
+            include ("src/**/*.rs")
+        }
+    )
+}
+"#;
+
+const VIX_NEW_ROOT_CONFIG: &str = r#"source {
+    content content
+    impls (
+        {
+            name weavy
+            root ../weavy-new
+            include ("src/**/*.rs")
+            test_include ("tests/**/*.rs")
+        }
+    )
+}
+"#;
+
+const WEAVY_OLD_CODE: &str = r#"// r[impl vix.old]
+pub fn old_impl() {}
+"#;
+
+const WEAVY_NEW_CODE: &str = r#"// r[impl vix.new]
+pub fn new_impl() {}
+"#;
+
+const WEAVY_NEW_TEST_CODE: &str = r#"// r[verify vix.new]
+pub fn new_verify() {}
+"#;
+
+async fn wait_contains(site: &TestSite, path: &str, needle: &str) -> Response {
+    site.wait_until(
+        &format!("{path} contains {needle}"),
+        Duration::from_secs(10),
+        async || {
+            let response = site.get(path).await;
+            (response.status == 200 && response.body.contains(needle)).then_some(response)
+        },
+    )
+    .await
+}
 
 pub async fn coverage_suffix_endpoints_serve_markdown_and_json() {
     let site = TestSite::with_files(
@@ -363,4 +434,180 @@ pub async fn coverage_impl_root_scans_sibling_crate() {
     nav.assert_ok();
     nav.assert_contains("`weavy/src/lib.rs`");
     nav.assert_contains("`weavy/tests/weavy_test.rs`");
+}
+
+pub async fn coverage_watcher_recomputes_sibling_impl_root_files() {
+    let site = TestSite::with_files(
+        "sample-site",
+        &[
+            (".config/dodeca.styx", SIBLING_CONFIG),
+            ("root/content/root.md", ROOT_SPEC),
+            ("vix/.config/dodeca.styx", VIX_CONFIG),
+            ("vix/content/vix.md", VIX_WATCH_SPEC),
+            ("weavy/src/lib.rs", WEAVY_CODE),
+            ("weavy/tests/weavy_test.rs", WEAVY_TEST_CODE),
+        ],
+    );
+
+    let status_path = "/_dodeca/coverage/status.md?source=vix&impl=weavy";
+    wait_contains(&site, status_path, "| Implemented | 1/2 | 50.0% |").await;
+    wait_contains(&site, status_path, "| Verified | 1/2 | 50.0% |").await;
+
+    site.modify_file("weavy/src/lib.rs", |_| {
+        "pub fn weavy_impl() {}\n".to_string()
+    });
+    wait_contains(&site, status_path, "| Implemented | 0/2 | 0.0% |").await;
+
+    site.write_file("weavy/src/lib.rs", WEAVY_CODE);
+    wait_contains(&site, status_path, "| Implemented | 1/2 | 50.0% |").await;
+
+    site.write_file("scratch/created.rs", WEAVY_CREATED_CODE);
+    std::fs::rename(
+        site.fixture_dir().join("scratch/created.rs"),
+        site.fixture_dir().join("weavy/src/created.rs"),
+    )
+    .expect("move created impl into sibling root");
+    wait_contains(&site, status_path, "| Implemented | 2/2 | 100.0% |").await;
+
+    let created_rule = site
+        .get("/_dodeca/coverage/rule/vix.created.md?source=vix&impl=weavy")
+        .await;
+    created_rule.assert_ok();
+    created_rule.assert_contains("weavy/src/created.rs");
+
+    std::fs::rename(
+        site.fixture_dir().join("weavy/src/created.rs"),
+        site.fixture_dir().join("scratch/created.rs"),
+    )
+    .expect("move created impl out of sibling root");
+    wait_contains(&site, status_path, "| Implemented | 1/2 | 50.0% |").await;
+
+    std::fs::rename(
+        site.fixture_dir().join("scratch/created.rs"),
+        site.fixture_dir().join("weavy/src/created.rs"),
+    )
+    .expect("re-add created impl to sibling root");
+    wait_contains(&site, status_path, "| Implemented | 2/2 | 100.0% |").await;
+}
+
+pub async fn coverage_config_reload_rewatches_changed_sibling_impl_root() {
+    let site = TestSite::with_files(
+        "sample-site",
+        &[
+            (".config/dodeca.styx", SIBLING_CONFIG),
+            ("root/content/root.md", ROOT_SPEC),
+            ("vix/.config/dodeca.styx", VIX_OLD_ROOT_CONFIG),
+            ("vix/content/vix.md", VIX_RELOAD_SPEC),
+            ("weavy-old/src/lib.rs", WEAVY_OLD_CODE),
+            ("weavy-new/src/lib.rs", WEAVY_NEW_CODE),
+            ("weavy-new/tests/weavy_test.rs", WEAVY_NEW_TEST_CODE),
+        ],
+    );
+
+    let status_path = "/_dodeca/coverage/status.md?source=vix&impl=weavy";
+    wait_contains(&site, status_path, "| Implemented | 1/2 | 50.0% |").await;
+
+    let old_rule = site
+        .get("/_dodeca/coverage/rule/vix.old.md?source=vix&impl=weavy")
+        .await;
+    old_rule.assert_ok();
+    old_rule.assert_contains("weavy-old/src/lib.rs");
+
+    site.write_file("vix/.config/dodeca.styx", VIX_NEW_ROOT_CONFIG);
+    wait_contains(&site, status_path, "| Verified | 1/2 | 50.0% |").await;
+
+    let config = site
+        .get("/_dodeca/coverage/config.md?source=vix&impl=weavy")
+        .await;
+    config.assert_ok();
+    config.assert_contains("- Root: `../weavy-new`");
+    config.assert_contains("src/**/*.rs");
+    config.assert_contains("tests/**/*.rs");
+
+    let new_rule = site
+        .get("/_dodeca/coverage/rule/vix.new.md?source=vix&impl=weavy")
+        .await;
+    new_rule.assert_ok();
+    new_rule.assert_contains("weavy-new/src/lib.rs");
+    new_rule.assert_contains("weavy-new/tests/weavy_test.rs");
+
+    site.modify_file("weavy-new/src/lib.rs", |_| {
+        "pub fn new_impl() {}\n".to_string()
+    });
+    wait_contains(&site, status_path, "| Implemented | 0/2 | 0.0% |").await;
+
+    site.write_file("weavy-new/src/lib.rs", WEAVY_NEW_CODE);
+    wait_contains(&site, status_path, "| Implemented | 1/2 | 50.0% |").await;
+}
+
+pub async fn coverage_serve_rejects_duplicate_impl_names() {
+    let temp = tempfile::Builder::new()
+        .prefix("dodeca-duplicate-impls-")
+        .tempdir()
+        .expect("create duplicate impl fixture");
+    let root = temp.path();
+    std::fs::create_dir_all(root.join(".config")).expect("create config dir");
+    std::fs::create_dir_all(root.join("content")).expect("create content dir");
+    std::fs::write(root.join("content/spec.md"), VIX_SPEC).expect("write spec");
+    std::fs::write(
+        root.join(".config/dodeca.styx"),
+        r#"source {
+    content content
+    impls (
+        {
+            name rust
+            include ("src/**/*.rs")
+        }
+        {
+            name rust
+            test_include ("tests/**/*.rs")
+        }
+    )
+}
+
+site {
+    output public
+}
+"#,
+    )
+    .expect("write duplicate impl config");
+
+    let mut child = std::process::Command::new(ddc_binary())
+        .arg("serve")
+        .arg(root)
+        .arg("--no-tui")
+        .env("DODECA_QUIET", "1")
+        .env("RUST_BACKTRACE", "1")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn ddc serve");
+    let mut exited = false;
+    for _ in 0..20 {
+        if child.try_wait().expect("poll ddc serve").is_some() {
+            exited = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    if !exited {
+        let _ = child.kill();
+    }
+    let output = child.wait_with_output().expect("collect ddc serve output");
+    assert!(exited, "duplicate impl serve did not exit promptly");
+    assert!(
+        !output.status.success(),
+        "duplicate impl serve should fail, stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains("duplicate impl name `rust`"),
+        "duplicate impl error missing, output:\n{combined}"
+    );
 }
