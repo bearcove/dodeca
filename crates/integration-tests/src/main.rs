@@ -1071,6 +1071,24 @@ fn collect_tests() -> Vec<Test> {
             func: || boxed(coverage::coverage_impl_root_scans_sibling_crate()),
             ignored: false,
         },
+        Test {
+            name: "coverage_watcher_recomputes_sibling_impl_root_files",
+            module: "coverage",
+            func: || boxed(coverage::coverage_watcher_recomputes_sibling_impl_root_files()),
+            ignored: false,
+        },
+        Test {
+            name: "coverage_config_reload_rewatches_changed_sibling_impl_root",
+            module: "coverage",
+            func: || boxed(coverage::coverage_config_reload_rewatches_changed_sibling_impl_root()),
+            ignored: false,
+        },
+        Test {
+            name: "coverage_serve_rejects_duplicate_impl_names",
+            module: "coverage",
+            func: || boxed(coverage::coverage_serve_rejects_duplicate_impl_names()),
+            ignored: false,
+        },
         // editor tests (in-browser editor SAVE over vox-websocket; proves the
         // fetch-before-push fix in serve.rs commit_as_user)
         Test {
