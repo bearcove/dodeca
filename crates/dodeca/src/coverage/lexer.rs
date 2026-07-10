@@ -383,11 +383,12 @@ fn extract_references_from_text(
         }
         // r[impl ref.syntax.brackets+2]
         // r[impl ref.prefix.matching+2]
-        // Match any valid prefix (alphanumeric) followed by '['
+        // Match any valid prefix followed by '['
         // Only start a prefix scan when NOT preceded by a word character,
-        // so that identifiers like `slot_count[i]` are not misinterpreted.
-        if ch.is_ascii_lowercase() || ch.is_ascii_digit() {
-            if prev_ch.is_some_and(|pc| pc.is_ascii_alphanumeric() || pc == '_') {
+        // so that identifiers like `arr[k]` and `identifier_r[foo]` are not
+        // misinterpreted.
+        if is_ref_prefix_start(ch) {
+            if prev_ch.is_some_and(is_identifier_continue) {
                 prev_ch = Some(ch);
                 continue;
             }
@@ -399,12 +400,17 @@ fn extract_references_from_text(
             while let Some(&(_, next_ch)) = chars.peek() {
                 if next_ch == '[' {
                     break; // Found the bracket
-                } else if next_ch.is_ascii_lowercase() || next_ch.is_ascii_digit() {
+                } else if is_ref_prefix_continue(next_ch) {
                     prefix.push(next_ch);
                     chars.next();
                 } else {
                     break; // Not a valid prefix character
                 }
+            }
+
+            if !is_valid_ref_prefix(&prefix) {
+                prev_ch = prefix.chars().last();
+                continue;
             }
 
             // Check if we have '[' after the prefix
@@ -579,6 +585,26 @@ fn extract_references_from_text(
     }
 
     extract_relation_annotations(path, text, text_offset, base_line, file_code_mask, reqs);
+}
+
+fn is_identifier_continue(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '_'
+}
+
+fn is_ref_prefix_start(ch: char) -> bool {
+    ch.is_ascii_lowercase()
+}
+
+fn is_ref_prefix_continue(ch: char) -> bool {
+    ch.is_ascii_lowercase() || ch.is_ascii_digit()
+}
+
+fn is_valid_ref_prefix(prefix: &str) -> bool {
+    let mut chars = prefix.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    first.is_ascii_lowercase() && chars.all(|ch| ch.is_ascii_digit())
 }
 
 /// Scan `text` for StrictDoc-style `@relation(UID[, UID...][, scope=...][, role=...])`
@@ -845,6 +871,22 @@ mod tests {
 
         let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
         assert_eq!(reqs.len(), 0);
+    }
+
+    #[test]
+    fn test_identifier_suffix_r_before_bracket_not_reference() {
+        let content = r#"
+            // arr[k] is an array lookup
+            // arr[ix] is also an array lookup
+            // identifier_r[foo] is still an identifier
+            // r[foo] remains a real reference
+            fn foo() {}
+        "#;
+
+        let reqs = Reqs::extract_from_content(Path::new("test.rs"), content);
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs.references[0].prefix, "r");
+        assert_eq!(reqs.references[0].req_id, "foo");
     }
 
     #[test]
