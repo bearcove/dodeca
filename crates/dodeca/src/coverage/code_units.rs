@@ -1440,17 +1440,29 @@ fn find_req_refs(text: &str) -> Vec<RuleId> {
     let mut refs = Vec::new();
     let code_mask = super::markdown::markdown_code_mask(text);
     let mut chars = text.char_indices().peekable();
+    let mut prev_ch: Option<char> = None;
 
     while let Some((idx, ch)) = chars.next() {
         if super::markdown::is_code_index(idx, &code_mask) {
+            prev_ch = Some(ch);
             continue;
         }
-        if ch == '[' {
-            // Try to parse a requirement reference
+        if is_ref_prefix_start(ch)
+            && !prev_ch.is_some_and(is_identifier_continue)
+            && let Some(req_id) = try_parse_prefixed_req_ref(ch, &mut chars)
+        {
+            refs.push(req_id);
+            prev_ch = Some(']');
+            continue;
+        }
+        if ch == '[' && !prev_ch.is_some_and(is_identifier_continue) {
             if let Some(req_id) = try_parse_req_ref(&mut chars) {
                 refs.push(req_id);
+                prev_ch = Some(']');
+                continue;
             }
         }
+        prev_ch = Some(ch);
     }
 
     refs
@@ -1701,11 +1713,12 @@ fn extract_full_refs_from_text(
             prev_ch = Some(ch);
             continue;
         }
-        // Match prefix (lowercase alphanumeric) followed by '['
+        // Match prefix followed by '['
         // Only start a prefix scan when NOT preceded by a word character,
-        // so that identifiers like `slot_count[i]` are not misinterpreted.
-        if ch.is_ascii_lowercase() || ch.is_ascii_digit() {
-            if prev_ch.is_some_and(|pc| pc.is_ascii_alphanumeric() || pc == '_') {
+        // so that identifiers like `arr[k]` and `identifier_r[foo]` are not
+        // misinterpreted as refs.
+        if is_ref_prefix_start(ch) {
+            if prev_ch.is_some_and(is_identifier_continue) {
                 prev_ch = Some(ch);
                 continue;
             }
@@ -1717,12 +1730,17 @@ fn extract_full_refs_from_text(
             while let Some(&(_, next_ch)) = chars.peek() {
                 if next_ch == '[' {
                     break;
-                } else if next_ch.is_ascii_lowercase() || next_ch.is_ascii_digit() {
+                } else if is_ref_prefix_continue(next_ch) {
                     prefix.push(next_ch);
                     chars.next();
                 } else {
                     break;
                 }
+            }
+
+            if !is_valid_ref_prefix(&prefix) {
+                prev_ch = prefix.chars().last();
+                continue;
             }
 
             // Check for '['
@@ -1841,6 +1859,49 @@ enum ParsedFullRef {
     Malformed {
         end_idx: usize,
     },
+}
+
+fn is_identifier_continue(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '_'
+}
+
+fn is_ref_prefix_start(ch: char) -> bool {
+    ch.is_ascii_lowercase()
+}
+
+fn is_ref_prefix_continue(ch: char) -> bool {
+    ch.is_ascii_lowercase() || ch.is_ascii_digit()
+}
+
+fn is_valid_ref_prefix(prefix: &str) -> bool {
+    let mut chars = prefix.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    first.is_ascii_lowercase() && chars.all(|ch| ch.is_ascii_digit())
+}
+
+fn try_parse_prefixed_req_ref(
+    first_ch: char,
+    chars: &mut std::iter::Peekable<impl Iterator<Item = (usize, char)>>,
+) -> Option<RuleId> {
+    let mut prefix = String::new();
+    prefix.push(first_ch);
+    while let Some(&(_, next_ch)) = chars.peek() {
+        if next_ch == '[' {
+            break;
+        } else if is_ref_prefix_continue(next_ch) {
+            prefix.push(next_ch);
+            chars.next();
+        } else {
+            return None;
+        }
+    }
+    if !is_valid_ref_prefix(&prefix) || chars.peek().map(|(_, c)| *c) != Some('[') {
+        return None;
+    }
+    chars.next();
+    try_parse_req_ref(chars)
 }
 
 // r[impl ref.syntax.req-id]
@@ -2085,6 +2146,14 @@ fn uncovered() {}
         assert!(find_req_refs("// no refs here").is_empty());
         assert!(find_req_refs("// [invalid.]").is_empty()); // trailing dot
         assert!(find_req_refs("// r[impl auth.login+]").is_empty());
+    }
+
+    #[test]
+    fn test_find_req_refs_rejects_identifier_suffix_r_before_bracket() {
+        assert!(find_req_refs("// arr[k] is an array lookup").is_empty());
+        assert!(find_req_refs("// arr[ix] is an array lookup").is_empty());
+        assert!(find_req_refs("// identifier_r[foo] is still an identifier").is_empty());
+        assert_eq!(find_req_refs("// r[foo] is real"), vec![rid("foo")]);
     }
 
     #[test]
@@ -3422,6 +3491,25 @@ fn pick(index: Index) -> Step {
             0,
             "identifier[x] should not be an annotation"
         );
+        assert_eq!(refs.warnings.len(), 0);
+    }
+
+    #[test]
+    fn test_identifier_suffix_r_before_bracket_not_annotation_treesitter() {
+        let source = r#"/// arr[k] is an array lookup
+/// arr[ix] is another array lookup
+/// identifier_r[foo] is an identifier
+/// r[foo] is a real ref
+fn foo() {}
+"#;
+        let refs = extract_refs_with_warnings(Path::new("test.rs"), source);
+        assert_eq!(
+            refs.references.len(),
+            1,
+            "only standalone r[foo] should be extracted: {refs:?}"
+        );
+        assert_eq!(refs.references[0].prefix, "r");
+        assert_eq!(refs.references[0].req_id.to_string(), "foo");
         assert_eq!(refs.warnings.len(), 0);
     }
 
