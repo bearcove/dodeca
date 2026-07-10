@@ -3200,6 +3200,7 @@ pub async fn coverage_workspace<DB: Db>(db: &DB) -> PicanteResult<CoverageWorksp
     for context_reqs in reqs_by_context.values() {
         global_reqs.extend(context_reqs.clone());
     }
+    dedup_references(&mut global_reqs.references);
     for unmapped in unmapped_by_context.values() {
         global_unmapped_units.extend(unmapped.clone());
     }
@@ -3211,10 +3212,11 @@ pub async fn coverage_workspace<DB: Db>(db: &DB) -> PicanteResult<CoverageWorksp
             && a.kind == b.kind
             && a.name == b.name
     });
-    let global_test_impl_references = test_impls_by_context
+    let mut global_test_impl_references = test_impls_by_context
         .values()
         .flat_map(|refs| refs.iter().cloned())
         .collect();
+    dedup_references(&mut global_test_impl_references);
 
     Ok(CoverageWorkspace {
         config_impls,
@@ -3240,6 +3242,20 @@ fn reqs_matching_prefixes(
         .references
         .retain(|reference| reference_matches_prefixes(reference.prefix.as_str(), valid_prefixes));
     filtered
+}
+
+fn dedup_references(references: &mut Vec<crate::coverage::ReqReference>) {
+    let mut seen = HashSet::new();
+    references.retain(|reference| {
+        seen.insert((
+            reference.file.to_string_lossy().into_owned(),
+            reference.span.offset,
+            reference.span.length,
+            reference.prefix.clone(),
+            reference.verb,
+            reference.req_id.canonical(),
+        ))
+    });
 }
 
 fn reference_matches_prefixes(prefix: &str, valid_prefixes: &HashSet<String>) -> bool {
@@ -3309,6 +3325,8 @@ pub async fn rule_impls<DB: Db>(
     db: &DB,
 ) -> PicanteResult<HashMap<String, Vec<cell_html_proto::ImplSite>>> {
     let mut map: HashMap<String, Vec<cell_html_proto::ImplSite>> = HashMap::new();
+    let mut seen_sites: HashMap<String, HashSet<(Option<String>, String, String, u32)>> =
+        HashMap::new();
     let valid_prefixes_by_source = if let Ok(site_tree) = build_tree(db).await? {
         valid_prefixes_by_source(&site_tree)
     } else {
@@ -3351,9 +3369,20 @@ pub async fn rule_impls<DB: Db>(
             };
             for reference in &unit.prefixed_req_refs {
                 if reference_matches_prefixes(&reference.prefix, &valid_prefixes) {
-                    map.entry(reference.req_id.canonical())
+                    let rule_id = reference.req_id.canonical();
+                    let site_key = (
+                        site.unit.clone(),
+                        site.kind.clone(),
+                        site.file.clone(),
+                        site.line,
+                    );
+                    if seen_sites
+                        .entry(rule_id.clone())
                         .or_default()
-                        .push(site.clone());
+                        .insert(site_key)
+                    {
+                        map.entry(rule_id).or_default().push(site.clone());
+                    }
                 }
             }
         }

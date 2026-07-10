@@ -275,6 +275,38 @@ const WEB_WRONG_PREFIX_CODE: &str = r#"// r[impl web.only]
 pub fn wrong_prefix_web_only() {}
 "#;
 
+const DUPLICATE_CONTEXT_CONFIG: &str = r#"source {
+    content content
+    impls (
+        {
+            name first
+            include ("shared/**/*.rs")
+        }
+        {
+            name second
+            include ("shared/**/*.rs")
+        }
+    )
+}
+
+site {
+    output public
+}
+"#;
+
+const DUPLICATE_CONTEXT_SPEC: &str = r#"+++
+title = "Duplicate Context Spec"
++++
+
+# Duplicate Context Spec
+
+r[same.rule] One shared implementation.
+"#;
+
+const DUPLICATE_CONTEXT_CODE: &str = r#"// r[impl same.rule]
+pub fn shared_impl() {}
+"#;
+
 async fn wait_contains(site: &TestSite, path: &str, needle: &str) -> Response {
     site.wait_until(
         &format!("{path} contains {needle}"),
@@ -531,6 +563,38 @@ pub async fn coverage_filters_refs_by_source_marker_prefix() {
     web_unmapped.assert_contains("array_lookup");
     web_unmapped.assert_contains("api_shared");
     web_unmapped.assert_contains("wrong_prefix_web_only");
+}
+
+pub async fn coverage_deduplicates_shared_files_across_impl_contexts() {
+    let site = TestSite::with_files(
+        "sample-site",
+        &[
+            (".config/dodeca.styx", DUPLICATE_CONTEXT_CONFIG),
+            ("content/coverage.md", DUPLICATE_CONTEXT_SPEC),
+            ("shared/src/lib.rs", DUPLICATE_CONTEXT_CODE),
+        ],
+    );
+
+    let status = site.get("/_dodeca/coverage/status.json").await;
+    status.assert_ok();
+    assert_eq!(status.body.matches(r#""implRefs": 1"#).count(), 1);
+
+    let rule = site.get("/_dodeca/coverage/rule/same.rule.json").await;
+    rule.assert_ok();
+    assert_eq!(
+        rule.body.matches(r#""file": "shared/src/lib.rs""#).count(),
+        1
+    );
+
+    let rendered = site.get("/coverage/").await;
+    rendered.assert_ok();
+    assert_eq!(
+        rendered
+            .body
+            .matches("function shared_impl — shared/src/lib.rs:")
+            .count(),
+        1
+    );
 }
 
 pub async fn coverage_impl_root_scans_sibling_crate() {
