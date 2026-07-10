@@ -38,6 +38,9 @@ pub struct WatcherConfig {
     /// Absolute path to the project config file (`.config/dodeca.styx`), if any.
     /// A change to it triggers a full config re-resolution + registry reload.
     pub config_file: Option<Utf8PathBuf>,
+    /// Absolute paths to every config that contributes to the resolved site,
+    /// including composed mounted-source configs.
+    pub config_files: std::collections::HashSet<Utf8PathBuf>,
     /// Absolute paths of files pulled in by `include` shortcodes. They live
     /// outside every content/asset tree, so they're tracked here explicitly so a
     /// change to one categorizes as [`PathCategory::Include`] and re-renders the
@@ -197,7 +200,7 @@ impl WatcherConfig {
 
     /// Categorize a path by which watched directory it belongs to.
     pub fn categorize(&self, path: &Utf8Path) -> PathCategory {
-        if self.config_file.as_deref() == Some(path) {
+        if self.config_file.as_deref() == Some(path) || self.config_files.contains(path) {
             PathCategory::Config
         } else if self.included_files.contains(path) {
             PathCategory::Include
@@ -290,10 +293,10 @@ impl WatcherConfig {
         dirs.extend(crate::build_context::code_watch_dirs(&self.sources));
         // Watch the config file's directory (`.config/`) so edits to
         // `dodeca.styx` fire — it lives outside every content/asset tree.
-        if let Some(cfg) = &self.config_file
-            && let Some(parent) = cfg.parent()
-        {
-            dirs.push(parent.to_owned());
+        for cfg in self.config_file.iter().chain(self.config_files.iter()) {
+            if let Some(parent) = cfg.parent() {
+                dirs.push(parent.to_owned());
+            }
         }
         dirs.sort();
         dirs.dedup();
@@ -577,6 +580,7 @@ mod tests {
             data_dir: base.join("data"),
             sources: vec![],
             config_file: Some(base.join(".config/dodeca.styx")),
+            config_files: Default::default(),
             included_files: Default::default(),
             project_root: base.to_owned(),
         }
@@ -614,6 +618,7 @@ mod tests {
                 src("build", "/spec/build", "/proj/spec/content"),
             ],
             config_file: Some(Utf8PathBuf::from("/proj/.config/dodeca.styx")),
+            config_files: Default::default(),
             included_files: Default::default(),
             project_root: Utf8PathBuf::from("/proj"),
         }
