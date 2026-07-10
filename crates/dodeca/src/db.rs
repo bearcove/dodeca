@@ -130,9 +130,12 @@ pub struct SourceRegistry {
 /// Keyed by its project-root-relative path, mirroring [`SourceFile`].
 #[picante::input]
 pub struct CodeFile {
-    /// Project-root-relative path to this file.
+    /// Stable registry key for this file.
     #[key]
     pub path: CodePath,
+
+    /// Stable display path to this file.
+    pub display_path: CodePath,
 
     /// The raw content of the file.
     pub content: CodeContent,
@@ -153,7 +156,9 @@ pub struct CodeRegistry {
 pub struct CodeCoverageEntry {
     pub source_name: String,
     pub impl_name: String,
+    pub abs_path: camino::Utf8PathBuf,
     pub path: CodePath,
+    pub display_path: CodePath,
     pub is_test: bool,
 }
 

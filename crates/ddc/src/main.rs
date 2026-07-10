@@ -2488,12 +2488,24 @@ fn handle_file_changed(
                         .map(|p| p.as_str() == relative_str)
                         .unwrap_or(false)
                 }) {
-                    files[pos] =
-                        dodeca::db::CodeFile::new(db, code_path, code_content, last_modified)
-                            .expect("failed to create code file");
+                    let display_path = files[pos].display_path(db).unwrap_or(code_path.clone());
+                    files[pos] = dodeca::db::CodeFile::new(
+                        db,
+                        code_path,
+                        display_path,
+                        code_content,
+                        last_modified,
+                    )
+                    .expect("failed to create code file");
                 } else {
-                    let f = dodeca::db::CodeFile::new(db, code_path, code_content, last_modified)
-                        .expect("failed to create code file");
+                    let f = dodeca::db::CodeFile::new(
+                        db,
+                        code_path.clone(),
+                        code_path,
+                        code_content,
+                        last_modified,
+                    )
+                    .expect("failed to create code file");
                     files.push(f);
                 }
                 CodeRegistry::set(db, files).expect("failed to set code files");
@@ -2845,9 +2857,9 @@ fn build_watcher_config(
         config_file: config_file.map(canon),
         // Preserve includes discovered so far so a config reload keeps watching them.
         included_files: dodeca::includes::known_abs(&resolved._root),
-        code_files: dodeca::build_context::code_file_abs_paths(&resolved.sources, &resolved._root)
+        code_files: dodeca::build_context::code_file_key_map(&resolved.sources, &resolved._root)
             .into_iter()
-            .map(canon)
+            .map(|(abs, key)| (canon(abs), key))
             .collect(),
         project_root: canon(resolved._root.clone()),
     }
@@ -3367,6 +3379,17 @@ fn canonicalize_sources(
                 .content_dir
                 .canonicalize_utf8()
                 .unwrap_or_else(|_| s.content_dir.clone()),
+            impls: s
+                .impls
+                .iter()
+                .map(|impl_| dodeca::config::ResolvedImpl {
+                    root_dir: impl_
+                        .root_dir
+                        .canonicalize_utf8()
+                        .unwrap_or_else(|_| impl_.root_dir.clone()),
+                    ..impl_.clone()
+                })
+                .collect(),
             ..s.clone()
         })
         .collect()
@@ -3599,9 +3622,9 @@ async fn serve_plain(
         included_files: Default::default(),
         code_files: dodeca::config::global_config()
             .map(|c| {
-                dodeca::build_context::code_file_abs_paths(sources, &c._root)
+                dodeca::build_context::code_file_key_map(sources, &c._root)
                     .into_iter()
-                    .map(|p| p.canonicalize_utf8().unwrap_or(p))
+                    .map(|(abs, key)| (abs.canonicalize_utf8().unwrap_or(abs), key))
                     .collect()
             })
             .unwrap_or_default(),
@@ -3993,9 +4016,9 @@ async fn serve_with_tui(
         included_files: Default::default(),
         code_files: dodeca::config::global_config()
             .map(|c| {
-                dodeca::build_context::code_file_abs_paths(sources, &c._root)
+                dodeca::build_context::code_file_key_map(sources, &c._root)
                     .into_iter()
-                    .map(|p| p.canonicalize_utf8().unwrap_or(p))
+                    .map(|(abs, key)| (abs.canonicalize_utf8().unwrap_or(abs), key))
                     .collect()
             })
             .unwrap_or_default(),

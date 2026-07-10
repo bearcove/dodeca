@@ -42,6 +42,8 @@ pub struct CoverageConfigImpl {
     pub source_name: String,
     pub mount: String,
     pub impl_name: String,
+    pub root: Option<String>,
+    pub resolved_root: String,
     pub include: Vec<String>,
     pub exclude: Vec<String>,
     pub test_include: Vec<String>,
