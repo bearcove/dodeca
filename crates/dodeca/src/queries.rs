@@ -3258,6 +3258,8 @@ fn dedup_references(references: &mut Vec<crate::coverage::ReqReference>) {
     });
 }
 
+type ImplSiteKey = (Option<String>, String, String, u32);
+
 fn reference_matches_prefixes(prefix: &str, valid_prefixes: &HashSet<String>) -> bool {
     // Unknown prefixes are not unknown rule IDs. The current coverage API has
     // no typed unknown-prefix diagnostics channel, so source filtering drops
@@ -3325,8 +3327,7 @@ pub async fn rule_impls<DB: Db>(
     db: &DB,
 ) -> PicanteResult<HashMap<String, Vec<cell_html_proto::ImplSite>>> {
     let mut map: HashMap<String, Vec<cell_html_proto::ImplSite>> = HashMap::new();
-    let mut seen_sites: HashMap<String, HashSet<(Option<String>, String, String, u32)>> =
-        HashMap::new();
+    let mut seen_sites: HashMap<String, HashSet<ImplSiteKey>> = HashMap::new();
     let valid_prefixes_by_source = if let Ok(site_tree) = build_tree(db).await? {
         valid_prefixes_by_source(&site_tree)
     } else {
