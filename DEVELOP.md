@@ -16,6 +16,19 @@ cargo xtask run -- serve
 cargo xtask install
 ```
 
+`cargo xtask install` builds the release binary, installs `ddc` to `~/.cargo/bin`,
+builds the browser JS/WASM assets (search runtime, DevTools runtime + UI), and
+stages them into `~/.cargo/bin/dodeca-assets/` so the installed `ddc` can build
+sites out of the box. It verifies the staged assets with `ddc assets --packaged
+--fail` and fails the install if any is missing.
+
+Building the browser assets requires:
+
+- `wasm-pack` — installed automatically via `cargo install wasm-pack --locked`
+  when missing
+- `pnpm` — installed automatically via `npm install -g pnpm` when missing
+- the `wasm32-unknown-unknown` Rust target (added by `build-browser-assets.sh`)
+
 ## CI Workflow Generation
 
 The release workflow and installer script are generated from Rust code, not hand-written YAML.

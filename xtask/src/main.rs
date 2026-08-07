@@ -362,6 +362,38 @@ fn install_dev() -> bool {
     }
     eprintln!("  Installed ddc");
 
+    // Build and stage the browser JS/WASM assets (search runtime, DevTools
+    // runtime + UI) beside the installed `ddc`, so `ddc build` works out of
+    // the box. This mirrors the release pipeline in xtask/src/ci.rs, which
+    // installs wasm-pack/pnpm, runs scripts/build-browser-assets.sh and then
+    // scripts/stage-browser-assets.sh into a `dodeca-assets` directory.
+    let assets_dst = cargo_bin.join("dodeca-assets");
+    if !build_browser_assets() {
+        eprintln!(
+            "{}: failed to build browser assets; ddc will not be able to build sites",
+            "error".red().bold()
+        );
+        eprintln!("  Run `scripts/build-browser-assets.sh` manually and retry.");
+        return false;
+    }
+    if !stage_browser_assets(&assets_dst) {
+        eprintln!(
+            "{}: failed to stage browser assets into {}",
+            "error".red().bold(),
+            assets_dst.display()
+        );
+        return false;
+    }
+
+    // Verify the packaged layout is complete before declaring success.
+    if !verify_packaged_assets(&ddc_dst, &assets_dst) {
+        eprintln!(
+            "{}: staged browser assets are incomplete; `ddc assets` will report the problem",
+            "error".red().bold()
+        );
+        return false;
+    }
+
     // Remove stale standalone cell binaries from the old multi-process era so the
     // freshly installed `ddc` doesn't sit next to dead `ddc-cell-*` executables.
     if let Ok(entries) = fs::read_dir(&cargo_bin) {
@@ -380,6 +412,94 @@ fn install_dev() -> bool {
 
     eprintln!("Installation complete!");
     true
+}
+
+/// Build the browser JS/WASM assets (search runtime, DevTools runtime + UI).
+///
+/// Mirrors the release pipeline in `xtask/src/ci.rs`: installs `wasm-pack` and
+/// `pnpm` when missing, then runs `scripts/build-browser-assets.sh`.
+fn build_browser_assets() -> bool {
+    eprintln!("Building browser assets (WASM + DevTools UI)...");
+
+    let script = r#"set -euo pipefail
+if ! command -v wasm-pack >/dev/null 2>&1; then
+  cargo install wasm-pack --locked
+fi
+if ! command -v pnpm >/dev/null 2>&1; then
+  npm install -g pnpm
+fi
+scripts/build-browser-assets.sh"#;
+
+    match Command::new("bash").arg("-lc").arg(script).status() {
+        Ok(s) if s.success() => {
+            eprintln!("Browser assets built");
+            true
+        }
+        Ok(s) => {
+            eprintln!("build-browser-assets.sh failed with status: {s}");
+            false
+        }
+        Err(e) => {
+            eprintln!("Failed to run build-browser-assets.sh: {e}");
+            false
+        }
+    }
+}
+
+/// Stage the built browser assets into `dest` (a `dodeca-assets` directory)
+/// via `scripts/stage-browser-assets.sh`.
+fn stage_browser_assets(dest: &PathBuf) -> bool {
+    eprintln!("Staging browser assets into {}...", dest.display());
+    let _ = fs::remove_dir_all(dest);
+
+    let mut cmd = Command::new("bash");
+    cmd.arg("-lc").arg(format!(
+        "scripts/stage-browser-assets.sh {}",
+        dest.display()
+    ));
+
+    match cmd.status() {
+        Ok(s) if s.success() => {
+            eprintln!("  Staged dodeca-assets");
+            true
+        }
+        Ok(s) => {
+            eprintln!("stage-browser-assets.sh failed with status: {s}");
+            false
+        }
+        Err(e) => {
+            eprintln!("Failed to run stage-browser-assets.sh: {e}");
+            false
+        }
+    }
+}
+
+/// Verify the staged `dodeca-assets` layout is complete by asking the freshly
+/// installed `ddc` to report its packaged asset health. Returns false when any
+/// expected asset is missing or unreadable.
+fn verify_packaged_assets(ddc_bin: &PathBuf, assets_dir: &PathBuf) -> bool {
+    eprintln!(
+        "Verifying packaged browser assets with {} --packaged --fail...",
+        ddc_bin.display()
+    );
+    let mut cmd = Command::new(ddc_bin);
+    cmd.arg("assets").arg("--packaged").arg("--fail");
+    cmd.env("DODECA_ASSETS_DIR", assets_dir);
+
+    match cmd.status() {
+        Ok(s) if s.success() => {
+            eprintln!("  ddc assets: complete");
+            true
+        }
+        Ok(s) => {
+            eprintln!("ddc assets --packaged --fail exited with status: {s}");
+            false
+        }
+        Err(e) => {
+            eprintln!("Failed to run ddc assets: {e}");
+            false
+        }
+    }
 }
 
 fn run_integration_tests(no_build: bool, extra_args: &[&str]) -> bool {
