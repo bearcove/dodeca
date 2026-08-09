@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/*", "cells/*", "xtask"]
+members = ["crates/*", "cells/*", "xtask", "libs/marq"]
 default-members = ["crates/*", "cells/*"]
 exclude = [
   "libs/aasvg",
@@ -7,7 +7,6 @@ exclude = [
   "libs/hotmeal/hotmeal",
   "libs/hotmeal/hotmeal-server",
   "libs/hotmeal/hotmeal-wasm",
-  "libs/marq",
   "libs/pikru",
   "libs/svag",
 ]
@@ -144,6 +143,10 @@ fontcull = { path = "libs/fontcull/fontcull", default-features = false }
 # Markdown
 marq = { path = "libs/marq" }
 pulldown-cmark = "0.13"
+pulldown-latex = "0.7"
+aasvg = "1.0"
+pikru = "2.0.0-rc.0"
+arborium = { version = "2", default-features = false }
 strictdoc-parser = "0.1.1"
 arborium-theme = "2"
 arborium-tree-sitter = "2.18.0"
