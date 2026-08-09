@@ -1,6 +1,6 @@
 [workspace]
-members = ["crates/*", "cells/*", "xtask", "libs/marq"]
-default-members = ["crates/*", "cells/*"]
+members = ["crates/*", "cells/*", "xtask", "libs/marq", "libs/gingembre", "libs/gingembre-syntax", "libs/picante", "libs/picante-macros"]
+default-members = ["crates/*", "cells/*", "libs/gingembre", "libs/gingembre-syntax", "libs/picante", "libs/picante-macros"]
 exclude = [
   "libs/aasvg",
   "libs/fontcull/fontcull",
@@ -77,22 +77,30 @@ hotmeal = { path = "libs/hotmeal/hotmeal" }
 hotmeal-server = { path = "libs/hotmeal/hotmeal-server", features = ["tracing"] }
 hotmeal-wasm = { path = "libs/hotmeal/hotmeal-wasm" }
 
-facet = { version = "0.50.0-rc.5", features = ["camino"] }
-facet-default = "0.50.0-rc.5"
-facet-format = "0.50.0-rc.5"
-facet-json = "0.50.0-rc.5"
-facet-postcard = "0.50.0-rc.5"
-facet-toml = "0.50.0-rc.5"
-facet-value = "0.50.0-rc.5"
-facet-yaml = "0.50.0-rc.5"
-gingembre = "0.0.1"
-gingembre-syntax = "0.0.1"
+cstree = { version = "0.14.0", features = ["derive"] }
+divan = { package = "codspeed-divan-compat", version = "4.7.0" }
+facet = { git = "https://github.com/facet-rs/facet", rev = "5705fa6c51289bea49f5729c52dc5e23cedce4f8", features = ["camino"] }
+facet-core = { git = "https://github.com/facet-rs/facet", rev = "5705fa6c51289bea49f5729c52dc5e23cedce4f8" }
+facet-hash = { git = "https://github.com/facet-rs/facet", rev = "5705fa6c51289bea49f5729c52dc5e23cedce4f8" }
+facet-reflect = { git = "https://github.com/facet-rs/facet", rev = "5705fa6c51289bea49f5729c52dc5e23cedce4f8" }
+facet-default = { git = "https://github.com/facet-rs/facet", rev = "5705fa6c51289bea49f5729c52dc5e23cedce4f8" }
+facet-format = { git = "https://github.com/facet-rs/facet", rev = "5705fa6c51289bea49f5729c52dc5e23cedce4f8" }
+facet-json = { git = "https://github.com/facet-rs/facet", rev = "5705fa6c51289bea49f5729c52dc5e23cedce4f8" }
+facet-postcard = { git = "https://github.com/facet-rs/facet", rev = "5705fa6c51289bea49f5729c52dc5e23cedce4f8" }
+facet-toml = { git = "https://github.com/facet-rs/facet", rev = "5705fa6c51289bea49f5729c52dc5e23cedce4f8" }
+facet-value = { git = "https://github.com/facet-rs/facet", rev = "5705fa6c51289bea49f5729c52dc5e23cedce4f8" }
+facet-yaml = { git = "https://github.com/facet-rs/facet", rev = "5705fa6c51289bea49f5729c52dc5e23cedce4f8" }
+gingembre = { path = "libs/gingembre", version = "0.0.1" }
+gingembre-syntax = { path = "libs/gingembre-syntax", version = "0.0.1" }
 
 facet-styx = "5.0.0-rc.5"
 styx-embed = "5.0.0-rc.5"
 styx-tree = "5.0.0-rc.5"
 
 figue = "5.0.0-rc.5"
+hashbrown = { version = "0.17", features = ["raw-entry"] }
+heck = "0.5"
+im = "15.1"
 
 # RPC framework
 # Minimal by default: protocol crates and the DevTools bridge need the service
@@ -106,7 +114,14 @@ vox-stream = "0.10.0-rc.5"
 ur-taking-me-with-you = { version = "8.0.1", features = ["tokio"] }
 
 # Incremental computation
-picante = "3.0.0-rc.5"
+picante = { path = "libs/picante", version = "3.0.0-rc.5" }
+picante-macros = { path = "libs/picante-macros", version = "3.0.0-rc.5" }
+parking_lot = "0.12.4"
+proc-macro2 = "1"
+quote = "1"
+tokio-test-lite = "0.2"
+trybuild = "1"
+unsynn = "0.3"
 
 # File system
 fs-err = "3"
@@ -225,6 +240,15 @@ hakoniwa = "1.2"
 
 [workspace.package]
 rust-version = "1.92"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/bearcove/dodeca"
+
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(facet_no_doc)", "cfg(kani)"] }
+
+[workspace.lints.clippy]
+disallowed_methods = "deny"
 
 # Force all direct and transitive Facet dependencies to use the local checkout
 # while developing against unreleased facet-styx fixes.
