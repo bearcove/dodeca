@@ -233,8 +233,19 @@ fn parse_blocks_until_end(
             *pos += 1;
             return blocks;
         }
+        let before = *pos;
         let sub = parse_blocks(events, pos);
         blocks.extend(sub);
+        // `parse_blocks` bails on any `Event::End(_)` without consuming it, so
+        // the caller can match its own end tag. When that End is NOT the one we
+        // wait for — e.g. a `FootnoteDefinition`/other Start that `parse_blocks`
+        // skips via its catch-all, leaving an unmatched End nested in a
+        // blockquote or list item — `parse_blocks` returns having made no
+        // progress, and without this guard the loop spins forever. Skip the
+        // stray event to guarantee termination.
+        if *pos == before {
+            *pos += 1;
+        }
     }
     blocks
 }
@@ -745,5 +756,23 @@ mod tests {
         let rendered = render_to_markdown(&blocks);
         let reparsed = parse(&rendered);
         assert_eq!(blocks, reparsed);
+    }
+
+    // A footnote definition nested in a blockquote or list item emits a
+    // `FootnoteDefinition` Start that `parse_blocks` skips via its catch-all,
+    // leaving an unmatched End that once trapped `parse_blocks_until_end` in an
+    // infinite loop. These must terminate (and are fast); any regression hangs
+    // the test binary instead of failing, which is the intended alarm.
+    #[test]
+    fn footnote_definition_in_container_terminates() {
+        for md in [
+            "> [^1]: def\n",
+            "> text[^1]\n>\n> [^1]: def\n",
+            "- [^1]: def in item\n",
+            "> quote body\n>\n> [^x]: y\n",
+        ] {
+            let blocks = parse(md);
+            assert!(!blocks.is_empty(), "expected blocks for {md:?}");
+        }
     }
 }

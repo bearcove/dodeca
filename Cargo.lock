@@ -1611,7 +1611,7 @@ version = "0.0.0"
 dependencies = [
  "facet 0.50.0-rc.5 (git+https://github.com/facet-rs/facet?rev=5705fa6c51289bea49f5729c52dc5e23cedce4f8)",
  "facet-default",
- "facet-yaml 0.50.0-rc.5 (git+https://github.com/facet-rs/facet?rev=5705fa6c51289bea49f5729c52dc5e23cedce4f8)",
+ "facet-yaml",
 ]
 
 [[package]]
@@ -1636,8 +1636,8 @@ dependencies = [
  "cell-data-proto",
  "facet-format 0.50.0-rc.5 (git+https://github.com/facet-rs/facet?rev=5705fa6c51289bea49f5729c52dc5e23cedce4f8)",
  "facet-json 0.50.0-rc.5 (git+https://github.com/facet-rs/facet?rev=5705fa6c51289bea49f5729c52dc5e23cedce4f8)",
- "facet-toml 0.50.0-rc.5 (git+https://github.com/facet-rs/facet?rev=5705fa6c51289bea49f5729c52dc5e23cedce4f8)",
- "facet-yaml 0.50.0-rc.5 (git+https://github.com/facet-rs/facet?rev=5705fa6c51289bea49f5729c52dc5e23cedce4f8)",
+ "facet-toml",
+ "facet-yaml",
 ]
 
 [[package]]
@@ -2943,7 +2943,7 @@ dependencies = [
  "facet-postcard 0.50.0-rc.5 (git+https://github.com/facet-rs/facet?rev=5705fa6c51289bea49f5729c52dc5e23cedce4f8)",
  "facet-styx",
  "facet-value 0.50.0-rc.5 (git+https://github.com/facet-rs/facet?rev=5705fa6c51289bea49f5729c52dc5e23cedce4f8)",
- "facet-yaml 0.50.0-rc.5 (git+https://github.com/facet-rs/facet?rev=5705fa6c51289bea49f5729c52dc5e23cedce4f8)",
+ "facet-yaml",
  "figue",
  "futures-util",
  "getrandom 0.3.4",
@@ -3641,18 +3641,6 @@ dependencies = [
 [[package]]
 name = "facet-toml"
 version = "0.50.0-rc.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ec563b4a7628e54a1d22b7e3750b2da21721e938f5caf12e63e8347ee33bf92"
-dependencies = [
- "facet-core 0.50.0-rc.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "facet-format 0.50.0-rc.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "facet-reflect 0.50.0-rc.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "toml_parser",
-]
-
-[[package]]
-name = "facet-toml"
-version = "0.50.0-rc.5"
 source = "git+https://github.com/facet-rs/facet?rev=5705fa6c51289bea49f5729c52dc5e23cedce4f8#5705fa6c51289bea49f5729c52dc5e23cedce4f8"
 dependencies = [
  "facet-core 0.50.0-rc.5 (git+https://github.com/facet-rs/facet?rev=5705fa6c51289bea49f5729c52dc5e23cedce4f8)",
@@ -3695,19 +3683,6 @@ dependencies = [
  "facet-dom",
  "facet-reflect 0.50.0-rc.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "quick-xml 0.39.4",
-]
-
-[[package]]
-name = "facet-yaml"
-version = "0.50.0-rc.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "01124fed8eb53318eba11476e2a47335f5a5581d7df23baa3db78541bd0cfcd4"
-dependencies = [
- "facet 0.50.0-rc.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "facet-core 0.50.0-rc.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "facet-format 0.50.0-rc.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "facet-reflect 0.50.0-rc.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "saphyr-parser",
 ]
 
 [[package]]
@@ -5428,10 +5403,10 @@ dependencies = [
  "aasvg",
  "arborium",
  "arborium-vix",
- "facet",
- "facet-postcard",
+ "facet 0.50.0-rc.5 (git+https://github.com/facet-rs/facet?rev=5705fa6c51289bea49f5729c52dc5e23cedce4f8)",
+ "facet-postcard 0.50.0-rc.5 (git+https://github.com/facet-rs/facet?rev=5705fa6c51289bea49f5729c52dc5e23cedce4f8)",
  "facet-toml",
- "facet-value",
+ "facet-value 0.50.0-rc.5 (git+https://github.com/facet-rs/facet?rev=5705fa6c51289bea49f5729c52dc5e23cedce4f8)",
  "facet-yaml",
  "pikru",
  "pulldown-cmark",
@@ -10336,7 +10311,7 @@ dependencies = [
  "dodeca-protocol",
  "eyre",
  "facet 0.50.0-rc.5 (git+https://github.com/facet-rs/facet?rev=5705fa6c51289bea49f5729c52dc5e23cedce4f8)",
- "facet-yaml 0.50.0-rc.5 (git+https://github.com/facet-rs/facet?rev=5705fa6c51289bea49f5729c52dc5e23cedce4f8)",
+ "facet-yaml",
  "figue",
  "fs-err",
  "indexmap",
