@@ -214,12 +214,108 @@ fn parse_blocks(events: &[Event<'_>], pos: &mut usize) -> Vec<Block> {
                 break;
             }
             _ => {
-                // Skip events we don't handle at block level (metadata, footnotes, etc.)
-                *pos += 1;
+                // A bare inline event with no block wrapper. Tight list items
+                // (and tight blockquote items) emit their content as inlines
+                // directly, with no enclosing Paragraph, so without this the
+                // text is silently dropped and the item comes out empty.
+                // Collect the run of inlines into a Paragraph; genuinely
+                // unhandled events (metadata, footnote refs) consume nothing
+                // and are skipped to guarantee progress.
+                let before = *pos;
+                let inlines = parse_loose_inlines(events, pos);
+                if *pos == before {
+                    *pos += 1;
+                } else {
+                    blocks.push(Block::Paragraph(inlines));
+                }
             }
         }
     }
     blocks
+}
+
+/// Collect a run of bare inline events (no enclosing block tag) into inlines,
+/// stopping at the first non-inline event (a block Start, any End, or an event
+/// we don't recognize). Mirrors [`parse_inlines`] but is bounded by inline-ness
+/// rather than a specific closing tag — used for the loose inline content of
+/// tight list/blockquote items.
+fn parse_loose_inlines(events: &[Event<'_>], pos: &mut usize) -> Vec<Inline> {
+    let mut inlines = Vec::new();
+    while *pos < events.len() {
+        match &events[*pos] {
+            Event::Text(t) => {
+                inlines.push(Inline::Text(t.to_string()));
+                *pos += 1;
+            }
+            Event::Code(c) => {
+                inlines.push(Inline::Code(c.to_string()));
+                *pos += 1;
+            }
+            Event::SoftBreak => {
+                inlines.push(Inline::SoftBreak);
+                *pos += 1;
+            }
+            Event::HardBreak => {
+                inlines.push(Inline::HardBreak);
+                *pos += 1;
+            }
+            Event::Start(Tag::Emphasis) => {
+                *pos += 1;
+                inlines.push(Inline::Emphasis(parse_inlines(
+                    events,
+                    pos,
+                    TagEnd::Emphasis,
+                )));
+            }
+            Event::Start(Tag::Strong) => {
+                *pos += 1;
+                inlines.push(Inline::Strong(parse_inlines(events, pos, TagEnd::Strong)));
+            }
+            Event::Start(Tag::Strikethrough) => {
+                *pos += 1;
+                inlines.push(Inline::Strikethrough(parse_inlines(
+                    events,
+                    pos,
+                    TagEnd::Strikethrough,
+                )));
+            }
+            Event::Start(Tag::Link {
+                link_type,
+                dest_url,
+                title,
+                ..
+            }) => {
+                let target = dest_url.to_string();
+                *pos += 1;
+                let content = parse_inlines(events, pos, TagEnd::Link);
+                if matches!(link_type, LinkType::WikiLink { .. }) {
+                    inlines.push(Inline::WikiLink {
+                        target,
+                        label: content,
+                    });
+                } else {
+                    inlines.push(Inline::Link {
+                        url: target,
+                        title: title.to_string(),
+                        content,
+                    });
+                }
+            }
+            Event::Start(Tag::Image {
+                dest_url, title, ..
+            }) => {
+                let url = dest_url.to_string();
+                let title = title.to_string();
+                *pos += 1;
+                let alt = parse_inlines(events, pos, TagEnd::Image);
+                inlines.push(Inline::Image { url, title, alt });
+            }
+            // Block Start, any End, or an event we don't treat as inline:
+            // stop; the caller decides what to do next.
+            _ => break,
+        }
+    }
+    inlines
 }
 
 fn parse_blocks_until_end(
@@ -653,6 +749,27 @@ mod tests {
         let rendered = render_to_markdown(&blocks);
         let reparsed = parse(&rendered);
         assert_eq!(blocks, reparsed);
+    }
+
+    #[test]
+    fn tight_list_items_keep_their_text() {
+        // Tight list items emit bare inlines (no Paragraph wrapper); their text
+        // must survive parsing rather than collapsing to empty items.
+        let blocks = parse("Intro:\n\n1. Register `AskTool` here.\n2. Set it up.\n");
+        let items = blocks
+            .iter()
+            .find_map(|b| match b {
+                Block::List { items, ordered, .. } if *ordered => Some(items),
+                _ => None,
+            })
+            .expect("ordered list");
+        assert_eq!(items.len(), 2);
+        for item in items {
+            assert!(!item.is_empty(), "tight list item lost its content");
+        }
+        let first = render_to_markdown(&items[0]);
+        assert!(first.contains("Register"), "lost plain text: {first:?}");
+        assert!(first.contains("AskTool"), "lost inline code: {first:?}");
     }
 
     #[test]
