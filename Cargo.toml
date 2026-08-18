@@ -79,17 +79,17 @@ hotmeal-wasm = { path = "libs/hotmeal/hotmeal-wasm" }
 
 cstree = { version = "0.14.0", features = ["derive"] }
 divan = { package = "codspeed-divan-compat", version = "4.7.0" }
-facet = { git = "https://github.com/facet-rs/facet", rev = "5705fa6c51289bea49f5729c52dc5e23cedce4f8", features = ["camino"] }
-facet-core = { git = "https://github.com/facet-rs/facet", rev = "5705fa6c51289bea49f5729c52dc5e23cedce4f8" }
-facet-hash = { git = "https://github.com/facet-rs/facet", rev = "5705fa6c51289bea49f5729c52dc5e23cedce4f8" }
-facet-reflect = { git = "https://github.com/facet-rs/facet", rev = "5705fa6c51289bea49f5729c52dc5e23cedce4f8" }
-facet-default = { git = "https://github.com/facet-rs/facet", rev = "5705fa6c51289bea49f5729c52dc5e23cedce4f8" }
-facet-format = { git = "https://github.com/facet-rs/facet", rev = "5705fa6c51289bea49f5729c52dc5e23cedce4f8" }
-facet-json = { git = "https://github.com/facet-rs/facet", rev = "5705fa6c51289bea49f5729c52dc5e23cedce4f8" }
-facet-postcard = { git = "https://github.com/facet-rs/facet", rev = "5705fa6c51289bea49f5729c52dc5e23cedce4f8" }
-facet-toml = { git = "https://github.com/facet-rs/facet", rev = "5705fa6c51289bea49f5729c52dc5e23cedce4f8" }
-facet-value = { git = "https://github.com/facet-rs/facet", rev = "5705fa6c51289bea49f5729c52dc5e23cedce4f8" }
-facet-yaml = { git = "https://github.com/facet-rs/facet", rev = "5705fa6c51289bea49f5729c52dc5e23cedce4f8" }
+facet = { version = "0.50.0-rc.5", features = ["camino"] }
+facet-core = "0.50.0-rc.5"
+facet-hash = { version = "0.50.0-rc.5", features = ["jit"] }
+facet-reflect = "0.50.0-rc.5"
+facet-default = "0.50.0-rc.5"
+facet-format = "0.50.0-rc.5"
+facet-json = "0.50.0-rc.5"
+facet-postcard = "0.50.0-rc.5"
+facet-toml = "0.50.0-rc.5"
+facet-value = "0.50.0-rc.5"
+facet-yaml = "0.50.0-rc.5"
 gingembre = { path = "libs/gingembre", version = "0.0.1" }
 gingembre-syntax = { path = "libs/gingembre-syntax", version = "0.0.1" }
 
