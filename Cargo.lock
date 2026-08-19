@@ -10135,16 +10135,10 @@ checksum = "ea6fc2961e4ef194dcbfe56bb845534d0dc8098940c7e5c012a258bfec6701bd"
 name = "xtask"
 version = "0.0.0"
 dependencies = [
- "camino",
  "dodeca-protocol",
- "eyre",
  "facet",
- "facet-yaml",
  "figue",
- "fs-err",
- "indexmap",
  "owo-colors",
- "structstruck",
  "vox-codegen",
 ]
 

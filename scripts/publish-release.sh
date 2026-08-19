@@ -1,6 +1,6 @@
 #!/bin/bash
 # Publish dodeca release artifacts to the Scaleway Object Storage bucket the
-# installer reads from (see install.sh / xtask/src/ci.rs RELEASE_BASE_URL).
+# installer reads from (see install.sh / xtask/src/installer.rs RELEASE_BASE_URL).
 #
 # Usage: scripts/publish-release.sh vX.Y.Z [dist-dir]
 # Run after scripts/release.sh has populated dist/ (tarballs + installers +
