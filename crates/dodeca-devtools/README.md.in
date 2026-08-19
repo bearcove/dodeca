@@ -1,7 +1,0 @@
-`dodeca-devtools` is the WebAssembly browser runtime for dodeca DevTools.
-
-It handles live DOM patching, CSS reload, route subscriptions, dead-link
-actions, and open-in-editor actions during `ddc serve`. The visible DevTools UI
-is the TypeScript bundle under `crates/dodeca/devtools-ui`.
-
-This crate is part of the Dodeca workspace.
