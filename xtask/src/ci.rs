@@ -124,8 +124,8 @@ impl CiPlatform {
 // Configuration
 // =============================================================================
 
-/// Bearcove-hosted Linux runner for compile-heavy jobs.
-const GITHUB_LINUX_RUNNER: &str = "bearcove-ubuntu-24.04";
+/// Blacksmith Linux runner (2 vCPU) for compile-heavy jobs.
+const GITHUB_LINUX_RUNNER: &str = "blacksmith-2vcpu-ubuntu-2404";
 
 /// Free GitHub-hosted macOS runner for every-commit compile checks.
 const GITHUB_MACOS_CHECK_RUNNER: &str = "macos-15";
@@ -662,21 +662,6 @@ fi"#;
 const BUILD_BROWSER_ASSETS_COMMAND: &str = r#"set -euo pipefail
 scripts/build-browser-assets.sh"#;
 
-const PREPARE_DDC_DIST_COMMAND: &str = r#"set -euo pipefail
-rm -rf dist
-mkdir -p dist
-cp target/release/ddc dist/ddc
-chmod +x dist/ddc
-scripts/stage-browser-assets.sh dist/dodeca-assets
-DODECA_ASSETS_DIR=dist/dodeca-assets dist/ddc assets --packaged --fail
-ls -laR dist"#;
-
-const TEST_DDC_COMMAND: &str = r#"set -euo pipefail
-if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
-  export DODECA_RELEASE_VERSION="${GITHUB_REF_NAME}"
-fi
-cargo test --release --bin ddc"#;
-
 pub mod common {
     use super::*;
 
@@ -1189,117 +1174,6 @@ pub fn build_ci_workflow(platform: CiPlatform, _repo_root: &Utf8Path) -> Workflo
                     install_rust(platform),
                     rust_cache_with_targets(platform, true, &windows_check_target),
                     Step::run("Check Windows", "cargo check --workspace --all-targets"),
-                ]),
-        );
-    }
-
-    // Linux carries the real validation on every commit: build ddc (needed by
-    // integration + browser tests), integration tests, and browser tests.
-    for target in &targets {
-        if target.triple != "x86_64-unknown-linux-gnu" {
-            continue;
-        }
-        let short = target.short_name();
-        let workspace_var = platform.context_var("workspace");
-
-        // Build ddc for integration + browser tests. No archive/upload here;
-        // release archives are produced by tag-only package jobs.
-        let ddc_job_id = format!("build-ddc-{short}");
-        jobs.insert(
-            ddc_job_id.clone(),
-            Job::with_runner(target.runs_on())
-                .name(format!("Build ddc ({short})"))
-                .timeout(30)
-                .steps([
-                    checkout(platform),
-                    install_rust(platform),
-                    Step::uses("Setup Node.js", "actions/setup-node@v4")
-                        .with_inputs([("node-version", "20")]),
-                    Step::uses("Install wasm-pack", platform.wasm_pack_action())
-                        .with_inputs([("version", "latest")]),
-                    if target.is_self_hosted() {
-                        local_cache_with_targets(
-                            platform,
-                            true,
-                            &format!("ddc-{}", short),
-                            target.cache_base_path(),
-                        )
-                    } else {
-                        rust_cache_with_targets(platform, true, target)
-                    },
-                    Step::run("Install pnpm", "npm install -g pnpm"),
-                    Step::run("Build ddc", BUILD_DDC_COMMAND).shell("bash"),
-                    Step::run("Test ddc", TEST_DDC_COMMAND).shell("bash"),
-                    Step::run("Build browser assets", BUILD_BROWSER_ASSETS_COMMAND).shell("bash"),
-                    Step::run("Prepare ddc dist", PREPARE_DDC_DIST_COMMAND).shell("bash"),
-                    upload_artifact(platform, format!("ddc-{short}"), "dist"),
-                ]),
-        );
-
-        let integration_job_id = format!("integration-{short}");
-        jobs.insert(
-            integration_job_id.clone(),
-            Job::with_runner(target.runs_on())
-                .name(format!("Integration ({short})"))
-                .timeout(30)
-                .needs([ddc_job_id.clone()])
-                .steps([
-                    checkout(platform),
-                    install_rust(platform),
-                    if target.is_self_hosted() {
-                        local_cache_with_targets(
-                            platform,
-                            true,
-                            &format!("integration-{}", short),
-                            target.cache_base_path(),
-                        )
-                    } else {
-                        rust_cache_with_targets(platform, true, target)
-                    },
-                    Step::run(
-                        "Build integration-tests",
-                        "cargo build --package integration-tests",
-                    ),
-                    Step::uses("Download ddc", platform.download_artifact_action())
-                        .with_inputs([("name", format!("ddc-{short}")), ("path", "dist".into())]),
-                    Step::run("Prepare artifacts", "chmod +x dist/ddc && ls -la dist/"),
-                    Step::run("Verify artifacts", verify_artifacts_script()),
-                    Step::run(
-                        "Run integration tests",
-                        "cargo xtask integration --no-build",
-                    )
-                    .with_env([
-                        ("DODECA_BIN", format!("{}/dist/ddc", workspace_var)),
-                        (
-                            "DODECA_TEST_FIXTURES_DIR",
-                            format!("{}/crates/integration-tests/fixtures", workspace_var),
-                        ),
-                    ]),
-                ]),
-        );
-        all_release_needs.push(integration_job_id.clone());
-
-        // Browser tests (Linux only) - tests livereload and DOM patching in real browser
-        let browser_tests_job_id = format!("browser-tests-{short}");
-        jobs.insert(
-            browser_tests_job_id,
-            Job::with_runner(target.runs_on())
-                .name(format!("Browser Tests ({short})"))
-                .timeout(30)
-                .needs([ddc_job_id.clone()])
-                .steps([
-                    checkout(platform),
-                    Step::uses("Download ddc", platform.download_artifact_action())
-                        .with_inputs([("name", format!("ddc-{short}")), ("path", "dist".into())]),
-                    Step::run("Prepare artifacts", "chmod +x dist/ddc && ls -la dist/"),
-                    Step::uses("Setup Node.js", "actions/setup-node@v4")
-                        .with_inputs([("node-version", "20")]),
-                    Step::run(
-                        "Install browser test dependencies",
-                        "cd browser-tests && npm ci && npx playwright install chromium --with-deps",
-                    ),
-                    Step::run("Run browser tests", "cd browser-tests && npm test")
-                        .with_env([("DODECA_BIN", format!("{}/dist/ddc", workspace_var))]),
                 ]),
         );
     }

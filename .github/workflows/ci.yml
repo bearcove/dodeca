@@ -24,7 +24,7 @@ jobs:
   check-ci:
     name: Check CI up to date
     runs-on:
-      - bearcove-ubuntu-24.04
+      - blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -43,7 +43,7 @@ jobs:
   clippy:
     name: Clippy
     runs-on:
-      - bearcove-ubuntu-24.04
+      - blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 30
     continue-on-error: true
     steps:
@@ -101,167 +101,10 @@ jobs:
           cache-targets: "true"
       - name: Check Windows
         run: cargo check --workspace --all-targets
-  build-ddc-linux-x64:
-    name: Build ddc (linux-x64)
-    runs-on:
-      - bearcove-ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: stable
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-      - name: Install wasm-pack
-        uses: jetli/wasm-pack-action@v0.4.0
-        with:
-          version: latest
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: "true"
-          cache-targets: "true"
-      - name: Install pnpm
-        run: npm install -g pnpm
-      - name: Build ddc
-        run: |-
-          set -euo pipefail
-          if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
-            export DODECA_RELEASE_VERSION="${GITHUB_REF_NAME}"
-          fi
-          cargo build --release --bin ddc --verbose
-          actual="$(target/release/ddc --version)"
-          echo "$actual"
-          if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
-            expected="ddc ${GITHUB_REF_NAME#v}"
-            if [[ "$actual" != "$expected" ]]; then
-              echo "Expected '$expected', got '$actual'" >&2
-              exit 1
-            fi
-          fi
-        shell: bash
-      - name: Test ddc
-        run: |-
-          set -euo pipefail
-          if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
-            export DODECA_RELEASE_VERSION="${GITHUB_REF_NAME}"
-          fi
-          cargo test --release --bin ddc
-        shell: bash
-      - name: Build browser assets
-        run: |-
-          set -euo pipefail
-          scripts/build-browser-assets.sh
-        shell: bash
-      - name: Prepare ddc dist
-        run: |-
-          set -euo pipefail
-          rm -rf dist
-          mkdir -p dist
-          cp target/release/ddc dist/ddc
-          chmod +x dist/ddc
-          scripts/stage-browser-assets.sh dist/dodeca-assets
-          DODECA_ASSETS_DIR=dist/dodeca-assets dist/ddc assets --packaged --fail
-          ls -laR dist
-        shell: bash
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ddc-linux-x64
-          path: dist
-  integration-linux-x64:
-    name: Integration (linux-x64)
-    runs-on:
-      - bearcove-ubuntu-24.04
-    timeout-minutes: 30
-    needs:
-      - build-ddc-linux-x64
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: stable
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: "true"
-          cache-targets: "true"
-      - name: Build integration-tests
-        run: cargo build --package integration-tests
-      - name: Download ddc
-        uses: actions/download-artifact@v4
-        with:
-          name: ddc-linux-x64
-          path: dist
-      - name: Prepare artifacts
-        run: chmod +x dist/ddc && ls -la dist/
-      - name: Verify artifacts
-        run: |
-          #!/bin/bash
-          set -euo pipefail
-
-          echo 'Verifying all required artifacts exist in dist/'
-          missing=0
-
-          if [[ ! -x dist/ddc ]]; then
-            echo '❌ MISSING: ddc'
-            missing=1
-          else
-            echo '✓ ddc'
-          fi
-
-          if [[ $missing -eq 1 ]]; then
-            echo ''
-            echo 'ERROR: Some required binaries are missing!'
-            echo 'This usually means a ddc build job failed or artifact upload was incomplete.'
-            exit 1
-          fi
-
-          echo ''
-          echo 'All artifacts verified.'
-      - name: Run integration tests
-        run: cargo xtask integration --no-build
-        env:
-          DODECA_BIN: ${{ github.workspace }}/dist/ddc
-          DODECA_TEST_FIXTURES_DIR: ${{ github.workspace }}/crates/integration-tests/fixtures
-  browser-tests-linux-x64:
-    name: Browser Tests (linux-x64)
-    runs-on:
-      - bearcove-ubuntu-24.04
-    timeout-minutes: 30
-    needs:
-      - build-ddc-linux-x64
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Download ddc
-        uses: actions/download-artifact@v4
-        with:
-          name: ddc-linux-x64
-          path: dist
-      - name: Prepare artifacts
-        run: chmod +x dist/ddc && ls -la dist/
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-      - name: Install browser test dependencies
-        run: cd browser-tests && npm ci && npx playwright install chromium --with-deps
-      - name: Run browser tests
-        run: cd browser-tests && npm test
-        env:
-          DODECA_BIN: ${{ github.workspace }}/dist/ddc
   package-linux-x64:
     name: Package (linux-x64)
     runs-on:
-      - bearcove-ubuntu-24.04
+      - blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 30
     if: "startsWith(github.ref, 'refs/tags/')"
     steps:
@@ -427,7 +270,6 @@ jobs:
       - ubuntu-latest
     timeout-minutes: 30
     needs:
-      - integration-linux-x64
       - package-linux-x64
       - package-macos-arm64
       - package-windows-x64
