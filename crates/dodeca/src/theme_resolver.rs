@@ -184,9 +184,9 @@ mod tests {
 
         // Print sample to verify format (only in --nocapture mode)
         println!("\n=== Light theme CSS sample (first 200 chars) ===");
-        println!("{}", &light_css.chars().take(200).collect::<String>());
+        println!("{}", light_css.chars().take(200).collect::<String>());
         println!("\n=== Dark theme CSS sample (first 200 chars) ===");
-        println!("{}", &dark_css.chars().take(200).collect::<String>());
+        println!("{}", dark_css.chars().take(200).collect::<String>());
     }
 
     #[test]

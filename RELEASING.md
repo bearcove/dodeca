@@ -86,6 +86,7 @@ website endpoint or retire the tap.
 
 - `website.yml` (GitHub Pages docs deploy) is unrelated to releases — it just
   installs the published binary via the curl installer and builds the docs site.
-- The installer download source lives in `xtask/src/ci.rs`
+- The installer download source lives in `xtask/src/installer.rs`
   (`RELEASE_BASE_URL`); `install.sh` / `install.ps1` are generated from it
-  (`cargo xtask ci-github`, `cargo xtask generate-ps1-installer install.ps1`).
+  (`cargo xtask generate-installer install.sh`,
+  `cargo xtask generate-ps1-installer install.ps1`).

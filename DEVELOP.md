@@ -29,23 +29,24 @@ Building the browser assets requires:
 - `pnpm` — installed automatically via `npm install -g pnpm` when missing
 - the `wasm32-unknown-unknown` Rust target (added by `build-browser-assets.sh`)
 
-## CI Workflow Generation
+## CI Workflow
 
-The release workflow and installer script are generated from Rust code, not hand-written YAML.
+CI is a hand-written, minimal GitHub Actions workflow: `.github/workflows/ci.yml`
+runs `cargo check` and `cargo clippy` on Blacksmith 2-core Linux runners for
+pushes/pull requests/merge-group on `main`. Full and private pipelines run on
+Buildkite/own infrastructure.
+
+The installer scripts (`install.sh` / `install.ps1`) are generated from Rust code
+in `xtask/src/installer.rs`, not hand-written:
 
 ```sh
-# Regenerate .github/workflows/release.yml and install.sh
-cargo xtask ci
-
-# Check if generated files are up to date (used in CI)
-cargo xtask ci --check
+# Regenerate the installers
+cargo xtask generate-installer install.sh
+cargo xtask generate-ps1-installer install.ps1
 ```
 
-The source of truth is `xtask/src/ci.rs`. Edit that file to change:
-- Build targets
-- Processor crates
-- Workflow steps
-- Installer script
+The source of truth for the installer scripts is `xtask/src/installer.rs`
+(`RELEASE_BASE_URL`). Edit that file to change the installer generation.
 
 ## Release Process
 

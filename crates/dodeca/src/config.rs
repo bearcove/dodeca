@@ -709,10 +709,7 @@ fn discover_source_config(
             });
             return source.map(|s| (current.to_owned(), s));
         }
-        match current.parent() {
-            Some(parent) => current = parent,
-            None => return None,
-        }
+        current = current.parent()?;
     }
 }
 
