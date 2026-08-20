@@ -79,17 +79,17 @@ hotmeal-wasm = { path = "libs/hotmeal/hotmeal-wasm" }
 
 cstree = { version = "0.14.0", features = ["derive"] }
 divan = { package = "codspeed-divan-compat", version = "4.7.0" }
-facet = { version = "0.50.0-rc.5", features = ["camino"] }
-facet-core = "0.50.0-rc.5"
+facet = { version = "0.50.0-rc.7", features = ["camino"] }
+facet-core = "0.50.0-rc.7"
 facet-hash = { version = "0.50.0-rc.5", features = ["jit"] }
-facet-reflect = "0.50.0-rc.5"
-facet-default = "0.50.0-rc.5"
-facet-format = "0.50.0-rc.5"
-facet-json = "0.50.0-rc.5"
-facet-postcard = "0.50.0-rc.5"
-facet-toml = "0.50.0-rc.5"
-facet-value = "0.50.0-rc.5"
-facet-yaml = "0.50.0-rc.5"
+facet-reflect = "0.50.0-rc.7"
+facet-default = "0.50.0-rc.7"
+facet-format = "0.50.0-rc.7"
+facet-json = "0.50.0-rc.7"
+facet-postcard = "0.50.0-rc.7"
+facet-toml = "0.50.0-rc.7"
+facet-value = "0.50.0-rc.7"
+facet-yaml = "0.50.0-rc.7"
 gingembre = { path = "libs/gingembre", version = "0.0.1" }
 gingembre-syntax = { path = "libs/gingembre-syntax", version = "0.0.1" }
 
