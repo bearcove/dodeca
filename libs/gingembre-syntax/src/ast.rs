@@ -410,8 +410,10 @@ impl DictLit {
             .filter_map(|c| Expr::cast(c.clone()))
             .collect();
         exprs
-            .chunks_exact(2)
-            .map(|c| (c[0].clone(), c[1].clone()))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|[key, value]| (key.clone(), value.clone()))
             .collect()
     }
 }
