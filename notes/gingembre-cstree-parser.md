@@ -33,7 +33,7 @@ re-implementing template parsing.
 - Keep the `?` operator, `{%- -%}` whitespace control, and lenient `defined` semantics —
   they're requirements of the new grammar (branch is off `shortcodes`).
 
-## Target grammar (catalogued from the REAL ftl templates, `~/fasterthanli.me/templates/`)
+## Target grammar (catalogued from the REAL ftl templates, `~/bearcove/fasterthanli.me/templates/` — 57 `*.jinja` files; `~/bearcove/cove` also useful)
 
 ### Template structure (outer)
 - Text runs.
