@@ -148,7 +148,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -159,7 +159,7 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2817,7 +2817,7 @@ checksum = "ad5208a115eaba24916f7456929832e310a81518c641f93fee4f89aa93aa3675"
 dependencies = [
  "cfg-if",
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3171,7 +3171,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3232,6 +3232,7 @@ dependencies = [
  "autocfg",
  "facet-core",
  "facet-macros",
+ "facet-reflect",
 ]
 
 [[package]]
@@ -4781,7 +4782,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5521,7 +5522,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6460,9 +6461,9 @@ dependencies = [
 
 [[package]]
 name = "phon"
-version = "0.2.0-rc.5"
+version = "0.2.0-rc.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc1d35927f33d36721ccc0eec1a335b557673f6c412f0c650335a9d9fc45a033"
+checksum = "96baf4b89c1be4fac9366797fabfa991a58b52c411bbc51a302172e35581064c"
 dependencies = [
  "facet",
  "facet-value",
@@ -6474,9 +6475,9 @@ dependencies = [
 
 [[package]]
 name = "phon-codegen"
-version = "0.2.0-rc.5"
+version = "0.2.0-rc.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa37e4ec5b3730b4ee926533f4ba5146cdb65b09d78a6435ed6766739b9c0617"
+checksum = "a260b698fe8271a683a4d02069e681300a1aa1bca18a730bb7e97decc29f10c2"
 dependencies = [
  "facet",
  "phon",
@@ -6485,9 +6486,9 @@ dependencies = [
 
 [[package]]
 name = "phon-engine"
-version = "0.2.0-rc.5"
+version = "0.2.0-rc.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91a69d860e426637af9966bf0e86bf1ea5512fd98aa9fa28154c8832f3aa227e"
+checksum = "59113b9f56d5d091907124e6e375a2346dfac315e77317f2c78a6f7d7b9f6584"
 dependencies = [
  "facet-value",
  "phon-ir",
@@ -6497,9 +6498,9 @@ dependencies = [
 
 [[package]]
 name = "phon-ir"
-version = "0.2.0-rc.5"
+version = "0.2.0-rc.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43cbc4e8333fceb9da3fcfa0033348217c5e0a998cff37ed134db5a20ea6128f"
+checksum = "7fca473a57d533e3b127bb6ad8965bbabfec4511229d1b8d931dea64ba57438a"
 dependencies = [
  "phon-schema",
  "weavy",
@@ -6507,9 +6508,9 @@ dependencies = [
 
 [[package]]
 name = "phon-jit"
-version = "0.2.0-rc.5"
+version = "0.2.0-rc.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6ea26bdf9d65fb13e2c1a4c6b39819cdbcc86d6408303707a3afac7839a55f3"
+checksum = "dc3b82ced5acec5cc538785c1e9abb027b525d27101210e763d97030540777d4"
 dependencies = [
  "copypatch",
  "phon-ir",
@@ -6519,12 +6520,13 @@ dependencies = [
 
 [[package]]
 name = "phon-schema"
-version = "0.2.0-rc.5"
+version = "0.2.0-rc.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d14899019fdf1a665207c3c2e1fcf5cbe87cf9c48ec3e745c5eaa55504eb39e"
+checksum = "9304de6f0f0ff03119acf22358a45d3b8aba7b278420f6fbf317597c14427428"
 dependencies = [
  "blake3",
  "facet-value",
+ "taxon",
 ]
 
 [[package]]
@@ -7406,7 +7408,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7463,7 +7465,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7917,7 +7919,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52d1cfed4120b4d927bf7c0f86d2087a4a7d6027c906d9f9d525a80573b9be51"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8302,7 +8304,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8353,7 +8355,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "230a1b821ccbd75b185820a1f1ff7b14d21da1e442e22c0863ea5f08771a8874"
 dependencies = [
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -9203,9 +9205,9 @@ checksum = "65dd7eed29412da847b0f78bcec0ac98588165988a8cfe41d4ea1d429f8ccfff"
 
 [[package]]
 name = "vox"
-version = "0.10.0-rc.5"
+version = "0.10.0-rc.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "748bf7cc14e613ca49cd03d82f16169976b006dd6508d7fa4f4f060333237152"
+checksum = "f4fc8847c6eec37c47e14c324bd1342d2366ecc0484d37f41847f0f5cc34a9e2"
 dependencies = [
  "facet",
  "facet-pretty",
@@ -9221,9 +9223,9 @@ dependencies = [
 
 [[package]]
 name = "vox-codegen"
-version = "0.10.0-rc.6"
+version = "0.10.0-rc.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d987b384f18d1983a0d9fe41bf011dcdd8184fb184f342ad64fc48de46ecb5d"
+checksum = "3bd8f55b8647d5a1af57e06f840327cd0d9d10451aab89ec7cb555833fcd10f5"
 dependencies = [
  "base64 0.21.7",
  "facet",
@@ -9240,9 +9242,9 @@ dependencies = [
 
 [[package]]
 name = "vox-core"
-version = "0.10.0-rc.5"
+version = "0.10.0-rc.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad73520876bf518dc141af989180e4ce6336a5c63510d5df2912b3fefd13a15d"
+checksum = "55113b9b0332c85bdc913fb2ebf4e466e54b209f7a9b515412bd77058bf3af8a"
 dependencies = [
  "facet",
  "facet-core",
@@ -9258,9 +9260,9 @@ dependencies = [
 
 [[package]]
 name = "vox-fdpass"
-version = "0.10.0-rc.5"
+version = "0.10.0-rc.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c095723231f7185dd8f401c41ffeff0413fd9b6c9d56349201a7ec6be1f88dbb"
+checksum = "ce6eb21badfbbcf44ab74a3b4a2b144e486c018645f1a509546513a17e91dc88"
 dependencies = [
  "libc",
  "passfd",
@@ -9270,9 +9272,9 @@ dependencies = [
 
 [[package]]
 name = "vox-macros-core"
-version = "0.10.0-rc.5"
+version = "0.10.0-rc.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "394725a483b834e92f6935669f7d97ddf4c87faa8fe940be1e4d821872634cc7"
+checksum = "84c362071ad2465e5b6012cb5370f6cc1fd551d7852995ba5ba89d830187a728"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -9282,9 +9284,9 @@ dependencies = [
 
 [[package]]
 name = "vox-macros-parse"
-version = "0.10.0-rc.5"
+version = "0.10.0-rc.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ae788ed5f014a4075609853353d7b4bed4808664cb13b0280fc192571445198"
+checksum = "68c330e9e0b5051e5e81d9a05c105664c47fc4f7d6a23f1128f0f894dc7a9ba1"
 dependencies = [
  "proc-macro2",
  "unsynn",
@@ -9292,9 +9294,9 @@ dependencies = [
 
 [[package]]
 name = "vox-phon"
-version = "0.10.0-rc.5"
+version = "0.10.0-rc.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59a6699b79676ed30cd33e82d3c145644a77f3aeb1988bc039e258b39d5a2db5"
+checksum = "7f8e7bba8590e42c1faea2b137edfcb4b11376c69104f50aafc7b00d0b2b64c0"
 dependencies = [
  "facet",
  "phon",
@@ -9307,9 +9309,9 @@ dependencies = [
 
 [[package]]
 name = "vox-rt"
-version = "0.10.0-rc.5"
+version = "0.10.0-rc.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee063020654e1df3c0fe81431ce8f18fc7d9348ed74979d63de2c6b135937cf3"
+checksum = "c1d60ad9e8e14b59df388fe2f94461dbf30c28d88a4c601c27944bf02135fa62"
 dependencies = [
  "futures-channel",
  "futures-util",
@@ -9324,15 +9326,15 @@ dependencies = [
 
 [[package]]
 name = "vox-rt-macros"
-version = "0.10.0-rc.5"
+version = "0.10.0-rc.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df00abe2b2c9089746ce7766fafb660758d2180c56c9b68e521a625457f7966e"
+checksum = "59ac5da248ee3338f551773b7560b384974ab738e28822e7e4e3dc6ad145371c"
 
 [[package]]
 name = "vox-schema"
-version = "0.10.0-rc.5"
+version = "0.10.0-rc.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19e8cd8cf14bfdaad3a845d64c8af80e090f8ea483687d51af4e209af9927449"
+checksum = "0e604e1bd7e7a9566a74a74434582a0112a1a53faa6e256d9720a02283c2e03d"
 dependencies = [
  "blake3",
  "facet",
@@ -9341,9 +9343,9 @@ dependencies = [
 
 [[package]]
 name = "vox-service-macros"
-version = "0.10.0-rc.5"
+version = "0.10.0-rc.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3def0d8a600d0dfaadc2ce81aede59d513d452dab1ee96f4739c94e46ca8218"
+checksum = "9c3f3346f2d8e55ba959d07aead491df684c371ffbfd6dbdca8deb6c7169226a"
 dependencies = [
  "proc-macro2",
  "vox-macros-core",
@@ -9351,9 +9353,9 @@ dependencies = [
 
 [[package]]
 name = "vox-stream"
-version = "0.10.0-rc.5"
+version = "0.10.0-rc.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3f819e7f26f23eb33d4fa8174bbc8d921f35e797be8a9e8a86113b1c118fec9"
+checksum = "aabbe11ccf9c82034da842d7f8d8a739f603e61218d6108a4cfd37c43e8ee892"
 dependencies = [
  "libc",
  "tokio",
@@ -9366,9 +9368,9 @@ dependencies = [
 
 [[package]]
 name = "vox-types"
-version = "0.10.0-rc.5"
+version = "0.10.0-rc.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07682d88964f3b2e38fe8664ecfe4c6a300d842c4c48695e35f0be45d894605b"
+checksum = "734ee4a4114398afcee8a4dfd5a5cb2534acb93f060ea33b2936e9176cc37378"
 dependencies = [
  "blake3",
  "facet",
@@ -9386,9 +9388,9 @@ dependencies = [
 
 [[package]]
 name = "vox-websocket"
-version = "0.10.0-rc.5"
+version = "0.10.0-rc.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4f580e1fa24aa20e3be6c5fb3963408f0ea56152ff71c79c102e5cb8dfc1cc1"
+checksum = "9fe651cdc222634dbc3f2501230fe3858941fcddaac643c60b0514a1685ec4cd"
 dependencies = [
  "futures-channel",
  "futures-util",
@@ -9742,7 +9744,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

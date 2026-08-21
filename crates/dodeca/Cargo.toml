@@ -164,7 +164,7 @@ dodeca-config = { path = "../dodeca-config" }
 dodeca-protocol = { path = "../dodeca-protocol" }
 facet-styx.workspace = true
 # Generates the browser editor's TypeScript vox client from DevtoolsService.
-vox-codegen = "0.10.0-rc.5"
+vox-codegen = "0.10.0-rc.7"
 
 [dev-dependencies]
 tempfile.workspace = true
