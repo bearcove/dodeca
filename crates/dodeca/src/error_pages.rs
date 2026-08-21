@@ -428,7 +428,7 @@ fn format_source_context(
     if loc.filename.starts_with('/') {
         // Absolute path - make it a zed:// link
         // Note: zed://file/ expects path without leading slash
-        let zed_url = format!("zed://file{}:{}:{}", &loc.filename, error_line, error_col);
+        let zed_url = format!("zed://file{}:{}:{}", loc.filename, error_line, error_col);
         html.push_str(&format!(
             r#"<a class="error-location-link" href="{}">{}</a>"#,
             html_escape::encode_text(&zed_url),

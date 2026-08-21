@@ -2494,14 +2494,12 @@ pub fn diagnostic_for_reference(
                     format!("source file '{source_target}' not found"),
                 ));
             };
-            match missing_anchor_message(project, route, fragment) {
-                Some(message) => (
-                    AuthoringDiagnosticKind::Anchor,
-                    Some(route.clone()),
-                    message,
-                ),
-                None => return None,
-            }
+            let message = missing_anchor_message(project, route, fragment)?;
+            (
+                AuthoringDiagnosticKind::Anchor,
+                Some(route.clone()),
+                message,
+            )
         } else if reference.kind == MarkdownReferenceKind::Image
             || is_likely_static_file(target_without_fragment)
         {
@@ -2522,10 +2520,9 @@ pub fn diagnostic_for_reference(
                     Some(target_route.clone()),
                     format!("route '{target_route}' not found"),
                 )
-            } else if let Some(message) = missing_anchor_message(project, &target_route, fragment) {
-                (AuthoringDiagnosticKind::Anchor, Some(target_route), message)
             } else {
-                return None;
+                let message = missing_anchor_message(project, &target_route, fragment)?;
+                (AuthoringDiagnosticKind::Anchor, Some(target_route), message)
             }
         };
 

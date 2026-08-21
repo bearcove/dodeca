@@ -786,7 +786,7 @@ fn parse_emphasis_shortcode(input: &str) -> (String, Vec<(String, String)>) {
     let args = rest.strip_suffix(')').unwrap_or(rest);
 
     let mut pairs = Vec::new();
-    let mut chars = args.char_indices().peekable();
+    let chars = args.char_indices().peekable();
     // Split into `key = value` items, honoring quotes so a quoted value can hold commas.
     let mut item = String::new();
     let mut in_quotes = false;
@@ -806,7 +806,7 @@ fn parse_emphasis_shortcode(input: &str) -> (String, Vec<(String, String)>) {
             pairs.push((item.to_string(), String::new()));
         }
     };
-    while let Some((_, c)) = chars.next() {
+    for (_, c) in chars {
         match c {
             '"' => {
                 in_quotes = !in_quotes;
@@ -831,9 +831,11 @@ fn parse_emphasis_shortcode(input: &str) -> (String, Vec<(String, String)>) {
 /// (with the leading `:` removed) and the remaining blockquote events as a body to be
 /// rendered — the marker paragraph itself is dropped. `events` is the full blockquote
 /// run, `[Start(BlockQuote), … , End(BlockQuote)]`.
-fn extract_body_shortcode<'a>(
-    events: &[(Event<'a>, Range<usize>)],
-) -> Option<(String, Vec<(Event<'a>, Range<usize>)>)> {
+/// A body shortcode match: the marker text (leading `:` removed) and the
+/// remaining blockquote events as a body to be rendered.
+type BodyShortcode<'a> = (String, Vec<(Event<'a>, Range<usize>)>);
+
+fn extract_body_shortcode<'a>(events: &[(Event<'a>, Range<usize>)]) -> Option<BodyShortcode<'a>> {
     // events[0] is Start(BlockQuote); the first paragraph must open with an emphasis.
     if !matches!(events.first(), Some((Event::Start(Tag::BlockQuote(_)), _))) {
         return None;

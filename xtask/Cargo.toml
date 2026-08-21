@@ -12,15 +12,9 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [dependencies]
-camino.workspace = true
-facet = { workspace = true, features = ["indexmap"] }
+facet.workspace = true
 figue.workspace = true
-facet-yaml.workspace = true
-fs-err.workspace = true
-indexmap.workspace = true
-eyre.workspace = true
 owo-colors.workspace = true
-structstruck.workspace = true
 # For `xtask codegen --typescript`: the same generator + protocol descriptors that
 # crates/dodeca/build.rs uses to emit the bundles' *.generated.ts vox bindings.
 dodeca-protocol = { path = "../crates/dodeca-protocol" }

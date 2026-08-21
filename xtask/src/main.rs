@@ -1,6 +1,6 @@
 //! Build tasks for dodeca
 
-mod ci;
+mod installer;
 
 use std::env;
 use std::fs;
@@ -8,7 +8,6 @@ use std::path::PathBuf;
 use std::process::{Command, ExitCode};
 use std::time::SystemTime;
 
-use camino::Utf8PathBuf;
 use facet::Facet;
 use figue as args;
 use owo_colors::OwoColorize;
@@ -37,20 +36,12 @@ struct RunArgs {
 #[derive(Facet, Debug)]
 struct InstallArgs {}
 
-/// CI GitHub command - generate GitHub workflow
+/// Generate shell installer (install.sh)
 #[derive(Facet, Debug)]
-struct CiGithubArgs {
-    /// Check that generated files are up to date (don't write)
-    #[facet(args::named)]
-    check: bool,
-}
-
-/// CI Forgejo command - generate Forgejo workflow
-#[derive(Facet, Debug)]
-struct CiForgejoArgs {
-    /// Check that generated files are up to date (don't write)
-    #[facet(args::named)]
-    check: bool,
+struct GenerateInstallerArgs {
+    /// Output path for the installer script
+    #[facet(args::positional)]
+    output_path: String,
 }
 
 /// Generate PowerShell installer
@@ -90,10 +81,8 @@ enum XtaskCommand {
     Run(RunArgs),
     /// Build release & install to ~/.cargo/bin
     Install(InstallArgs),
-    /// Generate GitHub workflow
-    CiGithub(CiGithubArgs),
-    /// Generate Forgejo workflow
-    CiForgejo(CiForgejoArgs),
+    /// Generate shell installer (install.sh)
+    GenerateInstaller(GenerateInstallerArgs),
     /// Generate PowerShell installer
     GeneratePs1Installer(GeneratePs1InstallerArgs),
     /// Run integration tests
@@ -149,32 +138,17 @@ fn main() -> ExitCode {
             }
             ExitCode::SUCCESS
         }
-        XtaskCommand::CiGithub(args) => {
-            let repo_root =
-                Utf8PathBuf::from_path_buf(env::current_dir().expect("get current directory"))
-                    .expect("current dir is valid UTF-8");
-            match ci::generate_github(&repo_root, args.check) {
-                Ok(()) => ExitCode::SUCCESS,
-                Err(e) => {
-                    eprintln!("{}: {e}", "error".red().bold());
-                    ExitCode::FAILURE
-                }
+        XtaskCommand::GenerateInstaller(args) => {
+            let content = installer::generate_installer_script();
+            if let Err(e) = fs::write(&args.output_path, content) {
+                eprintln!("{}: writing installer: {e}", "error".red().bold());
+                return ExitCode::FAILURE;
             }
-        }
-        XtaskCommand::CiForgejo(args) => {
-            let repo_root =
-                Utf8PathBuf::from_path_buf(env::current_dir().expect("get current directory"))
-                    .expect("current dir is valid UTF-8");
-            match ci::generate_forgejo(&repo_root, args.check) {
-                Ok(()) => ExitCode::SUCCESS,
-                Err(e) => {
-                    eprintln!("{}: {e}", "error".red().bold());
-                    ExitCode::FAILURE
-                }
-            }
+            eprintln!("Generated installer: {}", args.output_path);
+            ExitCode::SUCCESS
         }
         XtaskCommand::GeneratePs1Installer(args) => {
-            let content = ci::generate_powershell_installer();
+            let content = installer::generate_powershell_installer();
             if let Err(e) = fs::write(&args.output_path, content) {
                 eprintln!(
                     "{}: writing PowerShell installer: {e}",
@@ -364,8 +338,8 @@ fn install_dev() -> bool {
 
     // Build and stage the browser JS/WASM assets (search runtime, DevTools
     // runtime + UI) beside the installed `ddc`, so `ddc build` works out of
-    // the box. This mirrors the release pipeline in xtask/src/ci.rs, which
-    // installs wasm-pack/pnpm, runs scripts/build-browser-assets.sh and then
+    // the box. This mirrors the release packaging pipeline, which installs
+    // wasm-pack/pnpm, runs scripts/build-browser-assets.sh and then
     // scripts/stage-browser-assets.sh into a `dodeca-assets` directory.
     let assets_dst = cargo_bin.join("dodeca-assets");
     if !build_browser_assets() {
@@ -416,8 +390,8 @@ fn install_dev() -> bool {
 
 /// Build the browser JS/WASM assets (search runtime, DevTools runtime + UI).
 ///
-/// Mirrors the release pipeline in `xtask/src/ci.rs`: installs `wasm-pack` and
-/// `pnpm` when missing, then runs `scripts/build-browser-assets.sh`.
+/// Mirrors the release packaging pipeline: installs `wasm-pack` and `pnpm`
+/// when missing, then runs `scripts/build-browser-assets.sh`.
 fn build_browser_assets() -> bool {
     eprintln!("Building browser assets (WASM + DevTools UI)...");
 
