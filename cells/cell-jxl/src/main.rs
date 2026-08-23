@@ -40,11 +40,11 @@ impl JXLProcessor for JXLProcessorImpl {
     }
 
     async fn encode_jxl(&self, input: JXLEncodeInput) -> JXLResult {
-        if input.pixels.len() != (input.width * input.height * 4) as usize {
+        if input.pixels.len() != (input.width * input.height * input.channels as u32) as usize {
             return JXLResult::Error {
                 message: format!(
                     "Expected {} bytes for {}x{} RGBA, got {}",
-                    input.width * input.height * 4,
+                    input.width * input.height * input.channels as u32,
                     input.width,
                     input.height,
                     input.pixels.len()
@@ -71,7 +71,7 @@ impl JXLProcessor for JXLProcessorImpl {
         };
 
         encoder.has_alpha = true;
-        let frame = EncoderFrame::new(&input.pixels).num_channels(4);
+        let frame = EncoderFrame::new(&input.pixels).num_channels(input.channels as u32);
         let result = match encoder.encode_frame::<_, u8>(&frame, input.width, input.height) {
             Ok(r) => r,
             Err(e) => {

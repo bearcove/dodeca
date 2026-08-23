@@ -11,6 +11,7 @@ pub struct WebPEncodeInput {
     pub width: u32,
     pub height: u32,
     pub quality: u8,
+    pub channels: u8,
 }
 
 /// Result of WebP processing operations

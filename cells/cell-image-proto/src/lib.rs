@@ -41,6 +41,7 @@ pub struct ThumbhashInput {
     pub pixels: Vec<u8>,
     pub width: u32,
     pub height: u32,
+    pub channels: u8,
 }
 
 /// Image processor interface.

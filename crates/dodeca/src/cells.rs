@@ -585,11 +585,17 @@ pub async fn resize_image(
     }
 }
 
-pub async fn generate_thumbhash(pixels: &[u8], width: u32, height: u32) -> Option<String> {
+pub async fn generate_thumbhash(
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+    channels: u8,
+) -> Option<String> {
     let input = ThumbhashInput {
         pixels: pixels.to_vec(),
         width,
         height,
+        channels,
     };
     match ddc_cell_image::ImageProcessorImpl
         .generate_thumbhash_data_url(input)
@@ -604,12 +610,19 @@ pub async fn generate_thumbhash(pixels: &[u8], width: u32, height: u32) -> Optio
     }
 }
 
-pub async fn encode_webp(pixels: &[u8], width: u32, height: u32, quality: u8) -> Option<Vec<u8>> {
+pub async fn encode_webp(
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+    quality: u8,
+    channels: u8,
+) -> Option<Vec<u8>> {
     let input = WebPEncodeInput {
         pixels: pixels.to_vec(),
         width,
         height,
         quality,
+        channels,
     };
     match ddc_cell_webp::WebPProcessorImpl.encode_webp(input).await {
         WebPResult::EncodeSuccess { data } => Some(data),
@@ -621,12 +634,19 @@ pub async fn encode_webp(pixels: &[u8], width: u32, height: u32, quality: u8) ->
     }
 }
 
-pub async fn encode_jxl(pixels: &[u8], width: u32, height: u32, quality: u8) -> Option<Vec<u8>> {
+pub async fn encode_jxl(
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+    quality: u8,
+    channels: u8,
+) -> Option<Vec<u8>> {
     let input = JXLEncodeInput {
         pixels: pixels.to_vec(),
         width,
         height,
         quality,
+        channels,
     };
     match ddc_cell_jxl::JXLProcessorImpl.encode_jxl(input).await {
         JXLResult::EncodeSuccess { data } => Some(data),

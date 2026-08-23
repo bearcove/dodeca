@@ -29,11 +29,11 @@ impl WebPProcessor for WebPProcessorImpl {
     }
 
     async fn encode_webp(&self, input: WebPEncodeInput) -> WebPResult {
-        if input.pixels.len() != (input.width * input.height * 4) as usize {
+        if input.pixels.len() != (input.width * input.height * input.channels as u32) as usize {
             return WebPResult::Error {
                 message: format!(
                     "Expected {} bytes for {}x{} RGBA, got {}",
-                    input.width * input.height * 4,
+                    input.width * input.height * input.channels as u32,
                     input.width,
                     input.height,
                     input.pixels.len()
@@ -41,7 +41,11 @@ impl WebPProcessor for WebPProcessorImpl {
             };
         }
 
-        let encoder = webp::Encoder::from_rgba(&input.pixels, input.width, input.height);
+        let encoder = if input.channels == 4 {
+            webp::Encoder::from_rgba(&input.pixels, input.width, input.height)
+        } else {
+            webp::Encoder::from_rgb(&input.pixels, input.width, input.height)
+        };
         let webp = encoder.encode(input.quality as f32);
 
         WebPResult::EncodeSuccess {
