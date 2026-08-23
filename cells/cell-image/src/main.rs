@@ -58,14 +58,16 @@ impl ImageProcessor for ImageProcessorImpl {
     }
 
     async fn generate_thumbhash_data_url(&self, input: ThumbhashInput) -> ImageResult {
-        let img = match pixels_to_dynamic_image(&input.pixels, input.width, input.height, 4) {
-            Some(img) => img,
-            None => {
-                return ImageResult::Error {
-                    message: "Invalid pixel data".to_string(),
-                };
-            }
-        };
+        let img =
+            match pixels_to_dynamic_image(&input.pixels, input.width, input.height, input.channels)
+            {
+                Some(img) => img,
+                None => {
+                    return ImageResult::Error {
+                        message: "Invalid pixel data".to_string(),
+                    };
+                }
+            };
 
         // Thumbhash works best with small images, resize if needed
         let thumb_img = if input.width > 100 || input.height > 100 {

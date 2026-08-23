@@ -128,18 +128,24 @@ async fn resize_image(decoded: &DecodedImage, target_width: u32) -> Option<Decod
 
 /// Generate a thumbhash and encode it as a data URL
 async fn generate_thumbhash_data_url(decoded: &DecodedImage) -> Option<String> {
-    cells::generate_thumbhash(&decoded.pixels, decoded.width, decoded.height).await
+    cells::generate_thumbhash(
+        &decoded.pixels,
+        decoded.width,
+        decoded.height,
+        decoded.channels,
+    )
+    .await
 }
 
 /// Encode pixels to WebP format.
-async fn encode_webp(pixels: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
-    cells::encode_webp(pixels, width, height, 82).await
+async fn encode_webp(pixels: &[u8], width: u32, height: u32, channels: u8) -> Option<Vec<u8>> {
+    cells::encode_webp(pixels, width, height, 82, channels).await
 }
 
 /// Encode pixels to JPEG-XL format.
-async fn encode_jxl(pixels: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
+async fn encode_jxl(pixels: &[u8], width: u32, height: u32, channels: u8) -> Option<Vec<u8>> {
     // Quality 80 maps to distance ~3 in the cell (high quality)
-    cells::encode_jxl(pixels, width, height, 80).await
+    cells::encode_jxl(pixels, width, height, 80, channels).await
 }
 
 /// Image metadata without the processed bytes
@@ -219,7 +225,14 @@ pub async fn process_image(data: &[u8], input_format: InputFormat) -> Option<Pro
         let height = resized.height;
 
         // Encode to both formats
-        if let Some(jxl_data) = encode_jxl(&resized.pixels, resized.width, resized.height).await {
+        if let Some(jxl_data) = encode_jxl(
+            &resized.pixels,
+            resized.width,
+            resized.height,
+            resized.channels,
+        )
+        .await
+        {
             jxl_variants.push(ImageVariant {
                 data: jxl_data,
                 width,
@@ -227,7 +240,14 @@ pub async fn process_image(data: &[u8], input_format: InputFormat) -> Option<Pro
             });
         }
 
-        if let Some(webp_data) = encode_webp(&resized.pixels, resized.width, resized.height).await {
+        if let Some(webp_data) = encode_webp(
+            &resized.pixels,
+            resized.width,
+            resized.height,
+            resized.channels,
+        )
+        .await
+        {
             webp_variants.push(ImageVariant {
                 data: webp_data,
                 width,
