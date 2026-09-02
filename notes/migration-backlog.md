@@ -4,9 +4,22 @@ Tracking the move of fasterthanli.me (currently on the custom `home` CMS in `~/c
 content in `~/fasterthanli.me`) onto dodeca. Companion to `notes/shortcode-port.md`.
 
 Decisions already made (Amos):
-- **Deployment format = dodeca running as a SERVER** (not static files to a CDN). This
-  matters: request-time rendering is fine, and dodeca-as-server already has an identity
-  concept (the `auth` config). So "identity" features ride on the running server.
+- **Deployment format = STATIC, on GitHub Pages** (2026-09-02, supersedes the earlier
+  "dodeca as a server" decision). Sites build in GitHub Actions with prebuilt `ddc`
+  binaries published from this repo (built on Blacksmith workers). demilattice.com will
+  be a second dodeca site on the same pipeline. Identity/login is therefore a separate
+  concern, not something the site build depends on.
+- Site-side backlog of everything stubbed during the template port lives in
+  `~/w/bearcove/fasterthanli.me/dodeca-backlog.md`.
+
+Status 2026-09-02 (branch `ftl-port`): the whole site renders under `ddc serve` —
+frontpage, article/series/video pages, listings, shortcodes, Vite bundle, content-dir
+images through the responsive pipeline. Landed in dodeca for this: lenient `?` on missing
+fields, `{% include %}` (was a no-op), bare sibling-macro calls, date/`striptags`/`truncate`
+filters, dotted `sort(attribute=)`, `get_sections(path, depth=)`, `range()`, unknown
+frontmatter keys folded into `extra`, `section.word_count`, `section.ancestors` excluding
+self, content-dir assets served/processed under `/content/<rel>` with relative `<img src>`
+resolution, any `templates/` file addressable (`foo.css.jinja`, `icons/x.svg`).
 - **Gated content** (early-access / reveal-date articles): OUT OF SCOPE for now.
 - **Login**: stays in scope, but only for **Discord access** (sponsors → Discord role),
   NOT for hiding article bodies. Can be a **proxy on top of dodeca's server-mode identity**
