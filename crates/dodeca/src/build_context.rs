@@ -564,6 +564,7 @@ pub fn load_content_asset_files(
         if !root.content_dir.exists() {
             continue;
         }
+        let before = out.len();
         let asset_files: Vec<Utf8PathBuf> = WalkBuilder::new(&root.content_dir)
             .build()
             .filter_map(|e| e.ok())
@@ -585,6 +586,12 @@ pub fn load_content_asset_files(
             let static_file = StaticFile::new(db, static_path.clone(), content)?;
             out.push((static_path, static_file));
         }
+        tracing::info!(
+            mount = %root.mount,
+            content_dir = %root.content_dir,
+            files = out.len() - before,
+            "loaded content-dir assets"
+        );
     }
     Ok(out)
 }
@@ -949,9 +956,17 @@ impl BuildContext {
             }
         }
 
+        let before_assets = self.static_files.len();
         for (path, file) in load_content_asset_files(&*self.db, &self.source_roots)? {
             self.static_files.insert(path, file);
         }
+        tracing::info!(
+            static_dir = %static_dir,
+            before_content_assets = before_assets,
+            after_content_assets = self.static_files.len(),
+            source_roots = self.source_roots.len(),
+            "load_static: content assets merged"
+        );
 
         if dist_dir.exists() {
             let dist_files: Vec<Utf8PathBuf> = WalkBuilder::new(&dist_dir)
