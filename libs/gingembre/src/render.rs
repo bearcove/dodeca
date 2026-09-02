@@ -2525,13 +2525,27 @@ mod tests {
     // r[verify inherit.include.context]
     #[tokio::test]
     async fn test_include_context() {
-        // Include is parsed; verify the parsed node exists
-        // (Full include rendering is not yet implemented)
-        let t = Template::parse("test", "before{% include \"x.html\" %}after").unwrap();
-        // Template parses successfully - include syntax is recognized
-        let result = t.render(&Context::new()).await.unwrap();
-        // Contains placeholder comment for unimplemented include
-        assert!(result.contains("include"));
+        // The included template renders in place and sees the caller's context.
+        let mut loader = InMemoryLoader::new();
+        loader.add("main.html", "before{% include \"x.html\" %}after");
+        loader.add("x.html", "[X:{{ name }}]");
+        let mut engine = Engine::new(loader);
+        let mut ctx = Context::new();
+        ctx.set("name", Value::from("amos"));
+        let result = engine.render("main.html", &ctx).await.unwrap();
+        assert_eq!(result, "before[X:amos]after");
+    }
+
+    #[tokio::test]
+    async fn test_include_missing_is_an_error() {
+        let mut loader = InMemoryLoader::new();
+        loader.add("main.html", "before{% include \"nope.html\" %}after");
+        let mut engine = Engine::new(loader);
+        let err = engine
+            .render("main.html", &Context::new())
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("nope.html"), "got: {err}");
     }
 
     // r[verify filter.default.undefined]

@@ -790,11 +790,20 @@ mod tests {
             &config
         ));
 
-        // Unknown extensions in content/templates/sass should not be watched
-        assert!(!should_watch_path(
+        // Non-markdown files under content/ are static assets (served under
+        // /content/<rel>), so they are watched like any other static file.
+        assert!(should_watch_path(
             Path::new("/project/content/notes.txt"),
             &config
         ));
+        assert_eq!(
+            config.categorize(Utf8Path::new("/project/content/img/photo.jxl")),
+            PathCategory::Static
+        );
+        assert_eq!(
+            config.relative_path(Utf8Path::new("/project/content/img/photo.jxl")),
+            Some(Utf8PathBuf::from("content/img/photo.jxl"))
+        );
     }
 
     #[test]
