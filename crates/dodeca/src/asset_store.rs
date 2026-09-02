@@ -25,7 +25,7 @@ use std::collections::HashSet;
 use std::time::Duration;
 
 /// Key of the input index object.
-pub const INDEX_KEY: &str = "index/inputs.v1.bin";
+pub const INDEX_KEY: &str = "index/inputs.v2.bin";
 
 pub const ACCESS_KEY_ENV: &str = "DODECA_ASSET_STORE_ACCESS_KEY_ID";
 pub const SECRET_KEY_ENV: &str = "DODECA_ASSET_STORE_SECRET_ACCESS_KEY";
@@ -35,6 +35,15 @@ pub const SECRET_KEY_ENV: &str = "DODECA_ASSET_STORE_SECRET_ACCESS_KEY";
 pub const DEFAULT_PASSTHROUGH_EXTENSIONS: &[&str] =
     &["mp4", "webm", "mov", "m4a", "mp3", "flac", "ogg", "wav"];
 
+/// Image metadata remembered alongside an indexed input, so a build on a
+/// machine without a local cache can reference an image's variants without
+/// decoding it.
+#[derive(Debug, Clone, facet::Facet)]
+pub struct IndexedImage {
+    pub input_hash: InputHash,
+    pub metadata: crate::image::ImageMetadata,
+}
+
 /// The set of inputs whose derivations are known to be in the bucket.
 #[derive(Debug, Clone, Default, facet::Facet)]
 pub struct AssetIndex {
@@ -42,6 +51,8 @@ pub struct AssetIndex {
     /// already mix the version in, so this is a belt-and-braces check.
     pub pipeline_version: u64,
     pub inputs: Vec<InputHash>,
+    /// Metadata for the image inputs among `inputs`.
+    pub images: Vec<IndexedImage>,
 }
 
 impl AssetIndex {
@@ -56,7 +67,22 @@ impl AssetIndex {
             );
             return Ok(Self::default());
         }
+        // Seed the local metadata cache so indexed images are never decoded here.
+        for image in &index.images {
+            crate::cas::put_cached_metadata(&image.input_hash, &image.metadata);
+        }
         Ok(index)
+    }
+
+    /// Record an input as fully uploaded (with its image metadata, if it is one).
+    pub fn add_input(&mut self, input_hash: InputHash) {
+        self.inputs.push(input_hash);
+        if let Some(metadata) = crate::cas::get_cached_metadata(&input_hash) {
+            self.images.push(IndexedImage {
+                input_hash,
+                metadata,
+            });
+        }
     }
 
     pub fn to_bytes(&self) -> eyre::Result<Vec<u8>> {
@@ -64,6 +90,10 @@ impl AssetIndex {
         index.pipeline_version = IMAGE_PIPELINE_VERSION;
         index.inputs.sort_by(|a, b| a.0.cmp(&b.0));
         index.inputs.dedup();
+        index
+            .images
+            .sort_by(|a, b| a.input_hash.0.cmp(&b.input_hash.0));
+        index.images.dedup_by(|a, b| a.input_hash == b.input_hash);
         facet_postcard::to_vec(&index).map_err(|e| eyre!("encoding asset index: {e}"))
     }
 
@@ -174,7 +204,15 @@ impl AssetStoreClient {
         match res.status().as_u16() {
             200 => {
                 let bytes = res.bytes().await?;
-                let index = AssetIndex::from_bytes(&bytes)?;
+                // An unreadable index (older format, truncated upload) only means
+                // we re-derive: the objects themselves are untouched and idempotent.
+                let index = match AssetIndex::from_bytes(&bytes) {
+                    Ok(index) => index,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "asset index unreadable; starting empty");
+                        AssetIndex::default()
+                    }
+                };
                 tracing::info!(inputs = index.inputs.len(), "fetched asset index");
                 Ok(index)
             }
@@ -191,32 +229,50 @@ impl AssetStoreClient {
 
     /// Upload an object. Existing objects are left untouched (content-addressed
     /// keys never change meaning), so a 412 from `If-None-Match: *` is success.
+    /// Transient failures (connection resets, 5xx, 429) are retried a few times
+    /// with backoff; a persistent failure leaves the input unindexed so the
+    /// next build retries it.
     pub async fn put_object(
         &self,
         key: &str,
         content_type: &str,
         bytes: Vec<u8>,
     ) -> eyre::Result<()> {
-        let mut action = self.bucket.put_object(Some(&self.credentials), key);
-        action
-            .headers_mut()
-            .insert("content-type", content_type.to_string());
-        let url = action.sign(Self::sign_ttl());
-        let res = self
-            .http
-            .put(url)
-            .header("content-type", content_type)
-            .header("if-none-match", "*")
-            .body(bytes)
-            .send()
-            .await?;
-        match res.status().as_u16() {
-            200 | 201 | 204 | 412 => Ok(()),
-            status => {
-                let body = res.text().await.unwrap_or_default();
-                Err(eyre!("uploading {key}: HTTP {status}: {body}"))
+        let mut last_err = None;
+        for attempt in 0..4u32 {
+            if attempt > 0 {
+                tokio::time::sleep(Duration::from_millis(250 * 2u64.pow(attempt))).await;
             }
+            let mut action = self.bucket.put_object(Some(&self.credentials), key);
+            action
+                .headers_mut()
+                .insert("content-type", content_type.to_string());
+            let url = action.sign(Self::sign_ttl());
+            let res = self
+                .http
+                .put(url)
+                .header("content-type", content_type)
+                .header("if-none-match", "*")
+                .body(bytes.clone())
+                .send()
+                .await;
+            match res {
+                Ok(res) => match res.status().as_u16() {
+                    200 | 201 | 204 | 412 => return Ok(()),
+                    status @ (429 | 500..=599) => {
+                        let body = res.text().await.unwrap_or_default();
+                        last_err = Some(eyre!("uploading {key}: HTTP {status}: {body}"));
+                    }
+                    status => {
+                        let body = res.text().await.unwrap_or_default();
+                        return Err(eyre!("uploading {key}: HTTP {status}: {body}"));
+                    }
+                },
+                Err(e) => last_err = Some(eyre!("uploading {key}: {e}")),
+            }
+            tracing::warn!(key, attempt, error = %last_err.as_ref().unwrap(), "upload failed; retrying");
         }
+        Err(last_err.unwrap())
     }
 
     /// Overwrite the index (always, unconditionally: it only ever grows).

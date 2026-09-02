@@ -2054,7 +2054,7 @@ pub async fn build(
         let mut failed = 0usize;
         for (input_hash, result) in results {
             match result {
-                Ok(()) => index.inputs.push(input_hash),
+                Ok(()) => index.add_input(input_hash),
                 Err(e) => {
                     failed += 1;
                     tracing::error!(input = ?input_hash, error = %e, "asset upload failed");

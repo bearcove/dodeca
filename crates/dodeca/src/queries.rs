@@ -3879,19 +3879,13 @@ pub async fn serve_html<DB: Db>(
         (!map.is_empty()).then_some(map)
     };
 
-    // Relative `<img src>` values are authored relative to the markdown file, and
-    // content-dir assets are served under `/content/<rel>` (mount-prefixed): a
-    // section's images live in its own dir, a page's beside the page.
+    // Relative media (`assets/x.png`, `../clip.mp4`) resolve against the
+    // page's route treated as a directory — `/content/<route>/` — which is what
+    // a browser does for the served URL and matches the convention of keeping
+    // a page's assets in a sibling dir named after it (`archive.md` + `archive/`).
+    // For a section (`_index.md`) that is simply its own directory.
     let asset_base = {
-        let dir = if site_tree.sections.contains_key(&route) {
-            route.as_str().to_string()
-        } else {
-            route
-                .parent()
-                .map(|p| p.as_str().to_string())
-                .unwrap_or_default()
-        };
-        let dir = dir.trim_end_matches('/').to_string();
+        let dir = route.as_str().trim_end_matches('/').to_string();
         match &mount {
             Some(m) => {
                 let prefix = format!("/{}", m.segment);

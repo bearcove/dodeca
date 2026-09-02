@@ -123,6 +123,13 @@ where
             let tendril = StrTendril::from(input.html.as_str());
             let mut doc = hotmeal::parse(&tendril);
 
+            // 0. Resolve relative media sources (`assets/x.png`, `clip.mp4`)
+            // against the asset base, so the path map and the picture
+            // transform below see the same root-absolute URLs the site uses.
+            if let Some(asset_base) = &input.asset_base {
+                resolve_relative_media_in_doc(&mut doc, asset_base);
+            }
+
             // 1. URL rewriting
             if let Some(path_map) = &input.path_map {
                 rewrite_urls_in_doc(&mut doc, path_map);
@@ -178,11 +185,6 @@ where
             // 6d. Inject "implemented by <fn …>" lists into rule blocks.
             if let Some(rule_impls) = &input.rule_impls {
                 apply_rule_impls_in_doc(&mut doc, rule_impls);
-            }
-
-            // 6b. Resolve relative image sources against the asset base
-            if let Some(asset_base) = &input.asset_base {
-                resolve_relative_images_in_doc(&mut doc, asset_base);
             }
 
             // 7. Transform images to picture elements
@@ -983,6 +985,12 @@ fn rewrite_urls_in_subtree(
                     let new_srcset = rewrite_srcset(&srcset, path_map);
                     set_attr(doc, node_id, "srcset", &new_srcset);
                 }
+                // <video><source src="clip.mp4"> uses `src`, not `srcset`
+                if let Some(src) = get_attr(doc, node_id, "src")
+                    && let Some(new_url) = path_map.get(&src)
+                {
+                    set_attr(doc, node_id, "src", new_url);
+                }
             }
             "video" | "audio" | "iframe" => {
                 if let Some(src) = get_attr(doc, node_id, "src")
@@ -1433,10 +1441,10 @@ fn resolve_relative_links_in_doc(doc: &mut Document, base_route: &str) {
     }
 }
 
-/// Rewrite relative `<img src>` values (`assets/foo.png`, `./foo.png`) to
-/// root-absolute URLs under `asset_base`, so the picture transform and the
-/// cache-busting path map can find them.
-fn resolve_relative_images_in_doc(doc: &mut Document, asset_base: &str) {
+/// Rewrite relative media sources (`<img src="assets/foo.png">`,
+/// `<video src="clip.mp4">`, `<source src>`, `poster`) to root-absolute URLs
+/// under `asset_base`, so the path map and the picture transform can find them.
+fn resolve_relative_media_in_doc(doc: &mut Document, asset_base: &str) {
     let base = if asset_base.ends_with('/') {
         asset_base.to_string()
     } else {
@@ -1444,19 +1452,43 @@ fn resolve_relative_images_in_doc(doc: &mut Document, asset_base: &str) {
     };
 
     if let Some(body_id) = doc.body() {
-        let mut images = Vec::new();
-        collect_elements(doc, body_id, "img", &mut images);
+        let mut nodes = Vec::new();
+        for tag in ["img", "video", "audio", "source"] {
+            collect_elements(doc, body_id, tag, &mut nodes);
+        }
 
-        for node_id in images {
-            if let Some(src) = get_attr(doc, node_id, "src")
-                && !src.starts_with("data:")
-                && let Some(resolved) = resolve_relative_link(&src, &base)
-            {
-                let resolved = resolved.replace("/./", "/");
-                set_attr(doc, node_id, "src", &resolved);
+        for node_id in nodes {
+            for attr in ["src", "poster"] {
+                if let Some(value) = get_attr(doc, node_id, attr)
+                    && !value.starts_with("data:")
+                    && let Some(resolved) = resolve_relative_link(&value, &base)
+                {
+                    set_attr(doc, node_id, attr, &normalize_path(&resolved));
+                }
             }
         }
     }
+}
+
+/// Collapse `.` and `..` segments of a root-absolute path
+/// (`/content/a/../b.mp4` → `/content/b.mp4`).
+fn normalize_path(path: &str) -> String {
+    let mut out: Vec<&str> = Vec::new();
+    for seg in path.split('/') {
+        match seg {
+            "" | "." => {}
+            ".." => {
+                out.pop();
+            }
+            s => out.push(s),
+        }
+    }
+    let mut s = String::from("/");
+    s.push_str(&out.join("/"));
+    if path.ends_with('/') && s.len() > 1 {
+        s.push('/');
+    }
+    s
 }
 
 fn collect_elements(doc: &Document, node_id: NodeId, tag: &str, results: &mut Vec<NodeId>) {
