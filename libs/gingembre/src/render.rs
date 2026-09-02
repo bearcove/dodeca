@@ -639,9 +639,27 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
                     }
                 }
                 // r[impl inherit.include.context]
-                Node::Include(_include) => {
-                    // TODO: Template loading/caching
-                    self.output.push_str("<!-- include not implemented -->");
+                // `{% include "path" %}` renders another template in place, sharing
+                // the current context (variables set so far are visible to it).
+                Node::Include(include) => {
+                    let path = include.path.value.clone();
+                    let Some(loader) = self.loader else {
+                        return Err(TemplateError::GlobalFn(format!(
+                            "include `{path}`: no template loader available"
+                        )));
+                    };
+                    let Some(source) = loader.load(&path).await else {
+                        return Err(TemplateError::GlobalFn(format!(
+                            "include `{path}`: template not found"
+                        )));
+                    };
+                    let template = Template::parse(path.clone(), source)?;
+                    let control = self
+                        .render_nodes_with_source(&template.ast.body, template.source.clone())
+                        .await?;
+                    if control != LoopControl::None {
+                        return Ok(control);
+                    }
                 }
                 Node::Block(block) => {
                     // Check if we have an override for this block
