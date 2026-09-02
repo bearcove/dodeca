@@ -2767,6 +2767,9 @@ fn load_all_registries(
         for (path, file) in dodeca::build_context::load_source_static_files(db, sources)? {
             static_files_map.insert(path.as_str().to_string(), file);
         }
+        for (path, file) in dodeca::build_context::load_content_asset_files(db, sources)? {
+            static_files_map.insert(path.as_str().to_string(), file);
+        }
         let count = static_files_map.len();
         server.set_static_files(static_files_map.into_values().collect());
         count

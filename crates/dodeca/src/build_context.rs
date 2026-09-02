@@ -550,6 +550,45 @@ pub fn load_template_files(
     Ok(out)
 }
 
+/// Load every non-markdown file under each source's `content/` dir as a static
+/// file keyed `content/<rel>` (mount-prefixed), so images and other assets can
+/// live beside the articles that use them and still be served, cache-busted and
+/// image-processed under `/content/…`. Shared by `BuildContext` (build) and the
+/// `ddc serve` path.
+pub fn load_content_asset_files(
+    db: &Database,
+    roots: &[ResolvedSource],
+) -> Result<Vec<(StaticPath, StaticFile)>> {
+    let mut out = Vec::new();
+    for root in roots {
+        if !root.content_dir.exists() {
+            continue;
+        }
+        let asset_files: Vec<Utf8PathBuf> = WalkBuilder::new(&root.content_dir)
+            .build()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.file_type()
+                    .map(|ft| ft.is_file() || (ft.is_symlink() && e.path().is_file()))
+                    .unwrap_or(false)
+            })
+            .filter(|e| e.path().extension().is_none_or(|ext| ext != "md"))
+            .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
+            .collect();
+        for path in asset_files {
+            let content = fs::read(&path)?;
+            let relative = path
+                .strip_prefix(&root.content_dir)
+                .map(|p| p.to_string())
+                .unwrap_or_else(|_| path.to_string());
+            let static_path = StaticPath::new(content_asset_key(&root.mount, &relative));
+            let static_file = StaticFile::new(db, static_path.clone(), content)?;
+            out.push((static_path, static_file));
+        }
+    }
+    Ok(out)
+}
+
 /// Load static files from every NON-primary source's `static/` dir (sibling of
 /// its content dir), with mount-prefixed keys (`wiki/style.css`). The primary
 /// (mount `/`) `static/` + `dist/` are loaded by the caller; this only adds the
@@ -910,37 +949,8 @@ impl BuildContext {
             }
         }
 
-        // Non-markdown files that live next to content (`content/img/x.jxl`,
-        // `content/articles/foo/assets/bar.png`) are static assets too, served
-        // and processed under `/content/<rel>` — so a site can keep images
-        // beside the articles that use them instead of mirroring `content/`
-        // under `static/`.
-        for root in self.source_roots.clone() {
-            if !root.content_dir.exists() {
-                continue;
-            }
-            let asset_files: Vec<Utf8PathBuf> = WalkBuilder::new(&root.content_dir)
-                .build()
-                .filter_map(|e| e.ok())
-                .filter(|e| {
-                    e.file_type()
-                        .map(|ft| ft.is_file() || (ft.is_symlink() && e.path().is_file()))
-                        .unwrap_or(false)
-                })
-                .filter(|e| e.path().extension().is_none_or(|ext| ext != "md"))
-                .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
-                .collect();
-            for path in asset_files {
-                let content = fs::read(&path)?;
-                let relative = path
-                    .strip_prefix(&root.content_dir)
-                    .map(|p| p.to_string())
-                    .unwrap_or_else(|_| path.to_string());
-                let key = content_asset_key(&root.mount, &relative);
-                let static_path = StaticPath::new(key);
-                let static_file = StaticFile::new(&*self.db, static_path.clone(), content)?;
-                self.static_files.insert(static_path, static_file);
-            }
+        for (path, file) in load_content_asset_files(&*self.db, &self.source_roots)? {
+            self.static_files.insert(path, file);
         }
 
         if dist_dir.exists() {
