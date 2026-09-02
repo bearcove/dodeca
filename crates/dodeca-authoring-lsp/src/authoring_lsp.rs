@@ -5098,6 +5098,14 @@ pub fn template_function_info(name: &str) -> TemplateItemInfo {
             detail: "Dodeca template function",
             documentation: "Loads a section object by route for navigation and cross-section templates.",
         },
+        "get_sections" => TemplateItemInfo {
+            detail: "Dodeca template function",
+            documentation: "Lists section summaries under a route (`get_sections(\"/articles/\", depth=1)`); combine with `sort(attribute=\"extra.date\")` for listings.",
+        },
+        "range" => TemplateItemInfo {
+            detail: "Dodeca template function",
+            documentation: "Half-open integer range: `range(end)`, `range(start, end)`, `range(start, end, step)`.",
+        },
         "now" => TemplateItemInfo {
             detail: "Dodeca template function",
             documentation: "Returns the current build-time timestamp.",

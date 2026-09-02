@@ -26,19 +26,7 @@ use crate::db::{Database, SiteTree};
 use crate::queries::{DataValuePath, data_keys_at_path, resolve_data_value};
 use crate::render::{get_base_url, path_to_route, section_summary_value, section_to_value};
 
-pub const TEMPLATE_FUNCTION_NAMES: &[&str] = &[
-    "get_url",
-    "get_section",
-    "get_sections",
-    "range",
-    "now",
-    "throw",
-    "build",
-    "read",
-    "highlight",
-    "get_media",
-    "markup",
-];
+pub use cell_gingembre_proto::TEMPLATE_FUNCTION_NAMES;
 
 /// Escape a string for insertion into a double-quoted HTML attribute value.
 fn attr_escape(s: &str) -> String {

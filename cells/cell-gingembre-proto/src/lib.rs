@@ -169,6 +169,22 @@ pub trait TemplateRenderer {
 ///
 /// Provides template loading, data resolution, and function calls with picante tracking.
 /// Each call creates dependencies that allow incremental rebuilds.
+/// Host-implemented template functions. Gingembre registers a callback for each
+/// name here; the host (`dodeca::template_host`) dispatches on the same list.
+pub const TEMPLATE_FUNCTION_NAMES: &[&str] = &[
+    "get_url",
+    "get_section",
+    "get_sections",
+    "range",
+    "now",
+    "throw",
+    "build",
+    "read",
+    "highlight",
+    "get_media",
+    "markup",
+];
+
 pub trait TemplateHost {
     /// Load a template by name.
     ///

@@ -227,23 +227,13 @@ impl<H> TemplateRendererImpl<H> {
 
         // Register callback-backed functions.
         // These are the standard functions that templates expect
-        let function_names = [
-            "get_url",
-            "get_section",
-            "now",
-            "throw",
-            "build",
-            "read",
-            "highlight",
-            "get_media",
-            "markup",
-        ];
+        let function_names = cell_gingembre_proto::TEMPLATE_FUNCTION_NAMES;
         tracing::debug!(
             num_functions = function_names.len(),
             ?function_names,
             "registering callback-backed functions"
         );
-        for name in function_names {
+        for name in function_names.iter().copied() {
             let func = make_callback_function(host.clone(), context_id, name.to_string());
             ctx.register_fn(name, func);
         }
