@@ -95,6 +95,7 @@ pub async fn process_html(
         rule_coverage: options.rule_coverage,
         rule_impls: options.rule_impls,
         base_route: options.base_route,
+        asset_base: options.asset_base,
         image_variants: options.image_variants,
         vite_css_map: options.vite_css_map,
         mount: options.mount,
@@ -168,6 +169,8 @@ pub struct HtmlProcessOptions {
     pub rule_impls: Option<HashMap<String, Vec<cell_html_proto::ImplSite>>>,
     /// Base route for relative link resolution
     pub base_route: Option<String>,
+    /// Base URL for relative `<img src>` resolution (see `HtmlProcessInput::asset_base`).
+    pub asset_base: Option<String>,
     /// Image variants for picture element transformation
     pub image_variants: Option<HashMap<String, cell_html_proto::ResponsiveImageInfo>>,
     /// Vite CSS map: entry path -> list of CSS URLs to inject

@@ -183,6 +183,15 @@ pub fn templates_for_route(
 /// Load markdown source files from every source's content dir, with
 /// mount-prefixed keys. Shared by `BuildContext` (build) and the serve path so
 /// both produce byte-identical registry keys.
+/// Static-registry key for a non-markdown file found under a source's
+/// `content/` dir: `content/<rel>`, mount-prefixed like every other key.
+pub fn content_asset_key(mount: &str, relative: &str) -> String {
+    mounted_key(
+        mount,
+        &format!("content/{}", relative.trim_start_matches('/')),
+    )
+}
+
 pub fn load_source_files(
     db: &Database,
     roots: &[ResolvedSource],
@@ -896,6 +905,39 @@ impl BuildContext {
                     .unwrap_or_else(|_| path.to_string());
 
                 let static_path = StaticPath::new(relative);
+                let static_file = StaticFile::new(&*self.db, static_path.clone(), content)?;
+                self.static_files.insert(static_path, static_file);
+            }
+        }
+
+        // Non-markdown files that live next to content (`content/img/x.jxl`,
+        // `content/articles/foo/assets/bar.png`) are static assets too, served
+        // and processed under `/content/<rel>` — so a site can keep images
+        // beside the articles that use them instead of mirroring `content/`
+        // under `static/`.
+        for root in self.source_roots.clone() {
+            if !root.content_dir.exists() {
+                continue;
+            }
+            let asset_files: Vec<Utf8PathBuf> = WalkBuilder::new(&root.content_dir)
+                .build()
+                .filter_map(|e| e.ok())
+                .filter(|e| {
+                    e.file_type()
+                        .map(|ft| ft.is_file() || (ft.is_symlink() && e.path().is_file()))
+                        .unwrap_or(false)
+                })
+                .filter(|e| e.path().extension().is_none_or(|ext| ext != "md"))
+                .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
+                .collect();
+            for path in asset_files {
+                let content = fs::read(&path)?;
+                let relative = path
+                    .strip_prefix(&root.content_dir)
+                    .map(|p| p.to_string())
+                    .unwrap_or_else(|_| path.to_string());
+                let key = content_asset_key(&root.mount, &relative);
+                let static_path = StaticPath::new(key);
                 let static_file = StaticFile::new(&*self.db, static_path.clone(), content)?;
                 self.static_files.insert(static_path, static_file);
             }

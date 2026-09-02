@@ -142,6 +142,12 @@ pub struct HtmlProcessInput {
     #[facet(default)]
     pub base_route: Option<String>,
 
+    /// Base URL for resolving relative `<img src>` (e.g. "/content/guide/intro/"):
+    /// images are authored relative to the markdown file, and content-dir assets
+    /// are served under `/content/…`, so this differs from `base_route`.
+    #[facet(default)]
+    pub asset_base: Option<String>,
+
     /// Image variants for transforming `<img>` to `<picture>`
     #[facet(default)]
     pub image_variants: Option<HashMap<String, ResponsiveImageInfo>>,

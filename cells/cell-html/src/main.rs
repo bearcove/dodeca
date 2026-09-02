@@ -180,6 +180,11 @@ where
                 apply_rule_impls_in_doc(&mut doc, rule_impls);
             }
 
+            // 6b. Resolve relative image sources against the asset base
+            if let Some(asset_base) = &input.asset_base {
+                resolve_relative_images_in_doc(&mut doc, asset_base);
+            }
+
             // 7. Transform images to picture elements
             if let Some(image_variants) = &input.image_variants {
                 transform_images_in_doc(&mut doc, image_variants);
@@ -1425,6 +1430,41 @@ fn resolve_relative_links_in_doc(doc: &mut Document, base_route: &str) {
                 set_attr(doc, node_id, "href", &resolved);
             }
         }
+    }
+}
+
+/// Rewrite relative `<img src>` values (`assets/foo.png`, `./foo.png`) to
+/// root-absolute URLs under `asset_base`, so the picture transform and the
+/// cache-busting path map can find them.
+fn resolve_relative_images_in_doc(doc: &mut Document, asset_base: &str) {
+    let base = if asset_base.ends_with('/') {
+        asset_base.to_string()
+    } else {
+        format!("{}/", asset_base)
+    };
+
+    if let Some(body_id) = doc.body() {
+        let mut images = Vec::new();
+        collect_elements(doc, body_id, "img", &mut images);
+
+        for node_id in images {
+            if let Some(src) = get_attr(doc, node_id, "src")
+                && !src.starts_with("data:")
+                && let Some(resolved) = resolve_relative_link(&src, &base)
+            {
+                let resolved = resolved.replace("/./", "/");
+                set_attr(doc, node_id, "src", &resolved);
+            }
+        }
+    }
+}
+
+fn collect_elements(doc: &Document, node_id: NodeId, tag: &str, results: &mut Vec<NodeId>) {
+    if is_element(doc, node_id, tag) {
+        results.push(node_id);
+    }
+    for child_id in doc.children(node_id) {
+        collect_elements(doc, child_id, tag, results);
     }
 }
 

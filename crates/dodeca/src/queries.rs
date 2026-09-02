@@ -3732,6 +3732,29 @@ pub async fn serve_html<DB: Db>(
         (!map.is_empty()).then_some(map)
     };
 
+    // Relative `<img src>` values are authored relative to the markdown file, and
+    // content-dir assets are served under `/content/<rel>` (mount-prefixed): a
+    // section's images live in its own dir, a page's beside the page.
+    let asset_base = {
+        let dir = if site_tree.sections.contains_key(&route) {
+            route.as_str().to_string()
+        } else {
+            route
+                .parent()
+                .map(|p| p.as_str().to_string())
+                .unwrap_or_default()
+        };
+        let dir = dir.trim_end_matches('/').to_string();
+        match &mount {
+            Some(m) => {
+                let prefix = format!("/{}", m.segment);
+                let rel = dir.strip_prefix(&prefix).unwrap_or(&dir);
+                format!("{prefix}/content{rel}/")
+            }
+            None => format!("/content{dir}/"),
+        }
+    };
+
     let process_options = crate::url_rewrite::HtmlProcessOptions {
         path_map: Some(path_map),
         vite_css_map: Some(vite_css_map),
@@ -3743,6 +3766,7 @@ pub async fn serve_html<DB: Db>(
         rule_coverage,
         rule_impls: rule_impls_map,
         base_route: Some(base_route),
+        asset_base: Some(asset_base),
         mount,
         ..Default::default()
     };

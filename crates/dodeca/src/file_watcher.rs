@@ -207,7 +207,13 @@ impl WatcherConfig {
         } else if !self.code_entries_for_path(path).is_empty() {
             PathCategory::Code
         } else if self.content_match(path).is_some() {
-            PathCategory::Content
+            if path.extension().is_some_and(|ext| ext == "md") {
+                PathCategory::Content
+            } else {
+                // Images and other files beside content are static assets
+                // (`content/<rel>` keys, see `BuildContext::load_static`).
+                PathCategory::Static
+            }
         } else if self.template_match(path).is_some() {
             PathCategory::Template
         } else if self.sass_match(path).is_some() {
@@ -232,7 +238,12 @@ impl WatcherConfig {
                 .map(|(mount, rel)| crate::build_context::mounted_key(&mount, rel.as_str()).into()),
             PathCategory::Static => self
                 .static_match(path)
-                .map(|(mount, rel)| crate::build_context::mounted_key(&mount, rel.as_str()).into()),
+                .map(|(mount, rel)| crate::build_context::mounted_key(&mount, rel.as_str()).into())
+                .or_else(|| {
+                    self.content_match(path).map(|(mount, rel)| {
+                        crate::build_context::content_asset_key(&mount, rel.as_str()).into()
+                    })
+                }),
             PathCategory::Template => self
                 .template_match(path)
                 .map(|(mount, rel)| crate::build_context::mounted_key(&mount, rel.as_str()).into()),
