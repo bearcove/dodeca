@@ -1202,9 +1202,16 @@ pub fn section_to_value(section: &Section, site_tree: &SiteTree, base_url: &str)
         VString::from("last_updated"),
         Value::from(section.last_updated),
     );
+    // A section's ancestors are its parents only — `build_ancestors` starts at
+    // the route it is given, which for a page is its containing section but for
+    // a section would be the section itself.
+    let section_ancestors = match section.route.parent() {
+        Some(parent) => build_ancestors(&parent, site_tree),
+        None => Vec::new(),
+    };
     map.insert(
         VString::from("ancestors"),
-        VArray::from_iter(build_ancestors(&section.route, site_tree)),
+        VArray::from_iter(section_ancestors),
     );
 
     // Add pages in this section (sorted by weight, including their headings)

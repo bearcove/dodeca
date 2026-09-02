@@ -487,6 +487,32 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
                             .call_macro(&namespace, &macro_name, &args, &kwargs, span)
                             .await?;
                         self.output.push_str(&result);
+                    } else if let Expr::Call(call) = &print.expr
+                        && let Expr::Var(ident) = &*call.func
+                        && self
+                            .macros
+                            .get("self")
+                            .is_some_and(|m| m.contains_key(&ident.name))
+                    {
+                        // Bare call to a sibling macro: `render_item(page)` from inside
+                        // another macro of the same file (or a macro defined in the current
+                        // template). `self` holds the calling macro's namespace, so this is
+                        // the same lookup as `self::render_item(...)`.
+                        let macro_name = ident.name.clone();
+                        let span = call.span;
+                        let eval = Evaluator::new(&self.ctx, &self.source);
+                        let mut args = Vec::with_capacity(call.args.len());
+                        for a in &call.args {
+                            args.push(eval.eval_concrete(a).await?);
+                        }
+                        let mut kwargs = Vec::with_capacity(call.kwargs.len());
+                        for (ident, expr) in &call.kwargs {
+                            kwargs.push((ident.name.clone(), eval.eval_concrete(expr).await?));
+                        }
+                        let result = self
+                            .call_macro("self", &macro_name, &args, &kwargs, span)
+                            .await?;
+                        self.output.push_str(&result);
                     } else {
                         let eval = Evaluator::new(&self.ctx, &self.source);
                         let value = eval.eval(&print.expr).await?;
