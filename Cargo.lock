@@ -3947,6 +3947,7 @@ version = "0.0.1"
 dependencies = [
  "ariadne 0.5.1",
  "camino",
+ "chrono",
  "facet",
  "facet-value",
  "futures",

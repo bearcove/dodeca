@@ -149,15 +149,70 @@ pub fn strip_frontmatter(markdown: &str) -> StrippedFrontmatter<'_> {
 pub fn parse_frontmatter(markdown: &str) -> Result<(Frontmatter, &str)> {
     let stripped = strip_frontmatter(markdown);
 
-    let frontmatter = match (stripped.raw, stripped.format) {
-        (Some(raw), Some(FrontmatterFormat::Toml)) => facet_toml::from_str::<Frontmatter>(raw)
+    let raw_value = match (stripped.raw, stripped.format) {
+        (Some(raw), Some(FrontmatterFormat::Toml)) => facet_toml::from_str::<Value>(raw)
             .map_err(|e| Error::FrontmatterParse(format!("TOML: {}", e)))?,
-        (Some(raw), Some(FrontmatterFormat::Yaml)) => facet_yaml::from_str::<Frontmatter>(raw)
+        (Some(raw), Some(FrontmatterFormat::Yaml)) => facet_yaml::from_str::<Value>(raw)
             .map_err(|e| Error::FrontmatterParse(format!("YAML: {}", e)))?,
-        _ => Frontmatter::default(),
+        _ => return Ok((Frontmatter::default(), stripped.body)),
     };
 
-    Ok((frontmatter, stripped.body))
+    Ok((frontmatter_from_value(raw_value)?, stripped.body))
+}
+
+/// Split a raw frontmatter mapping into the known fields and `extra`.
+///
+/// Unknown top-level keys (`date`, `tags`, `aliases`, …) are folded into `extra`
+/// alongside anything in an explicit `[extra]` table, so templates can reach
+/// them as `page.extra.<key>` without every site having to nest its metadata.
+fn frontmatter_from_value(value: Value) -> Result<Frontmatter> {
+    use facet_value::{DestructuredRef, VObject, VString};
+
+    let mut fm = Frontmatter::default();
+    let mut extra = VObject::new();
+
+    let obj = match value.destructure_ref() {
+        DestructuredRef::Object(obj) => obj,
+        DestructuredRef::Null => return Ok(fm),
+        other => {
+            return Err(Error::FrontmatterParse(format!(
+                "expected a mapping at the top level, found {other:?}"
+            )));
+        }
+    };
+
+    let string_field = |key: &str, v: &Value| -> Result<String> {
+        v.as_string()
+            .map(|s| s.as_str().to_string())
+            .ok_or_else(|| Error::FrontmatterParse(format!("`{key}` must be a string")))
+    };
+
+    for (key, v) in obj.iter() {
+        match key.as_str() {
+            "title" => fm.title = string_field("title", v)?,
+            "weight" => {
+                fm.weight =
+                    v.as_number().and_then(|n| n.to_i64()).ok_or_else(|| {
+                        Error::FrontmatterParse("`weight` must be an integer".into())
+                    })? as i32
+            }
+            "description" => fm.description = Some(string_field("description", v)?),
+            "template" => fm.template = Some(string_field("template", v)?),
+            "extra" => {
+                if let DestructuredRef::Object(table) = v.destructure_ref() {
+                    for (k, v) in table.iter() {
+                        extra.insert(VString::from(k.as_str()), v.clone());
+                    }
+                }
+            }
+            _ => {
+                extra.insert(VString::from(key.as_str()), v.clone());
+            }
+        }
+    }
+
+    fm.extra = Value::from(extra);
+    Ok(fm)
 }
 
 #[cfg(test)]

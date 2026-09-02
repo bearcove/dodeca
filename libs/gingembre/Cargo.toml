@@ -24,6 +24,7 @@ facet-value.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 ariadne.workspace = true
+chrono.workspace = true
 
 # Async support
 futures.workspace = true

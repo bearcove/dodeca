@@ -1195,6 +1195,10 @@ pub fn section_to_value(section: &Section, site_tree: &SiteTree, base_url: &str)
     map.insert(VString::from("path"), Value::from(section.route.as_str()));
     map.insert(VString::from("weight"), Value::from(section.weight as i64));
     map.insert(
+        VString::from("word_count"),
+        Value::from(section.word_count as i64),
+    );
+    map.insert(
         VString::from("last_updated"),
         Value::from(section.last_updated),
     );
@@ -1254,6 +1258,32 @@ pub fn section_to_value(section: &Section, site_tree: &SiteTree, base_url: &str)
     map.insert(VString::from("toc"), headings_to_value(&section.headings));
     map.insert(VString::from("extra"), section.extra.clone());
 
+    map.into()
+}
+
+/// Lightweight section value for listings: metadata only, no body, no children.
+/// Used by `get_sections()` where a site lists hundreds of articles at once.
+pub fn section_summary_value(section: &Section, base_url: &str) -> Value {
+    let mut map = VObject::new();
+    map.insert(VString::from("title"), Value::from(section.title.as_str()));
+    map.insert(
+        VString::from("permalink"),
+        Value::from(make_permalink(base_url, section.route.as_str()).as_str()),
+    );
+    map.insert(VString::from("path"), Value::from(section.route.as_str()));
+    map.insert(VString::from("weight"), Value::from(section.weight as i64));
+    map.insert(
+        VString::from("word_count"),
+        Value::from(section.word_count as i64),
+    );
+    map.insert(
+        VString::from("last_updated"),
+        Value::from(section.last_updated),
+    );
+    if let Some(desc) = &section.description {
+        map.insert(VString::from("description"), Value::from(desc.as_str()));
+    }
+    map.insert(VString::from("extra"), section.extra.clone());
     map.into()
 }
 

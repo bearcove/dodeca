@@ -309,6 +309,8 @@ pub struct Section {
     pub description: Option<String>,
     pub weight: i32,
     pub body_html: HtmlBody,
+    /// Estimated prose words in the markdown body.
+    pub word_count: usize,
     /// Headings extracted from content
     pub headings: Vec<Heading>,
     /// Requirement definitions for specification traceability

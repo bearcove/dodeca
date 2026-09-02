@@ -67,7 +67,32 @@ pub const BUILTIN_FILTERS: &[BuiltinItemInfo] = &[
     BuiltinItemInfo {
         name: "sort",
         detail: "Gingembre filter",
-        documentation: "Sorts an array, optionally by an object attribute with `attribute=`.",
+        documentation: "Sorts an array, optionally by an object attribute with `attribute=` (dotted paths like `extra.date` are allowed).",
+    },
+    BuiltinItemInfo {
+        name: "format_date",
+        detail: "Gingembre filter",
+        documentation: "Formats a date (RFC 3339 string or datetime) with a strftime pattern, e.g. `format_date(\"%b %d, %Y\")`. Defaults to `%Y-%m-%d`.",
+    },
+    BuiltinItemInfo {
+        name: "is_future",
+        detail: "Gingembre filter",
+        documentation: "True when the date (RFC 3339 string or datetime) is later than now.",
+    },
+    BuiltinItemInfo {
+        name: "time_ago",
+        detail: "Gingembre filter",
+        documentation: "Renders a date as a coarse relative duration: `today`, `3 days ago`, `2 months ago`, …",
+    },
+    BuiltinItemInfo {
+        name: "striptags",
+        detail: "Gingembre filter",
+        documentation: "Removes HTML tags and collapses whitespace.",
+    },
+    BuiltinItemInfo {
+        name: "truncate",
+        detail: "Gingembre filter",
+        documentation: "Truncates a string to `len` characters (positional or `len=`), appending `...` when cut.",
     },
     BuiltinItemInfo {
         name: "join",
@@ -596,10 +621,20 @@ impl<'a> Evaluator<'a> {
                 }
                 // r[impl expr.optional]
                 // `expr?` resolves the inner expression, yielding null instead of raising
-                // when it (or a field/index within it) is undefined.
+                // when it (or a field/index within it) is undefined: an unbound variable,
+                // a missing dict field, or a field/index access on a non-indexable base
+                // (e.g. `page.extra.tags?` when `page` is null).
                 Expr::Optional(opt) => match self.eval_concrete(&opt.expr).await {
                     Ok(v) => Ok(LazyValue::concrete(v)),
-                    Err(TemplateError::Undefined(_)) => Ok(LazyValue::concrete(Value::NULL)),
+                    Err(TemplateError::Undefined(_)) | Err(TemplateError::UnknownField(_)) => {
+                        Ok(LazyValue::concrete(Value::NULL))
+                    }
+                    Err(TemplateError::Type(e))
+                        if e.context == "index access"
+                            || e.context.starts_with("accessing field ") =>
+                    {
+                        Ok(LazyValue::concrete(Value::NULL))
+                    }
                     Err(e) => Err(e),
                 },
             }
@@ -1532,6 +1567,96 @@ fn basic_markdown_to_html(s: &str) -> Value {
     Value::from(out.as_str())
 }
 
+/// Walk a dotted path (`extra.date`) through nested objects.
+fn lookup_dotted_path<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
+    let mut cur = value;
+    for segment in path.split('.') {
+        cur = match cur.destructure_ref() {
+            DestructuredRef::Object(obj) => obj.get(segment)?,
+            _ => return None,
+        };
+    }
+    Some(cur)
+}
+
+/// Interpret a template value as a point in time: an RFC 3339 string, a bare
+/// `YYYY-MM-DD[THH:MM:SS]` string (taken as UTC), or a native datetime value.
+fn value_to_datetime(value: &Value) -> Option<chrono::DateTime<chrono::Utc>> {
+    use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Utc};
+    match value.destructure_ref() {
+        DestructuredRef::String(s) => {
+            let s = s.as_str().trim();
+            DateTime::parse_from_rfc3339(s)
+                .ok()
+                .map(|dt| dt.with_timezone(&Utc))
+                .or_else(|| {
+                    NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S")
+                        .ok()
+                        .map(|n| n.and_utc())
+                })
+                .or_else(|| {
+                    NaiveDate::parse_from_str(s, "%Y-%m-%d")
+                        .ok()
+                        .map(|d| d.and_time(NaiveTime::MIN).and_utc())
+                })
+        }
+        DestructuredRef::DateTime(dt) => {
+            let date = NaiveDate::from_ymd_opt(dt.year(), dt.month() as u32, dt.day() as u32)?;
+            let time = NaiveTime::from_hms_nano_opt(
+                dt.hour() as u32,
+                dt.minute() as u32,
+                dt.second() as u32,
+                dt.nanos(),
+            )?;
+            let offset = FixedOffset::east_opt(i32::from(dt.offset_minutes().unwrap_or(0)) * 60)?;
+            NaiveDateTime::new(date, time)
+                .and_local_timezone(offset)
+                .single()
+                .map(|dt| dt.with_timezone(&Utc))
+        }
+        _ => None,
+    }
+}
+
+fn date_type_error(
+    value: &Value,
+    filter: &str,
+    span: Span,
+    source: &TemplateSource,
+) -> TemplateError {
+    TypeError {
+        expected: "date (RFC 3339 string or datetime)".to_string(),
+        found: value.type_name().to_string(),
+        context: filter.to_string(),
+        loc: SourceLocation::new(span, source.named_source()),
+    }
+    .into()
+}
+
+/// Coarse human-readable "how long ago" (matches the granularity readers expect
+/// on a blog: days, then weeks, months, years).
+fn time_ago(elapsed: chrono::TimeDelta) -> String {
+    fn plural(count: i64, unit: &str) -> String {
+        if count == 1 {
+            format!("1 {unit} ago")
+        } else {
+            format!("{count} {unit}s ago")
+        }
+    }
+    let days = elapsed.num_days();
+    if days < 1 {
+        "today".to_string()
+    } else if days < 7 {
+        plural(days, "day")
+    } else if days < 30 {
+        plural((days as f64 / 7.0).round() as i64, "week")
+    } else if days < 365 {
+        plural((days as f64 / 30.0).round() as i64, "month")
+    } else {
+        plural((days as f64 / 365.0).round() as i64, "year")
+    }
+}
+
 fn html_escape_str(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -1632,6 +1757,61 @@ fn apply_filter(
             }
             _ => value,
         },
+        // r[impl filter.format_date]
+        "format_date" => {
+            let fmt = get_kwarg("format")
+                .map(|v| v.render_to_string())
+                .or_else(|| args.first().map(|v| v.render_to_string()))
+                .unwrap_or_else(|| "%Y-%m-%d".to_string());
+            let dt = value_to_datetime(&value)
+                .ok_or_else(|| date_type_error(&value, "format_date", span, source))?;
+            Value::from(dt.format(&fmt).to_string().as_str())
+        }
+        // r[impl filter.is_future]
+        "is_future" => {
+            let dt = value_to_datetime(&value)
+                .ok_or_else(|| date_type_error(&value, "is_future", span, source))?;
+            Value::from(dt > chrono::Utc::now())
+        }
+        // r[impl filter.time_ago]
+        "time_ago" => {
+            let dt = value_to_datetime(&value)
+                .ok_or_else(|| date_type_error(&value, "time_ago", span, source))?;
+            Value::from(time_ago(chrono::Utc::now() - dt).as_str())
+        }
+        // r[impl filter.striptags]
+        "striptags" => {
+            let s = value.render_to_string();
+            let mut out = String::with_capacity(s.len());
+            let mut in_tag = false;
+            for c in s.chars() {
+                match c {
+                    '<' => in_tag = true,
+                    '>' if in_tag => in_tag = false,
+                    _ if !in_tag => out.push(c),
+                    _ => {}
+                }
+            }
+            let collapsed = out.split_whitespace().collect::<Vec<_>>().join(" ");
+            Value::from(collapsed.as_str())
+        }
+        // r[impl filter.truncate]
+        "truncate" => {
+            let len = get_kwarg("len")
+                .or_else(|| args.first())
+                .and_then(|v| v.as_number())
+                .and_then(|n| n.to_i64())
+                .unwrap_or(255)
+                .max(0) as usize;
+            let s = value.render_to_string();
+            if s.chars().count() <= len {
+                Value::from(s.as_str())
+            } else {
+                let mut cut: String = s.chars().take(len.saturating_sub(3)).collect();
+                cut.push_str("...");
+                Value::from(cut.as_str())
+            }
+        }
         // r[impl filter.sort]
         "sort" => match value.destructure_ref() {
             DestructuredRef::Array(arr) => {
@@ -1640,16 +1820,8 @@ fn apply_filter(
                 if let Some(attr_val) = get_kwarg("attribute") {
                     if let DestructuredRef::String(attr) = attr_val.destructure_ref() {
                         items.sort_by(|a, b| {
-                            let a_val = if let DestructuredRef::Object(obj) = a.destructure_ref() {
-                                obj.get(attr.as_str())
-                            } else {
-                                None
-                            };
-                            let b_val = if let DestructuredRef::Object(obj) = b.destructure_ref() {
-                                obj.get(attr.as_str())
-                            } else {
-                                None
-                            };
+                            let a_val = lookup_dotted_path(a, attr.as_str());
+                            let b_val = lookup_dotted_path(b, attr.as_str());
                             match (a_val, b_val) {
                                 (Some(a), Some(b)) => {
                                     compare_values(a, b).unwrap_or(std::cmp::Ordering::Equal)

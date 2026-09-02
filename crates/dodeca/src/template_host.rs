@@ -24,11 +24,13 @@ use std::sync::Arc;
 
 use crate::db::{Database, SiteTree};
 use crate::queries::{DataValuePath, data_keys_at_path, resolve_data_value};
-use crate::render::{get_base_url, path_to_route, section_to_value};
+use crate::render::{get_base_url, path_to_route, section_summary_value, section_to_value};
 
 pub const TEMPLATE_FUNCTION_NAMES: &[&str] = &[
     "get_url",
     "get_section",
+    "get_sections",
+    "range",
     "now",
     "throw",
     "build",
@@ -334,10 +336,16 @@ impl TemplateHost for TemplateHostImpl {
                     .find(|(k, _)| k == key)
                     .map(|(_, v)| value_to_string(v))
             };
+            // `f("x")` and `f(path="x")` are both accepted for single-path functions.
+            let path_arg = || -> String {
+                get_kwarg("path")
+                    .or_else(|| args.first().map(value_to_string))
+                    .unwrap_or_default()
+            };
 
             match name.as_str() {
                 "get_url" => {
-                    let path = get_kwarg("path").unwrap_or_default();
+                    let path = path_arg();
                     let url = if path.starts_with('/') {
                         path
                     } else if path.is_empty() {
@@ -351,7 +359,7 @@ impl TemplateHost for TemplateHostImpl {
                 }
 
                 "get_section" => {
-                    let path = get_kwarg("path").unwrap_or_default();
+                    let path = path_arg();
                     let route = path_to_route(&path);
 
                     let result = if let Some(section) = context.site_tree.sections.get(&route) {
@@ -362,6 +370,64 @@ impl TemplateHost for TemplateHostImpl {
                     };
 
                     CallFunctionResult::Success { value: result }
+                }
+
+                // Every section whose route lives under `path` (the section itself
+                // excluded), as summaries. `depth=N` keeps only sections exactly N levels
+                // below `path` (1 = direct children); omitted = all depths. Pair with
+                // `sort(attribute="extra.date")` for date-ordered listings across nested
+                // trees (articles at depth 1 + series parts at depth 2).
+                "get_sections" => {
+                    let path = path_arg();
+                    let root = path_to_route(&path);
+                    let prefix = if root.as_str().ends_with('/') {
+                        root.as_str().to_string()
+                    } else {
+                        format!("{}/", root.as_str())
+                    };
+                    let depth: Option<usize> = get_kwarg("depth").and_then(|d| d.parse().ok());
+                    let base_url = get_base_url();
+                    let items: Vec<Value> = context
+                        .site_tree
+                        .sections
+                        .values()
+                        .filter(|s| s.route != root && s.route.as_str().starts_with(&prefix))
+                        .filter(|s| {
+                            depth.is_none_or(|d| {
+                                let rel = s.route.as_str()[prefix.len()..].trim_matches('/');
+                                rel.split('/').count() == d
+                            })
+                        })
+                        .map(|s| section_summary_value(s, &base_url))
+                        .collect();
+                    CallFunctionResult::Success {
+                        value: facet_value::VArray::from_iter(items).into(),
+                    }
+                }
+
+                // `range(end)`, `range(start, end)`, `range(start, end, step)` — half-open.
+                "range" => {
+                    let nums: Vec<i64> = args
+                        .iter()
+                        .map(|v| v.as_number().and_then(|n| n.to_i64()).unwrap_or(0))
+                        .collect();
+                    let (start, end, step) = match nums.as_slice() {
+                        [end] => (0, *end, 1),
+                        [start, end] => (*start, *end, 1),
+                        [start, end, step, ..] => (*start, *end, *step),
+                        [] => (0, 0, 1),
+                    };
+                    let items: Vec<Value> = if step > 0 {
+                        (start..end)
+                            .step_by(step as usize)
+                            .map(Value::from)
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
+                    CallFunctionResult::Success {
+                        value: facet_value::VArray::from_iter(items).into(),
+                    }
                 }
 
                 "now" => {
