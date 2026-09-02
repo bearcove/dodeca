@@ -1,10 +1,10 @@
 use crate::db::{
-    AllRenderedHtml, CharSet, CodeExecutionMetadata, CodeExecutionResult, CssOutput, DataRegistry,
-    Db, DependencySourceInfo, ExternalLinkStatus, Heading, ImageVariant, MarkdownRenderSettings,
-    OutputFile, Page, ParsedData, ProcessedImages, RenderedHtml, RenderedMarkdown, ReqDefinition,
-    ResolvedDependencyInfo, SassFile, SassRegistry, Section, SiteOutput, SiteTree, SourceFile,
-    SourceKind, SourceMap, SourceMapEntry, SourceRegistry, StaticFile, StaticFileOutput,
-    StaticRegistry, TemplateFile, TemplateRegistry,
+    AllRenderedHtml, AssetStoreSettings, CharSet, CodeExecutionMetadata, CodeExecutionResult,
+    CssOutput, DataRegistry, Db, DependencySourceInfo, ExternalLinkStatus, Heading, ImageVariant,
+    MarkdownRenderSettings, OutputFile, Page, ParsedData, ProcessedImages, RenderedHtml,
+    RenderedMarkdown, ReqDefinition, ResolvedDependencyInfo, SassFile, SassRegistry, Section,
+    SiteOutput, SiteTree, SourceFile, SourceKind, SourceMap, SourceMapEntry, SourceRegistry,
+    StaticFile, StaticFileOutput, StaticRegistry, TemplateFile, TemplateRegistry,
 };
 use picante::PicanteResult;
 
@@ -1979,7 +1979,15 @@ pub async fn image_metadata<DB: Db>(
         return Ok(None);
     };
     let data = image_file.content(db)?;
-    Ok(image::get_image_metadata(&data, input_format).await)
+    let content_hash = crate::cas::content_hash_32(&data);
+    if let Some(cached) = crate::cas::get_cached_metadata(&content_hash) {
+        return Ok(Some(cached));
+    }
+    let metadata = image::get_image_metadata(&data, input_format).await;
+    if let Some(m) = &metadata {
+        crate::cas::put_cached_metadata(&content_hash, m);
+    }
+    Ok(metadata)
 }
 
 /// Get the input hash for an image file (for cache-busted URLs)
@@ -1991,6 +1999,51 @@ pub async fn image_input_hash<DB: Db>(
     use crate::cas::content_hash_32;
     let data = image_file.content(db)?;
     Ok(content_hash_32(&data))
+}
+
+/// Content hash of any static file (for remote passthrough keys).
+#[picante::tracked]
+pub async fn static_input_hash<DB: Db>(
+    db: &DB,
+    file: StaticFile,
+) -> PicanteResult<crate::cas::InputHash> {
+    use crate::cas::content_hash_32;
+    let data = file.content(db)?;
+    Ok(content_hash_32(&data))
+}
+
+/// The remote asset store for this build, if `ddc build` configured one.
+pub struct RemoteAssets {
+    pub public_base_url: String,
+    pub passthrough_extensions: Vec<String>,
+    pub indexed: HashSet<crate::cas::InputHash>,
+}
+
+impl RemoteAssets {
+    pub fn url(&self, key: &str) -> String {
+        crate::asset_store::public_url(&self.public_base_url, key)
+    }
+
+    pub fn is_passthrough(&self, path: &str) -> bool {
+        crate::asset_store::is_passthrough(path, &self.passthrough_extensions)
+    }
+}
+
+pub fn remote_assets<DB: Db>(db: &DB) -> PicanteResult<Option<RemoteAssets>> {
+    let Some(public_base_url) = AssetStoreSettings::public_base_url(db)? else {
+        return Ok(None);
+    };
+    let passthrough_extensions =
+        AssetStoreSettings::passthrough_extensions(db)?.unwrap_or_default();
+    let indexed = AssetStoreSettings::indexed_inputs(db)?
+        .unwrap_or_default()
+        .into_iter()
+        .collect();
+    Ok(Some(RemoteAssets {
+        public_base_url,
+        passthrough_extensions,
+        indexed,
+    }))
 }
 
 /// Process an image file into responsive formats (JXL + WebP) with multiple widths
@@ -2133,6 +2186,7 @@ pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<Result<SiteOutput, Sit
     }
 
     // --- Phase 3: Process static files ---
+    let remote = remote_assets(db)?;
     let static_files = StaticRegistry::files(db)?.unwrap_or_default();
     tracing::debug!(
         count = static_files.len(),
@@ -2141,6 +2195,69 @@ pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<Result<SiteOutput, Sit
     for file in static_files.iter() {
         let path = file.path(db)?.as_str().to_string();
         tracing::trace!(path = %path, "build_site: processing static file");
+
+        // Remote asset store: image variants and passthrough media are
+        // referenced from the store, never written to the output dir. An input
+        // already in the index is emitted key-only (nothing to derive or
+        // upload); a new one is derived here and uploaded by the build.
+        if let Some(remote) = remote.as_ref() {
+            if InputFormat::is_processable(&path) {
+                let input_hash = image_input_hash(db, *file).await?;
+                if remote.indexed.contains(&input_hash) {
+                    if let Some(metadata) = image_metadata(db, *file).await? {
+                        for &width in &metadata.variant_widths {
+                            for format in [OutputFormat::Jxl, OutputFormat::WebP] {
+                                let key =
+                                    crate::asset_store::variant_key(&input_hash, format, width);
+                                files.push(OutputFile::Remote {
+                                    content_type: crate::asset_store::content_type_for(&key)
+                                        .to_string(),
+                                    key,
+                                    input_hash,
+                                    content: None,
+                                });
+                            }
+                        }
+                        continue;
+                    }
+                } else if let Some(processed) = process_image(db, *file).await? {
+                    for (format, variants) in [
+                        (OutputFormat::Jxl, &processed.jxl_variants),
+                        (OutputFormat::WebP, &processed.webp_variants),
+                    ] {
+                        for variant in variants {
+                            let key =
+                                crate::asset_store::variant_key(&input_hash, format, variant.width);
+                            files.push(OutputFile::Remote {
+                                content_type: crate::asset_store::content_type_for(&key)
+                                    .to_string(),
+                                key,
+                                input_hash,
+                                content: Some(variant.data.clone()),
+                            });
+                        }
+                    }
+                    continue;
+                }
+                // Undecodable image: fall through to the local pipeline below.
+            } else if remote.is_passthrough(&path) {
+                let input_hash = static_input_hash(db, *file).await?;
+                let ext = path.rsplit('.').next().unwrap_or("bin");
+                let key = crate::asset_store::passthrough_key(&input_hash, ext);
+                let content = if remote.indexed.contains(&input_hash) {
+                    None
+                } else {
+                    Some(load_static(db, *file).await?)
+                };
+                files.push(OutputFile::Remote {
+                    content_type: crate::asset_store::content_type_for(&key).to_string(),
+                    key,
+                    input_hash,
+                    content,
+                });
+                continue;
+            }
+        }
 
         // Check if this is a processable image (PNG, JPG, GIF, WebP, JXL)
         if InputFormat::is_processable(&path) {
@@ -3502,10 +3619,20 @@ pub async fn serve_html<DB: Db>(
     }
 
     // Add static file paths (non-images)
+    let remote = remote_assets(db)?;
     let static_files = StaticRegistry::files(db)?.unwrap_or_default();
     for file in static_files.iter() {
         let original_path = file.path(db)?.as_str().to_string();
         if !InputFormat::is_processable(&original_path) {
+            if let Some(remote) = remote.as_ref().filter(|r| r.is_passthrough(&original_path)) {
+                let hash = static_input_hash(db, *file).await?;
+                let ext = original_path.rsplit('.').next().unwrap_or("bin");
+                path_map.insert(
+                    format!("/{original_path}"),
+                    remote.url(&crate::asset_store::passthrough_key(&hash, ext)),
+                );
+                continue;
+            }
             let output = static_file_output(db, *file).await?;
             path_map.insert(
                 format!("/{original_path}"),
@@ -3549,12 +3676,22 @@ pub async fn serve_html<DB: Db>(
                         format: image::OutputFormat::Jxl,
                         width,
                     };
-                    let cache_busted = format!(
-                        "{}.{}",
-                        variant_path.trim_end_matches(".jxl"),
-                        key.url_hash()
-                    ) + ".jxl";
-                    jxl_srcset.push((format!("/{cache_busted}"), width));
+                    let url = match remote.as_ref() {
+                        Some(remote) => remote.url(&crate::asset_store::variant_key(
+                            &input_hash,
+                            image::OutputFormat::Jxl,
+                            width,
+                        )),
+                        None => {
+                            let cache_busted = format!(
+                                "{}.{}",
+                                variant_path.trim_end_matches(".jxl"),
+                                key.url_hash()
+                            ) + ".jxl";
+                            format!("/{cache_busted}")
+                        }
+                    };
+                    jxl_srcset.push((url, width));
                 }
 
                 // Build WebP srcset using input-based hashes
@@ -3571,12 +3708,22 @@ pub async fn serve_html<DB: Db>(
                         format: image::OutputFormat::WebP,
                         width,
                     };
-                    let cache_busted = format!(
-                        "{}.{}",
-                        variant_path.trim_end_matches(".webp"),
-                        key.url_hash()
-                    ) + ".webp";
-                    webp_srcset.push((format!("/{cache_busted}"), width));
+                    let url = match remote.as_ref() {
+                        Some(remote) => remote.url(&crate::asset_store::variant_key(
+                            &input_hash,
+                            image::OutputFormat::WebP,
+                            width,
+                        )),
+                        None => {
+                            let cache_busted = format!(
+                                "{}.{}",
+                                variant_path.trim_end_matches(".webp"),
+                                key.url_hash()
+                            ) + ".webp";
+                            format!("/{cache_busted}")
+                        }
+                    };
+                    webp_srcset.push((url, width));
                 }
 
                 image_variants.insert(

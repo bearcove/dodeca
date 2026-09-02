@@ -3,9 +3,9 @@
 use camino::{Utf8Path, Utf8PathBuf};
 use dodeca::config::{LinkCheckMode, ResolvedConfig};
 use dodeca::db::{
-    self, CodeCoverageRegistry, CodeRegistry, ConfigRegistry, DataFile, DataRegistry, Database,
-    MarkdownRenderSettings, OutputFile, QueryStats, SassFile, SassRegistry, SourceFile,
-    SourceRegistry, StaticFile, StaticRegistry, TemplateFile, TemplateRegistry,
+    self, AssetStoreSettings, CodeCoverageRegistry, CodeRegistry, ConfigRegistry, DataFile,
+    DataRegistry, Database, MarkdownRenderSettings, OutputFile, QueryStats, SassFile, SassRegistry,
+    SourceFile, SourceRegistry, StaticFile, StaticRegistry, TemplateFile, TemplateRegistry,
 };
 use dodeca::queries::{self, build_site};
 use dodeca::tui::{self, LogEvent};
@@ -23,7 +23,7 @@ use facet::Facet;
 use figue::{self as args, FigueBuiltins};
 use ignore::WalkBuilder;
 use owo_colors::OwoColorize;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::process::{Command as StdCommand, Stdio};
 use std::sync::Arc;
@@ -1834,6 +1834,44 @@ pub async fn build(
         p.update(|prog| prog.parse.start(ctx.sources.len()));
     }
 
+    // Remote asset store (`site.asset_store`): fetch the index of inputs whose
+    // derivations already exist, and tell the queries to reference the store.
+    // Nothing is derived or uploaded for indexed inputs.
+    let asset_store = match dodeca::config::global_config().and_then(|c| c.asset_store.clone()) {
+        Some(cfg) => {
+            let client = dodeca::asset_store::AssetStoreClient::from_config(&cfg)?.ok_or_else(|| {
+                eyre!(
+                    "`site.asset_store` is configured but {} / {} are not set; `ddc build` needs \
+                     write access to the store (`ddc serve` derives locally and ignores it)",
+                    dodeca::asset_store::ACCESS_KEY_ENV,
+                    dodeca::asset_store::SECRET_KEY_ENV
+                )
+            })?;
+            let index = client.fetch_index().await?;
+            let passthrough = cfg.passthrough_extensions.clone().unwrap_or_else(|| {
+                dodeca::asset_store::DEFAULT_PASSTHROUGH_EXTENSIONS
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            });
+            AssetStoreSettings::set(
+                &*ctx.db,
+                cfg.public_base_url.clone(),
+                passthrough,
+                index.inputs.clone(),
+            )?;
+            if verbose {
+                println!(
+                    "{} asset store: {} inputs already derived",
+                    "→".cyan(),
+                    index.inputs.len()
+                );
+            }
+            Some((client, index))
+        }
+        None => None,
+    };
+
     // THE query - produces all outputs (fonts are automatically subsetted)
     let site_output = match db::TASK_DB
         .scope(ctx.db_arc(), build_site(&*ctx.db))
@@ -1963,16 +2001,85 @@ pub async fn build(
         });
     }
 
+    // Upload new derivations to the asset store, then extend the index. The
+    // index is written only after every upload succeeded, so it never claims an
+    // object that isn't there; per-input grouping means a partially uploaded
+    // input stays unindexed and is retried next build.
+    if let Some((client, mut index)) = asset_store {
+        use futures::stream::{self, StreamExt as _};
+        let mut per_input: HashMap<dodeca::cas::InputHash, Vec<(String, String, Vec<u8>)>> =
+            HashMap::new();
+        for output in &site_output.files {
+            if let OutputFile::Remote {
+                key,
+                content_type,
+                input_hash,
+                content: Some(bytes),
+            } = output
+            {
+                per_input.entry(*input_hash).or_default().push((
+                    key.clone(),
+                    content_type.clone(),
+                    bytes.clone(),
+                ));
+            }
+        }
+        let total_objects: usize = per_input.values().map(|v| v.len()).sum();
+        if verbose && !per_input.is_empty() {
+            println!(
+                "{} asset store: uploading {} objects for {} new inputs",
+                "→".cyan(),
+                total_objects,
+                per_input.len()
+            );
+        }
+        let client = &client;
+        let results: Vec<(dodeca::cas::InputHash, eyre::Result<()>)> = stream::iter(per_input)
+            .map(|(input_hash, objects)| async move {
+                let uploads = stream::iter(objects)
+                    .map(|(key, content_type, bytes)| async move {
+                        client.put_object(&key, &content_type, bytes).await
+                    })
+                    .buffer_unordered(4)
+                    .collect::<Vec<_>>()
+                    .await;
+                (
+                    input_hash,
+                    uploads.into_iter().collect::<eyre::Result<()>>(),
+                )
+            })
+            .buffer_unordered(8)
+            .collect()
+            .await;
+        let mut failed = 0usize;
+        for (input_hash, result) in results {
+            match result {
+                Ok(()) => index.inputs.push(input_hash),
+                Err(e) => {
+                    failed += 1;
+                    tracing::error!(input = ?input_hash, error = %e, "asset upload failed");
+                }
+            }
+        }
+        client.put_index(&index).await?;
+        if failed > 0 {
+            return Err(eyre!(
+                "asset store: {failed} input(s) failed to upload (index written for the rest)"
+            ));
+        }
+    }
+
     // Write outputs to disk, only if changed
     let mut stats = BuildStats::default();
     let expected_output_paths: HashSet<String> = site_output
         .files
         .iter()
-        .map(|output| match output {
-            OutputFile::Html { route, .. } => route_to_path(output_dir, route).to_string(),
+        .filter_map(|output| match output {
+            OutputFile::Html { route, .. } => Some(route_to_path(output_dir, route).to_string()),
             OutputFile::Css { path, .. } | OutputFile::Static { path, .. } => {
-                output_dir.join(path.as_str()).to_string()
+                Some(output_dir.join(path.as_str()).to_string())
             }
+            OutputFile::Remote { .. } => None,
         })
         .collect();
 
@@ -2015,6 +2122,8 @@ pub async fn build(
                     stats.static_skipped += 1;
                 }
             }
+            // Lives in the asset store; nothing to write locally.
+            OutputFile::Remote { .. } => {}
         }
     }
 

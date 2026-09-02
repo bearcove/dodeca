@@ -271,6 +271,15 @@ pub const IMAGE_PIPELINE_VERSION: u64 = 1;
 #[derive(Clone, Copy, PartialEq, Eq, Hash, facet::Facet)]
 pub struct InputHash(pub [u8; 32]);
 
+impl std::fmt::Debug for InputHash {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for b in &self.0[..8] {
+            write!(f, "{b:02x}")?;
+        }
+        write!(f, "…")
+    }
+}
+
 /// Key for a specific image variant (format + size)
 /// Used to compute deterministic cache-busted URLs without processing the image
 #[derive(Hash)]
@@ -323,6 +332,27 @@ pub fn content_hash_32(data: &[u8]) -> InputHash {
     result[24..32].copy_from_slice(&h4.to_le_bytes());
 
     InputHash(result)
+}
+
+/// Get cached image metadata (dimensions, thumbhash, variant widths) by input hash.
+pub fn get_cached_metadata(content_hash: &InputHash) -> Option<crate::image::ImageMetadata> {
+    let path = blob_path(content_hash, "meta")?;
+    let data = fs::read(&path).ok()?;
+    facet_postcard::from_slice(&data).ok()
+}
+
+/// Store image metadata by input hash so later builds skip the decode.
+pub fn put_cached_metadata(content_hash: &InputHash, metadata: &crate::image::ImageMetadata) {
+    let Some(path) = blob_path(content_hash, "meta") else {
+        return;
+    };
+    let Ok(data) = facet_postcard::to_vec(metadata) else {
+        return;
+    };
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let _ = fs::write(&path, data);
 }
 
 /// Get cached processed images by input content hash

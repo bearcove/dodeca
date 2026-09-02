@@ -212,6 +212,19 @@ pub struct MarkdownRenderSettings {
     pub render_notes: bool,
 }
 
+/// Remote asset store settings for this build (`site.asset_store`). Set by
+/// `ddc build` only; when absent, derived assets are written to the output dir.
+#[picante::input]
+pub struct AssetStoreSettings {
+    /// Public base URL derived assets are referenced from.
+    pub public_base_url: String,
+    /// Static-file extensions stored remotely as-is.
+    pub passthrough_extensions: Vec<String>,
+    /// Inputs whose derivations are already in the store (from the index);
+    /// their variants are referenced but neither derived nor uploaded.
+    pub indexed_inputs: Vec<crate::cas::InputHash>,
+}
+
 /// Interned character set for font subsetting
 /// Using a sorted Vec<char> for deterministic hashing
 #[picante::interned]
@@ -431,6 +444,17 @@ pub enum OutputFile {
     Css { path: StaticPath, content: String },
     /// Static file: relative path -> binary content (path includes cache-bust hash)
     Static { path: StaticPath, content: Vec<u8> },
+    /// Derived asset living in the remote asset store (`site.asset_store`):
+    /// never written to the output dir. `content` is `None` when the input is
+    /// already indexed (nothing to upload); otherwise the bytes to upload.
+    /// `input_hash` groups the variants of one input so the index is only
+    /// updated once all of them made it.
+    Remote {
+        key: String,
+        content_type: String,
+        input_hash: crate::cas::InputHash,
+        content: Option<Vec<u8>>,
+    },
 }
 
 /// Complete site output - all files that need to be written
@@ -621,6 +645,7 @@ pub struct AllRenderedHtml {
         IncludedFileRegistry,
         ConfigRegistry,
         MarkdownRenderSettings,
+        AssetStoreSettings,
     ),
     interned(CharSet, crate::queries::DataValuePath,),
     tracked(
@@ -649,6 +674,7 @@ pub struct AllRenderedHtml {
         crate::queries::subset_font,
         crate::queries::image_metadata,
         crate::queries::image_input_hash,
+        crate::queries::static_input_hash,
         crate::queries::process_image,
         crate::queries::build_site,
         crate::queries::all_rendered_html,

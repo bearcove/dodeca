@@ -22,6 +22,7 @@ name = "ddc"
 path = "src/main.rs"
 
 [dependencies]
+futures.workspace = true
 cell-http-proto = { path = "../../cells/cell-http-proto" }
 cell-term-proto = { path = "../../cells/cell-term-proto" }
 cell-tui-proto = { path = "../../cells/cell-tui-proto" }

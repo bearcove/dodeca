@@ -203,6 +203,8 @@ pub struct ResolvedConfig {
     pub link_check_mode: LinkCheckMode,
     /// Asset paths that should be served at original paths (no cache-busting)
     pub stable_assets: Vec<String>,
+    /// Remote derived-asset store (`site.asset_store`), if configured.
+    pub asset_store: Option<dodeca_config::AssetStoreConfig>,
     /// Code execution configuration
     /// TODO: Pass this through to the picante query system instead of using default config
     #[allow(dead_code)]
@@ -482,6 +484,7 @@ fn resolve_config(root: &Utf8Path, config: DodecaConfig) -> Result<ResolvedConfi
         rate_limit_ms,
         link_check_mode,
         stable_assets,
+        asset_store: site.asset_store,
         code_execution: site.code_execution.unwrap_or_default(),
         light_theme_css,
         dark_theme_css,
@@ -1091,6 +1094,7 @@ source {
             rate_limit_ms: None,
             link_check_mode: LinkCheckMode::default(),
             stable_assets: vec![],
+            asset_store: None,
             code_execution: Default::default(),
             light_theme_css: String::new(),
             dark_theme_css: String::new(),

@@ -120,6 +120,12 @@ pub struct SiteConfig {
     #[facet(default)]
     pub stable_assets: Option<Vec<String>>,
 
+    /// Remote, content-addressed store for derived assets (image variants,
+    /// large media). When set, `ddc build` uploads new derivations there and
+    /// pages reference them from `public_base_url` instead of the output dir.
+    #[facet(default)]
+    pub asset_store: Option<AssetStoreConfig>,
+
     /// Code execution (per-language sub-configs), for the whole site — the site
     /// owns the policy of whether/how code samples run.
     #[facet(default)]
@@ -439,6 +445,30 @@ pub enum LinkCheckMode {
     Full,
 }
 
+/// `site.asset_store`: an S3-compatible bucket (R2, S3, MinIO, `rclone serve s3`)
+/// holding derived assets keyed by content hash. Credentials come from the
+/// environment: `DODECA_ASSET_STORE_ACCESS_KEY_ID` and
+/// `DODECA_ASSET_STORE_SECRET_ACCESS_KEY`. `ddc build` requires them; `ddc serve`
+/// ignores the store entirely and derives locally.
+#[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "snake_case")]
+pub struct AssetStoreConfig {
+    /// Public URL the bucket is served from (e.g. `https://assets.example.com`);
+    /// pages reference derived assets under it.
+    pub public_base_url: String,
+    /// S3 API endpoint (e.g. `https://<account>.r2.cloudflarestorage.com`).
+    pub endpoint: String,
+    /// Bucket name.
+    pub bucket: String,
+    /// Region for request signing. R2 uses `auto`. Defaults to `auto`.
+    #[facet(default)]
+    pub region: Option<String>,
+    /// Extensions of static files stored remotely as-is (not just image
+    /// variants). Defaults to common video/audio containers.
+    #[facet(default)]
+    pub passthrough_extensions: Option<Vec<String>>,
+}
+
 /// Link checking configuration
 #[derive(Debug, Clone, Default, Facet)]
 #[facet(rename_all = "snake_case")]
@@ -602,6 +632,7 @@ impl LegacyConfig {
             base_url,
             link_check,
             stable_assets,
+            asset_store: None,
             code_execution,
             syntax_highlight,
             auth,

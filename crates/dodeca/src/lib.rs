@@ -4,6 +4,7 @@
 styx_embed::embed_outdir_file!("schema.styx");
 
 pub mod annotations;
+pub mod asset_store;
 pub mod authoring_graph;
 pub mod authoring_model;
 pub mod authoring_templates;
